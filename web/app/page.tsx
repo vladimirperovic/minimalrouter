@@ -722,6 +722,7 @@ export default function Home() {
                         <td><code>10.0.0.32</code></td>
                         <td><span className="micro-status"><i /> Active</span></td>
                         <td>11h 04m</td>
+                      </tr>
                       {staticLeases.map((lease, idx) => (
                         <tr key={idx}>
                           <td><strong>{lease.hostname}</strong><span>{lease.mac}</span></td>
