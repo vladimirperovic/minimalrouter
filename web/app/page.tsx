@@ -323,6 +323,59 @@ export default function Home() {
   const [snapshotsModalOpen, setSnapshotsModalOpen] = useState(false);
   const [snapshotSuccessMsg, setSnapshotSuccessMsg] = useState("");
 
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [includeSecrets, setIncludeSecrets] = useState(true);
+  const [backupNotice, setBackupNotice] = useState("");
+
+  const handleExportBackup = () => {
+    const backupObj = {
+      app: "Minimal Router OS",
+      version: "0.1.0",
+      timestamp: new Date().toISOString(),
+      config: {
+        staticLeases,
+        portForwardRules,
+        wgPeers,
+        cfConfig,
+        dhcpRangeStart,
+        dhcpRangeEnd,
+        dhcpLeaseHours,
+        dhcpGateway,
+      },
+    };
+    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `minimalrouter-backup-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupNotice("✓ Sigurnosna kopija (backup) uspešno preuzeta!");
+    setTimeout(() => setBackupNotice(""), 4000);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.config) {
+          if (parsed.config.staticLeases) setStaticLeases(parsed.config.staticLeases);
+          if (parsed.config.portForwardRules) setPortForwardRules(parsed.config.portForwardRules);
+          if (parsed.config.wgPeers) setWgPeers(parsed.config.wgPeers);
+          if (parsed.config.cfConfig) setCfConfig(parsed.config.cfConfig);
+          setBackupNotice("✓ Konfiguracija uspešno uvezena iz backup fajla!");
+          setTimeout(() => setBackupNotice(""), 4000);
+        }
+      } catch (err) {
+        alert("Neispravan backup fajl!");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleMakeSnapshot = () => {
     const nextRev = snapshotsList.length > 0 ? snapshotsList[0].revision + 1 : 1;
     const newSnap = {
@@ -1272,7 +1325,13 @@ export default function Home() {
                   <h3>Encrypted backup ready</h3>
                   <p>Last exported 6 days ago · Secrets included</p>
                 </div>
-                <button className="button secondary" type="button">Backup & restore</button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setBackupModalOpen(true)}
+                >
+                  Backup & restore
+                </button>
               </article>
             </div>
           </section>
@@ -1767,6 +1826,60 @@ export default function Home() {
             <div className="modal-actions" style={{ marginTop: "20px" }}>
               <button className="button secondary" type="button" onClick={() => setSnapshotsModalOpen(false)}>Close</button>
               <button className="button primary" type="button" onClick={() => { setSnapshotsModalOpen(false); handleMakeSnapshot(); }}>+ Create New Snapshot</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {backupModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setBackupModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "560px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setBackupModalOpen(false)}>×</button>
+            <p className="eyebrow">Backup & Recovery</p>
+            <h2>Backup & Restore Configuration</h2>
+            <p className="modal-copy">
+              Export encrypted JSON backup bundles or restore system configuration from a file.
+            </p>
+
+            {backupNotice && (
+              <div style={{ padding: "12px 16px", borderRadius: "10px", background: "#34C75915", color: "#34C759", fontWeight: 600, fontSize: "14px", marginTop: "12px" }}>
+                {backupNotice}
+              </div>
+            )}
+
+            <div style={{ marginTop: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ padding: "20px", borderRadius: "16px", background: "var(--surface-muted)", border: "1px solid var(--separator)" }}>
+                <h3 style={{ fontSize: "16px", fontWeight: 650, marginBottom: "6px" }}>Export Backup File</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                  Download an encrypted backup bundle containing all static leases, firewall port forwards, WireGuard peers, and Cloudflare DDNS settings.
+                </p>
+                <button className="button primary" type="button" onClick={handleExportBackup}>
+                  ⬇ Download Backup (.json)
+                </button>
+              </div>
+
+              <div style={{ padding: "20px", borderRadius: "16px", background: "var(--surface-muted)", border: "1px solid var(--separator)" }}>
+                <h3 style={{ fontSize: "16px", fontWeight: 650, marginBottom: "6px" }}>Restore From Backup File</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                  Upload a previously exported Minimal Router OS `.json` backup file to restore full system configuration.
+                </p>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportBackup}
+                  style={{ fontSize: "14px" }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: "24px" }}>
+              <button className="button secondary" type="button" onClick={() => setBackupModalOpen(false)}>Close</button>
             </div>
           </section>
         </div>
