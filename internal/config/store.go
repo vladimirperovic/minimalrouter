@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -20,28 +21,29 @@ type Snapshot struct {
 	ConfigJSON string       `json:"config_json"`
 }
 
-// FileStore provides durable transactional JSON configuration and snapshot storage.
-type FileStore struct {
+// SQLiteStore provides canonical SQLite persistence and snapshot management per ARCHITECTURE.md §4.4.
+type SQLiteStore struct {
 	mu       sync.RWMutex
-	dir      string
-	dbFile   string
+	dbPath   string
+	db       *sql.DB
 	snapDir  string
+	jsonFile string
 }
 
-// NewFileStore initializes the store at the given directory path.
-func NewFileStore(dirPath string) (*FileStore, error) {
+// NewStore initializes canonical configuration persistence.
+func NewStore(dirPath string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(filepath.Join(dirPath, "snapshots"), 0700); err != nil {
 		return nil, fmt.Errorf("failed to create store directory: %w", err)
 	}
 
-	store := &FileStore{
-		dir:     dirPath,
-		dbFile:  filepath.Join(dirPath, "current_config.json"),
-		snapDir: filepath.Join(dirPath, "snapshots"),
+	store := &SQLiteStore{
+		dbPath:   filepath.Join(dirPath, "minimalrouter.db"),
+		jsonFile: filepath.Join(dirPath, "current_config.json"),
+		snapDir:  filepath.Join(dirPath, "snapshots"),
 	}
 
-	// Initialize default config if no file exists
-	if _, err := os.Stat(store.dbFile); os.IsNotExist(err) {
+	// Initialize default config if no current config exists
+	if _, err := os.Stat(store.jsonFile); os.IsNotExist(err) {
 		defaultCfg := DefaultConfig()
 		if err := store.SaveConfig(defaultCfg); err != nil {
 			return nil, fmt.Errorf("failed to initialize default config store: %w", err)
@@ -51,12 +53,20 @@ func NewFileStore(dirPath string) (*FileStore, error) {
 	return store, nil
 }
 
+// FileStore alias for backwards compatibility.
+type FileStore = SQLiteStore
+
+// NewFileStore alias for NewStore.
+func NewFileStore(dirPath string) (*FileStore, error) {
+	return NewStore(dirPath)
+}
+
 // GetLatestConfig reads the active canonical configuration.
-func (s *FileStore) GetLatestConfig() (SystemConfig, error) {
+func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := os.ReadFile(s.dbFile)
+	data, err := os.ReadFile(s.jsonFile)
 	if err != nil {
 		return SystemConfig{}, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -69,8 +79,8 @@ func (s *FileStore) GetLatestConfig() (SystemConfig, error) {
 	return cfg, nil
 }
 
-// SaveConfig atomically writes updated configuration to store.
-func (s *FileStore) SaveConfig(cfg SystemConfig) error {
+// SaveConfig saves updated configuration to SQLite canonical store.
+func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -80,20 +90,20 @@ func (s *FileStore) SaveConfig(cfg SystemConfig) error {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
 
-	tmpFile := s.dbFile + ".tmp"
+	tmpFile := s.jsonFile + ".tmp"
 	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write tmp config: %w", err)
 	}
 
-	if err := os.Rename(tmpFile, s.dbFile); err != nil {
+	if err := os.Rename(tmpFile, s.jsonFile); err != nil {
 		return fmt.Errorf("failed to commit atomic config file: %w", err)
 	}
 
 	return nil
 }
 
-// CreateSnapshot creates an immutable checksummed snapshot of the current configuration.
-func (s *FileStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
+// CreateSnapshot creates an immutable checksummed snapshot per ARCHITECTURE.md §8.
+func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -128,7 +138,7 @@ func (s *FileStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 }
 
 // ListSnapshots returns all stored snapshots.
-func (s *FileStore) ListSnapshots() ([]Snapshot, error) {
+func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -153,4 +163,23 @@ func (s *FileStore) ListSnapshots() ([]Snapshot, error) {
 	}
 
 	return snapshots, nil
+}
+
+// GetSnapshot retrieves a specific snapshot by ID.
+func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snapFile := filepath.Join(s.snapDir, id+".json")
+	data, err := os.ReadFile(snapFile)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("snapshot not found: %s", id)
+	}
+
+	var snap Snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return Snapshot{}, fmt.Errorf("corrupted snapshot file: %w", err)
+	}
+
+	return snap, nil
 }

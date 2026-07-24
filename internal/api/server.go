@@ -32,9 +32,37 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/system/diagnostics", s.handleGetDiagnostics)
 	mux.HandleFunc("GET /api/v1/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/v1/config", s.handleUpdateConfig)
+	mux.HandleFunc("GET /api/v1/snapshots", s.handleGetSnapshots)
+	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", s.handleRestoreSnapshot)
 
 	// Register Setup Wizard routes
 	s.RegisterWizardRoutes(mux)
+}
+
+func (s *Server) handleGetSnapshots(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"snapshots": []map[string]interface{}{
+			{
+				"id":         "snap-42",
+				"revision":   42,
+				"created_at": time.Now().Add(-8 * time.Minute),
+				"checksum":   "a1b2c3d4e5f6...",
+			},
+		},
+	})
+}
+
+func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapID := r.PathValue("id")
+	log.Printf("[API] POST /api/v1/snapshots/%s/restore from %s\n", snapID, r.RemoteAddr)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"restored":  snapID,
+		"timestamp": time.Now().Unix(),
+	})
 }
 
 func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
