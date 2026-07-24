@@ -275,6 +275,25 @@ export default function Home() {
       });
   }, []);
 
+  const [staticLeases, setStaticLeases] = useState([
+    { hostname: "Synology NAS", mac: "00:11:22:33:44:55", ip: "10.0.0.5" },
+    { hostname: "Home Assistant", mac: "00:e0:4c:68:01:91", ip: "10.0.0.10" },
+  ]);
+  const [leaseModalOpen, setLeaseModalOpen] = useState(false);
+  const [newLeaseHost, setNewLeaseHost] = useState("");
+  const [newLeaseMAC, setNewLeaseMAC] = useState("");
+  const [newLeaseIP, setNewLeaseIP] = useState("");
+
+  const [portForwardRules, setPortForwardRules] = useState([
+    { name: "Home Assistant", proto: "TCP", extPort: 8123, intIP: "10.0.0.10", intPort: 8123, enabled: true },
+  ]);
+  const [pfModalOpen, setPfModalOpen] = useState(false);
+  const [newPfName, setNewPfName] = useState("");
+  const [newPfProto, setNewPfProto] = useState("tcp");
+  const [newPfExtPort, setNewPfExtPort] = useState("");
+  const [newPfIntIP, setNewPfIntIP] = useState("");
+  const [newPfIntPort, setNewPfIntPort] = useState("");
+
   // Sync stateful firewall toggle with Go REST API
   const handleToggleStateful = (val: boolean) => {
     setStatefulRules(val);
@@ -290,6 +309,79 @@ export default function Home() {
           });
         })
         .catch((err) => console.error("API update error:", err));
+    }
+  };
+
+  const handleAddStaticLease = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLeaseHost || !newLeaseMAC || !newLeaseIP) return;
+    const item = { hostname: newLeaseHost, mac: newLeaseMAC, ip: newLeaseIP };
+    const updated = [...staticLeases, item];
+    setStaticLeases(updated);
+    setNewLeaseHost("");
+    setNewLeaseMAC("");
+    setNewLeaseIP("");
+    setLeaseModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.dhcp.static_leases = updated.map((l, i) => ({
+            id: `lease-${i + 1}`,
+            hostname: l.hostname,
+            mac: l.mac,
+            ip_address: l.ip,
+          }));
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleAddPortForward = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPfName || !newPfExtPort || !newPfIntIP || !newPfIntPort) return;
+    const item = {
+      name: newPfName,
+      proto: newPfProto.toUpperCase(),
+      extPort: parseInt(newPfExtPort, 10),
+      intIP: newPfIntIP,
+      intPort: parseInt(newPfIntPort, 10),
+      enabled: true,
+    };
+    const updated = [...portForwardRules, item];
+    setPortForwardRules(updated);
+    setNewPfName("");
+    setNewPfExtPort("");
+    setNewPfIntIP("");
+    setNewPfIntPort("");
+    setPfModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.firewall.port_forwards = updated.map((r, i) => ({
+            id: `pf-${i + 1}`,
+            name: r.name,
+            protocol: r.proto.toLowerCase(),
+            external_port: r.extPort,
+            internal_ip: r.intIP,
+            internal_port: r.intPort,
+            enabled: r.enabled,
+          }));
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
     }
   };
 
@@ -630,35 +722,36 @@ export default function Home() {
                         <td><code>10.0.0.32</code></td>
                         <td><span className="micro-status"><i /> Active</span></td>
                         <td>11h 04m</td>
-                      </tr>
-                      <tr>
-                        <td><strong>iPhone</strong><span>72:11:ed:bc:0c:95</span></td>
-                        <td><code>10.0.0.44</code></td>
-                        <td><span className="micro-status"><i /> Active</span></td>
-                        <td>22h 18m</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Home Assistant</strong><span>00:e0:4c:68:01:91</span></td>
-                        <td><code>10.0.0.10</code></td>
-                        <td><span className="micro-status static"><i /> Static</span></td>
-                        <td>Reserved</td>
-                      </tr>
+                      {staticLeases.map((lease, idx) => (
+                        <tr key={idx}>
+                          <td><strong>{lease.hostname}</strong><span>{lease.mac}</span></td>
+                          <td><code>{lease.ip}</code></td>
+                          <td><span className="micro-status static"><i /> Static</span></td>
+                          <td>Reserved</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
               </article>
 
               <aside className="card lan-summary">
-                <div className="summary-icon">14</div>
+                <div className="summary-icon">{staticLeases.length + 12}</div>
                 <h3>Connected devices</h3>
                 <p>Everything looks normal. No new devices joined in the last 24 hours.</p>
                 <div className="summary-list">
                   <div><span>DHCP range</span><code>10.0.0.20–200</code></div>
                   <div><span>Lease time</span><strong>24 hours</strong></div>
-                  <div><span>Static addresses</span><strong>2 reserved</strong></div>
+                  <div><span>Static addresses</span><strong>{staticLeases.length} reserved</strong></div>
                   <div><span>Gateway</span><code>10.0.0.1</code></div>
                 </div>
-                <button className="button primary full" type="button">Add static lease</button>
+                <button
+                  className="button primary full"
+                  type="button"
+                  onClick={() => setLeaseModalOpen(true)}
+                >
+                  Add static lease
+                </button>
               </aside>
             </div>
           </section>
@@ -715,22 +808,34 @@ export default function Home() {
                 <div className="card-title-row">
                   <div>
                     <h3>Port forwarding</h3>
-                    <p>1 service is reachable from the internet.</p>
+                    <p>{portForwardRules.length} service{portForwardRules.length === 1 ? "" : "s"} reachable from the internet.</p>
                   </div>
-                  <button className="quiet-button" type="button">Add rule</button>
+                  <button
+                    className="quiet-button"
+                    type="button"
+                    onClick={() => setPfModalOpen(true)}
+                  >
+                    Add rule
+                  </button>
                 </div>
-                <div className="forward-rule">
-                  <div className="port-badge">443</div>
-                  <div>
-                    <strong>Home Assistant</strong>
-                    <span>TCP · 10.0.0.10:8123</span>
+                {portForwardRules.map((rule, idx) => (
+                  <div className="forward-rule" key={idx}>
+                    <div className="port-badge">{rule.extPort}</div>
+                    <div>
+                      <strong>{rule.name}</strong>
+                      <span>{rule.proto} · {rule.intIP}:{rule.intPort}</span>
+                    </div>
+                    <Toggle
+                      checked={rule.enabled}
+                      onChange={() => {
+                        const copy = [...portForwardRules];
+                        copy[idx].enabled = !copy[idx].enabled;
+                        setPortForwardRules(copy);
+                      }}
+                      label={`${rule.name} port forward`}
+                    />
                   </div>
-                  <Toggle
-                    checked={portForward}
-                    onChange={() => setPortForward((value) => !value)}
-                    label="Home Assistant port forward"
-                  />
-                </div>
+                ))}
                 <div className="firewall-stat">
                   <div><strong>2,841</strong><span>Blocked today</span></div>
                   <div><strong>0</strong><span>Rules need attention</span></div>
@@ -938,6 +1043,141 @@ export default function Home() {
                 Download configuration
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {leaseModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setLeaseModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setLeaseModalOpen(false)}>×</button>
+            <p className="eyebrow">DHCP Static Lease</p>
+            <h2>Add static lease</h2>
+            <form onSubmit={handleAddStaticLease} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Device Hostname</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Synology NAS"
+                  value={newLeaseHost}
+                  onChange={(e) => setNewLeaseHost(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>MAC Address</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 00:11:22:33:44:55"
+                  value={newLeaseMAC}
+                  onChange={(e) => setNewLeaseMAC(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Static IP Address</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 10.0.0.50"
+                  value={newLeaseIP}
+                  onChange={(e) => setNewLeaseIP(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setLeaseModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save static lease</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {pfModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setPfModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setPfModalOpen(false)}>×</button>
+            <p className="eyebrow">Firewall Port Forward</p>
+            <h2>Add port forward rule</h2>
+            <form onSubmit={handleAddPortForward} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Rule Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Home Assistant"
+                  value={newPfName}
+                  onChange={(e) => setNewPfName(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Protocol</label>
+                  <select
+                    value={newPfProto}
+                    onChange={(e) => setNewPfProto(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  >
+                    <option value="tcp">TCP</option>
+                    <option value="udp">UDP</option>
+                    <option value="both">TCP & UDP</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>WAN Port</label>
+                  <input
+                    type="number"
+                    placeholder="8123"
+                    value={newPfExtPort}
+                    onChange={(e) => setNewPfExtPort(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Internal IP</label>
+                  <input
+                    type="text"
+                    placeholder="10.0.0.10"
+                    value={newPfIntIP}
+                    onChange={(e) => setNewPfIntIP(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>LAN Port</label>
+                  <input
+                    type="number"
+                    placeholder="8123"
+                    value={newPfIntPort}
+                    onChange={(e) => setNewPfIntPort(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setPfModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save rule</button>
+              </div>
+            </form>
           </section>
         </div>
       )}
