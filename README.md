@@ -12,9 +12,9 @@ intended to replace pfSense or become a general-purpose networking platform.
 Version 1 core control plane engine is fully implemented:
 
 - **Unprivileged & Privileged Go Binaries** (`routerd` unprivileged management plane + `router-applyd` privileged Unix socket helper).
-- **Service Configuration Generates**: Deterministic ruleset generators for `nftables`, `pppd` (PPPoE), `dnsmasq` (DHCP/DNS), `wireguard` (with mobile QR code generator), and `cloudflared` (DDNS & Tunnel).
+- **Service Configuration Generators**: Deterministic ruleset generators for `nftables`, `pppd` (PPPoE), `dnsmasq` (DHCP/DNS), `wireguard` (with mobile QR code generator), and `cloudflared` (DDNS & Tunnel).
 - **pfSense XML Importer**: Tool for importing existing pfSense `config.xml` files.
-- **First-Run Installation Wizard**: Guided 5-step setup wizard per `DESIGN.md §14`.
+- **First-Run Installation Wizard**: Guided 5-step Apple × Swiss setup wizard per `DESIGN.md §14`.
 - **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, CSRF protection, rate limiting, and secret redaction.
 - **Alpine Linux Packaging**: OpenRC init scripts and automated appliance ISO generator script (`make iso`).
 
@@ -22,7 +22,7 @@ Version 1 core control plane engine is fully implemented:
 
 - **OS**: Alpine Linux 3.22
 - **Backend**: Go 1.24 REST API (`/api/v1`)
-- **Frontend**: Svelte + TypeScript static single-page application
+- **Frontend**: React + TypeScript (Next.js static single-page application)
 - **Integrations**: nftables, pppd, dnsmasq, WireGuard, cloudflared
 - **Store**: SQLite canonical state store with pre-apply sha256 checksummed snapshots
 
@@ -38,8 +38,8 @@ go run ./cmd/routerd
 
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Open `http://localhost:3000` in browser.
@@ -70,4 +70,4 @@ Linux service configuration is never edited directly by API handlers or UI actio
 
 ## License
 
-All rights reserved.
+[MIT License](LICENSE)

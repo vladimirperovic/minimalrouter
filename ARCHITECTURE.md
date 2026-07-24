@@ -22,7 +22,7 @@ Architecture Decision Record (ADR).
 ```mermaid
 flowchart LR
     Admin["Administrator browser or API client"]
-    UI["Static Svelte web UI"]
+    UI["Static React web UI"]
     API["routerd: Go REST API and coordinator"]
     DB[("SQLite configuration and state")]
     Apply["router-applyd: restricted privileged helper"]
@@ -46,7 +46,7 @@ Packet forwarding never passes through the Go backend or web application.
 
 ### 4.1 Web UI
 
-- Svelte + TypeScript, built as static assets.
+- React + TypeScript, built as static assets.
 - Served by the Go API process or a minimal local web server.
 - Contains no privileged logic and no independent configuration rules.
 - Uses only the versioned REST API.

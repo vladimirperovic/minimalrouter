@@ -36,14 +36,18 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create store directory: %w", err)
 	}
 
+	dbPath := filepath.Join(dirPath, "minimalrouter.db")
+	jsonFile := filepath.Join(dirPath, "current_config.json")
+	snapDir := filepath.Join(dirPath, "snapshots")
+
 	store := &SQLiteStore{
-		dbPath:   filepath.Join(dirPath, "minimalrouter.db"),
-		jsonFile: filepath.Join(dirPath, "current_config.json"),
-		snapDir:  filepath.Join(dirPath, "snapshots"),
+		dbPath:   dbPath,
+		jsonFile: jsonFile,
+		snapDir:  snapDir,
 	}
 
 	// Initialize default config if no current config exists
-	if _, err := os.Stat(store.jsonFile); os.IsNotExist(err) {
+	if _, err := os.Stat(jsonFile); os.IsNotExist(err) {
 		defaultCfg := DefaultConfig()
 		if err := store.SaveConfig(defaultCfg); err != nil {
 			return nil, fmt.Errorf("failed to initialize default config store: %w", err)
@@ -79,7 +83,7 @@ func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 	return cfg, nil
 }
 
-// SaveConfig saves updated configuration to SQLite canonical store.
+// SaveConfig saves updated configuration to canonical store.
 func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
