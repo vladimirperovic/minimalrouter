@@ -33,6 +33,21 @@ image exists yet.
 - [Contributing guide](CONTRIBUTING.md)
 - [Architecture decisions](docs/adr/README.md)
 
+## Dashboard preview
+
+The Apple × Swiss one-page interface prototype lives in `web/`. It includes
+internet traffic and PPPoE status, system health, DHCP and static leases,
+firewall controls, WireGuard peer and QR flows, Cloudflare DDNS/Tunnel status,
+snapshots, backup, and updates.
+
+Run it locally with:
+
+```sh
+cd web
+pnpm install
+pnpm dev
+```
+
 ## Non-negotiable configuration rule
 
 Linux service configuration is never edited directly by API handlers or UI

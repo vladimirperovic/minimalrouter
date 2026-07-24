@@ -3,6 +3,7 @@
 /dist/
 /web/dist/
 /coverage/
+/.pnpm-store/
 
 # Local development
 .env
