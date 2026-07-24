@@ -316,6 +316,43 @@ export default function Home() {
   const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
   const [editCfToken, setEditCfToken] = useState("");
 
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
+    type: "wg" | "lease" | "pf";
+    idOrIndex: string | number;
+    name: string;
+  } | null>(null);
+
+  const handleConfirmDelete = () => {
+    if (!deleteConfirmTarget) return;
+    const { type, idOrIndex } = deleteConfirmTarget;
+
+    if (type === "wg") {
+      const updated = wgPeers.filter((p) => p.id !== idOrIndex);
+      setWgPeers(updated);
+    } else if (type === "lease") {
+      const updated = staticLeases.filter((_, idx) => idx !== idOrIndex);
+      setStaticLeases(updated);
+    } else if (type === "pf") {
+      const updated = portForwardRules.filter((_, idx) => idx !== idOrIndex);
+      setPortForwardRules(updated);
+    }
+
+    setDeleteConfirmTarget(null);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
   const handleAddWgPeer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newWgPeerName || !newWgPeerIP) return;
@@ -805,7 +842,29 @@ export default function Home() {
                           <td><strong>{lease.hostname}</strong><span>{lease.mac}</span></td>
                           <td><code>{lease.ip}</code></td>
                           <td><span className="micro-status static"><i /> Static</span></td>
-                          <td>Reserved</td>
+                          <td style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <span>Reserved</span>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmTarget({ type: "lease", idOrIndex: idx, name: lease.hostname })}
+                              style={{
+                                border: "none",
+                                background: "#FF3B3015",
+                                color: "#FF3B30",
+                                width: "24px",
+                                height: "24px",
+                                borderRadius: "50%",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                                fontSize: "12px",
+                                display: "grid",
+                                placeItems: "center",
+                              }}
+                              title="Izbriši statički lease"
+                            >
+                              ✕
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -946,10 +1005,34 @@ export default function Home() {
                 </div>
                 <div className="peer-list">
                   {wgPeers.map((peer) => (
-                    <div className="peer-row" key={peer.id}>
-                      <div className="peer-avatar">{peer.name.substring(0, 2).toUpperCase()}</div>
-                      <div><strong>{peer.name}</strong><span>{peer.ip} · latest handshake {peer.active}</span></div>
-                      <div className="peer-traffic"><strong>{peer.traffic}</strong><span>↓ 3.9 · ↑ 0.9</span></div>
+                    <div className="peer-row" key={peer.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        <div className="peer-avatar">{peer.name.substring(0, 2).toUpperCase()}</div>
+                        <div><strong>{peer.name}</strong><span>{peer.ip} · latest handshake {peer.active}</span></div>
+                      </div>
+                      <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                        <div className="peer-traffic"><strong>{peer.traffic}</strong><span>↓ 3.9 · ↑ 0.9</span></div>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmTarget({ type: "wg", idOrIndex: peer.id, name: peer.name })}
+                          style={{
+                            border: "none",
+                            background: "#FF3B3015",
+                            color: "#FF3B30",
+                            width: "28px",
+                            height: "28px",
+                            borderRadius: "50%",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                            fontSize: "14px",
+                            display: "grid",
+                            placeItems: "center",
+                          }}
+                          title="Izbriši uređaj / peer"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1361,6 +1444,37 @@ export default function Home() {
                 <button className="button primary" type="submit">Save Cloudflare Settings</button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+      {deleteConfirmTarget && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteConfirmTarget(null)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "440px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setDeleteConfirmTarget(null)}>×</button>
+            <p className="eyebrow" style={{ color: "#FF3B30" }}>Potvrda brisanja</p>
+            <h2>Da li ste sigurni?</h2>
+            <p className="modal-copy" style={{ margin: "12px 0 24px", color: "var(--text-secondary)" }}>
+              Da li ste sigurni da želite obrisati <strong>"{deleteConfirmTarget.name}"</strong>? Ova akcija će odmah ukloniti podešavanja iz rutera.
+            </p>
+            <div className="modal-actions">
+              <button className="button secondary" type="button" onClick={() => setDeleteConfirmTarget(null)}>
+                Otkaži
+              </button>
+              <button
+                className="button primary"
+                type="button"
+                onClick={handleConfirmDelete}
+                style={{ background: "#FF3B30", borderColor: "#FF3B30" }}
+              >
+                Da, izbriši uređaj
+              </button>
+            </div>
           </section>
         </div>
       )}
