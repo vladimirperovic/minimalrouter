@@ -10,7 +10,7 @@ Minimal Router OS separates the control plane (Go management services) from the 
 ```mermaid
 flowchart LR
     Browser["Admin Browser / Client"]
-    UI["Static Web UI (React/Svelte)"]
+    UI["Static Web UI (Svelte)"]
     API["routerd (unprivileged Go)"]
     DB[("SQLite Canonical Store")]
     Apply["router-applyd (privileged Go)"]
@@ -107,4 +107,4 @@ Initialize `go.mod` (Go 1.24):
 
 - **Unit tests**: `make test` for config generators, validation rules, state machine transitions.
 - **Rollback Safety**: Commit-confirmed timeout for LAN address changes.
-- **Preview Preservation**: Existing React preview (`web/app/page.tsx`) preserved without modification.
+- **Preview Preservation**: Existing preview (`web/app/page.tsx`) preserved without modification.
