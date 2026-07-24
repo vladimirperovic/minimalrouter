@@ -228,6 +228,16 @@ export default function Home() {
   const [portForward, setPortForward] = useState(true);
   const [activeSection, setActiveSection] = useState("overview");
   const [fontScale, setFontScale] = useState(100);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [systemInfo, setSystemInfo] = useState<{
+    status?: string;
+    version?: string;
+    uptime?: string;
+    public_ip?: string;
+    last_backup?: string;
+    last_snap?: string;
+    update?: string;
+  }>({});
 
   const applyScale = (scale: number) => {
     setFontScale(scale);
@@ -247,6 +257,40 @@ export default function Home() {
 
   const resetFontScale = () => {
     applyScale(100);
+  };
+
+  // Fetch live status from Go REST API (/api/v1/system)
+  useEffect(() => {
+    fetch("/api/v1/system")
+      .then((res) => {
+        if (!res.ok) throw new Error("API Offline");
+        return res.json();
+      })
+      .then((data) => {
+        setSystemInfo(data);
+        setApiConnected(true);
+      })
+      .catch(() => {
+        setApiConnected(false);
+      });
+  }, []);
+
+  // Sync stateful firewall toggle with Go REST API
+  const handleToggleStateful = (val: boolean) => {
+    setStatefulRules(val);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.firewall.stateful_firewall = val;
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch((err) => console.error("API update error:", err));
+    }
   };
 
   useEffect(() => {
@@ -413,11 +457,11 @@ export default function Home() {
           <section className="page-intro" id="overview">
             <div className="intro-strip">
               <span className="eyebrow">Friday, 24 July</span>
-              <span className="intro-meta">Uptime <strong>18d 04h</strong></span>
-              <span className="intro-meta">Public IP <strong>185.33.42.117</strong></span>
-              <span className="intro-meta">Last backup <strong>6 days ago</strong></span>
-              <span className="intro-meta">Last snapshot <strong>8 min ago</strong></span>
-              <span className="intro-meta"><strong className="up-to-date">✓ Up to date</strong></span>
+              <span className="intro-meta">Uptime <strong>{systemInfo.uptime || "18d 04h"}</strong></span>
+              <span className="intro-meta">Public IP <strong>{systemInfo.public_ip || "185.33.42.117"}</strong></span>
+              <span className="intro-meta">Last backup <strong>{systemInfo.last_backup || "6 days ago"}</strong></span>
+              <span className="intro-meta">Last snapshot <strong>{systemInfo.last_snap || "8 min ago"}</strong></span>
+              <span className="intro-meta"><strong className="up-to-date">✓ {systemInfo.update || "Up to date"}</strong></span>
             </div>
           </section>
 

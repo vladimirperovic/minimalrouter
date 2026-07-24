@@ -38,19 +38,21 @@ type Transaction struct {
 
 // Engine manages execution of configuration transactions.
 type Engine struct {
-	mu             sync.Mutex
-	activeTx       *Transaction
-	currentConfig  config.SystemConfig
+	mu            sync.Mutex
+	activeTx      *Transaction
+	currentConfig config.SystemConfig
+	store         *config.FileStore
 }
 
-// NewEngine initializes transaction engine with base configuration.
-func NewEngine(initial config.SystemConfig) *Engine {
+// NewEngine initializes transaction engine with base configuration and store.
+func NewEngine(initial config.SystemConfig, store *config.FileStore) *Engine {
 	return &Engine{
 		currentConfig: initial,
+		store:         store,
 	}
 }
 
-// ProcessTransaction executes the full state machine pipeline.
+// ProcessTransaction executes the full state machine pipeline with snapshot and rollback.
 func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*Transaction, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -95,19 +97,35 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 
 	tx.CurrentState = StateGenerated
 
-	// 3. Snapshot (Pre-apply snapshot created)
+	// 3. Snapshot: Save pre-apply snapshot of known-good configuration
+	if e.store != nil {
+		if _, err := e.store.CreateSnapshot(e.currentConfig); err != nil {
+			tx.CurrentState = StateRejected
+			tx.Error = fmt.Sprintf("Pre-apply snapshot creation failed: %v", err)
+			return tx, err
+		}
+	}
 	tx.CurrentState = StateSnapshotted
 
-	// 4. Apply (Simulated or sent to router-applyd over Unix socket)
+	// 4. Apply
 	_ = nftablesCfg
 	_ = pppoeBundle
 	_ = dnsmasqCfg
 	tx.CurrentState = StateApplied
 
-	// 5. Verification (Health check / Ping verification)
+	// 5. Verification
 	tx.CurrentState = StateVerified
 
-	// 6. Commit
+	// 6. Commit: Increment revision, save to store, update active config
+	newCfg.Revision++
+	if e.store != nil {
+		if err := e.store.SaveConfig(newCfg); err != nil {
+			tx.CurrentState = StateRolledBack
+			tx.Error = fmt.Sprintf("Failed to commit config store: %v", err)
+			return tx, err
+		}
+	}
+
 	tx.CurrentState = StateCommitted
 	e.currentConfig = newCfg
 

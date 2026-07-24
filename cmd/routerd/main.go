@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/vladimirperovic/minimalrouter/internal/api"
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
@@ -13,9 +15,26 @@ import (
 func main() {
 	log.Println("Starting Minimal Router OS routerd (unprivileged management plane)...")
 
-	// Initialize default canonical config & apply engine
-	initialCfg := config.DefaultConfig()
-	engine := apply.NewEngine(initialCfg)
+	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+
+	absDir, _ := filepath.Abs(dataDir)
+	log.Printf("Initializing configuration store at %s\n", absDir)
+
+	store, err := config.NewFileStore(absDir)
+	if err != nil {
+		log.Fatalf("Failed to initialize store: %v", err)
+	}
+
+	initialCfg, err := store.GetLatestConfig()
+	if err != nil {
+		log.Printf("Warning: Could not read store, fallback to default: %v", err)
+		initialCfg = config.DefaultConfig()
+	}
+
+	engine := apply.NewEngine(initialCfg, store)
 
 	// Setup API server and HTTP routes
 	server := api.NewServer(engine)
