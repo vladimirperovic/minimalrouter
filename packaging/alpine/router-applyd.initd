@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+# OpenRC service script for Minimal Router OS router-applyd (privileged helper)
+
+name="router-applyd"
+description="Minimal Router OS privileged execution helper"
+daemon="/usr/sbin/router-applyd"
+pidfile="/run/router-applyd.pid"
+output_log="/var/log/router-applyd.log"
+error_log="/var/log/router-applyd.err"
+
+depend() {
+    before routerd
+    use logger
+}
+
+start_pre() {
+    checkpath --directory --owner root:root --mode 0755 /run/minimalrouter
+}
+
+command="/usr/sbin/router-applyd"
+command_background="yes"
