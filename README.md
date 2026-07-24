@@ -24,6 +24,7 @@ image exists yet.
 ## Documentation
 
 - [Product vision and scope](PROJECT.md)
+- [Product design system](DESIGN.md)
 - [System architecture](ARCHITECTURE.md)
 - [Security model and policy](SECURITY.md)
 - [Delivery roadmap](ROADMAP.md)
