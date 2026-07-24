@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
-
-	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
 // WireGuardConfig represents the internal domain model for WireGuard VPN settings.
