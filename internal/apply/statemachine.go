@@ -138,3 +138,8 @@ func (e *Engine) GetCurrentConfig() config.SystemConfig {
 	defer e.mu.Unlock()
 	return e.currentConfig
 }
+
+// GetStore returns a reference to the underlying config store for direct snapshot operations.
+func (e *Engine) GetStore() *config.FileStore {
+	return e.store
+}

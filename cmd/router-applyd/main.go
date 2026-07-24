@@ -14,7 +14,14 @@ import (
 func main() {
 	log.Println("Starting Minimal Router OS router-applyd (privileged execution helper)...")
 
-	socketPath := "/tmp/router-applyd.sock"
+	socketPath := apply.DefaultSocketPath // "/run/minimalrouter/applyd.sock"
+
+	// Ensure socket directory exists with restrictive permissions (SECURITY.md §10)
+	socketDir := "/run/minimalrouter"
+	if err := os.MkdirAll(socketDir, 0700); err != nil {
+		log.Fatalf("Failed to create socket directory %s: %v", socketDir, err)
+	}
+
 	// Remove pre-existing socket file if present
 	_ = os.Remove(socketPath)
 
@@ -23,6 +30,11 @@ func main() {
 		log.Fatalf("Failed to bind Unix domain socket at %s: %v", socketPath, err)
 	}
 	defer listener.Close()
+
+	// Restrict socket file permissions to owner only (SECURITY.md §10)
+	if err := os.Chmod(socketPath, 0600); err != nil {
+		log.Printf("Warning: could not set socket permissions: %v", err)
+	}
 
 	log.Printf("router-applyd listening on unix://%s\n", socketPath)
 

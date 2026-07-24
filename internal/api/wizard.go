@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
@@ -19,15 +20,12 @@ type WizardSetupRequest struct {
 	LANIPAddress  string `json:"lan_ip_address"` // e.g. "192.168.1.1"
 }
 
-// RegisterWizardRoutes attaches setup wizard endpoints.
-func (s *Server) RegisterWizardRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/setup/status", s.handleSetupStatus)
-	mux.HandleFunc("POST /api/v1/setup/apply", s.handleSetupApply)
-}
-
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := s.engine.GetCurrentConfig()
-	isConfigured := cfg.WAN.Username != ""
+
+	s.mu.RLock()
+	isConfigured := s.adminHash != ""
+	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -39,6 +37,21 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
+	// SECURITY: Guard against re-running wizard after initial setup per SECURITY.md §8
+	s.mu.RLock()
+	alreadyConfigured := s.adminHash != ""
+	s.mu.RUnlock()
+
+	if alreadyConfigured {
+		log.Printf("[AUTH] Blocked wizard re-run attempt from %s\n", r.RemoteAddr)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "System is already configured. Use the dashboard to change settings.",
+		})
+		return
+	}
+
 	var req WizardSetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
@@ -51,7 +64,8 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := auth.HashPassword(req.AdminPassword)
+	// Hash admin password with Argon2id and STORE it
+	hashedPassword, err := auth.HashPassword(req.AdminPassword)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to hash password: %v", err), http.StatusInternalServerError)
 		return
@@ -84,9 +98,21 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SECURITY: Persist the hashed admin password
+	s.mu.Lock()
+	s.adminHash = hashedPassword
+	s.mu.Unlock()
+
+	log.Printf("[AUTH] Wizard completed: admin password set, system configured from %s\n", r.RemoteAddr)
+
+	// Create an initial session for the admin so they don't need to re-login
+	session := s.sessionMgr.CreateSession()
+	s.sessionMgr.SetSessionCookie(w, session)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":      true,
+		"csrf_token":   session.CSRFToken,
 		"redirect_url": fmt.Sprintf("https://%s", cfg.LAN.IPAddress),
 		"tx":           tx,
 	})

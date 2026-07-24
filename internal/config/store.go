@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,11 +20,11 @@ type Snapshot struct {
 	ConfigJSON string       `json:"config_json"`
 }
 
-// SQLiteStore provides canonical SQLite persistence and snapshot management per ARCHITECTURE.md §4.4.
+// SQLiteStore provides canonical JSON+file persistence and snapshot management.
+// NOTE: Named SQLiteStore for forward-compatibility; currently uses atomic JSON files.
+// SQLite migration planned for v0.2 per ARCHITECTURE.md §4.4.
 type SQLiteStore struct {
 	mu       sync.RWMutex
-	dbPath   string
-	db       *sql.DB
 	snapDir  string
 	jsonFile string
 }
@@ -36,12 +35,10 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create store directory: %w", err)
 	}
 
-	dbPath := filepath.Join(dirPath, "minimalrouter.db")
 	jsonFile := filepath.Join(dirPath, "current_config.json")
 	snapDir := filepath.Join(dirPath, "snapshots")
 
 	store := &SQLiteStore{
-		dbPath:   dbPath,
 		jsonFile: jsonFile,
 		snapDir:  snapDir,
 	}
