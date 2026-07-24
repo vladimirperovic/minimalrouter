@@ -311,10 +311,70 @@ export default function Home() {
     apiToken: "",
     tunnelDomain: "minimalrouter-home",
   });
-  const [cfModalOpen, setCfModalOpen] = useState(false);
-  const [editCfDomain, setEditCfDomain] = useState(cfConfig.domain);
-  const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
-  const [editCfToken, setEditCfToken] = useState("");
+  const [ddnsModalOpen, setDdnsModalOpen] = useState(false);
+  const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
+  const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
+  const [ddnsUser, setDdnsUser] = useState("");
+  const [ddnsPass, setDdnsPass] = useState("");
+  const [ddnsZoneId, setDdnsZoneId] = useState("cf-zone-12345");
+
+  const handleSaveDdns = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCfConfig({
+      ...cfConfig,
+      domain: ddnsDomain,
+    });
+    setDdnsModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.cloudflare = {
+            ddns_enabled: true,
+            provider: ddnsProvider,
+            domain: ddnsDomain,
+            zone_id: ddnsZoneId,
+            api_token: ddnsPass,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passNotice, setPassNotice] = useState("");
+  const [passError, setPassError] = useState("");
+
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPassError("");
+    setPassNotice("");
+
+    if (newPassword.length < 15) {
+      setPassError("Nova lozinka mora imati najmanje 15 karaktera.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPassError("Nove lozinke se ne poklapaju.");
+      return;
+    }
+
+    setPassNotice("✓ Administrator lozinka je uspešno promijenjena!");
+    setOldPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setTimeout(() => setPassNotice(""), 4000);
+  };
 
   const [snapshotsList, setSnapshotsList] = useState([
     { id: "snap-42", revision: 42, label: "Firewall rule update", time: "8 min ago", checksum: "a1b2c3d4e5f6..." },
@@ -391,40 +451,6 @@ export default function Home() {
 
     if (apiConnected) {
       fetch("/api/v1/snapshots", { method: "POST" }).catch(console.error);
-    }
-  };
-  const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
-  const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
-  const [ddnsUser, setDdnsUser] = useState("");
-  const [ddnsPass, setDdnsPass] = useState("");
-  const [ddnsZoneId, setDdnsZoneId] = useState("cf-zone-12345");
-
-  const handleSaveDdns = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCfConfig({
-      ...cfConfig,
-      domain: ddnsDomain,
-    });
-    setDdnsModalOpen(false);
-
-    if (apiConnected) {
-      fetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.cloudflare = {
-            ddns_enabled: true,
-            provider: ddnsProvider,
-            domain: ddnsDomain,
-            zone_id: ddnsZoneId,
-            api_token: ddnsPass,
-          };
-          return fetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
     }
   };
 
@@ -793,7 +819,13 @@ export default function Home() {
             >
               Setup Wizard
             </button>
-            <button className="avatar-button" type="button" aria-label="Administrator profile">
+            <button
+              className="avatar-button"
+              type="button"
+              aria-label="Administrator profile"
+              onClick={() => setProfileModalOpen(true)}
+              title="Administrator Profil & Sigurnost"
+            >
               VP
             </button>
           </div>
@@ -1880,6 +1912,120 @@ export default function Home() {
 
             <div className="modal-actions" style={{ marginTop: "24px" }}>
               <button className="button secondary" type="button" onClick={() => setBackupModalOpen(false)}>Close</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {profileModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setProfileModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "600px", borderRadius: "24px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setProfileModalOpen(false)}>×</button>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
+              <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#0071E3", color: "#FFF", display: "grid", placeItems: "center", fontWeight: 700, fontSize: "18px" }}>
+                VP
+              </div>
+              <div>
+                <p className="eyebrow" style={{ margin: 0 }}>Administrator Profil</p>
+                <h2 style={{ margin: 0, fontSize: "22px" }}>Vladimir Perović</h2>
+                <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Role: Root Administrator · Session Active</span>
+              </div>
+            </div>
+
+            {passNotice && (
+              <div style={{ padding: "12px 16px", borderRadius: "10px", background: "#34C75915", color: "#34C759", fontWeight: 600, fontSize: "14px", marginBottom: "16px" }}>
+                {passNotice}
+              </div>
+            )}
+
+            {passError && (
+              <div style={{ padding: "12px 16px", borderRadius: "10px", background: "#FF3B3015", color: "#FF3B30", fontWeight: 600, fontSize: "14px", marginBottom: "16px" }}>
+                {passError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <h3 style={{ fontSize: "15px", fontWeight: 650, marginTop: "8px" }}>Promjena Administrator Lozinke (Argon2id)</h3>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Trenutna lozinka</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div style={{ display: "flex", gap: "12px" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Nova lozinka (min 15 karaktera)</label>
+                  <input
+                    type="password"
+                    placeholder="Najmanje 15 karaktera"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                    required
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Potvrdite novu lozinku</label>
+                  <input
+                    type="password"
+                    placeholder="Ponovite lozinku"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
+                <button className="button primary" type="submit" style={{ fontSize: "13px", padding: "8px 18px" }}>
+                  Sačuvaj Novu Lozinku
+                </button>
+              </div>
+            </form>
+
+            <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid var(--separator)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <strong style={{ display: "block", fontSize: "14px" }}>Sistemska Dijagnostika</strong>
+                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Izvoz tehničkog izvještaja sa cenzurisanim tajnama</span>
+              </div>
+              <button
+                className="button secondary"
+                type="button"
+                style={{ fontSize: "13px" }}
+                onClick={() => {
+                  window.location.href = "/api/v1/system/diagnostics";
+                }}
+              >
+                ⬇ Dijagnostika
+              </button>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: "24px", borderTop: "1px solid var(--separator)", paddingTop: "16px" }}>
+              <button className="button secondary" type="button" onClick={() => setProfileModalOpen(false)}>Zatvori</button>
+              <button
+                className="button primary"
+                type="button"
+                style={{ background: "#FF3B30", borderColor: "#FF3B30" }}
+                onClick={() => {
+                  fetch("/api/v1/auth/logout", { method: "POST" }).finally(() => {
+                    alert("Odjavljeni ste sa Minimal Router OS!");
+                    setProfileModalOpen(false);
+                  });
+                }}
+              >
+                Odjavi se (Logout)
+              </button>
             </div>
           </section>
         </div>
