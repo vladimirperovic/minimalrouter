@@ -316,6 +316,34 @@ export default function Home() {
   const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
   const [editCfToken, setEditCfToken] = useState("");
 
+  const [dhcpModalOpen, setDhcpModalOpen] = useState(false);
+  const [dhcpRangeStart, setDhcpRangeStart] = useState("10.0.0.20");
+  const [dhcpRangeEnd, setDhcpRangeEnd] = useState("10.0.0.200");
+  const [dhcpLeaseHours, setDhcpLeaseHours] = useState(24);
+  const [dhcpGateway, setDhcpGateway] = useState("10.0.0.1");
+
+  const handleSaveDhcpSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDhcpModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.dhcp.range_start = dhcpRangeStart;
+          cfg.dhcp.range_end = dhcpRangeEnd;
+          cfg.dhcp.lease_hours = dhcpLeaseHours;
+          cfg.lan.ip_address = dhcpGateway;
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
     type: "wg" | "lease" | "pf";
     idOrIndex: string | number;
@@ -799,9 +827,15 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">LAN & DHCP</p>
-                <h2>14 devices at home.</h2>
+                <h2>{staticLeases.length + 12} devices at home.</h2>
               </div>
-              <button className="button secondary" type="button">Manage DHCP</button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => setDhcpModalOpen(true)}
+              >
+                Manage DHCP
+              </button>
             </div>
 
             <div className="two-column wide-left">
@@ -809,7 +843,7 @@ export default function Home() {
                 <div className="card-title-row">
                   <div>
                     <h3>Active leases</h3>
-                    <p>12 dynamic · 2 static</p>
+                    <p>12 dynamic · {staticLeases.length} static</p>
                   </div>
                   <button className="quiet-button" type="button">View all</button>
                 </div>
@@ -877,10 +911,10 @@ export default function Home() {
                 <h3>Connected devices</h3>
                 <p>Everything looks normal. No new devices joined in the last 24 hours.</p>
                 <div className="summary-list">
-                  <div><span>DHCP range</span><code>10.0.0.20–200</code></div>
-                  <div><span>Lease time</span><strong>24 hours</strong></div>
+                  <div><span>DHCP range</span><code>{dhcpRangeStart}–{dhcpRangeEnd.split('.').pop()}</code></div>
+                  <div><span>Lease time</span><strong>{dhcpLeaseHours} hours</strong></div>
                   <div><span>Static addresses</span><strong>{staticLeases.length} reserved</strong></div>
-                  <div><span>Gateway</span><code>10.0.0.1</code></div>
+                  <div><span>Gateway</span><code>{dhcpGateway}</code></div>
                 </div>
                 <button
                   className="button primary full"
@@ -1447,6 +1481,75 @@ export default function Home() {
           </section>
         </div>
       )}
+      {dhcpModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDhcpModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setDhcpModalOpen(false)}>×</button>
+            <p className="eyebrow">LAN & DHCP Server</p>
+            <h2>Manage DHCP Settings</h2>
+            <form onSubmit={handleSaveDhcpSettings} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>DHCP Pool Start</label>
+                  <input
+                    type="text"
+                    placeholder="10.0.0.20"
+                    value={dhcpRangeStart}
+                    onChange={(e) => setDhcpRangeStart(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>DHCP Pool End</label>
+                  <input
+                    type="text"
+                    placeholder="10.0.0.200"
+                    value={dhcpRangeEnd}
+                    onChange={(e) => setDhcpRangeEnd(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Lease Time (Hours)</label>
+                  <input
+                    type="number"
+                    placeholder="24"
+                    value={dhcpLeaseHours}
+                    onChange={(e) => setDhcpLeaseHours(parseInt(e.target.value, 10) || 24)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>LAN Gateway IP</label>
+                  <input
+                    type="text"
+                    placeholder="10.0.0.1"
+                    value={dhcpGateway}
+                    onChange={(e) => setDhcpGateway(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setDhcpModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save DHCP Configuration</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
       {deleteConfirmTarget && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setDeleteConfirmTarget(null)}>
           <section
