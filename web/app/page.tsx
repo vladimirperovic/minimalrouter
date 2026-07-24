@@ -316,6 +316,42 @@ export default function Home() {
   const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
   const [editCfToken, setEditCfToken] = useState("");
 
+  const [ddnsModalOpen, setDdnsModalOpen] = useState(false);
+  const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
+  const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
+  const [ddnsUser, setDdnsUser] = useState("");
+  const [ddnsPass, setDdnsPass] = useState("");
+  const [ddnsZoneId, setDdnsZoneId] = useState("cf-zone-12345");
+
+  const handleSaveDdns = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCfConfig({
+      ...cfConfig,
+      domain: ddnsDomain,
+    });
+    setDdnsModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.cloudflare = {
+            ddns_enabled: true,
+            provider: ddnsProvider,
+            domain: ddnsDomain,
+            zone_id: ddnsZoneId,
+            api_token: ddnsPass,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
   const [dhcpModalOpen, setDhcpModalOpen] = useState(false);
   const [dhcpRangeStart, setDhcpRangeStart] = useState("10.0.0.20");
   const [dhcpRangeEnd, setDhcpRangeEnd] = useState("10.0.0.200");
@@ -1113,7 +1149,7 @@ export default function Home() {
             <div className="cloud-grid">
               <article
                 className="card cloud-card"
-                onClick={() => setCfModalOpen(true)}
+                onClick={() => setDdnsModalOpen(true)}
                 style={{ cursor: "pointer" }}
               >
                 <div className="cloud-icon" aria-hidden="true">DD</div>
@@ -1544,6 +1580,91 @@ export default function Home() {
               <div className="modal-actions" style={{ marginTop: '8px' }}>
                 <button className="button secondary" type="button" onClick={() => setDhcpModalOpen(false)}>Cancel</button>
                 <button className="button primary" type="submit">Save DHCP Configuration</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {ddnsModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDdnsModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setDdnsModalOpen(false)}>×</button>
+            <p className="eyebrow">Dynamic DNS (DDNS)</p>
+            <h2>Configure Dynamic DNS</h2>
+            <form onSubmit={handleSaveDdns} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>DDNS Provider</label>
+                <select
+                  value={ddnsProvider}
+                  onChange={(e) => setDdnsProvider(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                >
+                  <option value="cloudflare">Cloudflare DDNS</option>
+                  <option value="noip">No-IP</option>
+                  <option value="duckdns">DuckDNS</option>
+                  <option value="custom">Custom DynDNS Service</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Domain / Hostname</label>
+                <input
+                  type="text"
+                  placeholder="e.g. home.example.net or myhome.duckdns.org"
+                  value={ddnsDomain}
+                  onChange={(e) => setDdnsDomain(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+
+              {ddnsProvider === "cloudflare" && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare Zone ID</label>
+                  <input
+                    type="text"
+                    placeholder="cf-zone-12345"
+                    value={ddnsZoneId}
+                    onChange={(e) => setDdnsZoneId(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  />
+                </div>
+              )}
+
+              {(ddnsProvider === "noip" || ddnsProvider === "custom") && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Username / Account Email</label>
+                  <input
+                    type="text"
+                    placeholder="user@example.com"
+                    value={ddnsUser}
+                    onChange={(e) => setDdnsUser(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                  {ddnsProvider === "cloudflare" ? "API Token" : ddnsProvider === "duckdns" ? "Token" : "Password / Key"}
+                </label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••••••"
+                  value={ddnsPass}
+                  onChange={(e) => setDdnsPass(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                />
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setDdnsModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save Dynamic DNS</button>
               </div>
             </form>
           </section>
