@@ -226,12 +226,61 @@ export default function Home() {
   const [qrOpen, setQrOpen] = useState(false);
   const [statefulRules, setStatefulRules] = useState(true);
   const [portForward, setPortForward] = useState(true);
+  const [activeSection, setActiveSection] = useState("overview");
+  const [fontScale, setFontScale] = useState(100);
+
+  const applyScale = (scale: number) => {
+    setFontScale(scale);
+    if (typeof document !== "undefined") {
+      document.documentElement.style.fontSize = `${scale}%`;
+      (document.body as HTMLElement).style.zoom = `${scale}%`;
+    }
+  };
+
+  const decreaseFontScale = () => {
+    applyScale(Math.max(80, fontScale - 5));
+  };
+
+  const increaseFontScale = () => {
+    applyScale(Math.min(130, fontScale + 5));
+  };
+
+  const resetFontScale = () => {
+    applyScale(100);
+  };
 
   useEffect(() => {
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const initialTheme = prefersDark ? "dark" : "light";
     setTheme(initialTheme);
     document.documentElement.dataset.theme = initialTheme;
+  }, []);
+
+  useEffect(() => {
+    const sectionIds = navItems.map(([, , id]) => id);
+    const elements = sectionIds
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveSection(entry.target.id);
+          }
+        });
+      },
+      {
+        rootMargin: "-20% 0px -60% 0px",
+        threshold: 0,
+      }
+    );
+
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
   }, []);
 
   const switchTheme = () => {
@@ -246,8 +295,8 @@ export default function Home() {
     <main className="app-shell">
       <aside className={`sidebar ${menuOpen ? "is-open" : ""}`}>
         <div className="brand-row">
-          <div className="brand-mark" aria-hidden="true">
-            MR
+          <div className="brand-mark brand-favicon-wrap" aria-hidden="true">
+            <img src="/favicon.svg" alt="Minimal Router logo" width={26} height={26} />
           </div>
           <div>
             <strong>Minimal Router</strong>
@@ -264,12 +313,15 @@ export default function Home() {
         </div>
 
         <nav className="side-nav" aria-label="Dashboard sections">
-          {navItems.map(([number, label, id], index) => (
+          {navItems.map(([number, label, id]) => (
             <a
-              className={index === 0 ? "active" : ""}
+              className={activeSection === id ? "active" : ""}
               href={`#${id}`}
               key={id}
-              onClick={closeMenu}
+              onClick={() => {
+                setActiveSection(id);
+                closeMenu();
+              }}
             >
               <span>{number}</span>
               {label}
@@ -277,19 +329,7 @@ export default function Home() {
           ))}
         </nav>
 
-        <div className="sidebar-foot">
-          <div className="sidebar-health">
-            <span className="status-dot" />
-            <div>
-              <strong>All systems normal</strong>
-              <span>Last checked just now</span>
-            </div>
-          </div>
-          <div className="version-row">
-            <span>Minimal Router OS</span>
-            <span>v0.1 preview</span>
-          </div>
-        </div>
+
       </aside>
 
       {menuOpen && (
@@ -312,11 +352,49 @@ export default function Home() {
             <span />
             <span />
           </button>
-          <div className="preview-note">
-            <span>Design preview</span>
-            Illustrative local data
+          <div className="header-status">
+            <span className="status-dot" />
+            <div>
+              <strong>Connected</strong>
+              <span>PPPoE session active</span>
+            </div>
+          </div>
+          <div className="topbar-divider" />
+          <div className="service-chips">
+            <span className="chip ok"><i className="status-dot" /> Firewall</span>
+            <span className="chip ok"><i className="status-dot" /> WireGuard</span>
+            <span className="chip ok"><i className="status-dot" /> DHCP</span>
+            <span className="chip ok"><i className="status-dot" /> DNS</span>
+            <span className="chip ok"><i className="status-dot" /> DDNS</span>
+            <span className="chip ok"><i className="status-dot" /> Tunnel</span>
           </div>
           <div className="top-actions">
+            <div className="font-scale-control" aria-label="Font size control">
+              <button
+                type="button"
+                className="scale-btn small"
+                onClick={decreaseFontScale}
+                title="Smanji font (a)"
+              >
+                a
+              </button>
+              <button
+                type="button"
+                className="scale-btn reset"
+                onClick={resetFontScale}
+                title="Resetuj veličinu fonta (100%)"
+              >
+                {fontScale}%
+              </button>
+              <button
+                type="button"
+                className="scale-btn large"
+                onClick={increaseFontScale}
+                title="Povećaj font (A)"
+              >
+                A
+              </button>
+            </div>
             <button
               className="icon-button"
               type="button"
@@ -333,20 +411,13 @@ export default function Home() {
 
         <div className="content">
           <section className="page-intro" id="overview">
-            <div>
-              <p className="eyebrow">Friday, 24 July</p>
-              <h1>Your network, at a glance.</h1>
-              <p>
-                Internet is connected, services are healthy, and your latest
-                configuration is protected by a snapshot.
-              </p>
-            </div>
-            <div className="overall-status">
-              <span className="status-dot" />
-              <div>
-                <strong>Connected</strong>
-                <span>PPPoE session active</span>
-              </div>
+            <div className="intro-strip">
+              <span className="eyebrow">Friday, 24 July</span>
+              <span className="intro-meta">Uptime <strong>18d 04h</strong></span>
+              <span className="intro-meta">Public IP <strong>185.33.42.117</strong></span>
+              <span className="intro-meta">Last backup <strong>6 days ago</strong></span>
+              <span className="intro-meta">Last snapshot <strong>8 min ago</strong></span>
+              <span className="intro-meta"><strong className="up-to-date">✓ Up to date</strong></span>
             </div>
           </section>
 
