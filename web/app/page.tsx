@@ -286,15 +286,72 @@ export default function Home() {
   const [newLeaseMAC, setNewLeaseMAC] = useState("");
   const [newLeaseIP, setNewLeaseIP] = useState("");
 
-  const [portForwardRules, setPortForwardRules] = useState([
-    { name: "Home Assistant", proto: "TCP", extPort: 8123, intIP: "10.0.0.10", intPort: 8123, enabled: true },
+  const [wgPeers, setWgPeers] = useState([
+    { id: "p1", name: "MacBook Pro", ip: "10.8.0.2", traffic: "4.8 GB", active: "18s ago" },
+    { id: "p2", name: "iPhone", ip: "10.8.0.3", traffic: "1.2 GB", active: "2m ago" },
+    { id: "p3", name: "Travel laptop", ip: "10.8.0.4", traffic: "Offline", active: "3d ago" },
   ]);
-  const [pfModalOpen, setPfModalOpen] = useState(false);
-  const [newPfName, setNewPfName] = useState("");
-  const [newPfProto, setNewPfProto] = useState("tcp");
-  const [newPfExtPort, setNewPfExtPort] = useState("");
-  const [newPfIntIP, setNewPfIntIP] = useState("");
-  const [newPfIntPort, setNewPfIntPort] = useState("");
+  const [addWgModalOpen, setAddWgModalOpen] = useState(false);
+  const [newWgPeerName, setNewWgPeerName] = useState("");
+  const [newWgPeerIP, setNewWgPeerIP] = useState("");
+
+  const [cfConfig, setCfConfig] = useState({
+    domain: "home.example.net",
+    zoneId: "cf-zone-12345",
+    apiToken: "",
+    tunnelDomain: "minimalrouter-home",
+  });
+  const [cfModalOpen, setCfModalOpen] = useState(false);
+  const [editCfDomain, setEditCfDomain] = useState(cfConfig.domain);
+  const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
+  const [editCfToken, setEditCfToken] = useState("");
+
+  const handleAddWgPeer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWgPeerName || !newWgPeerIP) return;
+    const newPeer = {
+      id: `p-${Date.now()}`,
+      name: newWgPeerName,
+      ip: newWgPeerIP,
+      traffic: "0 MB",
+      active: "Just added",
+    };
+    setWgPeers([...wgPeers, newPeer]);
+    setNewWgPeerName("");
+    setNewWgPeerIP("");
+    setAddWgModalOpen(false);
+    setQrOpen(true);
+  };
+
+  const handleSaveCfConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCfConfig({
+      ...cfConfig,
+      domain: editCfDomain,
+      zoneId: editCfZone,
+      apiToken: editCfToken,
+    });
+    setCfModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.cloudflare = {
+            ddns_enabled: true,
+            domain: editCfDomain,
+            zone_id: editCfZone,
+            api_token: editCfToken,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
 
   // Sync stateful firewall toggle with Go REST API
   const handleToggleStateful = (val: boolean) => {
@@ -878,28 +935,20 @@ export default function Home() {
                   <span className="status-label success"><i className="status-dot" /> Active</span>
                 </div>
                 <div className="peer-list">
-                  <div className="peer-row">
-                    <div className="peer-avatar">MB</div>
-                    <div><strong>MacBook Pro</strong><span>10.8.0.2 · latest handshake 18s ago</span></div>
-                    <div className="peer-traffic"><strong>4.8 GB</strong><span>↓ 3.9 · ↑ 0.9</span></div>
-                  </div>
-                  <div className="peer-row">
-                    <div className="peer-avatar violet">IP</div>
-                    <div><strong>iPhone</strong><span>10.8.0.3 · latest handshake 2m ago</span></div>
-                    <div className="peer-traffic"><strong>1.2 GB</strong><span>↓ 0.9 · ↑ 0.3</span></div>
-                  </div>
-                  <div className="peer-row">
-                    <div className="peer-avatar gray">TR</div>
-                    <div><strong>Travel laptop</strong><span>10.8.0.4 · last seen 3d ago</span></div>
-                    <div className="peer-traffic muted"><strong>Offline</strong><span>No traffic</span></div>
-                  </div>
+                  {wgPeers.map((peer) => (
+                    <div className="peer-row" key={peer.id}>
+                      <div className="peer-avatar">{peer.name.substring(0, 2).toUpperCase()}</div>
+                      <div><strong>{peer.name}</strong><span>{peer.ip} · latest handshake {peer.active}</span></div>
+                      <div className="peer-traffic"><strong>{peer.traffic}</strong><span>↓ 3.9 · ↑ 0.9</span></div>
+                    </div>
+                  ))}
                 </div>
               </article>
 
               <aside className="card wireguard-summary">
                 <span className="mini-label">This month</span>
                 <strong>18.4 <small>GB</small></strong>
-                <p>Secure traffic across all peers.</p>
+                <p>Secure traffic across {wgPeers.length} peers.</p>
                 <div className="split-meter" aria-hidden="true">
                   <span style={{ width: "72%" }} />
                   <i style={{ width: "28%" }} />
@@ -908,7 +957,13 @@ export default function Home() {
                   <span><i className="download-key" /> Download 13.2 GB</span>
                   <span><i className="upload-key" /> Upload 5.2 GB</span>
                 </div>
-                <button className="button secondary full" type="button">Manage peers</button>
+                <button
+                  className="button secondary full"
+                  type="button"
+                  onClick={() => setAddWgModalOpen(true)}
+                >
+                  + Add WireGuard Peer
+                </button>
               </aside>
             </div>
           </section>
@@ -919,10 +974,21 @@ export default function Home() {
                 <p className="eyebrow">Cloudflare</p>
                 <h2>Your home, reliably reachable.</h2>
               </div>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => setCfModalOpen(true)}
+              >
+                Configure Cloudflare
+              </button>
             </div>
 
             <div className="cloud-grid">
-              <article className="card cloud-card">
+              <article
+                className="card cloud-card"
+                onClick={() => setCfModalOpen(true)}
+                style={{ cursor: "pointer" }}
+              >
                 <div className="cloud-icon" aria-hidden="true">DD</div>
                 <div>
                   <div className="card-title-row">
@@ -934,7 +1000,7 @@ export default function Home() {
                   </div>
                   <div className="cloud-host">
                     <span>Hostname</span>
-                    <code>home.example.net</code>
+                    <code>{cfConfig.domain}</code>
                   </div>
                   <div className="cloud-meta">
                     <span>185.33.42.117</span>
@@ -1187,6 +1253,102 @@ export default function Home() {
               <div className="modal-actions" style={{ marginTop: '8px' }}>
                 <button className="button secondary" type="button" onClick={() => setPfModalOpen(false)}>Cancel</button>
                 <button className="button primary" type="submit">Save rule</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {addWgModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAddWgModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setAddWgModalOpen(false)}>×</button>
+            <p className="eyebrow">WireGuard VPN</p>
+            <h2>Add WireGuard Peer</h2>
+            <form onSubmit={handleAddWgPeer} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Peer Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Vlad Work Laptop"
+                  value={newWgPeerName}
+                  onChange={(e) => setNewWgPeerName(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Allowed Client IP</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 10.8.0.5"
+                  value={newWgPeerIP}
+                  onChange={(e) => setNewWgPeerIP(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setAddWgModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Generate QR Code & Add</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {cfModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCfModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" onClick={() => setCfModalOpen(false)}>×</button>
+            <p className="eyebrow">Cloudflare DDNS & Tunnel</p>
+            <h2>Configure Cloudflare</h2>
+            <form onSubmit={handleSaveCfConfig} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Domain Name</label>
+                <input
+                  type="text"
+                  placeholder="home.example.net"
+                  value={editCfDomain}
+                  onChange={(e) => setEditCfDomain(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare Zone ID</label>
+                <input
+                  type="text"
+                  placeholder="Zone ID string"
+                  value={editCfZone}
+                  onChange={(e) => setEditCfZone(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare API Token</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••••••"
+                  value={editCfToken}
+                  onChange={(e) => setEditCfToken(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setCfModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save Cloudflare Settings</button>
               </div>
             </form>
           </section>
