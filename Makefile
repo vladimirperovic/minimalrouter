@@ -16,5 +16,8 @@ run-routerd:
 run-applyd:
 	go run ./cmd/router-applyd
 
+iso:
+	sh packaging/alpine/build-iso.sh
+
 clean:
-	rm -rf bin/
+	rm -rf bin/ build/
