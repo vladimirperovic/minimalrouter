@@ -1,0 +1,132 @@
+openapi: 3.0.3
+info:
+  title: Minimal Router OS REST API
+  description: Version 1 REST API contract for Minimal Router OS management plane (routerd).
+  version: 1.0.0
+servers:
+  - url: https://192.168.1.1/api/v1
+    description: Primary LAN HTTPS management endpoint
+
+paths:
+  /auth/login:
+    post:
+      summary: Authenticate administrator and establish session
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 15
+      responses:
+        '200':
+          description: Authenticated successfully
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        '401':
+          description: Invalid password
+        '429':
+          description: Rate limit exceeded (max 5 attempts per minute)
+
+  /auth/logout:
+    post:
+      summary: Terminate active administrator session
+      operationId: logout
+      responses:
+        '200':
+          description: Logged out successfully
+
+  /auth/session:
+    get:
+      summary: Retrieve current session and CSRF token info
+      operationId: getSessionInfo
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                  csrf_token:
+                    type: string
+                  expires_in:
+                    type: integer
+
+  /system:
+    get:
+      summary: Retrieve system health, CPU, memory, uptime, and metadata
+      operationId: getSystemStatus
+      responses:
+        '200':
+          description: System status summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  uptime:
+                    type: string
+                  public_ip:
+                    type: string
+                  last_backup:
+                    type: string
+                  last_snap:
+                    type: string
+                  update:
+                    type: string
+
+  /config:
+    get:
+      summary: Get active canonical configuration model
+      operationId: getConfig
+      responses:
+        '200':
+          description: Canonical configuration object
+    put:
+      summary: Submit configuration update and execute transaction pipeline
+      operationId: updateConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Transaction committed successfully
+        '422':
+          description: Validation or preflight check failed
+
+  /snapshots:
+    get:
+      summary: List all immutable configuration snapshots
+      operationId: listSnapshots
+      responses:
+        '200':
+          description: List of snapshots
+
+  /snapshots/{id}/restore:
+    post:
+      summary: Restore a previous snapshot
+      operationId: restoreSnapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Snapshot restored successfully
