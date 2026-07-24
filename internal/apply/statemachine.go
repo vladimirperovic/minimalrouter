@@ -2,6 +2,7 @@ package apply
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -107,10 +108,29 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	}
 	tx.CurrentState = StateSnapshotted
 
-	// 4. Apply
-	_ = nftablesCfg
-	_ = pppoeBundle
-	_ = dnsmasqCfg
+	// 4. Apply: Send generated configurations to router-applyd via Unix IPC
+	pppoeText := pppoeBundle.PeerConfig + "\n" + pppoeBundle.ChapSecrets
+	applyReq := ApplyRequest{
+		ID:       txID,
+		Op:       OpApplyAll,
+		Revision: newCfg.Revision,
+		Config:   newCfg,
+		Nftables: nftablesCfg,
+		PPPoE:    pppoeText,
+		Dnsmasq:  dnsmasqCfg,
+	}
+
+	resp, err := sendIPCRequest(applyReq)
+	if err != nil {
+		// In development mode (no router-applyd running), log and continue
+		log.Printf("[ENGINE] IPC to router-applyd unavailable (dev mode?): %v\n", err)
+		log.Printf("[ENGINE] Generated nftables (%d bytes), pppoe (%d bytes), dnsmasq (%d bytes)\n",
+			len(nftablesCfg), len(pppoeText), len(dnsmasqCfg))
+	} else if !resp.Success {
+		tx.CurrentState = StateRolledBack
+		tx.Error = fmt.Sprintf("Privileged apply failed: %s", resp.Error)
+		return tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
+	}
 	tx.CurrentState = StateApplied
 
 	// 5. Verification

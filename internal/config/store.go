@@ -2,59 +2,33 @@ package config
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite" // Pure-Go SQLite driver (no CGO required)
 )
 
 // Snapshot represents an immutable, checksummed point-in-time configuration state.
 type Snapshot struct {
-	ID         string       `json:"id"`
-	Revision   Revision     `json:"revision"`
-	CreatedAt  time.Time    `json:"created_at"`
-	Checksum   string       `json:"checksum"`
-	ConfigJSON string       `json:"config_json"`
+	ID         string   `json:"id"`
+	Revision   Revision `json:"revision"`
+	CreatedAt  string   `json:"created_at"`
+	Checksum   string   `json:"checksum"`
+	ConfigJSON string   `json:"config_json,omitempty"`
 }
 
-// SQLiteStore provides canonical JSON+file persistence and snapshot management.
-// NOTE: Named SQLiteStore for forward-compatibility; currently uses atomic JSON files.
-// SQLite migration planned for v0.2 per ARCHITECTURE.md §4.4.
+// SQLiteStore provides canonical SQLite persistence and snapshot management
+// per ARCHITECTURE.md §4.4 and migrations/0001_initial_schema.sql.
 type SQLiteStore struct {
-	mu       sync.RWMutex
-	snapDir  string
-	jsonFile string
+	mu sync.RWMutex
+	db *sql.DB
 }
 
-// NewStore initializes canonical configuration persistence.
-func NewStore(dirPath string) (*SQLiteStore, error) {
-	if err := os.MkdirAll(filepath.Join(dirPath, "snapshots"), 0700); err != nil {
-		return nil, fmt.Errorf("failed to create store directory: %w", err)
-	}
-
-	jsonFile := filepath.Join(dirPath, "current_config.json")
-	snapDir := filepath.Join(dirPath, "snapshots")
-
-	store := &SQLiteStore{
-		jsonFile: jsonFile,
-		snapDir:  snapDir,
-	}
-
-	// Initialize default config if no current config exists
-	if _, err := os.Stat(jsonFile); os.IsNotExist(err) {
-		defaultCfg := DefaultConfig()
-		if err := store.SaveConfig(defaultCfg); err != nil {
-			return nil, fmt.Errorf("failed to initialize default config store: %w", err)
-		}
-	}
-
-	return store, nil
-}
-
-// FileStore alias for backwards compatibility.
+// FileStore alias for backwards compatibility with routerd main.go.
 type FileStore = SQLiteStore
 
 // NewFileStore alias for NewStore.
@@ -62,42 +36,124 @@ func NewFileStore(dirPath string) (*FileStore, error) {
 	return NewStore(dirPath)
 }
 
-// GetLatestConfig reads the active canonical configuration.
+// NewStore initializes canonical SQLite configuration persistence.
+// Creates the database file and runs schema migrations on first use.
+func NewStore(dirPath string) (*SQLiteStore, error) {
+	dbPath := dirPath + "/minimalrouter.db"
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open SQLite database at %s: %w", dbPath, err)
+	}
+
+	// Enable WAL mode for concurrent readers + single writer
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
+	}
+
+	// Run schema migrations (idempotent with IF NOT EXISTS)
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	store := &SQLiteStore{db: db}
+
+	// Initialize default config if no revisions exist
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM config_revisions").Scan(&count); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to query config_revisions: %w", err)
+	}
+
+	if count == 0 {
+		defaultCfg := DefaultConfig()
+		if err := store.SaveConfig(defaultCfg); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to initialize default config: %w", err)
+		}
+	}
+
+	return store, nil
+}
+
+// runMigrations executes the schema creation SQL (idempotent).
+func runMigrations(db *sql.DB) error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS config_revisions (
+		revision INTEGER PRIMARY KEY AUTOINCREMENT,
+		updated_at DATETIME NOT NULL,
+		config_json TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS snapshots (
+		id TEXT PRIMARY KEY,
+		revision INTEGER NOT NULL,
+		created_at DATETIME NOT NULL,
+		checksum TEXT NOT NULL,
+		config_json TEXT NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS admin_credentials (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		password_hash TEXT NOT NULL,
+		updated_at DATETIME NOT NULL
+	);
+	`
+	_, err := db.Exec(schema)
+	return err
+}
+
+// GetLatestConfig reads the most recent canonical configuration from SQLite.
 func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	data, err := os.ReadFile(s.jsonFile)
+	var configJSON string
+	err := s.db.QueryRow(
+		"SELECT config_json FROM config_revisions ORDER BY revision DESC LIMIT 1",
+	).Scan(&configJSON)
 	if err != nil {
-		return SystemConfig{}, fmt.Errorf("failed to read config file: %w", err)
+		return SystemConfig{}, fmt.Errorf("failed to read latest config: %w", err)
 	}
 
 	var cfg SystemConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		return SystemConfig{}, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
 
 	return cfg, nil
 }
 
-// SaveConfig saves updated configuration to canonical store.
+// SaveConfig saves updated configuration to the SQLite config_revisions table.
+// Uses an atomic INSERT within a transaction for crash safety.
 func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	cfg.UpdatedAt = time.Now()
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
 
-	tmpFile := s.jsonFile + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
-		return fmt.Errorf("failed to write tmp config: %w", err)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	if err := os.Rename(tmpFile, s.jsonFile); err != nil {
-		return fmt.Errorf("failed to commit atomic config file: %w", err)
+	_, err = tx.Exec(
+		"INSERT INTO config_revisions (updated_at, config_json) VALUES (?, ?)",
+		cfg.UpdatedAt.Format(time.RFC3339), string(data),
+	)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to insert config revision: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit config transaction: %w", err)
 	}
 
 	return nil
@@ -116,71 +172,108 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 	hash := sha256.Sum256(data)
 	checksum := hex.EncodeToString(hash[:])
 	id := fmt.Sprintf("snap-%d", time.Now().UnixNano())
+	createdAt := time.Now().Format(time.RFC3339)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("failed to begin snapshot transaction: %w", err)
+	}
+
+	_, err = tx.Exec(
+		"INSERT INTO snapshots (id, revision, created_at, checksum, config_json) VALUES (?, ?, ?, ?, ?)",
+		id, int64(cfg.Revision), createdAt, checksum, string(data),
+	)
+	if err != nil {
+		tx.Rollback()
+		return Snapshot{}, fmt.Errorf("failed to insert snapshot: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return Snapshot{}, fmt.Errorf("failed to commit snapshot: %w", err)
+	}
 
 	snap := Snapshot{
-		ID:         id,
-		Revision:   cfg.Revision,
-		CreatedAt:  time.Now(),
-		Checksum:   checksum,
-		ConfigJSON: string(data),
-	}
-
-	snapData, err := json.MarshalIndent(snap, "", "  ")
-	if err != nil {
-		return Snapshot{}, err
-	}
-
-	snapFile := filepath.Join(s.snapDir, id+".json")
-	if err := os.WriteFile(snapFile, snapData, 0600); err != nil {
-		return Snapshot{}, fmt.Errorf("failed to write snapshot file: %w", err)
+		ID:        id,
+		Revision:  cfg.Revision,
+		CreatedAt: createdAt,
+		Checksum:  checksum,
 	}
 
 	return snap, nil
 }
 
-// ListSnapshots returns all stored snapshots.
+// ListSnapshots returns all stored snapshots ordered by creation time (newest first).
 func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	files, err := os.ReadDir(s.snapDir)
+	rows, err := s.db.Query(
+		"SELECT id, revision, created_at, checksum FROM snapshots ORDER BY created_at DESC",
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query snapshots: %w", err)
 	}
+	defer rows.Close()
 
 	var snapshots []Snapshot
-	for _, f := range files {
-		if filepath.Ext(f.Name()) != ".json" {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(s.snapDir, f.Name()))
-		if err != nil {
-			continue
-		}
+	for rows.Next() {
 		var snap Snapshot
-		if err := json.Unmarshal(data, &snap); err == nil {
-			snapshots = append(snapshots, snap)
+		var rev int64
+		if err := rows.Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum); err != nil {
+			continue
 		}
+		snap.Revision = Revision(rev)
+		snapshots = append(snapshots, snap)
 	}
 
 	return snapshots, nil
 }
 
-// GetSnapshot retrieves a specific snapshot by ID.
+// GetSnapshot retrieves a specific snapshot by ID including its full config JSON.
 func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	snapFile := filepath.Join(s.snapDir, id+".json")
-	data, err := os.ReadFile(snapFile)
+	var snap Snapshot
+	var rev int64
+	err := s.db.QueryRow(
+		"SELECT id, revision, created_at, checksum, config_json FROM snapshots WHERE id = ?", id,
+	).Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.ConfigJSON)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot not found: %s", id)
 	}
-
-	var snap Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
-		return Snapshot{}, fmt.Errorf("corrupted snapshot file: %w", err)
-	}
+	snap.Revision = Revision(rev)
 
 	return snap, nil
+}
+
+// GetAdminHash retrieves the stored Argon2id admin password hash.
+func (s *SQLiteStore) GetAdminHash() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var hash string
+	err := s.db.QueryRow("SELECT password_hash FROM admin_credentials WHERE id = 1").Scan(&hash)
+	if err != nil {
+		return "", err
+	}
+	return hash, nil
+}
+
+// SetAdminHash stores the Argon2id admin password hash.
+func (s *SQLiteStore) SetAdminHash(hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO admin_credentials (id, password_hash, updated_at) VALUES (1, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
+		hash, time.Now().Format(time.RFC3339),
+	)
+	return err
+}
+
+// Close closes the underlying SQLite database connection.
+func (s *SQLiteStore) Close() error {
+	return s.db.Close()
 }
