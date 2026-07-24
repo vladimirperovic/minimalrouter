@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
 	response := map[string]interface{}{
 		"status":      "Connected",
 		"version":     "v0.1-alpha",
@@ -53,6 +55,7 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDiagnostics(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
 	cfg := s.engine.GetCurrentConfig()
 	data, err := telemetry.BuildDiagnosticBundle(cfg)
 	if err != nil {
@@ -66,6 +69,7 @@ func (s *Server) handleGetDiagnostics(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
 	cfg := s.engine.GetCurrentConfig()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cfg)
@@ -81,6 +85,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	tx, err := s.engine.ProcessTransaction(txID, newCfg)
 	if err != nil {
+		log.Printf("[API] PUT %s - Transaction %s REJECTED: %v\n", r.URL.Path, txID, err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -90,6 +95,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[API] PUT %s - Transaction %s COMMITTED (Rev: %d)\n", r.URL.Path, txID, tx.Config.Revision)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tx)
