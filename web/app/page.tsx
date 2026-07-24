@@ -286,6 +286,16 @@ export default function Home() {
   const [newLeaseMAC, setNewLeaseMAC] = useState("");
   const [newLeaseIP, setNewLeaseIP] = useState("");
 
+  const [portForwardRules, setPortForwardRules] = useState([
+    { name: "Home Assistant", proto: "TCP", extPort: 8123, intIP: "10.0.0.10", intPort: 8123, enabled: true },
+  ]);
+  const [pfModalOpen, setPfModalOpen] = useState(false);
+  const [newPfName, setNewPfName] = useState("");
+  const [newPfProto, setNewPfProto] = useState("tcp");
+  const [newPfExtPort, setNewPfExtPort] = useState("");
+  const [newPfIntIP, setNewPfIntIP] = useState("");
+  const [newPfIntPort, setNewPfIntPort] = useState("");
+
   const [wgPeers, setWgPeers] = useState([
     { id: "p1", name: "MacBook Pro", ip: "10.8.0.2", traffic: "4.8 GB", active: "18s ago" },
     { id: "p2", name: "iPhone", ip: "10.8.0.3", traffic: "1.2 GB", active: "2m ago" },
