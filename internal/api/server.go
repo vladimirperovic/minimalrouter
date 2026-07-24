@@ -9,6 +9,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
 // Server handles REST API requests for Minimal Router OS.
@@ -27,8 +28,12 @@ func NewServer(engine *apply.Engine) *Server {
 // RegisterRoutes attaches /api/v1 endpoints to the provided HTTP mux.
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/system", s.handleGetSystem)
+	mux.HandleFunc("GET /api/v1/system/diagnostics", s.handleGetDiagnostics)
 	mux.HandleFunc("GET /api/v1/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/v1/config", s.handleUpdateConfig)
+
+	// Register Setup Wizard routes
+	s.RegisterWizardRoutes(mux)
 }
 
 func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +50,19 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (s *Server) handleGetDiagnostics(w http.ResponseWriter, r *http.Request) {
+	cfg := s.engine.GetCurrentConfig()
+	data, err := telemetry.BuildDiagnosticBundle(cfg)
+	if err != nil {
+		http.Error(w, "Failed to build diagnostic bundle", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"minimalrouter-diagnostics.json\"")
+	w.Write(data)
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
