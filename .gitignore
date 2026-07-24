@@ -1,0 +1,26 @@
+# Build output
+/bin/
+/dist/
+/web/dist/
+/coverage/
+
+# Local development
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime state and secrets
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+/state/
+/snapshots/
