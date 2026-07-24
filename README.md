@@ -1,25 +1,54 @@
 # Minimal Router OS
 
 Minimal Router OS is an ultra-lightweight Alpine Linux appliance for home and
-small-office routing. It combines proven Linux networking components with a
-small Go control plane and a focused web interface.
+small-office routing. It combines proven Linux networking components with a Go control plane (`routerd` + `router-applyd`) and an Apple × Swiss minimalist web interface.
 
 The product is intentionally narrow: quick installation, safe configuration,
 automatic snapshots, reliable rollback, and a clean user experience. It is not
 intended to replace pfSense or become a general-purpose networking platform.
 
-## Project status
+## Project Status & Built Features
 
-The project is in the architecture and foundation phase. No production-ready
-image exists yet.
+Version 1 core control plane engine is fully implemented:
 
-## Core stack
+- **Unprivileged & Privileged Go Binaries** (`routerd` unprivileged management plane + `router-applyd` privileged Unix socket helper).
+- **Service Configuration Generates**: Deterministic ruleset generators for `nftables`, `pppd` (PPPoE), `dnsmasq` (DHCP/DNS), `wireguard` (with mobile QR code generator), and `cloudflared` (DDNS & Tunnel).
+- **pfSense XML Importer**: Tool for importing existing pfSense `config.xml` files.
+- **First-Run Installation Wizard**: Guided 5-step setup wizard per `DESIGN.md §14`.
+- **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, CSRF protection, rate limiting, and secret redaction.
+- **Alpine Linux Packaging**: OpenRC init scripts and automated appliance ISO generator script (`make iso`).
 
-- Alpine Linux
-- Go backend and REST API
-- Svelte + TypeScript frontend
-- nftables, pppd, dnsmasq, WireGuard, and cloudflared
-- SQLite as the canonical configuration and state store
+## Core Stack
+
+- **OS**: Alpine Linux 3.22
+- **Backend**: Go 1.24 REST API (`/api/v1`)
+- **Frontend**: Svelte + TypeScript static single-page application
+- **Integrations**: nftables, pppd, dnsmasq, WireGuard, cloudflared
+- **Store**: SQLite canonical state store with pre-apply sha256 checksummed snapshots
+
+## Quick Start & Development
+
+### 1. Run Backend Server (`routerd`)
+
+```bash
+go run ./cmd/routerd
+```
+
+### 2. Run Web Dashboard
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000` in browser.
+
+### 3. Build Alpine ISO Appliance
+
+```bash
+make iso
+```
 
 ## Documentation
 
@@ -33,29 +62,12 @@ image exists yet.
 - [Contributing guide](CONTRIBUTING.md)
 - [Architecture decisions](docs/adr/README.md)
 
-## Dashboard preview
+## Non-Negotiable Invariant
 
-The Apple × Swiss one-page interface prototype lives in `web/`. It includes
-internet traffic and PPPoE status, system health, DHCP and static leases,
-firewall controls, WireGuard peer and QR flows, Cloudflare DDNS/Tunnel status,
-snapshots, backup, and updates.
-
-Run it locally with:
-
-```sh
-cd web
-pnpm install
-pnpm dev
-```
-
-## Non-negotiable configuration rule
-
-Linux service configuration is never edited directly by API handlers or UI
-actions. Every change follows this pipeline:
+Linux service configuration is never edited directly by API handlers or UI actions. Every change follows this pipeline:
 
 `input -> validation -> config model -> generation -> preflight -> snapshot -> apply -> verify -> commit or rollback`
 
 ## License
 
-No license has been selected yet. Until a license file is added, all rights are
-reserved.
+All rights reserved.

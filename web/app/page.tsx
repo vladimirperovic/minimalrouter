@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import SetupWizard from "./components/SetupWizard";
 
 type Theme = "light" | "dark";
 
@@ -224,6 +225,7 @@ export default function Home() {
   const [theme, setTheme] = useState<Theme>("light");
   const [menuOpen, setMenuOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [statefulRules, setStatefulRules] = useState(true);
   const [portForward, setPortForward] = useState(true);
   const [activeSection, setActiveSection] = useState("overview");
@@ -539,7 +541,15 @@ export default function Home() {
             >
               {theme === "light" ? "◐" : "◑"}
             </button>
-            <button className="avatar-button" type="button" aria-label="Administrator menu">
+            <button
+              className="button secondary"
+              type="button"
+              onClick={() => setWizardOpen(true)}
+              style={{ fontSize: "13px", padding: "6px 12px", borderRadius: "10px", height: "40px" }}
+            >
+              Setup Wizard
+            </button>
+            <button className="avatar-button" type="button" aria-label="Administrator profile">
               VP
             </button>
           </div>
@@ -1181,6 +1191,15 @@ export default function Home() {
             </form>
           </section>
         </div>
+      )}
+      {wizardOpen && (
+        <SetupWizard
+          onClose={() => setWizardOpen(false)}
+          onComplete={() => {
+            setWizardOpen(false);
+            window.location.reload();
+          }}
+        />
       )}
     </main>
   );
