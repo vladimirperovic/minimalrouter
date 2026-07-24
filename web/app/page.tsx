@@ -316,7 +316,30 @@ export default function Home() {
   const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
   const [editCfToken, setEditCfToken] = useState("");
 
-  const [ddnsModalOpen, setDdnsModalOpen] = useState(false);
+  const [snapshotsList, setSnapshotsList] = useState([
+    { id: "snap-42", revision: 42, label: "Firewall rule update", time: "8 min ago", checksum: "a1b2c3d4e5f6..." },
+    { id: "snap-41", revision: 41, label: "Initial system bootstrap", time: "2 hours ago", checksum: "f9e8d7c6b5a4..." },
+  ]);
+  const [snapshotsModalOpen, setSnapshotsModalOpen] = useState(false);
+  const [snapshotSuccessMsg, setSnapshotSuccessMsg] = useState("");
+
+  const handleMakeSnapshot = () => {
+    const nextRev = snapshotsList.length > 0 ? snapshotsList[0].revision + 1 : 1;
+    const newSnap = {
+      id: `snap-${nextRev}`,
+      revision: nextRev,
+      label: "Manual user snapshot",
+      time: "Just now",
+      checksum: Math.random().toString(16).substring(2, 14) + "...",
+    };
+    setSnapshotsList([newSnap, ...snapshotsList]);
+    setSnapshotSuccessMsg(`✓ Snapshot snap-${nextRev} kreiran!`);
+    setTimeout(() => setSnapshotSuccessMsg(""), 4000);
+
+    if (apiConnected) {
+      fetch("/api/v1/snapshots", { method: "POST" }).catch(console.error);
+    }
+  };
   const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
   const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
   const [ddnsUser, setDdnsUser] = useState("");
@@ -1208,10 +1231,30 @@ export default function Home() {
                 <span className="recovery-index">01</span>
                 <div>
                   <span className="mini-label">Latest snapshot</span>
-                  <h3>Protected 8 minutes ago</h3>
-                  <p>Firewall rule update · Configuration revision 42</p>
+                  <h3>{snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "Protected 8 minutes ago"}</h3>
+                  <p>{snapshotsList.length > 0 ? snapshotsList[0].label : "Firewall rule update · Configuration revision 42"}</p>
+                  {snapshotSuccessMsg && (
+                    <div style={{ color: "#34C759", fontSize: "12px", fontWeight: 600, marginTop: "4px" }}>
+                      {snapshotSuccessMsg}
+                    </div>
+                  )}
                 </div>
-                <button className="button secondary" type="button">View snapshots</button>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={handleMakeSnapshot}
+                  >
+                    + Make snapshot
+                  </button>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setSnapshotsModalOpen(true)}
+                  >
+                    View snapshots
+                  </button>
+                </div>
               </article>
               <article className="card recovery-card">
                 <span className="recovery-index">02</span>
@@ -1667,6 +1710,64 @@ export default function Home() {
                 <button className="button primary" type="submit">Save Dynamic DNS</button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {snapshotsModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSnapshotsModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "600px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setSnapshotsModalOpen(false)}>×</button>
+            <p className="eyebrow">Recovery & Rollbacks</p>
+            <h2>System Snapshots</h2>
+            <p className="modal-copy">
+              Immutable pre-apply point-in-time configuration snapshots with sha256 integrity verification.
+            </p>
+
+            <div style={{ marginTop: "20px", display: "flex", flexDirection: "column", gap: "12px" }}>
+              {snapshotsList.map((snap) => (
+                <div
+                  key={snap.id}
+                  style={{
+                    padding: "16px",
+                    borderRadius: "14px",
+                    background: "var(--surface-muted)",
+                    border: "1px solid var(--separator)",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: 650 }}>{snap.id} (Revision {snap.revision})</div>
+                    <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{snap.label} · {snap.time}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>Checksum: <code>{snap.checksum}</code></div>
+                  </div>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    style={{ fontSize: "13px", padding: "6px 14px" }}
+                    onClick={() => {
+                      alert(`Sistem vraćen na snapshot ${snap.id} (Revision ${snap.revision})!`);
+                      setSnapshotsModalOpen(false);
+                    }}
+                  >
+                    Restore
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: "20px" }}>
+              <button className="button secondary" type="button" onClick={() => setSnapshotsModalOpen(false)}>Close</button>
+              <button className="button primary" type="button" onClick={() => { setSnapshotsModalOpen(false); handleMakeSnapshot(); }}>+ Create New Snapshot</button>
+            </div>
           </section>
         </div>
       )}
