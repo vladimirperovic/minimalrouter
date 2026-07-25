@@ -69,8 +69,9 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       }
 
       setStep(6); // Success step
-    } catch (err: any) {
-      setErrorMsg(err.message || "Neuspešna primjena podešavanja");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Neuspešna primjena podešavanja";
+      setErrorMsg(msg);
     } finally {
       setSubmitting(false);
     }

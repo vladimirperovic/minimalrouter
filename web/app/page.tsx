@@ -817,7 +817,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `minimalrouter-backup-${Date.now()}.json`;
+    a.download = "minimalrouter-backup-export.json";
     a.click();
     URL.revokeObjectURL(url);
     setBackupNotice("✓ Sigurnosna kopija (backup) uspešno preuzeta!");
@@ -1038,10 +1038,11 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initialTheme = prefersDark ? "dark" : "light";
-    setTheme(initialTheme);
-    document.documentElement.dataset.theme = initialTheme;
+    if (typeof window !== "undefined") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const initialTheme = prefersDark ? "dark" : "light";
+      document.documentElement.dataset.theme = initialTheme;
+    }
   }, []);
 
   useEffect(() => {
@@ -3157,7 +3158,7 @@ export default function Home() {
             <p className="eyebrow">Wi-Fi Access Point</p>
             <h2>Configure Wireless Network</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
-              Configure your router's wireless access point settings (SSID, WPA2/WPA3 passphrase, frequency band, and channel).
+              Configure your router&apos;s wireless access point settings (SSID, WPA2/WPA3 passphrase, frequency band, and channel).
             </p>
             <form onSubmit={handleSaveWiFi} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div>
@@ -3241,7 +3242,7 @@ export default function Home() {
             <p className="eyebrow" style={{ color: "#FF3B30" }}>Confirm Deletion</p>
             <h2>Are you sure?</h2>
             <p className="modal-copy" style={{ margin: "12px 0 24px", color: "var(--text-secondary)" }}>
-              Are you sure you want to delete <strong>"{deleteConfirmTarget.name}"</strong>? This action will immediately remove the item from the router configuration.
+              Are you sure you want to delete <strong>&quot;{deleteConfirmTarget.name}&quot;</strong>? This action will immediately remove the item from the router configuration.
             </p>
             <div className="modal-actions">
               <button className="button secondary" type="button" onClick={() => setDeleteConfirmTarget(null)}>
