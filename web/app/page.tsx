@@ -1533,14 +1533,13 @@ export default function Home() {
                       <tr>
                         <th>IP Address</th>
                         <th>Direct WAN Access</th>
-                        <th>Proxy Authentication</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {squidRestrictedIPs.length === 0 ? (
                         <tr>
-                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                          <td colSpan={3} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
                             No restricted IPs defined. All LAN devices have direct WAN access.
                           </td>
                         </tr>
@@ -1551,11 +1550,6 @@ export default function Home() {
                             <td>
                               <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
                                 🚫 Dropped (Blocked)
-                              </span>
-                            </td>
-                            <td>
-                              <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
-                                🔑 Username & Pass Required
                               </span>
                             </td>
                             <td>
