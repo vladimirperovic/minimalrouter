@@ -1447,10 +1447,6 @@ export default function Home() {
             </div>
           </section>
 
-          <footer>
-            <span>Minimal Router OS · Design preview</span>
-            <span>Local management · HTTPS only · WAN access blocked</span>
-          </footer>
         </div>
       </div>
 
