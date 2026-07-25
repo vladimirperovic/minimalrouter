@@ -1510,8 +1510,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="two-column wide-left">
-              <article className="card table-card">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 310px", gap: "20px", alignItems: "start" }}>
+              <article className="card table-card" style={{ minWidth: 0 }}>
                 <div className="card-title-row">
                   <div>
                     <h3>Restricted IP Alias Group</h3>
@@ -1582,7 +1582,7 @@ export default function Home() {
                 </div>
               </article>
 
-              <aside className="card" style={{ width: "340px", flexShrink: 0, padding: "20px", display: "flex", flexDirection: "column" }}>
+              <aside className="card" style={{ padding: "20px", display: "flex", flexDirection: "column" }}>
                 <div style={{ marginBottom: "16px" }}>
                   <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Proxy Authentication</h3>
                   <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-secondary)" }}>NCSA Basic htpasswd credentials</p>
