@@ -150,14 +150,11 @@ func DefaultConfig() SystemConfig {
 			CustomRules:           []FirewallRule{},
 		},
 		SquidProxy: SquidProxyConfig{
-			Enabled:  false,
-			Port:     3128,
-			Username: "proxyadmin",
-			Password: "",
-			RestrictedIPs: []RestrictedIPItem{
-				{Hostname: "Smart TV", IPAddress: "10.0.0.50", Enabled: true},
-				{Hostname: "Guest Laptop", IPAddress: "10.0.0.51", Enabled: true},
-			},
+			Enabled:       false,
+			Port:          3128,
+			Username:      "proxyadmin",
+			Password:      "",
+			RestrictedIPs: []RestrictedIPItem{},
 		},
 	}
 }

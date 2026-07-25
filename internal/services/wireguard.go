@@ -61,6 +61,7 @@ func GenerateWireGuard(wg *WireGuardConfig) (string, error) {
 
 		if peer.Endpoint != "" {
 			buf.WriteString(fmt.Sprintf("Endpoint = %s\n", peer.Endpoint))
+			buf.WriteString("PersistentKeepalive = 25\n")
 		}
 		buf.WriteString("\n")
 	}
