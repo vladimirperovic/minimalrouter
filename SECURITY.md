@@ -30,6 +30,9 @@ The following are not fully mitigated in version 1:
 
 - An attacker with persistent physical access
 - A compromised BIOS, hypervisor, kernel, or root account
+- Bootloader compromise or lack of UEFI Secure Boot enforcement
+- Single-user mode local console attacks (deferred to V2 encrypted root/locked bootloader)
+- LAN-side Layer 2 attacks like ARP spoofing or rogue DHCP servers (deferred to V2 managed VLAN switch integration)
 - Malicious hardware or firmware
 - Traffic analysis by the ISP
 - Denial of service that saturates the physical WAN link
@@ -80,6 +83,16 @@ Minimal Router OS automatically enforces key pfSense enterprise security protect
 8. **TCP MSS Clamping (PMTU Discovery)**: Automatic MSS clamping (`tcp flags syn tcp option maxseg size set rt mtu`) on WAN/PPPoE interfaces prevents packet fragmentation attacks and connection stalls.
 9. **WireGuard PersistentKeepalive Enforcement**: `PersistentKeepalive = 25` is automatically generated for all active WireGuard peers to maintain tunnel state behind stateful NAT firewalls.
 10. **PPPoE Password Strength Validation**: Enforced minimum 15-character password length for WAN PPPoE credentials across both Setup Wizard and REST API models.
+
+### 4.2 Kernel Hardening (sysctl)
+
+Minimal Router OS applies aggressive Linux kernel-level defaults before the `nftables` ruleset even loads:
+
+- **TCP SYN Cookies**: `net.ipv4.tcp_syncookies = 1` enabled to protect against SYN floods before firewall rules process packets.
+- **ICMP Redirects**: Disable accepting and sending ICMP redirects (`net.ipv4.conf.all.accept_redirects = 0`, `net.ipv4.conf.all.send_redirects = 0`) to prevent routing table manipulation attacks.
+- **Source Routing**: Disable IP source routing (`net.ipv4.conf.all.accept_source_route = 0`).
+- **Kernel Pointer Hiding**: `kernel.kptr_restrict = 2` and `kernel.dmesg_restrict = 1` to prevent unprivileged users (`routerd`) from inspecting kernel symbols or memory logs.
+- **BPF JIT Hardening**: `net.core.bpf_jit_harden = 2` to mitigate eBPF JIT spraying attacks.
 
 ## 5. Authentication
 
@@ -284,6 +297,15 @@ snapshots trusted against root compromise.
 - Never use Alpine's `--allow-untrusted` in installation or update paths.
 - Create a pre-update snapshot and test boot/health before declaring success.
 - Publish supported-version and security-update windows before public release.
+
+### 14.1 Go Compiler & Binary Hardening
+
+All Go executables (`routerd`, `router-applyd`, `minimalrouter-mcp`) must be compiled using strict hardening flags:
+
+- **Static Binary Compilation**: `CGO_ENABLED=0` to eliminate C-library dependency attack surfaces.
+- **Position Independent Executable**: `-buildmode=pie` to fully leverage Alpine Linux Address Space Layout Randomization (ASLR).
+- **Symbol & Path Strip**: `-trimpath -ldflags="-s -w"` to strip local filesystem paths, build flags, and debugging symbols.
+- **Checksum Verification**: `GOSUMDB` enabled to verify all Go module dependencies against the global checksum database.
 
 ## 15. Logging and auditing
 

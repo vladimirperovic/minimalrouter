@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -59,7 +60,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// CSRF check for state-changing methods (POST, PUT, DELETE, PATCH)
 		if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
 			csrfToken := r.Header.Get(auth.CSRFHeaderName)
-			if csrfToken != sess.CSRFToken {
+			if subtle.ConstantTimeCompare([]byte(csrfToken), []byte(sess.CSRFToken)) != 1 {
 				log.Printf("[AUTH] CSRF token mismatch on %s %s from %s\n", r.Method, r.URL.Path, r.RemoteAddr)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
@@ -72,29 +73,43 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// securityHeadersMiddleware sets strict web security headers on all API responses per SECURITY.md §6.
+func (s *Server) securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		next(w, r)
+	}
+}
+
 // RegisterRoutes attaches /api/v1 endpoints to the provided HTTP mux.
 // Public endpoints: /auth/login, /setup/status, /setup/apply (first-run only)
 // Protected endpoints: everything else (requires valid session)
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
+	sh := s.securityHeadersMiddleware
+
 	// ── Public endpoints (no auth required) ──
-	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
-	mux.HandleFunc("GET /api/v1/setup/status", s.handleSetupStatus)
+	mux.HandleFunc("POST /api/v1/auth/login", sh(s.handleLogin))
+	mux.HandleFunc("GET /api/v1/setup/status", sh(s.handleSetupStatus))
 
 	// ── Protected endpoints (auth required) ──
-	mux.HandleFunc("POST /api/v1/auth/logout", s.authMiddleware(s.handleLogout))
-	mux.HandleFunc("GET /api/v1/auth/session", s.authMiddleware(s.handleGetSession))
-	mux.HandleFunc("POST /api/v1/auth/change-password", s.authMiddleware(s.handleChangePassword))
+	mux.HandleFunc("POST /api/v1/auth/logout", sh(s.authMiddleware(s.handleLogout)))
+	mux.HandleFunc("GET /api/v1/auth/session", sh(s.authMiddleware(s.handleGetSession)))
+	mux.HandleFunc("POST /api/v1/auth/change-password", sh(s.authMiddleware(s.handleChangePassword)))
 
-	mux.HandleFunc("GET /api/v1/system", s.authMiddleware(s.handleGetSystem))
-	mux.HandleFunc("GET /api/v1/system/diagnostics", s.authMiddleware(s.handleGetDiagnostics))
-	mux.HandleFunc("GET /api/v1/config", s.authMiddleware(s.handleGetConfig))
-	mux.HandleFunc("PUT /api/v1/config", s.authMiddleware(s.handleUpdateConfig))
-	mux.HandleFunc("GET /api/v1/snapshots", s.authMiddleware(s.handleGetSnapshots))
-	mux.HandleFunc("POST /api/v1/snapshots", s.authMiddleware(s.handleCreateSnapshot))
-	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", s.authMiddleware(s.handleRestoreSnapshot))
+	mux.HandleFunc("GET /api/v1/system", sh(s.authMiddleware(s.handleGetSystem)))
+	mux.HandleFunc("GET /api/v1/system/diagnostics", sh(s.authMiddleware(s.handleGetDiagnostics)))
+	mux.HandleFunc("GET /api/v1/config", sh(s.authMiddleware(s.handleGetConfig)))
+	mux.HandleFunc("PUT /api/v1/config", sh(s.authMiddleware(s.handleUpdateConfig)))
+	mux.HandleFunc("GET /api/v1/snapshots", sh(s.authMiddleware(s.handleGetSnapshots)))
+	mux.HandleFunc("POST /api/v1/snapshots", sh(s.authMiddleware(s.handleCreateSnapshot)))
+	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", sh(s.authMiddleware(s.handleRestoreSnapshot)))
 
 	// ── Setup Wizard (first-run only, self-guarding) ──
-	mux.HandleFunc("POST /api/v1/setup/apply", s.handleSetupApply)
+	mux.HandleFunc("POST /api/v1/setup/apply", sh(s.handleSetupApply))
 }
 
 // ── Authentication Handlers ──

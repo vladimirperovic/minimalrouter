@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -71,13 +72,17 @@ func (sm *SessionManager) ValidateSession(r *http.Request) (*Session, error) {
 		return nil, ErrUnauthorized
 	}
 
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	session, exists := sm.sessions[cookie.Value]
-	if !exists {
+	var matchedSession *Session
+	for sid, sess := range sm.sessions {
+		if subtle.ConstantTimeCompare([]byte(sid), []byte(cookie.Value)) == 1 {
+			matchedSession = sess
+			break
+		}
+	}
+	if matchedSession == nil {
 		return nil, ErrUnauthorized
 	}
+	session := matchedSession
 
 	now := time.Now()
 	// Check Absolute & Idle timeouts per SECURITY.md §6
