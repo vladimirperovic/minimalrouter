@@ -1020,34 +1020,36 @@ export default function Home() {
             </div>
 
             <div
+              className="card"
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                padding: "12px 18px",
-                borderRadius: "14px",
-                background: "var(--surface)",
-                border: "1px solid var(--separator)",
-                marginBottom: "20px",
+                padding: "18px 22px",
+                borderRadius: "18px",
+                marginBottom: "24px",
+                gap: "24px",
                 flexWrap: "wrap",
-                gap: "12px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span className="status-label success" style={{ padding: "4px 10px", fontSize: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+                <span className="status-label success" style={{ padding: "6px 12px", fontSize: "12px", fontWeight: 650, borderRadius: "20px" }}>
                   <i className="status-dot" /> DNS Active
                 </span>
-                <span style={{ fontSize: "13px", fontWeight: 650 }}>
-                  {dnsProvider === "cloudflare" ? "Cloudflare DNS" : dnsProvider === "quad9" ? "Quad9 Malware Block" : dnsProvider === "adguard" ? "AdGuard AdBlock" : dnsProvider === "google" ? "Google DNS" : "Custom DNS"} ({dnsPrimary}, {dnsSecondary})
-                </span>
+                <div>
+                  <strong style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", display: "block" }}>
+                    {dnsProvider === "cloudflare" ? "Cloudflare DNS" : dnsProvider === "quad9" ? "Quad9 Malware Block" : dnsProvider === "adguard" ? "AdGuard AdBlock" : dnsProvider === "google" ? "Google DNS" : "Custom DNS"}
+                    <span style={{ fontWeight: 400, color: "var(--text-secondary)", marginLeft: "8px" }}>({dnsPrimary}, {dnsSecondary})</span>
+                  </strong>
+                </div>
                 {dnsOverHttps && (
-                  <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "2px 8px", borderRadius: "6px", fontWeight: 600 }}>
-                    🔒 DoH Enforced
+                  <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "4px 10px", borderRadius: "8px", fontWeight: 650, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    🔒 DoH Encrypted
                   </span>
                 )}
               </div>
-              <p style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)", maxWidth: "520px" }}>
-                DNS (Domain Name System) prevodi nazive sajtova u IP adrese za sve uređaje u kući. Enkripcija (DoH) sprečava praćenje od strane ISP provajdera.
+              <p style={{ margin: 0, fontSize: "12.5px", color: "var(--text-secondary)", maxWidth: "480px", lineHeight: 1.45, borderLeft: "1px solid var(--separator)", paddingLeft: "20px" }}>
+                DNS translates website names to IP addresses for home devices. Encrypted DNS-over-HTTPS (DoH) blocks ISP tracking.
               </p>
             </div>
 
@@ -2028,9 +2030,9 @@ export default function Home() {
             )}
 
             <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <h3 style={{ fontSize: "15px", fontWeight: 650, marginTop: "8px" }}>Promjena Administrator Lozinke (Argon2id)</h3>
+              <h3 style={{ fontSize: "15px", fontWeight: 650, marginTop: "8px" }}>Change Administrator Password (Argon2id)</h3>
               <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Trenutna lozinka</label>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Current password</label>
                 <input
                   type="password"
                   placeholder="••••••••••••"
@@ -2042,10 +2044,10 @@ export default function Home() {
               </div>
               <div style={{ display: "flex", gap: "12px" }}>
                 <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Nova lozinka (min 15 karaktera)</label>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>New password (min 15 chars)</label>
                   <input
                     type="password"
-                    placeholder="Najmanje 15 karaktera"
+                    placeholder="Minimum 15 characters"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
@@ -2053,10 +2055,10 @@ export default function Home() {
                   />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Potvrdite novu lozinku</label>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Confirm new password</label>
                   <input
                     type="password"
-                    placeholder="Ponovite lozinku"
+                    placeholder="Repeat new password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
@@ -2066,15 +2068,15 @@ export default function Home() {
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "4px" }}>
                 <button className="button primary" type="submit" style={{ fontSize: "13px", padding: "8px 18px" }}>
-                  Sačuvaj Novu Lozinku
+                  Save New Password
                 </button>
               </div>
             </form>
 
             <div style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px solid var(--separator)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <strong style={{ display: "block", fontSize: "14px" }}>Sistemska Dijagnostika</strong>
-                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Izvoz tehničkog izvještaja sa cenzurisanim tajnama</span>
+                <strong style={{ display: "block", fontSize: "14px" }}>System Diagnostics</strong>
+                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Export technical diagnostic report with redacted secrets</span>
               </div>
               <button
                 className="button secondary"
@@ -2084,24 +2086,24 @@ export default function Home() {
                   window.location.href = "/api/v1/system/diagnostics";
                 }}
               >
-                ⬇ Dijagnostika
+                ⬇ Diagnostics
               </button>
             </div>
 
             <div className="modal-actions" style={{ marginTop: "24px", borderTop: "1px solid var(--separator)", paddingTop: "16px" }}>
-              <button className="button secondary" type="button" onClick={() => setProfileModalOpen(false)}>Zatvori</button>
+              <button className="button secondary" type="button" onClick={() => setProfileModalOpen(false)}>Close</button>
               <button
                 className="button primary"
                 type="button"
                 style={{ background: "#FF3B30", borderColor: "#FF3B30" }}
                 onClick={() => {
                   fetch("/api/v1/auth/logout", { method: "POST" }).finally(() => {
-                    alert("Odjavljeni ste sa Minimal Router OS!");
+                    alert("You have been logged out of Minimal Router OS.");
                     setProfileModalOpen(false);
                   });
                 }}
               >
-                Odjavi se (Logout)
+                Sign Out (Logout)
               </button>
             </div>
           </section>
@@ -2211,14 +2213,14 @@ export default function Home() {
             style={{ maxWidth: "440px", borderRadius: "20px" }}
           >
             <button className="modal-close" type="button" onClick={() => setDeleteConfirmTarget(null)}>×</button>
-            <p className="eyebrow" style={{ color: "#FF3B30" }}>Potvrda brisanja</p>
-            <h2>Da li ste sigurni?</h2>
+            <p className="eyebrow" style={{ color: "#FF3B30" }}>Confirm Deletion</p>
+            <h2>Are you sure?</h2>
             <p className="modal-copy" style={{ margin: "12px 0 24px", color: "var(--text-secondary)" }}>
-              Da li ste sigurni da želite obrisati <strong>"{deleteConfirmTarget.name}"</strong>? Ova akcija će odmah ukloniti podešavanja iz rutera.
+              Are you sure you want to delete <strong>"{deleteConfirmTarget.name}"</strong>? This action will immediately remove the item from the router configuration.
             </p>
             <div className="modal-actions">
               <button className="button secondary" type="button" onClick={() => setDeleteConfirmTarget(null)}>
-                Otkaži
+                Cancel
               </button>
               <button
                 className="button primary"
@@ -2226,7 +2228,7 @@ export default function Home() {
                 onClick={handleConfirmDelete}
                 style={{ background: "#FF3B30", borderColor: "#FF3B30" }}
               >
-                Da, izbriši uređaj
+                Yes, Delete
               </button>
             </div>
           </section>
