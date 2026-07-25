@@ -1,0 +1,41 @@
+{
+  "revision": 2,
+  "updated_at": "2026-07-24T23:46:26.286526+02:00",
+  "system": {
+    "hostname": "minimalrouter",
+    "domain": "lan",
+    "https_enabled": true,
+    "https_port": 443
+  },
+  "wan": {
+    "interface": "eth0",
+    "enabled": true,
+    "username": "esdgsdg@sd.dbv",
+    "password": "sdbsdb3sdg",
+    "mtu": 1492,
+    "use_peer_dns": true
+  },
+  "lan": {
+    "interface": "eth1",
+    "ip_address": "192.168.1.1",
+    "netmask": "255.255.255.0",
+    "cidr": "192.168.1.1/24"
+  },
+  "dhcp": {
+    "enabled": true,
+    "range_start": "192.168.1.100",
+    "range_end": "192.168.1.200",
+    "lease_time": "12h",
+    "dns_servers": [
+      "1.1.1.1",
+      "1.0.0.1"
+    ],
+    "static_leases": []
+  },
+  "firewall": {
+    "default_wan_input_policy": "deny",
+    "stateful_firewall": true,
+    "port_forwards": [],
+    "custom_rules": []
+  }
+}

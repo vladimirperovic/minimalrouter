@@ -9,13 +9,23 @@ type Revision uint64
 
 // SystemConfig represents the complete canonical configuration model.
 type SystemConfig struct {
-	Revision  Revision       `json:"revision"`
-	UpdatedAt time.Time      `json:"updated_at"`
-	System    SystemSettings `json:"system"`
-	WAN       WANSettings    `json:"wan"`
-	LAN       LANSettings    `json:"lan"`
-	DHCP      DHCPSettings   `json:"dhcp"`
-	Firewall  FirewallConfig `json:"firewall"`
+	Revision   Revision         `json:"revision"`
+	UpdatedAt  time.Time        `json:"updated_at"`
+	System     SystemSettings   `json:"system"`
+	WAN        WANSettings      `json:"wan"`
+	LAN        LANSettings      `json:"lan"`
+	DHCP       DHCPSettings     `json:"dhcp"`
+	Firewall   FirewallConfig   `json:"firewall"`
+	SquidProxy SquidProxyConfig `json:"squid_proxy"`
+}
+
+// SquidProxyConfig holds non-caching HTTP/HTTPS proxy configuration.
+type SquidProxyConfig struct {
+	Enabled       bool     `json:"enabled"`
+	Port          int      `json:"port"`           // e.g. 3128
+	Username      string   `json:"username"`       // Proxy auth username
+	Password      string   `json:"password,omitempty"` // Proxy auth password
+	RestrictedIPs []string `json:"restricted_ips"` // IP Alias list blocked from direct WAN, forced to use proxy
 }
 
 // SystemSettings holds basic appliance metadata and management settings.
@@ -131,6 +141,13 @@ func DefaultConfig() SystemConfig {
 			StatefulFirewall:      true,
 			PortForwards:          []PortForwardRule{},
 			CustomRules:           []FirewallRule{},
+		},
+		SquidProxy: SquidProxyConfig{
+			Enabled:       false,
+			Port:          3128,
+			Username:      "proxyadmin",
+			Password:      "",
+			RestrictedIPs: []string{"10.0.0.50", "10.0.0.51"},
 		},
 	}
 }

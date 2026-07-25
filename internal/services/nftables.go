@@ -27,6 +27,16 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    ct state established,related accept\n")
 	buf.WriteString("    ct state invalid drop\n\n")
 
+	// Allow Squid Proxy if enabled
+	if cfg.SquidProxy.Enabled {
+		port := cfg.SquidProxy.Port
+		if port == 0 {
+			port = 3128
+		}
+		buf.WriteString(fmt.Sprintf("    # Allow Squid Proxy (port %d)\n", port))
+		buf.WriteString(fmt.Sprintf("    tcp dport %d accept\n\n", port))
+	}
+
 	// LAN Input permissions
 	if cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow all management and services from LAN (%s)\n", cfg.LAN.Interface))
@@ -43,6 +53,18 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    # Allow established/related\n")
 	buf.WriteString("    ct state established,related accept\n")
 	buf.WriteString("    ct state invalid drop\n\n")
+
+	// Block direct WAN access for Restricted IP Alias (Forced through Squid Proxy)
+	if cfg.SquidProxy.Enabled && len(cfg.SquidProxy.RestrictedIPs) > 0 {
+		buf.WriteString("    # Block direct WAN traffic for Restricted IP Alias (Must use Squid Proxy)\n")
+		for _, ip := range cfg.SquidProxy.RestrictedIPs {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				buf.WriteString(fmt.Sprintf("    ip saddr %s drop\n", ip))
+			}
+		}
+		buf.WriteString("\n")
+	}
 
 	// LAN -> WAN Forwarding
 	if cfg.LAN.Interface != "" {

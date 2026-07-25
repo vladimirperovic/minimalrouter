@@ -12,7 +12,8 @@ const navItems = [
   ["04", "Firewall", "firewall"],
   ["05", "WireGuard", "wireguard"],
   ["06", "Cloudflare", "cloudflare"],
-  ["07", "Recovery", "recovery"],
+  ["07", "Squid Proxy", "squid"],
+  ["08", "Recovery", "recovery"],
 ] as const;
 
 const trafficDown = [
@@ -334,6 +335,118 @@ export default function Home() {
             domain: editCfDomain,
             zone_id: editCfZone,
             api_token: editCfToken,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const [squidEnabled, setSquidEnabled] = useState(false);
+  const [squidPort, setSquidPort] = useState(3128);
+  const [squidUser, setSquidUser] = useState("proxyadmin");
+  const [squidPass, setSquidPass] = useState("");
+  const [squidRestrictedIPs, setSquidRestrictedIPs] = useState(["10.0.0.50", "10.0.0.51"]);
+  const [newRestrictedIP, setNewRestrictedIP] = useState("");
+  const [addRestrictedModalOpen, setAddRestrictedModalOpen] = useState(false);
+
+  const handleToggleSquid = (enabled: boolean) => {
+    setSquidEnabled(enabled);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.squid_proxy = {
+            ...cfg.squid_proxy,
+            enabled: enabled,
+            port: squidPort,
+            username: squidUser,
+            password: squidPass,
+            restricted_ips: squidRestrictedIPs,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleSaveSquidCreds = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.squid_proxy = {
+            ...cfg.squid_proxy,
+            enabled: squidEnabled,
+            port: squidPort,
+            username: squidUser,
+            password: squidPass,
+            restricted_ips: squidRestrictedIPs,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleAddRestrictedIP = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRestrictedIP) return;
+    const updated = [...squidRestrictedIPs, newRestrictedIP];
+    setSquidRestrictedIPs(updated);
+    setNewRestrictedIP("");
+    setAddRestrictedModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.squid_proxy = {
+            ...cfg.squid_proxy,
+            enabled: squidEnabled,
+            port: squidPort,
+            username: squidUser,
+            password: squidPass,
+            restricted_ips: updated,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleRemoveRestrictedIP = (ip: string) => {
+    const updated = squidRestrictedIPs.filter((item) => item !== ip);
+    setSquidRestrictedIPs(updated);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.squid_proxy = {
+            ...cfg.squid_proxy,
+            enabled: squidEnabled,
+            port: squidPort,
+            username: squidUser,
+            password: squidPass,
+            restricted_ips: updated,
           };
           return fetch("/api/v1/config", {
             method: "PUT",
@@ -1376,6 +1489,144 @@ export default function Home() {
             </div>
           </section>
 
+          <section className="section-block" id="squid">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Squid Proxy & Access Control</p>
+                <h2>Non-caching HTTP/HTTPS Forward Proxy</h2>
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <span className="quiet-meta">
+                  Status: <strong style={{ color: squidEnabled ? "#34C759" : "var(--text-tertiary)" }}>{squidEnabled ? "Active (Port 3128)" : "Disabled (Default)"}</strong>
+                </span>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => handleToggleSquid(!squidEnabled)}
+                  style={{ fontSize: "13px" }}
+                >
+                  {squidEnabled ? "Disable Squid" : "Enable Squid"}
+                </button>
+              </div>
+            </div>
+
+            <div className="two-column wide-left">
+              <article className="card table-card">
+                <div className="card-title-row">
+                  <div>
+                    <h3>Restricted IP Alias Group</h3>
+                    <p>Devices in this IP Alias are blocked from direct WAN access and must authenticate via Squid Proxy</p>
+                  </div>
+                  <button
+                    className="quiet-button"
+                    type="button"
+                    onClick={() => setAddRestrictedModalOpen(true)}
+                    style={{ color: "#0071E3", fontWeight: 650 }}
+                  >
+                    + Add Restricted IP
+                  </button>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <caption className="sr-only">Restricted IP Alias list</caption>
+                    <thead>
+                      <tr>
+                        <th>IP Address</th>
+                        <th>Direct WAN Access</th>
+                        <th>Proxy Authentication</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {squidRestrictedIPs.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                            No restricted IPs defined. All LAN devices have direct WAN access.
+                          </td>
+                        </tr>
+                      ) : (
+                        squidRestrictedIPs.map((ip, idx) => (
+                          <tr key={idx}>
+                            <td><code>{ip}</code></td>
+                            <td>
+                              <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                🚫 Dropped (Blocked)
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                🔑 Username & Pass Required
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveRestrictedIP(ip)}
+                                style={{
+                                  border: "none",
+                                  background: "#FF3B3015",
+                                  color: "#FF3B30",
+                                  width: "24px",
+                                  height: "24px",
+                                  borderRadius: "50%",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                  fontSize: "12px",
+                                  display: "grid",
+                                  placeItems: "center",
+                                }}
+                                title="Remove IP from restricted list"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <aside className="card cloud-card" style={{ flex: 1 }}>
+                <div className="card-title-row">
+                  <div>
+                    <h3>Proxy Authentication</h3>
+                    <p>NCSA Basic htpasswd credentials</p>
+                  </div>
+                </div>
+                <form onSubmit={handleSaveSquidCreds} style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, marginBottom: "4px" }}>Proxy Username</label>
+                    <input
+                      type="text"
+                      value={squidUser}
+                      onChange={(e) => setSquidUser(e.target.value)}
+                      style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, marginBottom: "4px" }}>Proxy Password</label>
+                    <input
+                      type="password"
+                      placeholder="••••••••"
+                      value={squidPass}
+                      onChange={(e) => setSquidPass(e.target.value)}
+                      style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                    <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Proxy Port: <strong>3128</strong></span>
+                    <button className="button primary" type="submit" style={{ fontSize: "12px", padding: "6px 14px" }}>
+                      Save Credentials
+                    </button>
+                  </div>
+                </form>
+              </aside>
+            </div>
+          </section>
+
           <section className="section-block" id="recovery">
             <div className="section-heading">
               <div>
@@ -2193,6 +2444,46 @@ export default function Home() {
               <div className="modal-actions" style={{ marginTop: '8px' }}>
                 <button className="button secondary" type="button" onClick={() => setDnsModalOpen(false)}>Cancel</button>
                 <button className="button primary" type="submit">Save DNS Settings</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {addRestrictedModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAddRestrictedModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "460px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setAddRestrictedModalOpen(false)}>×</button>
+            <p className="eyebrow">Firewall & Squid Proxy</p>
+            <h2>Add Restricted IP Alias</h2>
+            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              Direct WAN access will be blocked in nftables for this IP. The device must configure browser proxy settings to port 3128 with username & password to access the internet.
+            </p>
+            <form onSubmit={handleAddRestrictedIP} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Target Device IP Address</label>
+                <input
+                  type="text"
+                  placeholder="10.0.0.50"
+                  value={newRestrictedIP}
+                  onChange={(e) => setNewRestrictedIP(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button className="button secondary" type="button" onClick={() => setAddRestrictedModalOpen(false)}>
+                  Cancel
+                </button>
+                <button className="button primary" type="submit">
+                  Add to Restricted Group
+                </button>
               </div>
             </form>
           </section>
