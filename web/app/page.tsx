@@ -1089,28 +1089,30 @@ export default function Home() {
                           <td><strong>{lease.hostname}</strong><span>{lease.mac}</span></td>
                           <td><code>{lease.ip}</code></td>
                           <td><span className="micro-status static"><i /> Static</span></td>
-                          <td style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span>Reserved</span>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteConfirmTarget({ type: "lease", idOrIndex: idx, name: lease.hostname })}
-                              style={{
-                                border: "none",
-                                background: "#FF3B3015",
-                                color: "#FF3B30",
-                                width: "24px",
-                                height: "24px",
-                                borderRadius: "50%",
-                                cursor: "pointer",
-                                fontWeight: "bold",
-                                fontSize: "12px",
-                                display: "grid",
-                                placeItems: "center",
-                              }}
-                              title="Izbriši statički lease"
-                            >
-                              ✕
-                            </button>
+                          <td>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span>Reserved</span>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmTarget({ type: "lease", idOrIndex: idx, name: lease.hostname })}
+                                style={{
+                                  border: "none",
+                                  background: "#FF3B3015",
+                                  color: "#FF3B30",
+                                  width: "24px",
+                                  height: "24px",
+                                  borderRadius: "50%",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                  fontSize: "12px",
+                                  display: "grid",
+                                  placeItems: "center",
+                                }}
+                                title="Izbriši statički lease"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
