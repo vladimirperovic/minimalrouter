@@ -1588,37 +1588,35 @@ export default function Home() {
                 </div>
               </article>
 
-              <aside className="card cloud-card" style={{ flex: 1 }}>
-                <div className="card-title-row">
-                  <div>
-                    <h3>Proxy Authentication</h3>
-                    <p>NCSA Basic htpasswd credentials</p>
-                  </div>
+              <aside className="card" style={{ width: "340px", flexShrink: 0, padding: "20px", display: "flex", flexDirection: "column" }}>
+                <div style={{ marginBottom: "16px" }}>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Proxy Authentication</h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-secondary)" }}>NCSA Basic htpasswd credentials</p>
                 </div>
-                <form onSubmit={handleSaveSquidCreds} style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                <form onSubmit={handleSaveSquidCreds} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                   <div>
-                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, marginBottom: "4px" }}>Proxy Username</label>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Proxy Username</label>
                     <input
                       type="text"
                       value={squidUser}
                       onChange={(e) => setSquidUser(e.target.value)}
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)", fontSize: "14px" }}
                       required
                     />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: "11px", fontWeight: 600, marginBottom: "4px" }}>Proxy Password</label>
+                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Proxy Password</label>
                     <input
                       type="password"
                       placeholder="••••••••"
                       value={squidPass}
                       onChange={(e) => setSquidPass(e.target.value)}
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)", fontSize: "14px" }}
                     />
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
-                    <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Proxy Port: <strong>3128</strong></span>
-                    <button className="button primary" type="submit" style={{ fontSize: "12px", padding: "6px 14px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
+                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Proxy Port: <strong>3128</strong></span>
+                    <button className="button primary" type="submit" style={{ fontSize: "13px", padding: "8px 16px" }}>
                       Save Credentials
                     </button>
                   </div>

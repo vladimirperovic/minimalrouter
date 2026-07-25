@@ -22,15 +22,19 @@ Architecture Decision Record (ADR).
 ```mermaid
 flowchart LR
     Admin["Administrator browser or API client"]
+    AIAgent["AI Agent (Claude / Antigravity / Cursor)"]
+    MCP["minimalrouter-mcp: Model Context Protocol Server"]
     UI["Static React web UI"]
     API["routerd: Go REST API and coordinator"]
     DB[("SQLite configuration and state")]
     Apply["router-applyd: restricted privileged helper"]
-    Linux["Linux kernel and proven services"]
+    Linux["Linux kernel and proven services (nftables, dnsmasq, pppd, WireGuard, Squid)"]
     Internet["WAN / Internet"]
     LAN["LAN clients"]
 
     Admin -->|HTTPS| UI
+    AIAgent -->|JSON-RPC Stdio| MCP
+    MCP -->|/api/v1| API
     UI -->|/api/v1| API
     Admin -->|HTTPS /api/v1| API
     API --> DB
@@ -43,6 +47,13 @@ flowchart LR
 Packet forwarding never passes through the Go backend or web application.
 
 ## 4. Main components
+
+### 4.0 `minimalrouter-mcp` (MCP Server)
+
+- Official Model Context Protocol (MCP) server written in Go.
+- Allows AI agents (Claude, Antigravity, Cursor, ChatGPT) to control the appliance.
+- Communicates via JSON-RPC 2.0 stdio with strict schema validation.
+- Exposes tools for status inspection, port forwards, DNS/DoH, Squid Proxy, and snapshots.
 
 ### 4.1 Web UI
 
