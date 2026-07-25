@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
@@ -38,7 +39,11 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	// SECURITY: Rate limit setup requests to prevent brute force
-	if !s.rateLimiter.Allow(r.RemoteAddr) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	if !s.rateLimiter.Allow(ip) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Too many setup attempts. Please wait."})
@@ -61,7 +66,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req WizardSetupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req); err != nil {
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
@@ -86,11 +91,16 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.WAN.Username = req.PPPoEUsername
 	cfg.WAN.Password = req.PPPoEPassword
+	cfg.WAN.Enabled = req.PPPoEUsername != "" || req.PPPoEPassword != ""
 
 	if req.LANInterface != "" {
 		cfg.LAN.Interface = req.LANInterface
 	}
 	if req.LANIPAddress != "" {
+		if req.LANIPAddress != cfg.LAN.IPAddress {
+			http.Error(w, "Complete first-run setup on the default LAN address; change the LAN address afterward using commit-confirmed configuration", http.StatusUnprocessableEntity)
+			return
+		}
 		cfg.LAN.IPAddress = req.LANIPAddress
 		cfg.LAN.CIDR = fmt.Sprintf("%s/24", req.LANIPAddress)
 	}
@@ -107,19 +117,28 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SECURITY: Persist the hashed admin password in memory and SQLite
-	s.mu.Lock()
-	s.adminHash = hashedPassword
 	if store := s.engine.GetStore(); store != nil {
 		if err := store.SetAdminHash(hashedPassword); err != nil {
-			log.Printf("[AUTH] Failed to persist wizard password to SQLite: %v\n", err)
+			http.Error(w, "Router applied but administrator credential could not be persisted", http.StatusInternalServerError)
+			return
 		}
 	}
+	s.mu.Lock()
+	s.adminHash = hashedPassword
 	s.mu.Unlock()
 
 	log.Printf("[AUTH] Wizard completed: admin password set, system configured from %s\n", r.RemoteAddr)
+	s.appendAudit("system.setup_completed", auditActor(r.RemoteAddr), map[string]string{
+		"wan_interface": cfg.WAN.Interface,
+		"lan_interface": cfg.LAN.Interface,
+	})
 
 	// Create an initial session for the admin so they don't need to re-login
 	session := s.sessionMgr.CreateSession()
+	if session == nil {
+		http.Error(w, "Could not create a durable session", http.StatusInternalServerError)
+		return
+	}
 	s.sessionMgr.SetSessionCookie(w, session)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -127,6 +146,6 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		"success":      true,
 		"csrf_token":   session.CSRFToken,
 		"redirect_url": fmt.Sprintf("https://%s", cfg.LAN.IPAddress),
-		"tx":           tx,
+		"tx":           redactTransaction(tx),
 	})
 }

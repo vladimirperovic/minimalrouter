@@ -2,11 +2,16 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -31,15 +36,15 @@ type RPCError struct {
 }
 
 type MCPTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
 	InputSchema ToolSchema `json:"inputSchema"`
 }
 
 type ToolSchema struct {
-	Type       string                 `json:"type"`
+	Type       string                `json:"type"`
 	Properties map[string]PropSchema `json:"properties"`
-	Required   []string               `json:"required,omitempty"`
+	Required   []string              `json:"required,omitempty"`
 }
 
 type PropSchema struct {
@@ -47,12 +52,26 @@ type PropSchema struct {
 	Description string `json:"description"`
 }
 
-var routerAPIURL = "http://127.0.0.1:8080"
+var routerAPIURL = "https://192.168.1.1:8443"
+var routerClient *apiClient
+var allowMutations bool
+
+type apiClient struct {
+	http *http.Client
+	csrf string
+}
 
 func main() {
 	if envURL := os.Getenv("MINIMALROUTER_API_URL"); envURL != "" {
 		routerAPIURL = envURL
 	}
+	allowMutations = os.Getenv("MINIMALROUTER_MCP_MODE") == "admin"
+	client, err := newAPIClient()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "minimalrouter-mcp: secure API initialization failed: %v\n", err)
+		os.Exit(1)
+	}
+	routerClient = client
 
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -73,6 +92,85 @@ func main() {
 	}
 }
 
+func newAPIClient() (*apiClient, error) {
+	endpoint, err := url.Parse(routerAPIURL)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" ||
+		endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return nil, fmt.Errorf("MINIMALROUTER_API_URL must be a plain HTTPS origin")
+	}
+	caPath := os.Getenv("MINIMALROUTER_CA_CERT")
+	passwordPath := os.Getenv("MINIMALROUTER_PASSWORD_FILE")
+	if caPath == "" || passwordPath == "" {
+		return nil, fmt.Errorf("MINIMALROUTER_CA_CERT and MINIMALROUTER_PASSWORD_FILE are required")
+	}
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("read router CA certificate: %w", err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		return nil, fmt.Errorf("router CA certificate is invalid")
+	}
+	info, err := os.Stat(passwordPath)
+	if err != nil {
+		return nil, fmt.Errorf("read password-file metadata: %w", err)
+	}
+	if info.Mode().Perm()&0077 != 0 {
+		return nil, fmt.Errorf("password file must not be accessible by group or others")
+	}
+	password, err := os.ReadFile(passwordPath)
+	if err != nil {
+		return nil, fmt.Errorf("read password file: %w", err)
+	}
+	jar, _ := cookiejar.New(nil)
+	client := &apiClient{
+		http: &http.Client{
+			Timeout: 10 * time.Second,
+			Jar:     jar,
+			Transport: &http.Transport{TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    roots,
+			}},
+		},
+	}
+	loginBody, _ := json.Marshal(map[string]interface{}{
+		"password":  strings.TrimSpace(string(password)),
+		"totp_code": strings.TrimSpace(os.Getenv("MINIMALROUTER_TOTP_CODE")),
+		"read_only": !allowMutations,
+	})
+	response, err := client.http.Post(routerAPIURL+"/api/v1/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		return nil, fmt.Errorf("router login: %w", err)
+	}
+	defer response.Body.Close()
+	var login struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&login) != nil || login.CSRFToken == "" {
+		return nil, fmt.Errorf("router authentication rejected")
+	}
+	client.csrf = login.CSRFToken
+	return client, nil
+}
+
+func (c *apiClient) do(method, path string, body []byte) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, routerAPIURL+path, reader)
+	if err != nil {
+		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if method != http.MethodGet && method != http.MethodHead {
+		req.Header.Set("X-CSRF-Token", c.csrf)
+	}
+	return c.http.Do(req)
+}
+
 func handleRPCRequest(req JSONRPCRequest) *JSONRPCResponse {
 	switch req.Method {
 	case "initialize":
@@ -88,7 +186,7 @@ func handleRPCRequest(req JSONRPCRequest) *JSONRPCResponse {
 					"name":    "minimalrouter-mcp",
 					"version": "1.0.0",
 				},
-				"instructions": "Official Minimal Router OS MCP Server. Allows AI agents to inspect metrics, configure firewall rules, manage DNS/DoH, control Squid proxy, add port forwards, and perform snapshots/rollbacks.",
+				"instructions": mcpInstructions(),
 			},
 		}
 
@@ -157,7 +255,7 @@ func handleRPCRequest(req JSONRPCRequest) *JSONRPCResponse {
 }
 
 func getToolList() []MCPTool {
-	return []MCPTool{
+	tools := []MCPTool{
 		{
 			Name:        "get_router_status",
 			Description: "Get live Minimal Router OS system status including public IP, uptime, WAN connection state, and active DHCP leases.",
@@ -174,59 +272,24 @@ func getToolList() []MCPTool {
 				Properties: map[string]PropSchema{},
 			},
 		},
-		{
-			Name:        "add_port_forward",
-			Description: "Add a port forwarding rule to redirect WAN external traffic to a specific LAN IP address and port.",
-			InputSchema: ToolSchema{
-				Type: "object",
-				Properties: map[string]PropSchema{
-					"name":          {Type: "string", Description: "Rule name (e.g. 'Home Assistant')"},
-					"protocol":      {Type: "string", Description: "Protocol: 'tcp', 'udp', or 'both'"},
-					"external_port": {Type: "integer", Description: "External WAN port (e.g. 8123)"},
-					"internal_ip":   {Type: "string", Description: "Target internal LAN IP (e.g. '192.168.1.10')"},
-					"internal_port": {Type: "integer", Description: "Target internal port (e.g. 8123)"},
-				},
-				Required: []string{"name", "protocol", "external_port", "internal_ip", "internal_port"},
-			},
-		},
-		{
-			Name:        "block_device_ip",
-			Description: "Block an IP address from direct WAN internet access in nftables firewall and add it to Squid Proxy restricted group.",
-			InputSchema: ToolSchema{
-				Type: "object",
-				Properties: map[string]PropSchema{
-					"ip_address": {Type: "string", Description: "Target IP address to restrict (e.g. '192.168.1.50')"},
-				},
-				Required: []string{"ip_address"},
-			},
-		},
-		{
+	}
+	if !allowMutations {
+		return tools
+	}
+	return append(tools,
+		MCPTool{
 			Name:        "configure_dns",
-			Description: "Configure router upstream DNS servers (Cloudflare, Quad9, AdGuard, Google) and enable/disable DNS-over-HTTPS (DoH).",
+			Description: "Configure the router's validated upstream DNS server IP addresses.",
 			InputSchema: ToolSchema{
 				Type: "object",
 				Properties: map[string]PropSchema{
 					"primary_dns":   {Type: "string", Description: "Primary DNS IP (e.g. '1.1.1.1')"},
 					"secondary_dns": {Type: "string", Description: "Secondary DNS IP (e.g. '1.0.0.1')"},
-					"doh_enabled":   {Type: "boolean", Description: "Enforce DNS-over-HTTPS privacy encryption"},
 				},
 				Required: []string{"primary_dns", "secondary_dns"},
 			},
 		},
-		{
-			Name:        "configure_squid_proxy",
-			Description: "Enable or disable Squid forward proxy and set authentication credentials.",
-			InputSchema: ToolSchema{
-				Type: "object",
-				Properties: map[string]PropSchema{
-					"enabled":  {Type: "boolean", Description: "Enable or disable Squid Proxy"},
-					"username": {Type: "string", Description: "Proxy authentication username"},
-					"password": {Type: "string", Description: "Proxy authentication password"},
-				},
-				Required: []string{"enabled"},
-			},
-		},
-		{
+		MCPTool{
 			Name:        "create_snapshot",
 			Description: "Take an immediate system state snapshot before applying configuration changes.",
 			InputSchema: ToolSchema{
@@ -237,26 +300,27 @@ func getToolList() []MCPTool {
 				Required: []string{"label"},
 			},
 		},
-		{
+		MCPTool{
 			Name:        "rollback_snapshot",
-			Description: "Restore router configuration state to a previous revision ID.",
+			Description: "Restore router configuration from an immutable snapshot ID.",
 			InputSchema: ToolSchema{
 				Type: "object",
 				Properties: map[string]PropSchema{
-					"revision": {Type: "integer", Description: "Revision ID to restore"},
+					"snapshot_id": {Type: "string", Description: "Snapshot ID returned by the snapshots API"},
 				},
-				Required: []string{"revision"},
+				Required: []string{"snapshot_id"},
 			},
 		},
-	}
+	)
 }
 
 func executeToolCall(name string, args map[string]interface{}) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Second}
-
+	if isMutationTool(name) && !allowMutations {
+		return "", fmt.Errorf("mutation tool %q is disabled; MCP starts read-only unless MINIMALROUTER_MCP_MODE=admin is explicitly set locally", name)
+	}
 	switch name {
 	case "get_router_status":
-		resp, err := client.Get(routerAPIURL + "/api/v1/system")
+		resp, err := routerClient.do(http.MethodGet, "/api/v1/system", nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch status: %w", err)
 		}
@@ -265,7 +329,7 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		return string(body), nil
 
 	case "get_full_config":
-		resp, err := client.Get(routerAPIURL + "/api/v1/config")
+		resp, err := routerClient.do(http.MethodGet, "/api/v1/config", nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch config: %w", err)
 		}
@@ -274,7 +338,7 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		return string(body), nil
 
 	case "add_port_forward":
-		cfg, err := fetchConfig(client)
+		cfg, err := fetchConfig()
 		if err != nil {
 			return "", err
 		}
@@ -297,88 +361,37 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		}
 		cfg["firewall"].(map[string]interface{})["port_forwards"] = append(pfRules, newRule)
 
-		if err := saveConfig(client, cfg); err != nil {
+		if err := saveConfig(cfg); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Successfully added port forward rule '%s' (%s:%d -> %s:%d)", name, proto, int(extPortFloat), intIP, int(intPortFloat)), nil
 
 	case "block_device_ip":
-		cfg, err := fetchConfig(client)
-		if err != nil {
-			return "", err
-		}
-
-		ip, _ := args["ip_address"].(string)
-		squidCfg, _ := cfg["squid_proxy"].(map[string]interface{})
-		if squidCfg == nil {
-			squidCfg = map[string]interface{}{
-				"enabled":        true,
-				"port":           3128,
-				"username":       "proxyadmin",
-				"restricted_ips": []interface{}{},
-			}
-		}
-
-		restricted, _ := squidCfg["restricted_ips"].([]interface{})
-		newItem := map[string]interface{}{"ip_address": ip, "enabled": true}
-		squidCfg["restricted_ips"] = append(restricted, newItem)
-		cfg["squid_proxy"] = squidCfg
-
-		if err := saveConfig(client, cfg); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Successfully blocked direct WAN access for IP '%s' in nftables and routed via Squid Proxy.", ip), nil
+		return "", fmt.Errorf("Squid policy is disabled until its privileged lifecycle adapter is implemented")
 
 	case "configure_dns":
-		cfg, err := fetchConfig(client)
+		cfg, err := fetchConfig()
 		if err != nil {
 			return "", err
 		}
 
 		pri, _ := args["primary_dns"].(string)
 		sec, _ := args["secondary_dns"].(string)
-		doh, _ := args["doh_enabled"].(bool)
-
 		dhcpCfg, _ := cfg["dhcp"].(map[string]interface{})
 		dhcpCfg["dns_servers"] = []interface{}{pri, sec}
 
-		if err := saveConfig(client, cfg); err != nil {
+		if err := saveConfig(cfg); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Successfully updated DNS servers to [%s, %s] (DoH Enforced: %t).", pri, sec, doh), nil
+		return fmt.Sprintf("Successfully updated DNS servers to [%s, %s].", pri, sec), nil
 
 	case "configure_squid_proxy":
-		cfg, err := fetchConfig(client)
-		if err != nil {
-			return "", err
-		}
-
-		enabled, _ := args["enabled"].(bool)
-		user, _ := args["username"].(string)
-		pass, _ := args["password"].(string)
-
-		squidCfg, _ := cfg["squid_proxy"].(map[string]interface{})
-		if squidCfg == nil {
-			squidCfg = map[string]interface{}{"port": 3128}
-		}
-		squidCfg["enabled"] = enabled
-		if user != "" {
-			squidCfg["username"] = user
-		}
-		if pass != "" {
-			squidCfg["password"] = pass
-		}
-		cfg["squid_proxy"] = squidCfg
-
-		if err := saveConfig(client, cfg); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Successfully updated Squid Proxy (Enabled: %t, User: %s).", enabled, user), nil
+		return "", fmt.Errorf("Squid configuration is disabled until its privileged lifecycle adapter is implemented")
 
 	case "create_snapshot":
 		label, _ := args["label"].(string)
 		reqBody, _ := json.Marshal(map[string]string{"label": label})
-		resp, err := client.Post(routerAPIURL+"/api/v1/snapshots", "application/json", bytes.NewBuffer(reqBody))
+		resp, err := routerClient.do(http.MethodPost, "/api/v1/snapshots", reqBody)
 		if err != nil {
 			return "", fmt.Errorf("failed to create snapshot: %w", err)
 		}
@@ -387,9 +400,8 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		return string(body), nil
 
 	case "rollback_snapshot":
-		revFloat, _ := args["revision"].(float64)
-		revID := int(revFloat)
-		resp, err := client.Post(fmt.Sprintf("%s/api/v1/snapshots/%d/restore", routerAPIURL, revID), "application/json", nil)
+		snapshotID, _ := args["snapshot_id"].(string)
+		resp, err := routerClient.do(http.MethodPost, "/api/v1/snapshots/"+url.PathEscape(snapshotID)+"/restore", []byte("{}"))
 		if err != nil {
 			return "", fmt.Errorf("failed to restore snapshot: %w", err)
 		}
@@ -402,8 +414,24 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 	}
 }
 
-func fetchConfig(client *http.Client) (map[string]interface{}, error) {
-	resp, err := client.Get(routerAPIURL + "/api/v1/config")
+func mcpInstructions() string {
+	if allowMutations {
+		return "Minimal Router OS MCP Server in explicit admin mode. Configuration-changing calls still pass through router validation, CSRF protection, snapshots, and rollback."
+	}
+	return "Minimal Router OS MCP Server in read-only mode. AI clients can inspect redacted status and configuration but cannot change router state."
+}
+
+func isMutationTool(name string) bool {
+	switch name {
+	case "add_port_forward", "block_device_ip", "configure_dns", "configure_squid_proxy", "create_snapshot", "rollback_snapshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func fetchConfig() (map[string]interface{}, error) {
+	resp, err := routerClient.do(http.MethodGet, "/api/v1/config", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch config: %w", err)
 	}
@@ -416,25 +444,19 @@ func fetchConfig(client *http.Client) (map[string]interface{}, error) {
 	return cfg, nil
 }
 
-func saveConfig(client *http.Client, cfg map[string]interface{}) error {
+func saveConfig(cfg map[string]interface{}) error {
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
 
-	req, err := http.NewRequest("PUT", routerAPIURL+"/api/v1/config", bytes.NewBuffer(data))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
+	resp, err := routerClient.do(http.MethodPut, "/api/v1/config", data)
 	if err != nil {
 		return fmt.Errorf("failed to send config update: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("config update failed with status %d: %s", resp.StatusCode, string(body))
 	}

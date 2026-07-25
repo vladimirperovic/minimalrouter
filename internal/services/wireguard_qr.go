@@ -2,8 +2,12 @@ package services
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
-	"strings"
+
+	"golang.org/x/crypto/curve25519"
+	"rsc.io/qr"
 )
 
 // ClientConfigBundle holds client configuration text and QR code payload.
@@ -20,7 +24,7 @@ func GenerateClientConfig(
 	serverEndpoint string,
 	presharedKey string,
 	dnsServers string,
-) ClientConfigBundle {
+) (ClientConfigBundle, error) {
 	var buf bytes.Buffer
 
 	buf.WriteString("[Interface]\n")
@@ -43,13 +47,54 @@ func GenerateClientConfig(
 		buf.WriteString(fmt.Sprintf("Endpoint = %s\n", serverEndpoint))
 	}
 
-	buf.WriteString("AllowedIPs = 0.0.0.0/0, ::/0\n")
+	buf.WriteString("AllowedIPs = 0.0.0.0/0\n")
 	buf.WriteString("PersistentKeepalive = 25\n")
 
 	confText := buf.String()
+	code, err := qr.Encode(confText, qr.M)
+	if err != nil {
+		return ClientConfigBundle{}, fmt.Errorf("encode WireGuard QR: %w", err)
+	}
 
 	return ClientConfigBundle{
 		ConfigText: confText,
-		QRCodeData: fmt.Sprintf("data:text/plain;base64,%s", strings.TrimSpace(confText)),
+		QRCodeData: "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()),
+	}, nil
+}
+
+// GenerateWireGuardKeypair creates an RFC 7748 X25519 keypair in WireGuard's
+// standard base64 representation.
+func GenerateWireGuardKeypair() (privateKey, publicKey string, err error) {
+	private := make([]byte, curve25519.ScalarSize)
+	if _, err := rand.Read(private); err != nil {
+		return "", "", fmt.Errorf("generate WireGuard private key: %w", err)
 	}
+	private[0] &= 248
+	private[31] &= 127
+	private[31] |= 64
+	public, err := curve25519.X25519(private, curve25519.Basepoint)
+	if err != nil {
+		return "", "", fmt.Errorf("derive WireGuard public key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(private), base64.StdEncoding.EncodeToString(public), nil
+}
+
+func WireGuardPublicKey(privateKey string) (string, error) {
+	private, err := base64.StdEncoding.DecodeString(privateKey)
+	if err != nil || len(private) != curve25519.ScalarSize {
+		return "", fmt.Errorf("invalid WireGuard private key")
+	}
+	public, err := curve25519.X25519(private, curve25519.Basepoint)
+	if err != nil {
+		return "", fmt.Errorf("derive WireGuard public key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(public), nil
+}
+
+func GenerateWireGuardPresharedKey() (string, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", fmt.Errorf("generate WireGuard preshared key: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(key), nil
 }

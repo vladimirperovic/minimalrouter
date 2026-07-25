@@ -1,0 +1,4 @@
+# Kernel modules required before router-applyd performs component preflight.
+ppp_generic
+pppox
+wireguard

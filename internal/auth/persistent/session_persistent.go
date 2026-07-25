@@ -37,32 +37,46 @@ func (psm *PersistentSessionManager) loadSessions() {
 	// A production system might load recent sessions
 }
 
-func generateRandomHex(n int) string {
+func generateRandomHex(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // CreateSession allocates a new random 256-bit session ID and CSRF token, persists to SQLite.
 func (psm *PersistentSessionManager) CreateSession() *auth.Session {
+	return psm.CreateSessionWithMode(false)
+}
+
+// CreateSessionWithMode persists the server-enforced privilege level with the
+// session so a restart cannot turn an observer session into an administrator.
+func (psm *PersistentSessionManager) CreateSessionWithMode(readOnly bool) *auth.Session {
 	psm.mu.Lock()
 	defer psm.mu.Unlock()
 
+	sessionID, err := generateRandomHex(32)
+	if err != nil {
+		return nil
+	}
+	csrfToken, err := generateRandomHex(32)
+	if err != nil {
+		return nil
+	}
 	now := time.Now()
 	session := &auth.Session{
-		ID:        generateRandomHex(32), // 256 bits
-		CSRFToken: generateRandomHex(16),
+		ID:        sessionID,
+		CSRFToken: csrfToken,
+		ReadOnly:  readOnly,
 		CreatedAt: now,
 		LastSeen:  now,
 	}
 
-	psm.sessions[session.ID] = session
-
-	// Persist to SQLite (non-blocking, log error)
-	if err := psm.store.CreateSession(session.ID, session.CSRFToken, session.CreatedAt, session.LastSeen); err != nil {
-		// Log but don't fail - session will work in memory
-		// In production, this should be handled more gracefully
+	if err := psm.store.CreateSession(session.ID, session.CSRFToken, session.ReadOnly, session.CreatedAt, session.LastSeen); err != nil {
+		return nil
 	}
+	psm.sessions[session.ID] = session
 
 	return session
 }
@@ -82,28 +96,35 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	psm.mu.RUnlock()
 
 	if exists {
+		psm.mu.Lock()
+		session, exists = psm.sessions[sessionID]
+		if !exists {
+			psm.mu.Unlock()
+			return nil, auth.ErrUnauthorized
+		}
 		now := time.Now()
 		if now.Sub(session.CreatedAt) > auth.AbsoluteTimeout || now.Sub(session.LastSeen) > auth.IdleTimeout {
-			psm.mu.RUnlock()
-			psm.DestroySession(r, nil) // Will clean up both memory and DB
+			delete(psm.sessions, sessionID)
+			psm.mu.Unlock()
+			_ = psm.store.DeleteSession(sessionID)
 			return nil, auth.ErrUnauthorized
 		}
 		session.LastSeen = now
-		// Update last_seen in SQLite periodically (not on every request)
-		// For simplicity, we update on every validation
-		go psm.store.UpdateSessionLastSeen(sessionID, now)
-		return session, nil
+		copy := *session
+		psm.mu.Unlock()
+		_ = psm.store.UpdateSessionLastSeen(sessionID, now)
+		return &copy, nil
 	}
 
 	// Not in cache - load from SQLite
-	csrfToken, createdAt, lastSeen, err := psm.store.GetSession(sessionID)
+	csrfToken, readOnly, createdAt, lastSeen, err := psm.store.GetSession(sessionID)
 	if err != nil {
 		return nil, auth.ErrUnauthorized
 	}
 
 	now := time.Now()
 	if now.Sub(createdAt) > auth.AbsoluteTimeout || now.Sub(lastSeen) > auth.IdleTimeout {
-		go psm.store.DeleteSession(sessionID)
+		_ = psm.store.DeleteSession(sessionID)
 		return nil, auth.ErrUnauthorized
 	}
 
@@ -111,6 +132,7 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	session = &auth.Session{
 		ID:        sessionID,
 		CSRFToken: csrfToken,
+		ReadOnly:  readOnly,
 		CreatedAt: createdAt,
 		LastSeen:  now,
 	}
@@ -118,8 +140,9 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	psm.sessions[sessionID] = session
 	psm.mu.Unlock()
 
-	go psm.store.UpdateSessionLastSeen(sessionID, now)
-	return session, nil
+	_ = psm.store.UpdateSessionLastSeen(sessionID, now)
+	copy := *session
+	return &copy, nil
 }
 
 // DestroySession invalidates the active session (both memory and SQLite).
@@ -132,10 +155,13 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 		delete(psm.sessions, sessionID)
 		psm.mu.Unlock()
 
-		go psm.store.DeleteSession(sessionID)
+		_ = psm.store.DeleteSession(sessionID)
 	}
 
 	// Expire cookie
+	if w == nil {
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    "",
@@ -145,6 +171,14 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+// DestroyAllSessions synchronously clears the cache and persistent store.
+func (psm *PersistentSessionManager) DestroyAllSessions() error {
+	psm.mu.Lock()
+	clear(psm.sessions)
+	psm.mu.Unlock()
+	return psm.store.DeleteAllSessions()
 }
 
 // SetSessionCookie attaches HTTP-only, Secure, SameSite=Strict cookie to response.
@@ -174,6 +208,6 @@ func (psm *PersistentSessionManager) cleanLoop() {
 		psm.mu.Unlock()
 
 		// Clean SQLite
-		go psm.store.CleanExpiredSessions(auth.IdleTimeout, auth.AbsoluteTimeout)
+		_ = psm.store.CleanExpiredSessions(auth.IdleTimeout, auth.AbsoluteTimeout)
 	}
 }

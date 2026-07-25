@@ -16,10 +16,40 @@ type SystemConfig struct {
 	LAN        LANSettings      `json:"lan"`
 	DHCP       DHCPSettings     `json:"dhcp"`
 	Firewall   FirewallConfig   `json:"firewall"`
+	WireGuard  WireGuardConfig  `json:"wireguard"`
+	Cloudflare CloudflareConfig `json:"cloudflare"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 	AdGuard    AdGuardConfig    `json:"adguard"`
 	QoS        QoSConfig        `json:"qos"`
 	WiFi       WiFiConfig       `json:"wifi"`
+}
+
+type WireGuardConfig struct {
+	Enabled    bool            `json:"enabled"`
+	Interface  string          `json:"interface"`
+	PrivateKey string          `json:"private_key,omitempty"`
+	ListenPort int             `json:"listen_port"`
+	Address    string          `json:"address"`
+	Peers      []WireGuardPeer `json:"peers"`
+}
+
+type WireGuardPeer struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	PublicKey    string   `json:"public_key"`
+	PresharedKey string   `json:"preshared_key,omitempty"`
+	AllowedIPs   []string `json:"allowed_ips"`
+	Endpoint     string   `json:"endpoint,omitempty"`
+	Enabled      bool     `json:"enabled"`
+}
+
+type CloudflareConfig struct {
+	DDNSEnabled   bool   `json:"ddns_enabled"`
+	APIToken      string `json:"api_token,omitempty"`
+	ZoneID        string `json:"zone_id"`
+	Domain        string `json:"domain"`
+	TunnelEnabled bool   `json:"tunnel_enabled"`
+	TunnelToken   string `json:"tunnel_token,omitempty"`
 }
 
 // WiFiConfig holds hostapd Wi-Fi Access Point configuration settings.
@@ -76,20 +106,21 @@ type SquidProxyConfig struct {
 
 // SystemSettings holds basic appliance metadata and management settings.
 type SystemSettings struct {
-	Hostname   string `json:"hostname"`
-	Domain     string `json:"domain"`
-	HTTPSEnabled bool `json:"https_enabled"`
-	HTTPSPort  int    `json:"https_port"`
+	Hostname         string `json:"hostname"`
+	Domain           string `json:"domain"`
+	HTTPSEnabled     bool   `json:"https_enabled"`
+	HTTPSPort        int    `json:"https_port"`
+	ManagementAccess string `json:"management_access"` // lan_and_wireguard or wireguard_only
 }
 
 // WANSettings holds PPPoE internet connection configuration.
 type WANSettings struct {
-	Interface string `json:"interface"` // e.g. "eth0"
-	Enabled   bool   `json:"enabled"`
-	Username  string `json:"username"`
-	Password  string `json:"password,omitempty"` // Omitted in status, set on change
-	MTU       int    `json:"mtu"`
-	UsePeerDNS bool  `json:"use_peer_dns"`
+	Interface  string `json:"interface"` // e.g. "eth0"
+	Enabled    bool   `json:"enabled"`
+	Username   string `json:"username"`
+	Password   string `json:"password,omitempty"` // Omitted in status, set on change
+	MTU        int    `json:"mtu"`
+	UsePeerDNS bool   `json:"use_peer_dns"`
 }
 
 // LANSettings holds local network configuration.
@@ -103,10 +134,10 @@ type LANSettings struct {
 // DHCPSettings holds dnsmasq DHCP server configuration and static leases.
 type DHCPSettings struct {
 	Enabled      bool          `json:"enabled"`
-	RangeStart   string        `json:"range_start"`   // e.g. "192.168.1.100"
-	RangeEnd     string        `json:"range_end"`     // e.g. "192.168.1.200"
-	LeaseTime    string        `json:"lease_time"`    // e.g. "12h"
-	DNSServers   []string      `json:"dns_servers"`   // e.g. ["1.1.1.1", "8.8.8.8"]
+	RangeStart   string        `json:"range_start"` // e.g. "192.168.1.100"
+	RangeEnd     string        `json:"range_end"`   // e.g. "192.168.1.200"
+	LeaseTime    string        `json:"lease_time"`  // e.g. "12h"
+	DNSServers   []string      `json:"dns_servers"` // e.g. ["1.1.1.1", "8.8.8.8"]
 	StaticLeases []StaticLease `json:"static_leases"`
 }
 
@@ -121,6 +152,7 @@ type StaticLease struct {
 // FirewallConfig holds packet filtering and NAT port forwarding rules.
 type FirewallConfig struct {
 	DefaultWANInputPolicy string            `json:"default_wan_input_policy"` // "deny"
+	WANIngressMode        string            `json:"wan_ingress_mode"`         // "wireguard_only"
 	StatefulFirewall      bool              `json:"stateful_firewall"`
 	PortForwards          []PortForwardRule `json:"port_forwards"`
 	CustomRules           []FirewallRule    `json:"custom_rules"`
@@ -155,14 +187,15 @@ func DefaultConfig() SystemConfig {
 		Revision:  1,
 		UpdatedAt: time.Now(),
 		System: SystemSettings{
-			Hostname:     "minimalrouter",
-			Domain:       "lan",
-			HTTPSEnabled: true,
-			HTTPSPort:    443,
+			Hostname:         "minimalrouter",
+			Domain:           "lan",
+			HTTPSEnabled:     true,
+			HTTPSPort:        8443,
+			ManagementAccess: "lan_and_wireguard",
 		},
 		WAN: WANSettings{
 			Interface:  "eth0",
-			Enabled:    true,
+			Enabled:    false,
 			Username:   "",
 			Password:   "",
 			MTU:        1492,
@@ -175,18 +208,35 @@ func DefaultConfig() SystemConfig {
 			CIDR:      "192.168.1.1/24",
 		},
 		DHCP: DHCPSettings{
-			Enabled:    true,
-			RangeStart: "192.168.1.100",
-			RangeEnd:   "192.168.1.200",
-			LeaseTime:  "12h",
-			DNSServers: []string{"1.1.1.1", "1.0.0.1"},
+			Enabled:      true,
+			RangeStart:   "192.168.1.100",
+			RangeEnd:     "192.168.1.200",
+			LeaseTime:    "12h",
+			DNSServers:   []string{"1.1.1.1", "1.0.0.1"},
 			StaticLeases: []StaticLease{},
 		},
 		Firewall: FirewallConfig{
 			DefaultWANInputPolicy: "deny",
+			WANIngressMode:        "wireguard_only",
 			StatefulFirewall:      true,
 			PortForwards:          []PortForwardRule{},
 			CustomRules:           []FirewallRule{},
+		},
+		WireGuard: WireGuardConfig{
+			Enabled:    false,
+			Interface:  "wg0",
+			PrivateKey: "",
+			ListenPort: 51820,
+			Address:    "10.8.0.1/24",
+			Peers:      []WireGuardPeer{},
+		},
+		Cloudflare: CloudflareConfig{
+			DDNSEnabled:   false,
+			APIToken:      "",
+			ZoneID:        "",
+			Domain:        "",
+			TunnelEnabled: false,
+			TunnelToken:   "",
 		},
 		SquidProxy: SquidProxyConfig{
 			Enabled:       false,
@@ -211,7 +261,7 @@ func DefaultConfig() SystemConfig {
 			Enabled:    false,
 			Interface:  "wlan0",
 			SSID:       "MinimalRouter-Home",
-			Passphrase: "change-this-wifi-pass",
+			Passphrase: "",
 			Band:       "5ghz",
 			Channel:    36,
 			HideSSID:   false,

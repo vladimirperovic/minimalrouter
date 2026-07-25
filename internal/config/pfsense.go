@@ -1,20 +1,30 @@
 package config
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net"
+	"sort"
 	"strings"
 	"time"
 )
 
+const maxPfSenseXMLBytes = 8 << 20
+
 // PfSenseConfig represents the XML structure of an exported pfSense config.xml file.
 type PfSenseConfig struct {
 	XMLName    xml.Name          `xml:"pfsense"`
+	Version    string            `xml:"version"`
 	System     PfSenseSystem     `xml:"system"`
 	Interfaces PfSenseInterfaces `xml:"interfaces"`
 	DHCPD      PfSenseDHCPD      `xml:"dhcpd"`
 	NAT        PfSenseNAT        `xml:"nat"`
 	PPPs       PfSensePPPs       `xml:"ppps"`
+	Filter     PfSenseFilter     `xml:"filter"`
+	Aliases    PfSenseAliases    `xml:"aliases"`
+	VLANs      PfSenseVLANs      `xml:"vlans"`
 }
 
 type PfSenseSystem struct {
@@ -69,23 +79,78 @@ type PfSenseNAT struct {
 }
 
 type PfSenseNATRule struct {
-	Descr        string `xml:"descr"`
-	Protocol     string `xml:"protocol"`
-	ExternalPort string `xml:"external-port"`
-	Target       string `xml:"target"`
-	LocalPort    string `xml:"local-port"`
-	Disabled     string `xml:"disabled"`
+	Descr        string             `xml:"descr"`
+	Interface    string             `xml:"interface"`
+	Protocol     string             `xml:"protocol"`
+	ExternalPort string             `xml:"external-port"`
+	Destination  PfSenseNATEndpoint `xml:"destination"`
+	Target       string             `xml:"target"`
+	LocalPort    string             `xml:"local-port"`
+	Disabled     string             `xml:"disabled"`
 }
 
-// ImportPfSenseXML parses raw pfSense XML content and converts it into a Minimal Router SystemConfig.
-func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
+type PfSenseNATEndpoint struct {
+	Port string `xml:"port"`
+}
+
+type PfSenseFilter struct {
+	Rules []struct{} `xml:"rule"`
+}
+
+type PfSenseAliases struct {
+	Aliases []struct{} `xml:"alias"`
+}
+
+type PfSenseVLANs struct {
+	VLANs []struct{} `xml:"vlan"`
+}
+
+// PfSenseInterfaceMapping is mandatory because pfSense/FreeBSD names such as
+// em0 or igb1 are not stable Linux interface identifiers on the target.
+type PfSenseInterfaceMapping struct {
+	WAN string `json:"wan"`
+	LAN string `json:"lan"`
+}
+
+type PfSenseImportReport struct {
+	Config              SystemConfig   `json:"config"`
+	SourceVersion       string         `json:"source_version,omitempty"`
+	Warnings            []string       `json:"warnings"`
+	UnsupportedSections []string       `json:"unsupported_sections"`
+	Imported            map[string]int `json:"imported"`
+}
+
+// ImportPfSenseXML parses a pfSense config.xml using an explicit target
+// interface mapping. Unsupported settings are reported rather than silently
+// pretending that the migration is complete.
+func ImportPfSenseXMLWithMapping(xmlContent []byte, mapping PfSenseInterfaceMapping) (PfSenseImportReport, error) {
+	if len(xmlContent) == 0 || len(xmlContent) > maxPfSenseXMLBytes {
+		return PfSenseImportReport{}, fmt.Errorf("pfSense XML must be between 1 byte and %d bytes", maxPfSenseXMLBytes)
+	}
+	if !validInterfaceName(mapping.WAN) || !validInterfaceName(mapping.LAN) || mapping.WAN == mapping.LAN {
+		return PfSenseImportReport{}, fmt.Errorf("valid, distinct target WAN and LAN interfaces are required")
+	}
+
 	var pf PfSenseConfig
-	if err := xml.Unmarshal(xmlContent, &pf); err != nil {
-		return SystemConfig{}, fmt.Errorf("failed to parse pfSense XML: %w", err)
+	decoder := xml.NewDecoder(io.LimitReader(bytes.NewReader(xmlContent), maxPfSenseXMLBytes+1))
+	decoder.Strict = true
+	if err := decoder.Decode(&pf); err != nil {
+		return PfSenseImportReport{}, fmt.Errorf("failed to parse pfSense XML: %w", err)
+	}
+	if pf.XMLName.Local != "pfsense" {
+		return PfSenseImportReport{}, fmt.Errorf("document root must be <pfsense>")
 	}
 
 	cfg := DefaultConfig()
 	cfg.UpdatedAt = time.Now()
+	cfg.WAN.Interface = mapping.WAN
+	cfg.LAN.Interface = mapping.LAN
+	report := PfSenseImportReport{
+		SourceVersion:       pf.Version,
+		Warnings:            []string{},
+		UnsupportedSections: []string{},
+		Imported:            map[string]int{},
+	}
 
 	// 1. System Metadata
 	if pf.System.Hostname != "" {
@@ -95,13 +160,8 @@ func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
 		cfg.System.Domain = pf.System.Domain
 	}
 
-	// 2. Interfaces
-	if pf.Interfaces.WAN.If != "" {
-		cfg.WAN.Interface = pf.Interfaces.WAN.If
-	}
-	if pf.Interfaces.LAN.If != "" {
-		cfg.LAN.Interface = pf.Interfaces.LAN.If
-	}
+	// 2. Interfaces. Source identifiers are informational only; explicit target
+	// mappings above prevent a FreeBSD device name from being applied to Linux.
 	if pf.Interfaces.LAN.IPAddr != "" {
 		cfg.LAN.IPAddress = pf.Interfaces.LAN.IPAddr
 		subnet := pf.Interfaces.LAN.Subnet
@@ -109,12 +169,22 @@ func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
 			subnet = "24"
 		}
 		cfg.LAN.CIDR = fmt.Sprintf("%s/%s", pf.Interfaces.LAN.IPAddr, subnet)
+		var prefix int
+		if _, err := fmt.Sscanf(subnet, "%d", &prefix); err == nil && prefix >= 0 && prefix <= 32 {
+			cfg.LAN.Netmask = net.IP(net.CIDRMask(prefix, 32)).String()
+		}
 	}
 
 	// 3. PPPoE Credentials
 	if len(pf.PPPs.PPP) > 0 {
+		cfg.WAN.Enabled = true
 		cfg.WAN.Username = pf.PPPs.PPP[0].Username
 		cfg.WAN.Password = pf.PPPs.PPP[0].Password
+		report.Imported["pppoe_accounts"] = 1
+		if len(pf.PPPs.PPP) > 1 {
+			report.Warnings = append(report.Warnings, "Only the first pfSense PPP connection was imported.")
+			report.UnsupportedSections = append(report.UnsupportedSections, "additional PPP connections")
+		}
 	}
 
 	// 4. DHCP Server & Static Leases
@@ -133,6 +203,7 @@ func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
 			})
 		}
 		cfg.DHCP.StaticLeases = staticLeases
+		report.Imported["dhcp_static_leases"] = len(staticLeases)
 	}
 
 	// 5. Port Forwarding Rules
@@ -142,9 +213,24 @@ func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
 			continue
 		}
 		var extPort, intPort int
-		fmt.Sscanf(r.ExternalPort, "%d", &extPort)
+		externalPort := r.ExternalPort
+		if externalPort == "" {
+			externalPort = r.Destination.Port
+		}
+		fmt.Sscanf(externalPort, "%d", &extPort)
 		fmt.Sscanf(r.LocalPort, "%d", &intPort)
 
+		if r.Interface != "" && r.Interface != "wan" {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Skipped NAT rule %q because only WAN port forwards are supported.", r.Descr))
+			continue
+		}
+		if strings.Contains(externalPort, "-") || strings.Contains(r.LocalPort, "-") {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Skipped NAT rule %q because port ranges are not supported.", r.Descr))
+			continue
+		}
+		if extPort > 0 && intPort == 0 {
+			intPort = extPort
+		}
 		if extPort > 0 && intPort > 0 && r.Target != "" {
 			proto := strings.ToLower(r.Protocol)
 			if proto == "" {
@@ -161,16 +247,43 @@ func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
 				ExternalPort: extPort,
 				InternalIP:   r.Target,
 				InternalPort: intPort,
-				Enabled:      true,
+				Enabled:      false,
 			})
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Imported NAT rule %q as disabled because WireGuard is the only permitted WAN entry point.", name))
+		} else {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Skipped NAT rule %q because its target or ports could not be represented.", r.Descr))
 		}
 	}
 	cfg.Firewall.PortForwards = portForwards
+	report.Imported["port_forwards"] = len(portForwards)
+
+	if len(pf.Filter.Rules) > 0 {
+		report.UnsupportedSections = append(report.UnsupportedSections, "firewall filter rules")
+		report.Warnings = append(report.Warnings, fmt.Sprintf("%d pfSense firewall rules require manual review and were not imported.", len(pf.Filter.Rules)))
+	}
+	if len(pf.Aliases.Aliases) > 0 {
+		report.UnsupportedSections = append(report.UnsupportedSections, "aliases")
+		report.Warnings = append(report.Warnings, fmt.Sprintf("%d pfSense aliases require manual review and were not imported.", len(pf.Aliases.Aliases)))
+	}
+	if len(pf.VLANs.VLANs) > 0 {
+		report.UnsupportedSections = append(report.UnsupportedSections, "VLANs")
+		report.Warnings = append(report.Warnings, fmt.Sprintf("%d pfSense VLANs require manual interface design and were not imported.", len(pf.VLANs.VLANs)))
+	}
+	sort.Strings(report.UnsupportedSections)
 
 	// Validate imported configuration
 	if err := cfg.Validate(); err != nil {
-		return cfg, fmt.Errorf("imported configuration validation warning: %w", err)
+		report.Config = cfg
+		return report, fmt.Errorf("imported configuration is not safe to apply: %w", err)
 	}
 
-	return cfg, nil
+	report.Config = cfg
+	return report, nil
+}
+
+// ImportPfSenseXML is retained for library callers, but intentionally uses the
+// safe Linux defaults instead of copying pfSense interface names.
+func ImportPfSenseXML(xmlContent []byte) (SystemConfig, error) {
+	report, err := ImportPfSenseXMLWithMapping(xmlContent, PfSenseInterfaceMapping{WAN: "eth0", LAN: "eth1"})
+	return report.Config, err
 }

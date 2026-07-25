@@ -11,17 +11,19 @@ error_log="/var/log/routerd.err"
 
 depend() {
     need net
-    after firewall
+    need router-applyd
     use logger
 }
 
 start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
-    checkpath --directory --owner routerd:routerd --mode 0755 /run/minimalrouter
 }
 
 command="/usr/bin/routerd"
 command_background="yes"
 command_user="routerd:routerd"
+umask="0077"
+rc_ulimit="-c 0 -n 4096"
 
 export MINIMALROUTER_DATA_DIR="/var/lib/minimalrouter"
+export MINIMALROUTER_WEB_DIR="/usr/share/minimalrouter/web"

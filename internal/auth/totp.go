@@ -70,7 +70,7 @@ func computeTOTP(secret []byte, counter int64) string {
 	hash := mac.Sum(nil)
 
 	offset := hash[len(hash)-1] & 0x0F
-	truncated := binary.BigEndian.Uint32(hash[offset:offset+4])
+	truncated := binary.BigEndian.Uint32(hash[offset : offset+4])
 	truncated &= 0x7FFFFFFF
 
 	mod := truncated % 1000000

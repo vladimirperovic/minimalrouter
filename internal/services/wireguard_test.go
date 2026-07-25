@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -14,11 +15,11 @@ func TestGenerateWireGuard(t *testing.T) {
 		Address:    "10.0.0.1/24",
 		Peers: []WireGuardPeer{
 			{
-				ID:        "peer1",
-				Name:      "Vlad iPhone",
-				PublicKey: "sOmEPuBlIcKeY=",
+				ID:         "peer1",
+				Name:       "Vlad iPhone",
+				PublicKey:  "sOmEPuBlIcKeY=",
 				AllowedIPs: []string{"10.0.0.2/32"},
-				Enabled:   true,
+				Enabled:    true,
 			},
 		},
 	}
@@ -37,7 +38,7 @@ func TestGenerateWireGuard(t *testing.T) {
 }
 
 func TestGenerateClientConfig(t *testing.T) {
-	bundle := GenerateClientConfig(
+	bundle, err := GenerateClientConfig(
 		"clientPrivateKey123=",
 		"10.0.0.2/32",
 		"serverPublicKey456=",
@@ -45,11 +46,40 @@ func TestGenerateClientConfig(t *testing.T) {
 		"pskKey789=",
 		"1.1.1.1",
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if !strings.Contains(bundle.ConfigText, "[Interface]") {
 		t.Errorf("Expected [Interface] section in client config")
 	}
 	if !strings.Contains(bundle.ConfigText, "Endpoint = 185.33.42.117:51820") {
 		t.Errorf("Expected endpoint in client config")
+	}
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(bundle.QRCodeData, prefix) {
+		t.Fatal("expected a base64 PNG QR data URL")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(bundle.QRCodeData, prefix))
+	if err != nil || len(decoded) < 8 || string(decoded[:8]) != "\x89PNG\r\n\x1a\n" {
+		t.Fatal("QR data URL is not a valid PNG")
+	}
+}
+
+func TestGenerateWireGuardKeys(t *testing.T) {
+	privateKey, publicKey, err := GenerateWireGuardKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := WireGuardPublicKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived != publicKey {
+		t.Fatal("WireGuard public key derivation is not deterministic")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(privateKey)
+	if err != nil || len(decoded) != 32 {
+		t.Fatal("WireGuard private key is not a standard 32-byte base64 value")
 	}
 }

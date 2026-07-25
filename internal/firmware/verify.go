@@ -3,6 +3,7 @@ package firmware
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -10,22 +11,26 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
-	ErrInvalidSignature = errors.New("invalid firmware signature")
-	ErrInvalidPublicKey = errors.New("invalid public key (must be 32 bytes Ed25519)")
+	ErrInvalidSignature       = errors.New("invalid firmware signature")
+	ErrInvalidPublicKey       = errors.New("invalid trusted public key (must be 32 bytes Ed25519)")
 	ErrInvalidSignatureFormat = errors.New("invalid signature format (must be 64 bytes Ed25519)")
+	ErrUntrustedPublicKey     = errors.New("manifest signer does not match the pinned firmware key")
 )
 
 // FirmwareManifest represents the signed firmware manifest.
 type FirmwareManifest struct {
-	Version     string            `json:"version"`
-	BuildDate   string            `json:"build_date"`
-	GitCommit   string            `json:"git_commit"`
-	Files       map[string]string `json:"files"`       // path -> sha256
-	Signature   string            `json:"signature"`   // hex-encoded Ed25519 signature
-	PublicKey   string            `json:"public_key"`  // hex-encoded Ed25519 public key
+	Version   string            `json:"version"`
+	BuildDate string            `json:"build_date"`
+	GitCommit string            `json:"git_commit"`
+	Files     map[string]string `json:"files"`     // path -> sha256
+	Signature string            `json:"signature"` // hex-encoded Ed25519 signature
+	// PublicKey is informational only. Verification always uses a key pinned
+	// in the installed operating system, never this manifest-supplied value.
+	PublicKey string `json:"public_key,omitempty"`
 }
 
 // GenerateKeyPair generates a new Ed25519 key pair for firmware signing.
@@ -48,6 +53,9 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 		}
 		if info.IsDir() {
 			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("firmware contains non-regular file: %s", path)
 		}
 
 		// Compute SHA256 of file
@@ -82,18 +90,7 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 		Files:     files,
 	}
 
-	// Serialize manifest for signing (without signature)
-	manifestBytes, err := json.Marshal(struct {
-		Version   string            `json:"version"`
-		BuildDate string            `json:"build_date"`
-		GitCommit string            `json:"git_commit"`
-		Files     map[string]string `json:"files"`
-	}{
-		Version:   manifest.Version,
-		BuildDate: manifest.BuildDate,
-		GitCommit: manifest.GitCommit,
-		Files:     manifest.Files,
-	})
+	manifestBytes, err := signedPayload(manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -106,23 +103,8 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 	return manifest, nil
 }
 
-// VerifyFirmware verifies a firmware directory against a manifest.
-func VerifyFirmware(firmwareDir string, manifest *FirmwareManifest) error {
-	// Decode public key
-	pubKeyBytes, err := hex.DecodeString(manifest.PublicKey)
-	if err != nil || len(pubKeyBytes) != ed25519.PublicKeySize {
-		return ErrInvalidPublicKey
-	}
-	pubKey := ed25519.PublicKey(pubKeyBytes)
-
-	// Decode signature
-	sigBytes, err := hex.DecodeString(manifest.Signature)
-	if err != nil || len(sigBytes) != ed25519.SignatureSize {
-		return ErrInvalidSignatureFormat
-	}
-
-	// Recompute manifest bytes (without signature)
-	manifestBytes, err := json.Marshal(struct {
+func signedPayload(manifest *FirmwareManifest) ([]byte, error) {
+	return json.Marshal(struct {
 		Version   string            `json:"version"`
 		BuildDate string            `json:"build_date"`
 		GitCommit string            `json:"git_commit"`
@@ -133,36 +115,98 @@ func VerifyFirmware(firmwareDir string, manifest *FirmwareManifest) error {
 		GitCommit: manifest.GitCommit,
 		Files:     manifest.Files,
 	})
+}
+
+// VerifyManifest verifies signed metadata against an operating-system-pinned
+// trust anchor. The public key embedded in an untrusted manifest is never used.
+func VerifyManifest(manifest *FirmwareManifest, trustedKey ed25519.PublicKey) error {
+	if len(trustedKey) != ed25519.PublicKeySize {
+		return ErrInvalidPublicKey
+	}
+	if manifest == nil || manifest.Version == "" || len(manifest.Files) == 0 {
+		return errors.New("incomplete firmware manifest")
+	}
+	if manifest.PublicKey != "" {
+		claimed, err := hex.DecodeString(manifest.PublicKey)
+		if err != nil || len(claimed) != ed25519.PublicKeySize ||
+			subtle.ConstantTimeCompare(claimed, trustedKey) != 1 {
+			return ErrUntrustedPublicKey
+		}
+	}
+
+	sigBytes, err := hex.DecodeString(manifest.Signature)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return ErrInvalidSignatureFormat
+	}
+
+	manifestBytes, err := signedPayload(manifest)
 	if err != nil {
 		return err
 	}
-
-	// Verify signature
-	if !ed25519.Verify(pubKey, manifestBytes, sigBytes) {
+	if !ed25519.Verify(trustedKey, manifestBytes, sigBytes) {
 		return ErrInvalidSignature
 	}
+	return nil
+}
 
-	// Verify each file hash matches
+// VerifyFirmware verifies signed metadata and every regular file in a fixed,
+// already-extracted staging directory.
+func VerifyFirmware(firmwareDir string, manifest *FirmwareManifest, trustedKey ed25519.PublicKey) error {
+	if err := VerifyManifest(manifest, trustedKey); err != nil {
+		return err
+	}
+
 	for relPath, expectedHash := range manifest.Files {
-		fullPath := filepath.Join(firmwareDir, relPath)
+		clean := filepath.Clean(relPath)
+		if clean == "." || filepath.IsAbs(clean) || clean != relPath ||
+			strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("unsafe firmware path: %q", relPath)
+		}
+		expected, err := hex.DecodeString(expectedHash)
+		if err != nil || len(expected) != sha256.Size {
+			return fmt.Errorf("invalid hash for %s", relPath)
+		}
+
+		fullPath := filepath.Join(firmwareDir, clean)
+		info, err := os.Lstat(fullPath)
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("file missing or unsafe: %s", relPath)
+		}
 		f, err := os.Open(fullPath)
 		if err != nil {
 			return fmt.Errorf("file missing: %s", relPath)
 		}
-		defer f.Close()
 
 		hash := sha256.New()
 		if _, err := io.Copy(hash, f); err != nil {
+			f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
 			return err
 		}
 
-		actualHash := hex.EncodeToString(hash.Sum(nil))
-		if actualHash != expectedHash {
-			return fmt.Errorf("hash mismatch for %s: expected %s, got %s", relPath, expectedHash, actualHash)
+		actual := hash.Sum(nil)
+		if subtle.ConstantTimeCompare(actual, expected) != 1 {
+			return fmt.Errorf("hash mismatch for %s", relPath)
 		}
 	}
 
 	return nil
+}
+
+// LoadTrustedPublicKey reads a hex-encoded Ed25519 key from a root-controlled
+// operating-system file.
+func LoadTrustedPublicKey(path string) (ed25519.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := hex.DecodeString(strings.TrimSpace(string(data)))
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return nil, ErrInvalidPublicKey
+	}
+	return ed25519.PublicKey(decoded), nil
 }
 
 // LoadManifest loads a firmware manifest from JSON file.

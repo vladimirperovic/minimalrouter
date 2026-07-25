@@ -9,17 +9,27 @@ intended to replace pfSense or become a general-purpose networking platform.
 
 ## Project Status & Built Features
 
-Version 1 core control plane engine is fully implemented:
+The core control-plane path is implemented and has been exercised in an
+isolated Alpine Linux VM. This repository is suitable for a controlled pilot,
+not yet an unattended replacement for a production firewall. Physical NIC,
+real ISP PPPoE, imported site configuration, recovery media, and external
+penetration tests remain release gates.
 
 - **Unprivileged & Privileged Go Binaries** (`routerd` unprivileged management plane + `router-applyd` privileged Unix socket helper).
-- **Service Configuration Generators**: Deterministic ruleset generators for `nftables`, `pppd` (PPPoE), `dnsmasq` (DHCP/DNS), `wireguard` (with mobile QR code generator), `cloudflared` (DDNS & Tunnel), and `squid` (non-caching forward proxy).
+- **Service Configuration Generators**: Deterministic, privileged lifecycle
+  paths for `nftables`, `pppd` (PPPoE), `dnsmasq` (DHCP/DNS), WireGuard, and
+  Squid. Cloudflare, AdGuard, Wi-Fi AP, and QoS remain disabled until their
+  privileged lifecycle adapters are complete.
 - **Squid Proxy & Restricted IP Alias**: Non-caching HTTP/HTTPS forward proxy with NCSA basic authentication. Integrates with `nftables` to drop direct WAN internet traffic for restricted IP aliases while allowing browser proxy access on port `3128`.
-- **Model Context Protocol (MCP) AI Agent Integration**: Built-in Go MCP Server (`cmd/minimalrouter-mcp`) allowing AI agents (Claude Desktop, Antigravity, Cursor, ChatGPT) to control firewall rules, DNS/DoH, Squid Proxy, port forwards, and snapshots.
-- **pfSense XML Importer**: Tool for importing existing pfSense `config.xml` files.
+- **Model Context Protocol (MCP) AI Agent Integration**: Local Go MCP bridge (`cmd/minimalrouter-mcp`) with a server-enforced read-only default. Explicit admin mode is required for supported mutations.
+- **pfSense XML Importer**: Preview-first importer for selected settings. NAT rules are imported disabled because WireGuard is the only allowed WAN entry point.
 - **First-Run Installation Wizard**: Guided 5-step Apple × Swiss setup wizard per `DESIGN.md §14`.
-- **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, CSRF protection, rate limiting, secret redaction, and LUKS Full Disk Encryption.
+- **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, optional TOTP, CSRF protection, rate limiting, secret redaction, encrypted backup export, and an installer that refuses unencrypted root filesystems outside explicit lab mode.
 - **Proxmox VE Automated Helper**: 1-command Proxmox VM installer (`packaging/proxmox/create-vm.sh`) for automated VM #100 creation.
-- **Alpine Linux Packaging**: OpenRC init scripts and automated appliance ISO generator script (`make iso`).
+- **Alpine Linux Packaging**: OpenRC init scripts, hardened sysctls, required
+  kernel-module loading, and an appliance overlay builder. `make iso` prepares
+  the overlay; an Alpine `mkimage` build host is still required to produce and
+  sign bootable recovery media.
 
 ## Core Stack
 
@@ -27,7 +37,7 @@ Version 1 core control plane engine is fully implemented:
 - **Backend**: Go 1.24 REST API (`/api/v1`)
 - **AI Agent Interface**: Model Context Protocol (MCP stdio over JSON-RPC 2.0)
 - **Frontend**: React + TypeScript (Next.js static single-page application)
-- **Integrations**: nftables, pppd, dnsmasq, WireGuard, cloudflared, Squid Proxy
+- **Integrations**: nftables, pppd, dnsmasq, WireGuard, and Squid Proxy. Cloudflare, AdGuard, Wi-Fi AP, and QoS currently fail closed until their privileged lifecycle adapters are complete.
 - **Store**: SQLite canonical state store with pre-apply sha256 checksummed snapshots
 
 ## Quick Start & Proxmox VE Setup
@@ -65,11 +75,15 @@ pnpm dev
 
 Open `http://localhost:3000` in browser.
 
-### 5. Build Alpine ISO Appliance
+### 5. Build the Alpine appliance overlay
 
 ```bash
 make iso
 ```
+
+The command does not itself emit a bootable ISO. Follow the printed `mkimage`
+command on a trusted Alpine build host and verify/sign the resulting image
+before installation.
 
 ## Documentation
 

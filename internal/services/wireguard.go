@@ -4,28 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
-// WireGuardConfig represents the internal domain model for WireGuard VPN settings.
-type WireGuardConfig struct {
-	Enabled    bool            `json:"enabled"`
-	Interface  string          `json:"interface"`   // e.g. "wg0"
-	PrivateKey string          `json:"private_key"` // Redacted in status
-	ListenPort int             `json:"listen_port"` // Default 51820
-	Address    string          `json:"address"`     // e.g. "10.0.0.1/24"
-	Peers      []WireGuardPeer `json:"peers"`
-}
-
-// WireGuardPeer represents a client/remote peer configuration.
-type WireGuardPeer struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	PublicKey    string   `json:"public_key"`
-	PresharedKey string   `json:"preshared_key,omitempty"`
-	AllowedIPs   []string `json:"allowed_ips"` // e.g. ["10.0.0.2/32"]
-	Endpoint     string   `json:"endpoint,omitempty"`
-	Enabled      bool     `json:"enabled"`
-}
+type WireGuardConfig = config.WireGuardConfig
+type WireGuardPeer = config.WireGuardPeer
 
 // GenerateWireGuard renders the /etc/wireguard/wg0.conf configuration file.
 func GenerateWireGuard(wg *WireGuardConfig) (string, error) {

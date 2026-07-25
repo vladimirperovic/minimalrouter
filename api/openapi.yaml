@@ -4,8 +4,21 @@ info:
   description: Version 1 REST API contract for Minimal Router OS management plane (routerd).
   version: 1.0.0
 servers:
-  - url: https://192.168.1.1/api/v1
-    description: Primary LAN HTTPS management endpoint
+  - url: https://192.168.1.1:8443/api/v1
+    description: LAN HTTPS management endpoint
+  - url: https://10.8.0.1:8443/api/v1
+    description: Example authenticated WireGuard management endpoint
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: mr_session
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
 
 paths:
   /auth/login:
@@ -23,6 +36,13 @@ paths:
                 password:
                   type: string
                   minLength: 15
+                totp_code:
+                  type: string
+                  description: Current TOTP code when TOTP is enabled
+                read_only:
+                  type: boolean
+                  default: false
+                  description: Issue a server-enforced observer session
       responses:
         '200':
           description: Authenticated successfully
@@ -39,6 +59,9 @@ paths:
     post:
       summary: Terminate active administrator session
       operationId: logout
+      security:
+        - sessionCookie: []
+          csrfToken: []
       responses:
         '200':
           description: Logged out successfully
@@ -47,6 +70,8 @@ paths:
     get:
       summary: Retrieve current session and CSRF token info
       operationId: getSessionInfo
+      security:
+        - sessionCookie: []
       responses:
         '200':
           description: Session details
@@ -55,17 +80,23 @@ paths:
               schema:
                 type: object
                 properties:
-                  session_id:
-                    type: string
                   csrf_token:
                     type: string
-                  expires_in:
-                    type: integer
+                  read_only:
+                    type: boolean
+                  created_at:
+                    type: string
+                    format: date-time
+                  last_seen:
+                    type: string
+                    format: date-time
 
   /system:
     get:
       summary: Retrieve system health, CPU, memory, uptime, and metadata
       operationId: getSystemStatus
+      security:
+        - sessionCookie: []
       responses:
         '200':
           description: System status summary
@@ -91,12 +122,17 @@ paths:
     get:
       summary: Get active canonical configuration model
       operationId: getConfig
+      security:
+        - sessionCookie: []
       responses:
         '200':
           description: Canonical configuration object
     put:
       summary: Submit configuration update and execute transaction pipeline
       operationId: updateConfig
+      security:
+        - sessionCookie: []
+          csrfToken: []
       requestBody:
         required: true
         content:
@@ -106,6 +142,10 @@ paths:
       responses:
         '200':
           description: Transaction committed successfully
+        '202':
+          description: Provisionally applied; connectivity confirmation required
+        '403':
+          description: CSRF failure or read-only session
         '422':
           description: Validation or preflight check failed
 
@@ -113,6 +153,8 @@ paths:
     get:
       summary: List all immutable configuration snapshots
       operationId: listSnapshots
+      security:
+        - sessionCookie: []
       responses:
         '200':
           description: List of snapshots
@@ -121,6 +163,9 @@ paths:
     post:
       summary: Restore a previous snapshot
       operationId: restoreSnapshot
+      security:
+        - sessionCookie: []
+          csrfToken: []
       parameters:
         - name: id
           in: path
@@ -130,3 +175,34 @@ paths:
       responses:
         '200':
           description: Snapshot restored successfully
+
+  /transactions/pending:
+    get:
+      summary: Get the provisionally active transaction, if any
+      operationId: getPendingTransaction
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Pending transaction metadata without configuration secrets
+
+  /transactions/{id}/confirm:
+    post:
+      summary: Confirm connectivity and commit a provisional transaction
+      operationId: confirmTransaction
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction committed
+        '403':
+          description: Confirmation did not arrive through required WireGuard path
+        '409':
+          description: Transaction is absent, expired, or not awaiting confirmation

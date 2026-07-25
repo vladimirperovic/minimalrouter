@@ -30,6 +30,12 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 	if clean.WAN.Password != "" {
 		clean.WAN.Password = "[REDACTED]"
 	}
+	if clean.SquidProxy.Password != "" {
+		clean.SquidProxy.Password = "[REDACTED]"
+	}
+	if clean.WiFi.Passphrase != "" {
+		clean.WiFi.Passphrase = "[REDACTED]"
+	}
 	return clean
 }
 
@@ -48,11 +54,11 @@ func BuildDiagnosticBundle(cfg config.SystemConfig) ([]byte, error) {
 		AppVersion:     "v0.1-alpha",
 		RedactedConfig: RedactedSystemConfig(cfg),
 		ServiceHealth: map[string]string{
-			"pppd":        "running",
-			"nftables":    "active",
-			"dnsmasq":     "running",
-			"wireguard":   "disabled",
-			"cloudflared": "disabled",
+			"pppd":        "not-collected",
+			"nftables":    "not-collected",
+			"dnsmasq":     "not-collected",
+			"wireguard":   "not-implemented",
+			"cloudflared": "not-implemented",
 		},
 	}
 

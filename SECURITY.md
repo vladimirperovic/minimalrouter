@@ -51,12 +51,14 @@ Out-of-scope threats must not be described as solved.
 | Canonical store | Sensitive | Local ownership, strict permissions, transactional access |
 | Build and update system | High trust | Reproducible inputs, signed artifacts, protected keys |
 
-Management exposure on WAN is forbidden in version 1. A future remote
-management feature requires a separate threat model and explicit opt-in.
+Direct management exposure on WAN is forbidden. Remote administration first
+establishes WireGuard, then reaches the same HTTPS management service through
+the authenticated tunnel.
 
 ## 4. Secure defaults
 
-- Bind the management service only to intended LAN addresses/interfaces.
+- Accept management requests only when their local destination is an intended
+  LAN or WireGuard address, in addition to the nftables boundary.
 - Redirect no plaintext login page; serve management over HTTPS only.
 - Deny WAN input and deny forwarding unless a generated rule permits it.
 - Disable SSH by default.
@@ -76,13 +78,18 @@ Minimal Router OS automatically enforces key pfSense enterprise security protect
 1. **Bogon, CGNAT & Multicast WAN Input Drop**: Incoming packets on WAN interfaces claiming to originate from private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), CGNAT (`100.64.0.0/10`), or multicast (`224.0.0.0/4`) IP blocks are atomically dropped by `nftables`.
 2. **WAN Output Bogon Leak Protection**: Outgoing packets on WAN attempting to leak internal private or spoofed IP source addresses are dropped in `chain output`.
 3. **uRPF Strict Anti-Spoofing**: `nftables` enforces `fib saddr . iif oif missing drop` to discard spoofed interface packets.
-4. **IPv6 WAN Drop & Discovery Policy**: Unrequested IPv6 WAN input is dropped by default while allowing required ICMPv6 Neighbor Discovery and Router Advertisements.
+4. **IPv6 Fail-Closed Policy**: IPv6 is disabled at sysctl and dropped on WAN
+   until it has complete policy parity with IPv4.
 5. **DNS Rebind Attack Protection**: `dnsmasq` enforces `stop-dns-rebind` to prevent malicious external DNS responses from mapping public domains to local private LAN IPs or loopback (`127.0.0.1`).
-6. **SYN Flood & Anti-DoS Rate Limiting**: `nftables` limits new TCP SYN connection attempts on WAN to 100/sec, dropping excess unestablished connection floods.
-7. **ICMP Ping Flood Protection**: `nftables` limits incoming WAN ICMP echo requests to 10/sec, preventing WAN ping flood degradation.
+6. **No WAN TCP or Ping Service**: New WAN TCP and ICMP traffic has no accept
+   rule and reaches the default drop policy.
+7. **WireGuard Flood Guard**: New WireGuard UDP packets are rate-limited before
+   reaching the endpoint; excess packets are dropped.
 8. **TCP MSS Clamping (PMTU Discovery)**: Automatic MSS clamping (`tcp flags syn tcp option maxseg size set rt mtu`) on WAN/PPPoE interfaces prevents packet fragmentation attacks and connection stalls.
 9. **WireGuard PersistentKeepalive Enforcement**: `PersistentKeepalive = 25` is automatically generated for all active WireGuard peers to maintain tunnel state behind stateful NAT firewalls.
-10. **PPPoE Password Strength Validation**: Enforced minimum 15-character password length for WAN PPPoE credentials across both Setup Wizard and REST API models.
+10. **No WAN Port Forwards**: Enabled port-forward entries are rejected by
+    validation and are also ignored by the nftables generator as defense in
+    depth. pfSense NAT entries import disabled.
 
 ### 4.2 Kernel Hardening (sysctl)
 
@@ -93,6 +100,13 @@ Minimal Router OS applies aggressive Linux kernel-level defaults before the `nft
 - **Source Routing**: Disable IP source routing (`net.ipv4.conf.all.accept_source_route = 0`).
 - **Kernel Pointer Hiding**: `kernel.kptr_restrict = 2` and `kernel.dmesg_restrict = 1` to prevent unprivileged users (`routerd`) from inspecting kernel symbols or memory logs.
 - **BPF JIT Hardening**: `net.core.bpf_jit_harden = 2` to mitigate eBPF JIT spraying attacks.
+- **No Conntrack Helper Assignment**: The generated nftables policy never
+  assigns an application-layer `ct helper`, so `related` does not create
+  implicit FTP/SIP-style WAN openings. This avoids relying on a sysctl removed
+  from some Alpine kernels.
+- **Unprivileged Kernel Attack-Surface Reduction**: Unprivileged BPF is
+  disabled until reboot, protected link/FIFO/file sysctls are enabled, and
+  proxy ARP/route-localnet are disabled.
 
 ## 5. Authentication
 
@@ -139,7 +153,7 @@ local console access and must invalidate all sessions.
 - Rotate the session ID after login, re-authentication, and privilege-sensitive
   changes.
 - Invalidate all sessions on password reset or administrator recovery.
-- Use a 30-minute idle timeout and a 12-hour absolute timeout initially.
+- Use a 30-minute idle timeout and an 8-hour absolute timeout.
 - Do not place session IDs or CSRF tokens in URLs or logs.
 
 All HTTP responses must include strict security headers:
@@ -195,6 +209,23 @@ clearly and support fingerprint verification.
 API validation is necessary but not sufficient: the configuration model and
 privileged helper validate again at their trust boundaries.
 
+### 8.1 AI and MCP boundary
+
+AI output is untrusted input, regardless of model capability. A prompt
+injection, malicious web page, or compromised MCP client must not become router
+administrator authority by default.
+
+- MCP advertises only read tools unless the operator locally sets
+  `MINIMALROUTER_MCP_MODE=admin`.
+- Default MCP login requests a read-only API session. The API stores that
+  privilege with the session and rejects all state-changing methods.
+- Returned configuration redacts PPPoE, WireGuard, Cloudflare, Squid, and Wi-Fi
+  secrets.
+- MCP uses a pinned router certificate, requires HTTPS, and has no WAN
+  listener.
+- Admin MCP mode is not considered safe for unattended browsing or processing
+  untrusted content. It is a deliberate administrator delegation.
+
 ## 9. Command and configuration safety
 
 - Never invoke a shell with user-controlled input.
@@ -218,9 +249,11 @@ The privileged helper must not expose generic operations such as “run command,
 required for the UI and communicate with `router-applyd` through a protected
 Unix socket.
 
-`router-applyd`:
+`router-applyd` currently runs as root because it configures interfaces,
+nftables, sysctls, and system services. Its authority is reduced at the
+application boundary rather than by a completed Linux capability/seccomp
+profile. It:
 
-- Runs with the minimum Linux capabilities possible for each operation.
 - Accepts local requests only.
 - Verifies Unix peer credentials.
 - Uses a small, versioned request schema.
@@ -228,22 +261,25 @@ Unix socket.
 - Has no network listener.
 - Produces structured, redacted results.
 
-Where Alpine/OpenRC and the kernel permit, use filesystem, namespace,
-capability, and syscall restrictions. Any retained root requirement must be
-documented and tested.
+Filesystem, namespace, capability, and syscall confinement beyond the current
+OpenRC user/permission boundary remains a release-hardening item. The retained
+root requirement must not be described as eliminated.
 
 ## 11. Network policy
 
-- WAN management is blocked independently at bind and firewall layers.
+- WAN management is blocked independently by nftables and by application-layer
+  local-destination validation.
 - nftables policy is generated deterministically from a typed model.
 - Established/related behavior is explicit.
 - Invalid packets are dropped.
 - Interface role changes require commit-confirmed rollback.
-- Port forwards cannot target the router management ports.
+- WAN port forwards are forbidden; WireGuard is the only accepted new WAN
+  ingress.
 - Source/destination ranges, overlapping networks, broadcast addresses, and
   reserved values are validated.
 - dnsmasq binds only to selected LAN interfaces.
-- Cloudflare and update clients receive only necessary outbound access.
+- Cloudflare integration remains disabled. Firmware verification is fail-closed
+  unless a trusted signing key is provisioned.
 
 IPv6 must have policy parity with IPv4 before it is enabled. If unsupported in a
 release, it is disabled or explicitly blocked at every relevant boundary.
@@ -311,7 +347,10 @@ snapshots trusted against root compromise.
 All Go executables (`routerd`, `router-applyd`, `minimalrouter-mcp`) must be compiled using strict hardening flags:
 
 - **Static Binary Compilation**: `CGO_ENABLED=0` to eliminate C-library dependency attack surfaces.
-- **Position Independent Executable**: `-buildmode=pie` to fully leverage Alpine Linux Address Space Layout Randomization (ASLR).
+- **No Foreign Dynamic Loader**: Release binaries are pure-Go static ELF files
+  and do not require glibc compatibility packages on musl-based Alpine. A
+  static-PIE build may replace this only after it is produced by a pinned musl
+  toolchain and executed in the Alpine release test.
 - **Symbol & Path Strip**: `-trimpath -ldflags="-s -w"` to strip local filesystem paths, build flags, and debugging symbols.
 - **Checksum Verification**: `GOSUMDB` enabled to verify all Go module dependencies against the global checksum database.
 

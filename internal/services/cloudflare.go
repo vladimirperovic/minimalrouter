@@ -7,15 +7,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
-// CloudflareConfig represents DDNS and Cloudflare Tunnel settings.
-type CloudflareConfig struct {
-	DDNSEnabled  bool   `json:"ddns_enabled"`
-	APIToken     string `json:"api_token,omitempty"` // Redacted in status
-	ZoneID       string `json:"zone_id"`
-	Domain       string `json:"domain"` // e.g. "home.example.com"
-	TunnelEnabled bool  `json:"tunnel_enabled"`
-	TunnelToken  string `json:"tunnel_token,omitempty"` // Redacted in status
-}
+type CloudflareConfig = config.CloudflareConfig
 
 // GenerateCloudflareDDNS renders the configuration string for Cloudflare DDNS updates.
 func GenerateCloudflareDDNS(cf *CloudflareConfig) (string, error) {

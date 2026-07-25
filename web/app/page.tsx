@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import SetupWizard from "./components/SetupWizard";
+import AuthGate from "./components/AuthGate";
+import { apiFetch } from "./lib/api";
 
 type Theme = "light" | "dark";
 
@@ -18,17 +20,26 @@ const navItems = [
   ["10", "Recovery", "recovery"],
 ] as const;
 
-const trafficDown = [
-  18, 26, 21, 34, 29, 42, 38, 63, 54, 70, 64, 82, 76, 91, 69, 84, 77, 96,
-  88, 104, 92, 111, 98, 119, 108, 124, 115, 132, 126, 142, 134, 151,
-];
+function formatBytes(value = 0) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = Math.max(0, value);
+  let unit = 0;
+  while (amount >= 1024 && unit < units.length - 1) {
+    amount /= 1024;
+    unit += 1;
+  }
+  return `${amount.toFixed(unit < 2 ? 0 : 1)} ${units[unit]}`;
+}
 
-const trafficUp = [
-  8, 11, 9, 15, 13, 18, 16, 25, 21, 29, 25, 33, 30, 38, 28, 35, 31, 42, 36,
-  46, 39, 49, 43, 52, 46, 56, 51, 61, 55, 64, 59, 68,
-];
+function formatUptime(seconds = 0) {
+  if (seconds <= 0) return "Unavailable";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
+}
 
-function TrafficChart({ theme }: { theme: Theme }) {
+function TrafficChart({ theme, download, upload }: { theme: Theme; download: number[]; upload: number[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -50,7 +61,7 @@ function TrafficChart({ theme }: { theme: Theme }) {
       const padY = 10;
       const width = rect.width - padX * 2;
       const height = rect.height - padY * 2;
-      const max = 160;
+      const max = Math.max(1, ...download, ...upload);
 
       ctx.lineWidth = 1;
       ctx.strokeStyle =
@@ -94,21 +105,23 @@ function TrafficChart({ theme }: { theme: Theme }) {
         ctx.stroke();
       };
 
-      plot(trafficDown, theme === "dark" ? "#0a84ff" : "#007aff", "rgba(0,122,255,.16)");
-      plot(trafficUp, theme === "dark" ? "#bf8cff" : "#7655c7");
+      const normalizedDownload = download.length > 1 ? download : [0, 0];
+      const normalizedUpload = upload.length > 1 ? upload : [0, 0];
+      plot(normalizedDownload, theme === "dark" ? "#0a84ff" : "#007aff", "rgba(0,122,255,.16)");
+      plot(normalizedUpload, theme === "dark" ? "#bf8cff" : "#7655c7");
     };
 
     draw();
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [theme]);
+  }, [theme, download, upload]);
 
   return (
     <canvas
       ref={canvasRef}
       className="traffic-canvas"
-      aria-label="Internet traffic over the last 24 hours. Download peaked at 151 megabits per second and upload peaked at 68 megabits per second."
+      aria-label="Live internet traffic samples in megabits per second."
       role="img"
     />
   );
@@ -152,10 +165,12 @@ function Toggle({
   checked,
   onChange,
   label,
+  disabled = false,
 }: {
   checked: boolean;
   onChange: () => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -164,6 +179,7 @@ function Toggle({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      disabled={disabled}
       onClick={onChange}
     >
       <span />
@@ -171,78 +187,63 @@ function Toggle({
   );
 }
 
-function QrPreview() {
-  const cells = useMemo(() => {
-    const size = 29;
-    const data: boolean[] = [];
-    const finder = (row: number, col: number, top: number, left: number) => {
-      const x = col - left;
-      const y = row - top;
-      if (x < 0 || y < 0 || x > 6 || y > 6) return null;
-      return (
-        x === 0 ||
-        y === 0 ||
-        x === 6 ||
-        y === 6 ||
-        (x >= 2 && x <= 4 && y >= 2 && y <= 4)
-      );
-    };
-
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
-        const topLeft = finder(row, col, 0, 0);
-        const topRight = finder(row, col, 0, size - 7);
-        const bottomLeft = finder(row, col, size - 7, 0);
-        const fixed = topLeft ?? topRight ?? bottomLeft;
-        if (fixed !== null) {
-          data.push(fixed);
-          continue;
-        }
-        const quietZone =
-          (row <= 7 && col <= 7) ||
-          (row <= 7 && col >= size - 8) ||
-          (row >= size - 8 && col <= 7);
-        if (quietZone) {
-          data.push(false);
-          continue;
-        }
-        const seed = (row * 47 + col * 31 + row * col * 7 + 19) % 17;
-        data.push(seed < 7 || (row + col) % 11 === 0);
-      }
-    }
-    return data;
-  }, []);
-
+function QrPreview({ source }: { source: string }) {
   return (
-    <div className="qr-shell" aria-label="WireGuard configuration QR preview">
-      <div className="qr-grid" aria-hidden="true">
-        {cells.map((cell, index) => (
-          <span className={cell ? "qr-dark" : ""} key={index} />
-        ))}
-      </div>
+    <div className="qr-shell" aria-label="WireGuard configuration QR code">
+      <img alt="Scannable WireGuard client configuration" src={source} width={280} height={280} />
     </div>
   );
 }
 
-export default function Home() {
+function Dashboard() {
   const [theme, setTheme] = useState<Theme>("light");
   const [menuOpen, setMenuOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [wireGuardProvisioning, setWireGuardProvisioning] = useState<{
+    peerName: string;
+    clientIP: string;
+    clientConfig: string;
+    qrCodeData: string;
+  } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [statefulRules, setStatefulRules] = useState(true);
   const [portForward, setPortForward] = useState(true);
   const [activeSection, setActiveSection] = useState("overview");
   const [fontScale, setFontScale] = useState(100);
   const [apiConnected, setApiConnected] = useState(false);
+  const [operationError, setOperationError] = useState("");
+  const [pendingConfirmationID, setPendingConfirmationID] = useState("");
   const [systemInfo, setSystemInfo] = useState<{
     status?: string;
     version?: string;
-    uptime?: string;
-    public_ip?: string;
-    last_backup?: string;
-    last_snap?: string;
-    update?: string;
+    mtu?: number;
+    lan_ip?: string;
+    wan_iface?: string;
+    update_trust_configured?: boolean;
+    runtime?: {
+      available?: boolean;
+      os?: string;
+      architecture?: string;
+      wan_connected?: boolean;
+      public_ip?: string;
+      uptime_seconds?: number;
+      cpu_count?: number;
+      cpu_load_percent?: number;
+      load_average?: number[];
+      memory_used_bytes?: number;
+      memory_total_bytes?: number;
+      disk_used_bytes?: number;
+      disk_total_bytes?: number;
+      rx_bytes?: number;
+      tx_bytes?: number;
+      temperature_c?: number;
+    };
   }>({});
+  const [trafficDown, setTrafficDown] = useState<number[]>([]);
+  const [trafficUp, setTrafficUp] = useState<number[]>([]);
+  const [downloadMbps, setDownloadMbps] = useState(0);
+  const [uploadMbps, setUploadMbps] = useState(0);
+  const trafficPrevious = useRef<{ rx: number; tx: number; at: number } | null>(null);
 
   const applyScale = (scale: number) => {
     setFontScale(scale);
@@ -264,34 +265,145 @@ export default function Home() {
     applyScale(100);
   };
 
-  // Fetch live status from Go REST API (/api/v1/system)
+  // Hydrate the dashboard from the canonical Go API. Preview data is used only
+  // when the appliance API is unavailable.
   useEffect(() => {
-    fetch("/api/v1/system")
-      .then((res) => {
-        if (!res.ok) throw new Error("API Offline");
-        return res.json();
-      })
-      .then((data) => {
-        setSystemInfo(data);
+    const load = async () => {
+      try {
+        const [systemResponse, configResponse, snapshotsResponse, pendingResponse] = await Promise.all([
+          apiFetch("/api/v1/system"),
+          apiFetch("/api/v1/config"),
+          apiFetch("/api/v1/snapshots"),
+          apiFetch("/api/v1/transactions/pending"),
+        ]);
+        if (!systemResponse.ok || !configResponse.ok || !snapshotsResponse.ok || !pendingResponse.ok) {
+          throw new Error("Router API unavailable");
+        }
+        const [system, cfg, snapshotPayload, pendingPayload] = await Promise.all([
+          systemResponse.json(),
+          configResponse.json(),
+          snapshotsResponse.json(),
+          pendingResponse.json(),
+        ]);
+        setSystemInfo(system);
+        setStaticLeases((cfg.dhcp?.static_leases ?? []).map((lease: { hostname: string; mac: string; ip_address: string }) => ({
+          hostname: lease.hostname,
+          mac: lease.mac,
+          ip: lease.ip_address,
+        })));
+        setPortForwardRules((cfg.firewall?.port_forwards ?? []).map((rule: {
+          name: string; protocol: string; external_port: number; internal_ip: string; internal_port: number; enabled: boolean;
+        }) => ({
+          name: rule.name,
+          proto: rule.protocol.toUpperCase(),
+          extPort: rule.external_port,
+          intIP: rule.internal_ip,
+          intPort: rule.internal_port,
+          enabled: rule.enabled,
+        })));
+        setStatefulRules(cfg.firewall?.stateful_firewall === true);
+        setWireGuardEnabled(cfg.wireguard?.enabled === true);
+        setWgPeers((cfg.wireguard?.peers ?? []).map((peer: {
+          id: string; name: string; allowed_ips: string[]; enabled: boolean;
+        }) => ({
+          id: peer.id,
+          name: peer.name,
+          ip: peer.allowed_ips?.[0]?.replace(/\/32$/, "") ?? "",
+          traffic: peer.enabled ? "Configured" : "Disabled",
+          active: "Awaiting runtime telemetry",
+        })));
+        setCloudflareEnabled(cfg.cloudflare?.ddns_enabled === true || cfg.cloudflare?.tunnel_enabled === true);
+        setDhcpRangeStart(cfg.dhcp?.range_start ?? "");
+        setDhcpRangeEnd(cfg.dhcp?.range_end ?? "");
+        setDhcpLeaseHours(Number.parseInt(cfg.dhcp?.lease_time ?? "24", 10) || 24);
+        setDhcpGateway(cfg.lan?.ip_address ?? "");
+        setDnsPrimary(cfg.dhcp?.dns_servers?.[0] ?? "");
+        setDnsSecondary(cfg.dhcp?.dns_servers?.[1] ?? "");
+        setSquidEnabled(cfg.squid_proxy?.enabled === true);
+        setSquidPort(cfg.squid_proxy?.port ?? 3128);
+        setSquidUser(cfg.squid_proxy?.username ?? "");
+        setSquidRestrictedIPs(cfg.squid_proxy?.restricted_ips ?? []);
+        setAdguardEnabled(cfg.adguard?.enabled === true);
+        setFilterDevices(cfg.adguard?.filter_devices ?? []);
+        setWifiEnabled(cfg.wifi?.enabled === true);
+        setWifiSSID(cfg.wifi?.ssid ?? "");
+        setWifiBand(cfg.wifi?.band ?? "5ghz");
+        setWifiChannel(String(cfg.wifi?.channel ?? 36));
+        setWifiHideSSID(cfg.wifi?.hide_ssid === true);
+        setQosEnabled(cfg.qos?.enabled === true);
+        setQosAlgorithm(cfg.qos?.algorithm ?? "cake");
+        setQosDown(String(cfg.qos?.download_limit_mbps ?? 100));
+        setQosUp(String(cfg.qos?.upload_limit_mbps ?? 20));
+        setCfConfig({
+          domain: cfg.cloudflare?.domain ?? "",
+          zoneId: cfg.cloudflare?.zone_id ?? "",
+          apiToken: "",
+          tunnelDomain: cfg.cloudflare?.domain ?? "",
+        });
+        setSnapshotsList((snapshotPayload.snapshots ?? []).map((snapshot: {
+          id: string; revision: number; created_at: string; checksum: string;
+        }) => ({
+          id: snapshot.id,
+          revision: snapshot.revision,
+          label: "Configuration snapshot",
+          time: new Date(snapshot.created_at).toLocaleString(),
+          checksum: snapshot.checksum,
+        })));
+        setPendingConfirmationID(pendingPayload.pending === true ? pendingPayload.id : "");
         setApiConnected(true);
-      })
-      .catch(() => {
+        setOperationError("");
+      } catch {
         setApiConnected(false);
-      });
+      }
+    };
+    void load();
   }, []);
 
-  const [staticLeases, setStaticLeases] = useState([
-    { hostname: "Synology NAS", mac: "00:11:22:33:44:55", ip: "10.0.0.5" },
-    { hostname: "Home Assistant", mac: "00:e0:4c:68:01:91", ip: "10.0.0.10" },
-  ]);
+  useEffect(() => {
+    if (!apiConnected) return;
+    let cancelled = false;
+    const sample = async () => {
+      try {
+        const response = await apiFetch("/api/v1/system");
+        if (!response.ok) return;
+        const next = await response.json();
+        if (cancelled) return;
+        setSystemInfo(next);
+        const rx = Number(next.runtime?.rx_bytes ?? 0);
+        const tx = Number(next.runtime?.tx_bytes ?? 0);
+        const at = Date.now();
+        const previous = trafficPrevious.current;
+        if (previous && at > previous.at && rx >= previous.rx && tx >= previous.tx) {
+          const seconds = (at - previous.at) / 1000;
+          const down = ((rx - previous.rx) * 8) / seconds / 1_000_000;
+          const up = ((tx - previous.tx) * 8) / seconds / 1_000_000;
+          setDownloadMbps(down);
+          setUploadMbps(up);
+          setTrafficDown((samples) => [...samples, down].slice(-32));
+          setTrafficUp((samples) => [...samples, up].slice(-32));
+        }
+        trafficPrevious.current = { rx, tx, at };
+      } catch {
+        // The regular API availability banner handles prolonged failures.
+      }
+    };
+    void sample();
+    const timer = window.setInterval(() => void sample(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [apiConnected]);
+
+  const [staticLeases, setStaticLeases] = useState<Array<{ hostname: string; mac: string; ip: string }>>([]);
   const [leaseModalOpen, setLeaseModalOpen] = useState(false);
   const [newLeaseHost, setNewLeaseHost] = useState("");
   const [newLeaseMAC, setNewLeaseMAC] = useState("");
   const [newLeaseIP, setNewLeaseIP] = useState("");
 
-  const [portForwardRules, setPortForwardRules] = useState([
-    { name: "Home Assistant", proto: "TCP", extPort: 8123, intIP: "10.0.0.10", intPort: 8123, enabled: true },
-  ]);
+  const [portForwardRules, setPortForwardRules] = useState<Array<{
+    name: string; proto: string; extPort: number; intIP: string; intPort: number; enabled: boolean;
+  }>>([]);
   const [pfModalOpen, setPfModalOpen] = useState(false);
   const [newPfName, setNewPfName] = useState("");
   const [newPfProto, setNewPfProto] = useState("tcp");
@@ -299,14 +411,16 @@ export default function Home() {
   const [newPfIntIP, setNewPfIntIP] = useState("");
   const [newPfIntPort, setNewPfIntPort] = useState("");
 
-  const [wgPeers, setWgPeers] = useState([
-    { id: "p1", name: "MacBook Pro", ip: "10.8.0.2", traffic: "4.8 GB", active: "18s ago" },
-    { id: "p2", name: "iPhone", ip: "10.8.0.3", traffic: "1.2 GB", active: "2m ago" },
-    { id: "p3", name: "Travel laptop", ip: "10.8.0.4", traffic: "Offline", active: "3d ago" },
-  ]);
+  const [wgPeers, setWgPeers] = useState<Array<{
+    id: string; name: string; ip: string; traffic: string; active: string;
+  }>>([]);
+  const [wireGuardEnabled, setWireGuardEnabled] = useState(false);
+  const [cloudflareEnabled, setCloudflareEnabled] = useState(false);
   const [addWgModalOpen, setAddWgModalOpen] = useState(false);
   const [newWgPeerName, setNewWgPeerName] = useState("");
   const [newWgPeerIP, setNewWgPeerIP] = useState("");
+  const [newWgEndpoint, setNewWgEndpoint] = useState("");
+  const [wireGuardSubmitting, setWireGuardSubmitting] = useState(false);
 
   const [cfConfig, setCfConfig] = useState({
     domain: "home.example.net",
@@ -329,7 +443,7 @@ export default function Home() {
     });
     setCfModalOpen(false);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.cloudflare = {
@@ -338,7 +452,7 @@ export default function Home() {
             zone_id: editCfZone,
             api_token: editCfToken,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -364,26 +478,35 @@ export default function Home() {
   const [squidCredsModalOpen, setSquidCredsModalOpen] = useState(false);
 
   const handleToggleSquid = (enabled: boolean) => {
-    setSquidEnabled(enabled);
     if (apiConnected) {
-      fetch("/api/v1/config")
-        .then((res) => res.json())
+      apiFetch("/api/v1/config")
+        .then((res) => {
+          if (!res.ok) throw new Error("Could not load router configuration");
+          return res.json();
+        })
         .then((cfg) => {
           cfg.squid_proxy = {
             ...cfg.squid_proxy,
             enabled: enabled,
             port: squidPort,
             username: squidUser,
-            password: squidPass,
+            password: squidPass || "[REDACTED]",
             restricted_ips: squidRestrictedIPs,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (response) => {
+          if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Squid update failed");
+          setSquidEnabled(enabled);
+          setOperationError("");
+        })
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Squid update failed"));
+    } else {
+      setSquidEnabled(enabled);
     }
   };
 
@@ -394,7 +517,7 @@ export default function Home() {
     setSquidRestrictedIPs(updated);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.squid_proxy = {
@@ -402,10 +525,10 @@ export default function Home() {
             enabled: squidEnabled,
             port: squidPort,
             username: squidUser,
-            password: squidPass,
+            password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -419,7 +542,7 @@ export default function Home() {
     e.preventDefault();
     setSquidCredsModalOpen(false);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.squid_proxy = {
@@ -427,10 +550,10 @@ export default function Home() {
             enabled: squidEnabled,
             port: squidPort,
             username: squidUser,
-            password: squidPass,
+            password: squidPass || "[REDACTED]",
             restricted_ips: squidRestrictedIPs,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -453,7 +576,7 @@ export default function Home() {
     setAddRestrictedModalOpen(false);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.squid_proxy = {
@@ -461,10 +584,10 @@ export default function Home() {
             enabled: squidEnabled,
             port: squidPort,
             username: squidUser,
-            password: squidPass,
+            password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -479,7 +602,7 @@ export default function Home() {
     setSquidRestrictedIPs(updated);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.squid_proxy = {
@@ -487,10 +610,10 @@ export default function Home() {
             enabled: squidEnabled,
             port: squidPort,
             username: squidUser,
-            password: squidPass,
+            password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -512,7 +635,7 @@ export default function Home() {
     e.preventDefault();
     setWifiModalOpen(false);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.wifi = {
@@ -524,7 +647,7 @@ export default function Home() {
             channel: parseInt(wifiChannel, 10) || 36,
             hide_ssid: wifiHideSSID,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -544,7 +667,7 @@ export default function Home() {
     e.preventDefault();
     setQosModalOpen(false);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.qos = {
@@ -553,7 +676,7 @@ export default function Home() {
             download_limit_mbps: parseInt(qosDown, 10) || 100,
             upload_limit_mbps: parseInt(qosUp, 10) || 20,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -591,7 +714,7 @@ export default function Home() {
   const handleToggleAdGuard = (enabled: boolean) => {
     setAdguardEnabled(enabled);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.adguard = {
@@ -599,7 +722,7 @@ export default function Home() {
             enabled: enabled,
             filter_devices: filterDevices,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -620,7 +743,7 @@ export default function Home() {
     setFilterDevices(updated);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.adguard = {
@@ -628,7 +751,7 @@ export default function Home() {
             enabled: adguardEnabled,
             filter_devices: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -643,7 +766,7 @@ export default function Home() {
     setFilterDevices(updated);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.adguard = {
@@ -651,7 +774,7 @@ export default function Home() {
             enabled: adguardEnabled,
             filter_devices: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -679,7 +802,7 @@ export default function Home() {
     setAddFilterModalOpen(false);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.adguard = {
@@ -687,7 +810,7 @@ export default function Home() {
             enabled: adguardEnabled,
             filter_devices: updated,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -701,17 +824,16 @@ export default function Home() {
   const [dnsPrimary, setDnsPrimary] = useState("1.1.1.1");
   const [dnsSecondary, setDnsSecondary] = useState("1.0.0.1");
   const [dnsProvider, setDnsProvider] = useState("cloudflare");
-  const [dnsOverHttps, setDnsOverHttps] = useState(true);
 
   const handleSaveDnsSettings = (e: React.FormEvent) => {
     e.preventDefault();
     setDnsModalOpen(false);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.dhcp.dns_servers = [dnsPrimary, dnsSecondary];
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -737,7 +859,7 @@ export default function Home() {
     setDdnsModalOpen(false);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.cloudflare = {
@@ -747,7 +869,7 @@ export default function Home() {
             zone_id: ddnsZoneId,
             api_token: ddnsPass,
           };
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -758,6 +880,15 @@ export default function Home() {
   };
 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
+  const [auditEvents, setAuditEvents] = useState<Array<{
+    id: string;
+    event_type: string;
+    actor: string;
+    timestamp: string;
+    details: Record<string, string>;
+  }>>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -779,88 +910,241 @@ export default function Home() {
       return;
     }
 
-    setPassNotice("✓ Administrator lozinka je uspešno promijenjena!");
-    setOldPassword("");
-    setNewPassword("");
-    setConfirmPassword("");
-    setTimeout(() => setPassNotice(""), 4000);
+    void apiFetch("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error ?? "Password change failed");
+      }
+      setPassNotice("Administrator password changed. Sign in again.");
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      window.setTimeout(() => window.location.reload(), 1200);
+    }).catch((error: Error) => setPassError(error.message));
   };
 
-  const [snapshotsList, setSnapshotsList] = useState([
-    { id: "snap-42", revision: 42, label: "Firewall rule update", time: "8 min ago", checksum: "a1b2c3d4e5f6..." },
-    { id: "snap-41", revision: 41, label: "Initial system bootstrap", time: "2 hours ago", checksum: "f9e8d7c6b5a4..." },
-  ]);
+  const openAuditLog = async () => {
+    setAuditLoading(true);
+    setOperationError("");
+    try {
+      const response = await apiFetch("/api/v1/audit/events?limit=100");
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Could not load security audit log");
+      setAuditEvents(body.events ?? []);
+      setAuditModalOpen(true);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Could not load security audit log");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const [snapshotsList, setSnapshotsList] = useState<Array<{
+    id: string; revision: number; label: string; time: string; checksum: string;
+  }>>([]);
   const [snapshotsModalOpen, setSnapshotsModalOpen] = useState(false);
   const [snapshotSuccessMsg, setSnapshotSuccessMsg] = useState("");
 
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [includeSecrets, setIncludeSecrets] = useState(true);
   const [backupNotice, setBackupNotice] = useState("");
+  const [backupAdminPassword, setBackupAdminPassword] = useState("");
+  const [backupPassphrase, setBackupPassphrase] = useState("");
+  const [backupImportFile, setBackupImportFile] = useState<File | null>(null);
+  const [pendingBackupImportID, setPendingBackupImportID] = useState("");
+  const [pfSenseFile, setPfSenseFile] = useState<File | null>(null);
+  const [pfSenseWANInterface, setPfSenseWANInterface] = useState("eth0");
+  const [pfSenseLANInterface, setPfSenseLANInterface] = useState("eth1");
+  const [pendingPfSenseImportID, setPendingPfSenseImportID] = useState("");
+  const [pfSenseWarnings, setPfSenseWarnings] = useState<string[]>([]);
 
-  const handleExportBackup = () => {
-    const backupObj = {
-      app: "Minimal Router OS",
-      version: "0.1.0",
-      timestamp: new Date().toISOString(),
-      config: {
-        staticLeases,
-        portForwardRules,
-        wgPeers,
-        cfConfig,
-        dhcpRangeStart,
-        dhcpRangeEnd,
-        dhcpLeaseHours,
-        dhcpGateway,
-      },
-    };
-    const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "minimalrouter-backup-export.json";
-    a.click();
-    URL.revokeObjectURL(url);
-    setBackupNotice("✓ Sigurnosna kopija (backup) uspešno preuzeta!");
-    setTimeout(() => setBackupNotice(""), 4000);
+  const handleExportBackup = async () => {
+    setBackupNotice("");
+    try {
+      const response = await apiFetch("/api/v1/backup/export", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: backupAdminPassword,
+          backup_passphrase: backupPassphrase,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text() || "Backup export failed");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "minimalrouter-backup.mrbak";
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setBackupNotice("Encrypted backup downloaded.");
+    } catch (error) {
+      setBackupNotice(error instanceof Error ? error.message : "Backup export failed");
+    }
   };
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.config) {
-          if (parsed.config.staticLeases) setStaticLeases(parsed.config.staticLeases);
-          if (parsed.config.portForwardRules) setPortForwardRules(parsed.config.portForwardRules);
-          if (parsed.config.wgPeers) setWgPeers(parsed.config.wgPeers);
-          if (parsed.config.cfConfig) setCfConfig(parsed.config.cfConfig);
-          setBackupNotice("✓ Konfiguracija uspešno uvezena iz backup fajla!");
-          setTimeout(() => setBackupNotice(""), 4000);
-        }
-      } catch (err) {
-        alert("Neispravan backup fajl!");
-      }
-    };
-    reader.readAsText(file);
+    setBackupImportFile(e.target.files?.[0] ?? null);
+    setPendingBackupImportID("");
   };
 
-  const handleMakeSnapshot = () => {
-    const nextRev = snapshotsList.length > 0 ? snapshotsList[0].revision + 1 : 1;
-    const newSnap = {
-      id: `snap-${nextRev}`,
-      revision: nextRev,
-      label: "Manual user snapshot",
-      time: "Just now",
-      checksum: Math.random().toString(16).substring(2, 14) + "...",
-    };
-    setSnapshotsList([newSnap, ...snapshotsList]);
-    setSnapshotSuccessMsg(`✓ Snapshot snap-${nextRev} kreiran!`);
-    setTimeout(() => setSnapshotSuccessMsg(""), 4000);
+  const handlePreviewBackupRestore = async () => {
+    if (!backupImportFile) {
+      setBackupNotice("Choose an encrypted .mrbak file.");
+      return;
+    }
+    const form = new FormData();
+    form.set("backup", backupImportFile);
+    form.set("current_password", backupAdminPassword);
+    form.set("backup_passphrase", backupPassphrase);
+    try {
+      const response = await apiFetch("/api/v1/backup/import/preview", {
+        method: "POST",
+        body: form,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Backup validation failed");
+      setPendingBackupImportID(body.import_id);
+      setBackupNotice("Backup authenticated and validated. Review before applying.");
+    } catch (error) {
+      setBackupNotice(error instanceof Error ? error.message : "Backup validation failed");
+    }
+  };
 
-    if (apiConnected) {
-      fetch("/api/v1/snapshots", { method: "POST" }).catch(console.error);
+  const handleApplyBackupRestore = async () => {
+    if (!pendingBackupImportID) return;
+    try {
+      const response = await apiFetch(`/api/v1/import/backup/${encodeURIComponent(pendingBackupImportID)}/apply`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Restore failed");
+      if (body.state === "AwaitingConfirmation") {
+        setPendingConfirmationID(body.id);
+        setBackupNotice("Backup is provisionally active. Verify LAN access, then confirm within 90 seconds.");
+      } else {
+        setBackupNotice("Backup restored and verified.");
+      }
+      setPendingBackupImportID("");
+      if (body.state !== "AwaitingConfirmation") {
+        window.setTimeout(() => window.location.reload(), 1200);
+      }
+    } catch (error) {
+      setBackupNotice(error instanceof Error ? error.message : "Restore failed");
+    }
+  };
+
+  const handlePreviewPfSenseImport = async () => {
+    if (!pfSenseFile) {
+      setBackupNotice("Choose an unencrypted pfSense config.xml file.");
+      return;
+    }
+    try {
+      const query = new URLSearchParams({
+        wan: pfSenseWANInterface,
+        lan: pfSenseLANInterface,
+      });
+      const response = await apiFetch(`/api/v1/import/pfsense/preview?${query}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/xml" },
+        body: await pfSenseFile.arrayBuffer(),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "pfSense import validation failed");
+      setPendingPfSenseImportID(body.import_id);
+      setPfSenseWarnings([
+        ...(body.report?.warnings ?? []),
+        ...((body.report?.unsupported_sections ?? []).map((section: string) => `Manual migration required: ${section}`)),
+      ]);
+      setBackupNotice("pfSense configuration parsed and validated. Review every warning before applying.");
+    } catch (error) {
+      setPendingPfSenseImportID("");
+      setBackupNotice(error instanceof Error ? error.message : "pfSense import validation failed");
+    }
+  };
+
+  const handleApplyPfSenseImport = async () => {
+    if (!pendingPfSenseImportID) return;
+    try {
+      const response = await apiFetch(`/api/v1/import/pfsense/${encodeURIComponent(pendingPfSenseImportID)}/apply`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "pfSense migration failed");
+      setBackupNotice(
+        body.state === "AwaitingConfirmation"
+          ? "Migration is active temporarily and requires LAN confirmation."
+          : "pfSense migration applied and verified.",
+      );
+      if (body.state === "AwaitingConfirmation") {
+        setPendingConfirmationID(body.id);
+      }
+      setPendingPfSenseImportID("");
+    } catch (error) {
+      setBackupNotice(error instanceof Error ? error.message : "pfSense migration failed");
+    }
+  };
+
+  const handleConfirmPendingTransaction = async () => {
+    if (!pendingConfirmationID) return;
+    try {
+      const response = await apiFetch(`/api/v1/transactions/${encodeURIComponent(pendingConfirmationID)}/confirm`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await response.text() || "Confirmation failed");
+      setPendingConfirmationID("");
+      setBackupNotice("Configuration confirmed and committed.");
+      window.setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Confirmation failed");
+    }
+  };
+
+  const handleMakeSnapshot = async () => {
+    if (!apiConnected) {
+      setOperationError("Connect to the router API to create a real snapshot.");
+      return;
+    }
+    try {
+      const response = await apiFetch("/api/v1/snapshots", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Snapshot creation failed");
+      const snapshot = body.snapshot;
+      setSnapshotsList((current) => [{
+        id: snapshot.id,
+        revision: snapshot.revision,
+        label: "Manual configuration snapshot",
+        time: new Date(snapshot.created_at).toLocaleString(),
+        checksum: snapshot.checksum,
+      }, ...current]);
+      setSnapshotSuccessMsg(`Snapshot ${snapshot.id} created and checksummed.`);
+      window.setTimeout(() => setSnapshotSuccessMsg(""), 4000);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Snapshot creation failed");
+    }
+  };
+
+  const handleRestoreSnapshot = async (snapshotID: string) => {
+    try {
+      const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(snapshotID)}/restore`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Snapshot restore failed");
+      if (body.state === "AwaitingConfirmation") {
+        setPendingConfirmationID(body.id);
+        setSnapshotSuccessMsg(`Snapshot ${snapshotID} is provisionally active. Confirm connectivity within 90 seconds.`);
+      } else {
+        setSnapshotSuccessMsg(`Snapshot ${snapshotID} restored and verified.`);
+      }
+      setSnapshotsModalOpen(false);
+      if (body.state !== "AwaitingConfirmation") {
+        window.setTimeout(() => window.location.reload(), 1200);
+      }
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Snapshot restore failed");
     }
   };
 
@@ -875,20 +1159,23 @@ export default function Home() {
     setDhcpModalOpen(false);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.dhcp.range_start = dhcpRangeStart;
           cfg.dhcp.range_end = dhcpRangeEnd;
-          cfg.dhcp.lease_hours = dhcpLeaseHours;
-          cfg.lan.ip_address = dhcpGateway;
-          return fetch("/api/v1/config", {
+          cfg.dhcp.lease_time = `${dhcpLeaseHours}h`;
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (response) => {
+          if (!response.ok) throw new Error(await response.text());
+          setOperationError("");
+        })
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "DHCP update failed"));
     }
   };
 
@@ -902,24 +1189,50 @@ export default function Home() {
     if (!deleteConfirmTarget) return;
     const { type, idOrIndex } = deleteConfirmTarget;
 
+    let updatedLeases = staticLeases;
+    let updatedForwards = portForwardRules;
     if (type === "wg") {
       const updated = wgPeers.filter((p) => p.id !== idOrIndex);
       setWgPeers(updated);
     } else if (type === "lease") {
-      const updated = staticLeases.filter((_, idx) => idx !== idOrIndex);
-      setStaticLeases(updated);
+      updatedLeases = staticLeases.filter((_, idx) => idx !== idOrIndex);
+      setStaticLeases(updatedLeases);
     } else if (type === "pf") {
-      const updated = portForwardRules.filter((_, idx) => idx !== idOrIndex);
-      setPortForwardRules(updated);
+      updatedForwards = portForwardRules.filter((_, idx) => idx !== idOrIndex);
+      setPortForwardRules(updatedForwards);
     }
 
     setDeleteConfirmTarget(null);
 
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
-          return fetch("/api/v1/config", {
+          if (type === "wg") {
+            cfg.wireguard.peers = (cfg.wireguard?.peers ?? []).filter(
+              (peer: { id: string }) => peer.id !== idOrIndex,
+            );
+          }
+          if (type === "lease") {
+            cfg.dhcp.static_leases = updatedLeases.map((lease, index) => ({
+              id: `lease-${index + 1}`,
+              hostname: lease.hostname,
+              mac: lease.mac,
+              ip_address: lease.ip,
+            }));
+          }
+          if (type === "pf") {
+            cfg.firewall.port_forwards = updatedForwards.map((rule, index) => ({
+              id: `pf-${index + 1}`,
+              name: rule.name,
+              protocol: rule.proto.toLowerCase(),
+              external_port: rule.extPort,
+              internal_ip: rule.intIP,
+              internal_port: rule.intPort,
+              enabled: rule.enabled,
+            }));
+          }
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -929,32 +1242,77 @@ export default function Home() {
     }
   };
 
-  const handleAddWgPeer = (e: React.FormEvent) => {
+  const handleAddWgPeer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWgPeerName || !newWgPeerIP) return;
-    const newPeer = {
-      id: `p-${Date.now()}`,
-      name: newWgPeerName,
-      ip: newWgPeerIP,
-      traffic: "0 MB",
-      active: "Just added",
-    };
-    setWgPeers([...wgPeers, newPeer]);
-    setNewWgPeerName("");
-    setNewWgPeerIP("");
-    setAddWgModalOpen(false);
-    setQrOpen(true);
+    if (!newWgPeerName || !newWgPeerIP || !newWgEndpoint || !apiConnected) return;
+    setWireGuardSubmitting(true);
+    setOperationError("");
+    try {
+      const response = await apiFetch("/api/v1/wireguard/peers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newWgPeerName,
+          client_ip_address: newWgPeerIP,
+          server_endpoint: newWgEndpoint,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "WireGuard peer provisioning failed");
+      const newPeer = {
+        id: body.peer.id as string,
+        name: body.peer.name as string,
+        ip: String(body.peer.client_ip ?? "").replace(/\/32$/, ""),
+        traffic: "Configured",
+        active: "Awaiting first handshake",
+      };
+      setWgPeers((current) => [...current, newPeer]);
+      setWireGuardEnabled(true);
+      setWireGuardProvisioning({
+        peerName: newPeer.name,
+        clientIP: String(body.peer.client_ip),
+        clientConfig: String(body.client_config),
+        qrCodeData: String(body.qr_code_data),
+      });
+      setNewWgPeerName("");
+      setNewWgPeerIP("");
+      setAddWgModalOpen(false);
+      setQrOpen(true);
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "WireGuard peer provisioning failed");
+    } finally {
+      setWireGuardSubmitting(false);
+    }
+  };
+
+  const closeWireGuardProvisioning = () => {
+    setQrOpen(false);
+    setWireGuardProvisioning(null);
+  };
+
+  const downloadWireGuardConfig = () => {
+    if (!wireGuardProvisioning) return;
+    const blob = new Blob([wireGuardProvisioning.clientConfig], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${wireGuardProvisioning.peerName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "wireguard-peer"}.conf`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   // Sync stateful firewall toggle with Go REST API
   const handleToggleStateful = (val: boolean) => {
+    if (!val) {
+      setOperationError("The stateful firewall is a mandatory security control and cannot be disabled.");
+      return;
+    }
     setStatefulRules(val);
     if (apiConnected) {
-      fetch("/api/v1/config")
+      apiFetch("/api/v1/config")
         .then((res) => res.json())
         .then((cfg) => {
           cfg.firewall.stateful_firewall = val;
-          return fetch("/api/v1/config", {
+          return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(cfg),
@@ -964,38 +1322,76 @@ export default function Home() {
     }
   };
 
-  const handleAddStaticLease = (e: React.FormEvent) => {
+  const handleTogglePortForward = (index: number) => {
+    const updated = portForwardRules.map((rule, itemIndex) =>
+      itemIndex === index ? { ...rule, enabled: !rule.enabled } : rule
+    );
+    if (!apiConnected) {
+      setPortForwardRules(updated);
+      return;
+    }
+    apiFetch("/api/v1/config")
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load router configuration");
+        return response.json();
+      })
+      .then((cfg) => {
+        cfg.firewall.port_forwards = updated.map((rule, itemIndex) => ({
+          id: `pf-${itemIndex + 1}`,
+          name: rule.name,
+          protocol: rule.proto.toLowerCase(),
+          external_port: rule.extPort,
+          internal_ip: rule.intIP,
+          internal_port: rule.intPort,
+          enabled: rule.enabled,
+        }));
+        return apiFetch("/api/v1/config", {
+          method: "PUT",
+          body: JSON.stringify(cfg),
+        });
+      })
+      .then(async (response) => {
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Port-forward update failed");
+        setPortForwardRules(updated);
+        setOperationError("");
+      })
+      .catch((error) => setOperationError(error instanceof Error ? error.message : "Port-forward update failed"));
+  };
+
+  const handleAddStaticLease = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLeaseHost || !newLeaseMAC || !newLeaseIP) return;
     const item = { hostname: newLeaseHost, mac: newLeaseMAC, ip: newLeaseIP };
     const updated = [...staticLeases, item];
-    setStaticLeases(updated);
-    setNewLeaseHost("");
-    setNewLeaseMAC("");
-    setNewLeaseIP("");
-    setLeaseModalOpen(false);
-
-    if (apiConnected) {
-      fetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.dhcp.static_leases = updated.map((l, i) => ({
-            id: `lease-${i + 1}`,
-            hostname: l.hostname,
-            mac: l.mac,
-            ip_address: l.ip,
-          }));
-          return fetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
+    try {
+      if (apiConnected) {
+        const current = await apiFetch("/api/v1/config");
+        if (!current.ok) throw new Error("Could not load router configuration");
+        const cfg = await current.json();
+        cfg.dhcp.static_leases = updated.map((lease, index) => ({
+          id: `lease-${index + 1}`,
+          hostname: lease.hostname,
+          mac: lease.mac,
+          ip_address: lease.ip,
+        }));
+        const response = await apiFetch("/api/v1/config", {
+          method: "PUT",
+          body: JSON.stringify(cfg),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Static lease update failed");
+      }
+      setStaticLeases(updated);
+      setNewLeaseHost("");
+      setNewLeaseMAC("");
+      setNewLeaseIP("");
+      setLeaseModalOpen(false);
+      setOperationError("");
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Static lease update failed");
     }
   };
 
-  const handleAddPortForward = (e: React.FormEvent) => {
+  const handleAddPortForward = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPfName || !newPfExtPort || !newPfIntIP || !newPfIntPort) return;
     const item = {
@@ -1007,33 +1403,35 @@ export default function Home() {
       enabled: true,
     };
     const updated = [...portForwardRules, item];
-    setPortForwardRules(updated);
-    setNewPfName("");
-    setNewPfExtPort("");
-    setNewPfIntIP("");
-    setNewPfIntPort("");
-    setPfModalOpen(false);
-
-    if (apiConnected) {
-      fetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.firewall.port_forwards = updated.map((r, i) => ({
-            id: `pf-${i + 1}`,
-            name: r.name,
-            protocol: r.proto.toLowerCase(),
-            external_port: r.extPort,
-            internal_ip: r.intIP,
-            internal_port: r.intPort,
-            enabled: r.enabled,
-          }));
-          return fetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
+    try {
+      if (apiConnected) {
+        const current = await apiFetch("/api/v1/config");
+        if (!current.ok) throw new Error("Could not load router configuration");
+        const cfg = await current.json();
+        cfg.firewall.port_forwards = updated.map((rule, index) => ({
+          id: `pf-${index + 1}`,
+          name: rule.name,
+          protocol: rule.proto.toLowerCase(),
+          external_port: rule.extPort,
+          internal_ip: rule.intIP,
+          internal_port: rule.intPort,
+          enabled: rule.enabled,
+        }));
+        const response = await apiFetch("/api/v1/config", {
+          method: "PUT",
+          body: JSON.stringify(cfg),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Port-forward update failed");
+      }
+      setPortForwardRules(updated);
+      setNewPfName("");
+      setNewPfExtPort("");
+      setNewPfIntIP("");
+      setNewPfIntPort("");
+      setPfModalOpen(false);
+      setOperationError("");
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : "Port-forward update failed");
     }
   };
 
@@ -1079,6 +1477,14 @@ export default function Home() {
   };
 
   const closeMenu = () => setMenuOpen(false);
+  const runtime = systemInfo.runtime ?? {};
+  const cpuPercent = Math.max(0, Math.min(100, Math.round(runtime.cpu_load_percent ?? 0)));
+  const memoryPercent = runtime.memory_total_bytes
+    ? Math.round(((runtime.memory_used_bytes ?? 0) / runtime.memory_total_bytes) * 100)
+    : 0;
+  const diskPercent = runtime.disk_total_bytes
+    ? Math.round(((runtime.disk_used_bytes ?? 0) / runtime.disk_total_bytes) * 100)
+    : 0;
 
   return (
     <main className="app-shell">
@@ -1145,20 +1551,17 @@ export default function Home() {
             <span className="chip ok" title="Stateful Packet Filtering (nftables): Inspects all network traffic and blocks unauthorized WAN access">
               <i className="status-dot" /> Firewall
             </span>
-            <span className="chip ok" title="Encrypted VPN (WireGuard): High-speed secure remote access tunnel to your home network">
-              <i className="status-dot" /> WireGuard
+            <span className={`chip ${wireGuardEnabled ? "ok" : ""}`} title="WireGuard status from the committed router configuration">
+              <i className="status-dot" /> WireGuard {wireGuardEnabled ? "" : "off"}
             </span>
             <span className="chip ok" title="Dynamic Host Configuration Protocol (dnsmasq): Automatically assigns IP addresses to home devices">
               <i className="status-dot" /> DHCP
             </span>
-            <span className="chip ok" title="Domain Name System (DoH): Translates website names to IP addresses with encrypted DNS-over-HTTPS">
+            <span className="chip ok" title="Local DNS forwarding through dnsmasq">
               <i className="status-dot" /> DNS
             </span>
-            <span className="chip ok" title="Dynamic DNS (Cloudflare): Keeps your home domain updated when your public IP changes">
-              <i className="status-dot" /> DDNS
-            </span>
-            <span className="chip ok" title="Cloudflare Tunnel: Safely exposes local web services to the internet without opening router ports">
-              <i className="status-dot" /> Tunnel
+            <span className={`chip ${cloudflareEnabled ? "ok" : ""}`} title="Cloudflare integration status from the committed router configuration">
+              <i className="status-dot" /> Cloudflare {cloudflareEnabled ? "" : "off"}
             </span>
           </div>
           <div className="top-actions">
@@ -1200,9 +1603,11 @@ export default function Home() {
               className="button secondary"
               type="button"
               onClick={() => setWizardOpen(true)}
+              disabled={apiConnected}
+              title={apiConnected ? "Initial setup has already been completed" : "Open the offline design preview"}
               style={{ fontSize: "13px", padding: "6px 12px", borderRadius: "10px", height: "40px" }}
             >
-              Setup Wizard
+              {apiConnected ? "Setup complete" : "Setup preview"}
             </button>
             <button
               className="avatar-button"
@@ -1215,6 +1620,25 @@ export default function Home() {
             </button>
           </div>
         </header>
+        {operationError && (
+          <div className="operation-error" role="alert">
+            <span>{operationError}</span>
+            <button type="button" aria-label="Dismiss error" onClick={() => setOperationError("")}>×</button>
+          </div>
+        )}
+        {apiConnected && runtime.available === false && (
+          <div className="preview-runtime-banner" role="status">
+            macOS control-plane preview — configuration is stored locally, but Linux networking services are not applied.
+          </div>
+        )}
+        {pendingConfirmationID && (
+          <div className="confirmation-banner" role="status">
+            <span>Verify connectivity through the intended LAN or WireGuard path. Automatic rollback occurs after 90 seconds.</span>
+            <button className="button primary" type="button" onClick={() => void handleConfirmPendingTransaction()}>
+              Confirm connectivity
+            </button>
+          </div>
+        )}
 
         <div className="content">
           <section className="internet-card card" aria-labelledby="internet-title">
@@ -1224,25 +1648,22 @@ export default function Home() {
                   <span className="status-dot" />
                   Internet
                 </div>
-                <h2 id="internet-title">Online and stable</h2>
+                <h2 id="internet-title">{systemInfo.status === "Connected" ? "Online and verified" : "WAN not connected"}</h2>
                 <div className="internet-meta" style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
-                  <span>Public IP <code>{systemInfo.public_ip || "185.33.42.117"}</code></span>
-                  <span>Uptime {systemInfo.uptime || "12d 08h 41m"}</span>
-                  <span>MTU 1492</span>
+                  <span>Public IP <code>{runtime.public_ip || "Unavailable"}</code></span>
+                  <span>Uptime {formatUptime(runtime.uptime_seconds)}</span>
+                  <span>MTU {systemInfo.mtu ?? "—"}</span>
                   <span style={{ borderLeft: "1px solid var(--separator)", paddingLeft: "12px" }}>
-                    Last backup <strong>{systemInfo.last_backup || "6 days ago"}</strong>
+                    Last snapshot <strong>{snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "No snapshot"}</strong>
                   </span>
-                  <span style={{ borderLeft: "1px solid var(--separator)", paddingLeft: "12px" }}>
-                    Last snapshot <strong>{snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : (systemInfo.last_snap || "Revision 42 (8 min ago)")}</strong>
-                  </span>
-                  <span style={{ borderLeft: "1px solid var(--separator)", paddingLeft: "12px", color: "#34C759", fontWeight: 600 }}>
-                    ✓ {systemInfo.update || "Up to date"}
+                  <span style={{ borderLeft: "1px solid var(--separator)", paddingLeft: "12px", color: systemInfo.update_trust_configured ? "#34C759" : "var(--warning)", fontWeight: 600 }}>
+                    {systemInfo.update_trust_configured ? "✓ Signed update trust configured" : "Signed updates disabled"}
                   </span>
                 </div>
               </div>
-              <div className="pppoe-pill">
+              <div className={`pppoe-pill ${systemInfo.status === "Connected" ? "" : "is-offline"}`}>
                 <span className="status-dot" />
-                PPPoE connected
+                {systemInfo.status === "Connected" ? "PPPoE connected" : "PPPoE offline"}
               </div>
             </div>
 
@@ -1250,21 +1671,21 @@ export default function Home() {
               <div className="traffic-value">
                 <span className="traffic-arrow download-arrow">↓</span>
                 <div>
-                  <span>Download</span>
-                  <strong>924.8 <small>Mbps</small></strong>
+                  <span>Download now</span>
+                  <strong>{downloadMbps.toFixed(2)} <small>Mbps</small></strong>
                 </div>
               </div>
               <div className="traffic-value">
                 <span className="traffic-arrow upload-arrow">↑</span>
                 <div>
-                  <span>Upload</span>
-                  <strong>96.2 <small>Mbps</small></strong>
+                  <span>Upload now</span>
+                  <strong>{uploadMbps.toFixed(2)} <small>Mbps</small></strong>
                 </div>
               </div>
               <div className="latency-value">
-                <span>Latency</span>
-                <strong>8 <small>ms</small></strong>
-                <em>0.2% packet loss</em>
+                <span>Interface totals</span>
+                <strong>{formatBytes(runtime.rx_bytes)}</strong>
+                <em>Sent {formatBytes(runtime.tx_bytes)}</em>
               </div>
             </div>
 
@@ -1272,19 +1693,19 @@ export default function Home() {
               <div className="chart-head">
                 <div>
                   <strong>Network traffic</strong>
-                  <span>Last 24 hours</span>
+                  <span>Live samples · 5 second interval</span>
                 </div>
                 <div className="chart-legend" aria-hidden="true">
                   <span><i className="legend-download" /> Download</span>
                   <span><i className="legend-upload" /> Upload</span>
                 </div>
               </div>
-              <TrafficChart theme={theme} />
+              <TrafficChart theme={theme} download={trafficDown} upload={trafficUp} />
               <div className="chart-axis" aria-hidden="true">
-                <span>00:00</span>
-                <span>06:00</span>
-                <span>12:00</span>
-                <span>18:00</span>
+                <span>Older</span>
+                <span />
+                <span />
+                <span />
                 <span>Now</span>
               </div>
             </div>
@@ -1296,54 +1717,57 @@ export default function Home() {
                 <p className="eyebrow">System</p>
                 <h2>Quietly doing its job.</h2>
               </div>
-              <span className="quiet-meta">Alpine Linux · x86_64 · 42°C</span>
+              <span className="quiet-meta">
+                {runtime.os || "Runtime unavailable"} · {runtime.architecture || "unknown"}
+                {runtime.temperature_c ? ` · ${runtime.temperature_c.toFixed(0)}°C` : ""}
+              </span>
             </div>
 
             <div className="system-grid">
               <article className="card resource-card">
                 <div className="resource-top">
                   <span>CPU</span>
-                  <strong>14%</strong>
+                  <strong>{cpuPercent}%</strong>
                 </div>
-                <Meter label="CPU usage" value={14} detail="4 cores · 1.4 GHz" />
-                <p>Load average 0.18 · 0.22 · 0.19</p>
+                <Meter label="CPU usage" value={cpuPercent} detail={`${runtime.cpu_count ?? 0} cores`} />
+                <p>Load average {runtime.load_average?.length ? runtime.load_average.map((value) => value.toFixed(2)).join(" · ") : "unavailable"}</p>
               </article>
 
               <article className="card resource-card">
                 <div className="resource-top">
                   <span>Memory</span>
-                  <strong>182 <small>MB</small></strong>
+                  <strong>{formatBytes(runtime.memory_used_bytes)}</strong>
                 </div>
-                <Meter label="Memory usage" value={18} detail="182 MB of 1 GB" tone="violet" />
-                <p>818 MB available</p>
+                <Meter label="Memory usage" value={memoryPercent} detail={`${formatBytes(runtime.memory_used_bytes)} of ${formatBytes(runtime.memory_total_bytes)}`} tone="violet" />
+                <p>{formatBytes(Math.max(0, (runtime.memory_total_bytes ?? 0) - (runtime.memory_used_bytes ?? 0)))} available</p>
               </article>
 
               <article className="card resource-card">
                 <div className="resource-top">
                   <span>Disk</span>
-                  <strong>1.8 <small>GB</small></strong>
+                  <strong>{formatBytes(runtime.disk_used_bytes)}</strong>
                 </div>
-                <Meter label="Disk usage" value={23} detail="1.8 GB of 8 GB" tone="green" />
-                <p>6.2 GB available · disk healthy</p>
+                <Meter label="Disk usage" value={diskPercent} detail={`${formatBytes(runtime.disk_used_bytes)} of ${formatBytes(runtime.disk_total_bytes)}`} tone="green" />
+                <p>{formatBytes(Math.max(0, (runtime.disk_total_bytes ?? 0) - (runtime.disk_used_bytes ?? 0)))} available</p>
               </article>
             </div>
 
             <div className="facts-strip card">
               <div>
                 <span>Router uptime</span>
-                <strong>18 days, 4 hours</strong>
+                <strong>{formatUptime(runtime.uptime_seconds)}</strong>
               </div>
               <div>
                 <span>WAN</span>
-                <strong>2.5 GbE · full duplex</strong>
+                <strong>{systemInfo.status ?? "Unavailable"} · {systemInfo.wan_iface || "no interface"}</strong>
               </div>
               <div>
                 <span>LAN</span>
-                <strong>10.0.0.1/24</strong>
+                <strong>{systemInfo.lan_ip || "Unavailable"}</strong>
               </div>
               <div>
                 <span>DNS</span>
-                <strong>dnsmasq · 4 ms avg.</strong>
+                <strong>dnsmasq · configured upstreams</strong>
               </div>
             </div>
           </section>
@@ -1352,7 +1776,7 @@ export default function Home() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">LAN & DHCP</p>
-                <h2>{staticLeases.length + 12} devices at home.</h2>
+                <h2>{staticLeases.length} reserved DHCP addresses.</h2>
               </div>
               <div style={{ display: "flex", gap: "10px" }}>
                 <button
@@ -1395,14 +1819,12 @@ export default function Home() {
                     <span style={{ fontWeight: 400, color: "var(--text-secondary)", marginLeft: "8px" }}>({dnsPrimary}, {dnsSecondary})</span>
                   </strong>
                 </div>
-                {dnsOverHttps && (
-                  <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "4px 10px", borderRadius: "8px", fontWeight: 650, display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                    🔒 DoH Encrypted
-                  </span>
-                )}
+                <span style={{ fontSize: "11px", background: "var(--surface-muted)", color: "var(--text-secondary)", padding: "4px 10px", borderRadius: "8px", fontWeight: 650 }}>
+                  Plain DNS forwarding
+                </span>
               </div>
               <p style={{ margin: 0, fontSize: "12.5px", color: "var(--text-secondary)", maxWidth: "480px", lineHeight: 1.45, borderLeft: "1px solid var(--separator)", paddingLeft: "20px" }}>
-                DNS translates website names to IP addresses for home devices. Encrypted DNS-over-HTTPS (DoH) blocks ISP tracking.
+                dnsmasq provides LAN DNS and forwards queries to these upstream resolvers. DNS-over-HTTPS is not implemented in this build.
               </p>
             </div>
 
@@ -1410,35 +1832,25 @@ export default function Home() {
               <article className="card table-card">
                 <div className="card-title-row">
                   <div>
-                    <h3>Active leases</h3>
-                    <p>12 dynamic · {staticLeases.length} static</p>
+                    <h3>Static DHCP reservations</h3>
+                    <p>{staticLeases.length} configured · live lease telemetry not collected</p>
                   </div>
-                  <button className="quiet-button" type="button">View all</button>
                 </div>
                 <div className="table-scroll">
                   <table>
-                    <caption className="sr-only">Currently active DHCP leases</caption>
+                    <caption className="sr-only">Configured static DHCP reservations</caption>
                     <thead>
                       <tr>
                         <th>Device</th>
                         <th>IP address</th>
-                        <th>Connection</th>
-                        <th>Lease</th>
+                        <th>Type</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td><strong>Vladimir’s MacBook Pro</strong><span>64:bc:58:1a:72:03</span></td>
-                        <td><code>10.0.0.21</code></td>
-                        <td><span className="micro-status"><i /> Active</span></td>
-                        <td>18h 42m</td>
-                      </tr>
-                      <tr>
-                        <td><strong>Living Room TV</strong><span>c8:3a:35:9e:41:20</span></td>
-                        <td><code>10.0.0.32</code></td>
-                        <td><span className="micro-status"><i /> Active</span></td>
-                        <td>11h 04m</td>
-                      </tr>
+                      {staticLeases.length === 0 && (
+                        <tr><td colSpan={4}>No static reservations configured.</td></tr>
+                      )}
                       {staticLeases.map((lease, idx) => (
                         <tr key={idx}>
                           <td><strong>{lease.hostname}</strong><span>{lease.mac}</span></td>
@@ -1477,9 +1889,9 @@ export default function Home() {
               </article>
 
               <aside className="card lan-summary">
-                <div className="summary-icon">{staticLeases.length + 12}</div>
-                <h3>Connected devices</h3>
-                <p>Everything looks normal. No new devices joined in the last 24 hours.</p>
+                <div className="summary-icon">{staticLeases.length}</div>
+                <h3>DHCP configuration</h3>
+                <p>Active dnsmasq leases will be added after runtime lease telemetry is implemented.</p>
                 <div className="summary-list">
                   <div><span>DHCP range</span><code>{dhcpRangeStart}–{dhcpRangeEnd.split('.').pop()}</code></div>
                   <div><span>Lease time</span><strong>{dhcpLeaseHours} hours</strong></div>
@@ -1525,7 +1937,7 @@ export default function Home() {
                   </div>
                   <Toggle
                     checked={statefulRules}
-                    onChange={() => setStatefulRules((value) => !value)}
+                    onChange={() => handleToggleStateful(!statefulRules)}
                     label="Stateful firewall"
                   />
                 </div>
@@ -1539,7 +1951,7 @@ export default function Home() {
                 <div className="setting-row">
                   <div>
                     <strong>WAN management</strong>
-                    <span>Router dashboard is available from LAN only</span>
+                    <span>Dashboard and MCP are available from LAN or an authenticated WireGuard tunnel</span>
                   </div>
                   <span className="small-status neutral">Blocked</span>
                 </div>
@@ -1549,14 +1961,16 @@ export default function Home() {
                 <div className="card-title-row">
                   <div>
                     <h3>Port forwarding</h3>
-                    <p>{portForwardRules.length} service{portForwardRules.length === 1 ? "" : "s"} reachable from the internet.</p>
+                    <p>Disabled. WireGuard is the only permitted external entry point.</p>
                   </div>
                   <button
                     className="quiet-button"
                     type="button"
+                    disabled={apiConnected}
+                    title={apiConnected ? "WAN port forwarding is disabled by the secure appliance profile" : undefined}
                     onClick={() => setPfModalOpen(true)}
                   >
-                    Add rule
+                    {apiConnected ? "Locked" : "Add rule"}
                   </button>
                 </div>
                 {portForwardRules.map((rule, idx) => (
@@ -1568,12 +1982,9 @@ export default function Home() {
                     </div>
                     <Toggle
                       checked={rule.enabled}
-                      onChange={() => {
-                        const copy = [...portForwardRules];
-                        copy[idx].enabled = !copy[idx].enabled;
-                        setPortForwardRules(copy);
-                      }}
+                      onChange={() => handleTogglePortForward(idx)}
                       label={`${rule.name} port forward`}
+                      disabled={apiConnected}
                     />
                   </div>
                 ))}
@@ -1596,15 +2007,17 @@ export default function Home() {
                   className="button secondary"
                   type="button"
                   onClick={() => setQosModalOpen(true)}
+                  disabled={apiConnected}
+                  title={apiConnected ? "QoS lifecycle adapter is not available in this build" : undefined}
                   style={{ fontSize: "13px" }}
                 >
-                  Configure QoS
+                  {apiConnected ? "Not available" : "Configure QoS"}
                 </button>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--separator)" }}>
                 <div>
                   <span className="quiet-meta">
-                    Status: <strong style={{ color: qosEnabled ? "#34C759" : "var(--text-tertiary)" }}>{qosEnabled ? "Active (CAKE Shaping ON)" : "Disabled (Default)"}</strong>
+                    Status: <strong style={{ color: qosEnabled ? "#34C759" : "var(--text-tertiary)" }}>{qosEnabled ? "Active (CAKE Shaping ON)" : apiConnected ? "Unavailable in this build" : "Disabled (Preview)"}</strong>
                   </span>
                 </div>
                 <div style={{ display: "flex", gap: "24px" }}>
@@ -1621,8 +2034,14 @@ export default function Home() {
                 <p className="eyebrow">WireGuard</p>
                 <h2>Private access, anywhere.</h2>
               </div>
-              <button className="button primary" type="button" onClick={() => setQrOpen(true)}>
-                Generate QR code
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => setQrOpen(true)}
+                disabled={!wireGuardProvisioning}
+                title={wireGuardProvisioning ? "Show the latest one-time client configuration" : "Add a peer to generate a client QR code"}
+              >
+                {wireGuardProvisioning ? "Show latest QR code" : "Add a peer first"}
               </button>
             </div>
 
@@ -1632,10 +2051,10 @@ export default function Home() {
                   <div className="wg-mark" aria-hidden="true">W</div>
                   <div>
                     <span>Interface wg0</span>
-                    <h3>Running normally</h3>
-                    <p><code>10.8.0.1/24</code> · UDP 51820 · 3 peers</p>
+                    <h3>{wireGuardEnabled ? "Running normally" : "Disabled"}</h3>
+                    <p><code>10.8.0.1/24</code> · UDP 51820 · {wgPeers.length} peers</p>
                   </div>
-                  <span className="status-label success"><i className="status-dot" /> Active</span>
+                  <span className={`status-label ${wireGuardEnabled ? "success" : ""}`}><i className="status-dot" /> {wireGuardEnabled ? "Active" : "Off"}</span>
                 </div>
                 <div className="peer-list">
                   {wgPeers.map((peer) => (
@@ -1645,7 +2064,7 @@ export default function Home() {
                         <div><strong>{peer.name}</strong><span>{peer.ip} · latest handshake {peer.active}</span></div>
                       </div>
                       <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                        <div className="peer-traffic"><strong>{peer.traffic}</strong><span>↓ 3.9 · ↑ 0.9</span></div>
+                        <div className="peer-traffic"><strong>{peer.traffic}</strong><span>Transfer telemetry not collected</span></div>
                         <button
                           type="button"
                           onClick={() => setDeleteConfirmTarget({ type: "wg", idOrIndex: peer.id, name: peer.name })}
@@ -1673,23 +2092,17 @@ export default function Home() {
               </article>
 
               <aside className="card wireguard-summary">
-                <span className="mini-label">This month</span>
-                <strong>18.4 <small>GB</small></strong>
-                <p>Secure traffic across {wgPeers.length} peers.</p>
-                <div className="split-meter" aria-hidden="true">
-                  <span style={{ width: "72%" }} />
-                  <i style={{ width: "28%" }} />
-                </div>
-                <div className="split-legend">
-                  <span><i className="download-key" /> Download 13.2 GB</span>
-                  <span><i className="upload-key" /> Upload 5.2 GB</span>
-                </div>
+                <span className="mini-label">Configured peers</span>
+                <strong>{wgPeers.length}</strong>
+                <p>Private keys are returned once and never stored by the router.</p>
                 <button
                   className="button secondary full"
                   type="button"
                   onClick={() => setAddWgModalOpen(true)}
+                  disabled={!apiConnected}
+                  title={!apiConnected ? "Connect to the router API to provision a peer" : undefined}
                 >
-                  + Add WireGuard Peer
+                  {apiConnected ? "+ Add WireGuard Peer" : "Router API required"}
                 </button>
               </aside>
             </div>
@@ -1705,16 +2118,18 @@ export default function Home() {
                 className="button secondary"
                 type="button"
                 onClick={() => setCfModalOpen(true)}
+                disabled={apiConnected}
+                title={apiConnected ? "Cloudflare lifecycle adapter is not available in this build" : undefined}
               >
-                Configure Cloudflare
+                {apiConnected ? "Not available" : "Configure Cloudflare"}
               </button>
             </div>
 
             <div className="cloud-grid">
               <article
                 className="card cloud-card"
-                onClick={() => setDdnsModalOpen(true)}
-                style={{ cursor: "pointer" }}
+                onClick={() => { if (!apiConnected) setDdnsModalOpen(true); }}
+                style={{ cursor: apiConnected ? "default" : "pointer" }}
               >
                 <div className="cloud-icon" aria-hidden="true">DD</div>
                 <div>
@@ -1896,6 +2311,7 @@ export default function Home() {
                   className="button secondary"
                   type="button"
                   onClick={handleUpdateBlocklist}
+                  disabled={apiConnected}
                   style={{ fontSize: "13px" }}
                 >
                   Update Blocklist
@@ -1904,6 +2320,7 @@ export default function Home() {
                   className="button secondary"
                   type="button"
                   onClick={() => handleToggleAdGuard(!adguardEnabled)}
+                  disabled={apiConnected}
                   style={{ fontSize: "13px" }}
                 >
                   {adguardEnabled ? "Disable Filter" : "Enable Filter"}
@@ -2029,15 +2446,16 @@ export default function Home() {
               </div>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                 <span className="quiet-meta">
-                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : "Disabled (Default)"}</strong>
+                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : apiConnected ? "Unavailable in this build" : "Disabled (Preview)"}</strong>
                 </span>
                 <button
                   className="button secondary"
                   type="button"
                   onClick={() => setWifiModalOpen(true)}
+                  disabled={apiConnected}
                   style={{ fontSize: "13px" }}
                 >
-                  Configure Wi-Fi
+                  {apiConnected ? "Not available" : "Configure Wi-Fi"}
                 </button>
               </div>
             </div>
@@ -2051,17 +2469,21 @@ export default function Home() {
                 <Toggle
                   checked={wifiEnabled}
                   onChange={() => {
+                    if (apiConnected) {
+                      setOperationError("Wi-Fi requires a bridge-aware hostapd lifecycle adapter and is disabled in this build.");
+                      return;
+                    }
                     const nextState = !wifiEnabled;
                     setWifiEnabled(nextState);
                     if (apiConnected) {
-                      fetch("/api/v1/config")
+                      apiFetch("/api/v1/config")
                         .then((res) => res.json())
                         .then((cfg) => {
                           cfg.wifi = {
                             ...cfg.wifi,
                             enabled: nextState,
                           };
-                          return fetch("/api/v1/config", {
+                          return apiFetch("/api/v1/config", {
                             method: "PUT",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify(cfg),
@@ -2109,10 +2531,10 @@ export default function Home() {
                 <div>
                   <span className="mini-label">Latest snapshot</span>
                   <h3 style={{ fontSize: "17px", fontWeight: 700, margin: "6px 0 4px" }}>
-                    {snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "Protected 8 minutes ago"}
+                    {snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "No snapshot yet"}
                   </h3>
                   <p style={{ color: "var(--text-secondary)", fontSize: "13px", margin: 0 }}>
-                    {snapshotsList.length > 0 ? snapshotsList[0].label : "Firewall rule update · Configuration revision 42"}
+                    {snapshotsList.length > 0 ? snapshotsList[0].label : "Create a checksummed snapshot before major changes."}
                   </p>
                   {snapshotSuccessMsg && (
                     <div style={{ color: "#34C759", fontSize: "12px", fontWeight: 600, marginTop: "6px" }}>
@@ -2124,7 +2546,8 @@ export default function Home() {
                   <button
                     className="button primary"
                     type="button"
-                    onClick={handleMakeSnapshot}
+                    onClick={() => void handleMakeSnapshot()}
+                    disabled={!apiConnected}
                     style={{ flex: 1, whiteSpace: "nowrap" }}
                   >
                     + Make snapshot
@@ -2143,17 +2566,17 @@ export default function Home() {
                 <span className="recovery-index">02</span>
                 <div>
                   <span className="mini-label">System update</span>
-                  <h3>You’re up to date</h3>
-                  <p>Minimal Router OS 0.1.0 · Alpine 3.22</p>
+                  <h3>{systemInfo.update_trust_configured ? "Signed update verification ready" : "Updates disabled"}</h3>
+                  <p>{systemInfo.version ?? "Minimal Router OS"} · no automatic update channel configured</p>
                 </div>
-                <button className="button secondary" type="button">Check again</button>
+                <button className="button secondary" type="button" disabled>Manual signed package only</button>
               </article>
               <article className="card recovery-card">
                 <span className="recovery-index">03</span>
                 <div>
                   <span className="mini-label">Backup</span>
-                  <h3>Encrypted backup ready</h3>
-                  <p>Last exported 6 days ago · Secrets included</p>
+                  <h3>Encrypted export available</h3>
+                  <p>Argon2id + AES-GCM · export history is not retained</p>
                 </div>
                 <button
                   className="button secondary"
@@ -2169,12 +2592,13 @@ export default function Home() {
         </div>
       </div>
 
-      {qrOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setQrOpen(false)}>
+      {qrOpen && wireGuardProvisioning && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeWireGuardProvisioning}>
           <section
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             aria-labelledby="qr-title"
             onMouseDown={(event) => event.stopPropagation()}
           >
@@ -2182,7 +2606,7 @@ export default function Home() {
               className="modal-close"
               type="button"
               aria-label="Close QR code"
-              onClick={() => setQrOpen(false)}
+              onClick={closeWireGuardProvisioning}
             >
               ×
             </button>
@@ -2190,24 +2614,25 @@ export default function Home() {
             <h2 id="qr-title">Connect your phone</h2>
             <p className="modal-copy">
               Scan this code from the WireGuard app. The private configuration
-              is shown only for this preview session.
+              is returned once and is not stored by the router. Download it
+              before closing this window.
             </p>
-            <QrPreview />
+            <QrPreview source={wireGuardProvisioning.qrCodeData} />
             <div className="qr-peer">
               <div>
                 <span>Peer name</span>
-                <strong>New iPhone</strong>
+                <strong>{wireGuardProvisioning.peerName}</strong>
               </div>
               <div>
                 <span>Address</span>
-                <code>10.8.0.5/32</code>
+                <code>{wireGuardProvisioning.clientIP}</code>
               </div>
             </div>
             <div className="modal-actions">
-              <button className="button secondary" type="button" onClick={() => setQrOpen(false)}>
-                Cancel
+              <button className="button secondary" type="button" onClick={closeWireGuardProvisioning}>
+                Close and erase
               </button>
-              <button className="button primary" type="button">
+              <button className="button primary" type="button" onClick={downloadWireGuardConfig}>
                 Download configuration
               </button>
             </div>
@@ -2221,9 +2646,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setLeaseModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setLeaseModalOpen(false)}>×</button>
             <p className="eyebrow">DHCP Static Lease</p>
             <h2>Add static lease</h2>
             <form onSubmit={handleAddStaticLease} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2275,9 +2701,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setPfModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setPfModalOpen(false)}>×</button>
             <p className="eyebrow">Firewall Port Forward</p>
             <h2>Add port forward rule</h2>
             <form onSubmit={handleAddPortForward} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2356,9 +2783,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setAddWgModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setAddWgModalOpen(false)}>×</button>
             <p className="eyebrow">WireGuard VPN</p>
             <h2>Add WireGuard Peer</h2>
             <form onSubmit={handleAddWgPeer} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2384,9 +2812,25 @@ export default function Home() {
                   required
                 />
               </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Public WireGuard Endpoint</label>
+                <input
+                  type="text"
+                  placeholder="e.g. vpn.example.net:51820"
+                  value={newWgEndpoint}
+                  onChange={(e) => setNewWgEndpoint(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required
+                />
+                <span style={{ display: "block", marginTop: "5px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+                  Use your public IP or DDNS hostname and the WireGuard UDP port.
+                </span>
+              </div>
               <div className="modal-actions" style={{ marginTop: '8px' }}>
-                <button className="button secondary" type="button" onClick={() => setAddWgModalOpen(false)}>Cancel</button>
-                <button className="button primary" type="submit">Generate QR Code & Add</button>
+                <button className="button secondary" type="button" onClick={() => setAddWgModalOpen(false)} disabled={wireGuardSubmitting}>Cancel</button>
+                <button className="button primary" type="submit" disabled={wireGuardSubmitting}>
+                  {wireGuardSubmitting ? "Applying securely…" : "Generate QR Code & Add"}
+                </button>
               </div>
             </form>
           </section>
@@ -2399,9 +2843,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setCfModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setCfModalOpen(false)}>×</button>
             <p className="eyebrow">Cloudflare DDNS & Tunnel</p>
             <h2>Configure Cloudflare</h2>
             <form onSubmit={handleSaveCfConfig} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2451,9 +2896,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setDhcpModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setDhcpModalOpen(false)}>×</button>
             <p className="eyebrow">LAN & DHCP Server</p>
             <h2>Manage DHCP Settings</h2>
             <form onSubmit={handleSaveDhcpSettings} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2520,9 +2966,10 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <button className="modal-close" type="button" onClick={() => setDdnsModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setDdnsModalOpen(false)}>×</button>
             <p className="eyebrow">Dynamic DNS (DDNS)</p>
             <h2>Configure Dynamic DNS</h2>
             <form onSubmit={handleSaveDdns} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -2605,10 +3052,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "600px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setSnapshotsModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setSnapshotsModalOpen(false)}>×</button>
             <p className="eyebrow">Recovery & Rollbacks</p>
             <h2>System Snapshots</h2>
             <p className="modal-copy">
@@ -2638,10 +3086,7 @@ export default function Home() {
                     className="button secondary"
                     type="button"
                     style={{ fontSize: "13px", padding: "6px 14px" }}
-                    onClick={() => {
-                      alert(`Sistem vraćen na snapshot ${snap.id} (Revision ${snap.revision})!`);
-                      setSnapshotsModalOpen(false);
-                    }}
+                    onClick={() => void handleRestoreSnapshot(snap.id)}
                   >
                     Restore
                   </button>
@@ -2663,14 +3108,15 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "560px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setBackupModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setBackupModalOpen(false)}>×</button>
             <p className="eyebrow">Backup & Recovery</p>
             <h2>Backup & Restore Configuration</h2>
             <p className="modal-copy">
-              Export encrypted JSON backup bundles or restore system configuration from a file.
+              Password-protected AES-256-GCM backup with Argon2id key derivation.
             </p>
 
             {backupNotice && (
@@ -2680,27 +3126,98 @@ export default function Home() {
             )}
 
             <div style={{ marginTop: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ display: "grid", gap: "14px" }}>
+                <label>
+                  Current administrator password
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={backupAdminPassword}
+                    onChange={(event) => setBackupAdminPassword(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Backup passphrase
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={15}
+                    value={backupPassphrase}
+                    onChange={(event) => setBackupPassphrase(event.target.value)}
+                  />
+                </label>
+              </div>
               <div style={{ padding: "20px", borderRadius: "16px", background: "var(--surface-muted)", border: "1px solid var(--separator)" }}>
                 <h3 style={{ fontSize: "16px", fontWeight: 650, marginBottom: "6px" }}>Export Backup File</h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                  Download an encrypted backup bundle containing all static leases, firewall port forwards, WireGuard peers, and Cloudflare DDNS settings.
+                  Download the complete canonical configuration, including secrets, in an authenticated encrypted envelope.
                 </p>
-                <button className="button primary" type="button" onClick={handleExportBackup}>
-                  ⬇ Download Backup (.json)
+                <button className="button primary" type="button" onClick={() => void handleExportBackup()}>
+                  Download encrypted backup
                 </button>
               </div>
 
               <div style={{ padding: "20px", borderRadius: "16px", background: "var(--surface-muted)", border: "1px solid var(--separator)" }}>
                 <h3 style={{ fontSize: "16px", fontWeight: 650, marginBottom: "6px" }}>Restore From Backup File</h3>
                 <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                  Upload a previously exported Minimal Router OS `.json` backup file to restore full system configuration.
+                  Validate the encrypted file first. Applying it uses the same snapshot, preflight, verification, and rollback pipeline as normal changes.
                 </p>
                 <input
                   type="file"
-                  accept=".json"
+                  accept=".mrbak,application/vnd.minimalrouter.backup+json"
                   onChange={handleImportBackup}
                   style={{ fontSize: "14px" }}
                 />
+                <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                  <button className="button secondary" type="button" onClick={() => void handlePreviewBackupRestore()}>
+                    Validate backup
+                  </button>
+                  {pendingBackupImportID && (
+                    <button className="button danger" type="button" onClick={() => void handleApplyBackupRestore()}>
+                      Apply validated backup
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div style={{ padding: "20px", borderRadius: "16px", background: "var(--surface-muted)", border: "1px solid var(--separator)" }}>
+                <h3 style={{ fontSize: "16px", fontWeight: 650, marginBottom: "6px" }}>Migrate from pfSense</h3>
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                  Upload an unencrypted full `config.xml`. Interface mapping is mandatory; unsupported sections are never silently ignored.
+                </p>
+                <input
+                  type="file"
+                  accept=".xml,application/xml,text/xml"
+                  onChange={(event) => {
+                    setPfSenseFile(event.target.files?.[0] ?? null);
+                    setPendingPfSenseImportID("");
+                    setPfSenseWarnings([]);
+                  }}
+                />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginTop: "14px" }}>
+                  <label>
+                    Target WAN interface
+                    <input value={pfSenseWANInterface} onChange={(event) => setPfSenseWANInterface(event.target.value)} />
+                  </label>
+                  <label>
+                    Target LAN interface
+                    <input value={pfSenseLANInterface} onChange={(event) => setPfSenseLANInterface(event.target.value)} />
+                  </label>
+                </div>
+                {pfSenseWarnings.length > 0 && (
+                  <ul className="import-warnings">
+                    {pfSenseWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                )}
+                <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                  <button className="button secondary" type="button" onClick={() => void handlePreviewPfSenseImport()}>
+                    Parse and validate
+                  </button>
+                  {pendingPfSenseImportID && (
+                    <button className="button danger" type="button" onClick={() => void handleApplyPfSenseImport()}>
+                      Apply validated migration
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2717,10 +3234,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "600px", borderRadius: "24px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setProfileModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setProfileModalOpen(false)}>×</button>
             <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "20px" }}>
               <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#0071E3", color: "#FFF", display: "grid", placeItems: "center", fontWeight: 700, fontSize: "18px" }}>
                 VP
@@ -2805,6 +3323,22 @@ export default function Home() {
               </button>
             </div>
 
+            <div style={{ marginTop: "12px", paddingTop: "16px", borderTop: "1px solid var(--separator)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <strong style={{ display: "block", fontSize: "14px" }}>Security audit log</strong>
+                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Authentication and configuration actions; no request bodies or secrets</span>
+              </div>
+              <button
+                className="button secondary"
+                type="button"
+                style={{ fontSize: "13px" }}
+                onClick={() => void openAuditLog()}
+                disabled={auditLoading}
+              >
+                {auditLoading ? "Loading…" : "View audit"}
+              </button>
+            </div>
+
             <div className="modal-actions" style={{ marginTop: "24px", borderTop: "1px solid var(--separator)", paddingTop: "16px" }}>
               <button className="button secondary" type="button" onClick={() => setProfileModalOpen(false)}>Close</button>
               <button
@@ -2812,7 +3346,7 @@ export default function Home() {
                 type="button"
                 style={{ background: "#FF3B30", borderColor: "#FF3B30" }}
                 onClick={() => {
-                  fetch("/api/v1/auth/logout", { method: "POST" }).finally(() => {
+                  apiFetch("/api/v1/auth/logout", { method: "POST" }).finally(() => {
                     alert("You have been logged out of Minimal Router OS.");
                     setProfileModalOpen(false);
                   });
@@ -2825,16 +3359,62 @@ export default function Home() {
         </div>
       )}
 
+      {auditModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAuditModalOpen(false)}>
+          <section
+            className="modal modal-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button className="modal-close" type="button" aria-label="Close audit log" onClick={() => setAuditModalOpen(false)}>×</button>
+            <p className="eyebrow">Security</p>
+            <h2 id="audit-title">Audit log</h2>
+            <p className="modal-copy">Stored locally in SQLite. Passwords, keys, tokens, request bodies, and generated configurations are never recorded.</p>
+            <div style={{ overflowX: "auto", maxHeight: "440px", overflowY: "auto", marginTop: "18px" }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>Actor</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditEvents.length === 0 ? (
+                    <tr><td colSpan={4} style={{ textAlign: "center", color: "var(--text-tertiary)" }}>No audit events yet.</td></tr>
+                  ) : auditEvents.map((event) => (
+                    <tr key={event.id}>
+                      <td>{new Date(event.timestamp).toLocaleString()}</td>
+                      <td><code>{event.event_type}</code><br /><span className="quiet-meta">{event.details.method} {event.details.path}</span></td>
+                      <td>{event.actor}</td>
+                      <td>{event.details.status ?? event.details.result ?? event.details.mode ?? "Recorded"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="modal-actions">
+              <button className="button secondary" type="button" onClick={() => setAuditModalOpen(false)}>Close</button>
+              <button className="button primary" type="button" onClick={() => void openAuditLog()} disabled={auditLoading}>Refresh</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {dnsModalOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setDnsModalOpen(false)}>
           <section
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "540px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setDnsModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setDnsModalOpen(false)}>×</button>
             <p className="eyebrow">Network & Security</p>
             <h2>DNS Server Settings</h2>
             <form onSubmit={handleSaveDnsSettings} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -2898,13 +3478,13 @@ export default function Home() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', background: 'var(--surface-muted)', border: '1px solid var(--separator)' }}>
                 <div>
-                  <strong style={{ display: 'block', fontSize: '13px' }}>Enforce DNS-over-HTTPS / TLS</strong>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Encrypt outgoing DNS queries to prevent ISP tracking</span>
+                  <strong style={{ display: 'block', fontSize: '13px' }}>DNS-over-HTTPS / TLS</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Unavailable until a privileged encrypted-DNS service adapter is implemented</span>
                 </div>
                 <input
                   type="checkbox"
-                  checked={dnsOverHttps}
-                  onChange={(e) => setDnsOverHttps(e.target.checked)}
+                  checked={false}
+                  disabled
                   style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                 />
               </div>
@@ -2924,10 +3504,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "460px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setAddRestrictedModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setAddRestrictedModalOpen(false)}>×</button>
             <p className="eyebrow">Firewall & Squid Proxy</p>
             <h2>Add Restricted IP Alias</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
@@ -2974,10 +3555,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "460px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setSquidCredsModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setSquidCredsModalOpen(false)}>×</button>
             <p className="eyebrow">Squid Proxy Authentication</p>
             <h2>Set User/Pass for Squid</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
@@ -3023,10 +3605,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "480px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setAddFilterModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setAddFilterModalOpen(false)}>×</button>
             <p className="eyebrow">AdGuard Content Filter</p>
             <h2>Add Filtered Device</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
@@ -3100,10 +3683,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "460px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setQosModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setQosModalOpen(false)}>×</button>
             <p className="eyebrow">QoS & Traffic Management</p>
             <h2>Configure CAKE Traffic Shaping</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
@@ -3151,10 +3735,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "480px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setWifiModalOpen(false)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setWifiModalOpen(false)}>×</button>
             <p className="eyebrow">Wi-Fi Access Point</p>
             <h2>Configure Wireless Network</h2>
             <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
@@ -3235,10 +3820,11 @@ export default function Home() {
             className="modal"
             role="dialog"
             aria-modal="true"
+            aria-label="Router configuration dialog"
             onMouseDown={(event) => event.stopPropagation()}
             style={{ maxWidth: "440px", borderRadius: "20px" }}
           >
-            <button className="modal-close" type="button" onClick={() => setDeleteConfirmTarget(null)}>×</button>
+            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setDeleteConfirmTarget(null)}>×</button>
             <p className="eyebrow" style={{ color: "#FF3B30" }}>Confirm Deletion</p>
             <h2>Are you sure?</h2>
             <p className="modal-copy" style={{ margin: "12px 0 24px", color: "var(--text-secondary)" }}>
@@ -3270,5 +3856,13 @@ export default function Home() {
         />
       )}
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <AuthGate>
+      <Dashboard />
+    </AuthGate>
   );
 }

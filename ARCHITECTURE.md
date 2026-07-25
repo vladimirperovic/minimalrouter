@@ -51,9 +51,14 @@ Packet forwarding never passes through the Go backend or web application.
 ### 4.0 `minimalrouter-mcp` (MCP Server)
 
 - Official Model Context Protocol (MCP) server written in Go.
-- Allows AI agents (Claude, Antigravity, Cursor, ChatGPT) to control the appliance.
+- Allows AI agents to inspect the appliance through a server-enforced read-only
+  session by default.
 - Communicates via JSON-RPC 2.0 stdio with strict schema validation.
-- Exposes tools for status inspection, port forwards, DNS/DoH, Squid Proxy, and snapshots.
+- Exposes redacted status/configuration tools. Supported mutations require
+  explicit local admin mode and still pass normal API authorization,
+  validation, snapshot, apply, and rollback boundaries.
+- Has no listener. It reaches `routerd` through LAN HTTPS or through the
+  authenticated WireGuard tunnel; it is never directly exposed on WAN.
 
 ### 4.1 Web UI
 
@@ -129,7 +134,7 @@ strict ownership and permissions. Passwords are hashed, not encrypted.
 | PPPoE | pppd | Generate peer and secret material; validate paths and permissions |
 | DHCP and DNS | dnsmasq | Generate isolated configuration; run syntax preflight |
 | VPN | WireGuard | Use kernel/userspace tooling through typed operations |
-| DDNS and tunnel | cloudflared | Generate restricted config; never expose tokens in logs |
+| DDNS and tunnel | cloudflared | Disabled until lifecycle, token rotation, verification, and rollback are complete |
 | Updates | Alpine `apk` plus project repository | Verify signed packages and release metadata |
 
 The project owns only clearly named configuration files and nftables tables. It
@@ -218,7 +223,9 @@ API handlers never call service commands directly.
 ## 7. Networking defaults
 
 - WAN input is denied by default.
-- Management HTTPS is available from LAN only.
+- Management HTTPS is available from LAN and authenticated WireGuard clients.
+- The only permitted new inbound WAN flow is the rate-limited WireGuard UDP
+  endpoint. WAN port forwards, WAN HTTPS, SSH, and UPnP are forbidden.
 - Forwarding is denied unless explicitly allowed by the generated policy.
 - Established and related traffic is handled explicitly.
 - Anti-spoofing checks are applied at trust boundaries.

@@ -1,18 +1,23 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
-	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/api"
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/auth/persistent"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 	"github.com/vladimirperovic/minimalrouter/internal/tlsutil"
 )
 
@@ -35,8 +40,7 @@ func main() {
 
 	initialCfg, err := store.GetLatestConfig()
 	if err != nil {
-		log.Printf("Warning: Could not read store, fallback to default: %v", err)
-		initialCfg = config.DefaultConfig()
+		log.Fatalf("Refusing startup because canonical configuration is unavailable: %v", err)
 	}
 
 	// Load persisted admin password hash from SQLite
@@ -47,15 +51,34 @@ func main() {
 	}
 
 	engine := apply.NewEngine(initialCfg, store)
+	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
+	if err := engine.Reconcile(reconcileCtx); err != nil {
+		reconcileCancel()
+		log.Fatalf("Refusing management startup because canonical state could not be reconciled: %v", err)
+	}
+	reconcileCancel()
 
 	// Setup persistent session manager and rate limiter
 	sessionMgr := persistent.NewPersistentSessionManager(store)
 	rateLimiter := persistent.NewPersistentRateLimiter(store, 5, 60*time.Second)
+	globalRateLimiter := persistent.NewPersistentRateLimiter(store, 100, 60*time.Second)
 
 	// Setup API server with persistent auth
 	server := api.NewServerWithAuth(engine, sessionMgr, rateLimiter, adminHash, store)
+	server.ConfigureGlobalLoginLimiter(globalRateLimiter)
+	const firmwareKeyPath = "/etc/minimalrouter/firmware-signing.pub"
+	if trustedKey, err := firmware.LoadTrustedPublicKey(firmwareKeyPath); err == nil {
+		server.ConfigureFirmwareTrust(trustedKey, "/var/lib/minimalrouter-update/staging")
+		log.Printf("[SECURITY] Firmware verification enabled with pinned key %s", firmwareKeyPath)
+	} else {
+		log.Printf("[SECURITY] Firmware updates disabled: trusted key unavailable: %v", err)
+	}
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+	if webDir := os.Getenv("MINIMALROUTER_WEB_DIR"); webDir != "" {
+		mux.Handle("/", staticHandler(webDir))
+		log.Printf("Serving dashboard from %s", webDir)
+	}
 
 	// TLS Certificate management
 	certMgr := tlsutil.NewCertManager(absDir)
@@ -75,11 +98,23 @@ func main() {
 		log.Fatalf("Failed to load TLS key pair: %v", err)
 	}
 
+	var certMu sync.Mutex
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{cert},
 		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return &cert, nil
+			certMu.Lock()
+			defer certMu.Unlock()
+			active := engine.GetCurrentConfig()
+			activeCertPEM, activeKeyPEM, certErr := certMgr.EnsureCertificate(&active)
+			if certErr != nil {
+				return nil, certErr
+			}
+			activeCert, certErr := tls.X509KeyPair(activeCertPEM, activeKeyPEM)
+			if certErr != nil {
+				return nil, certErr
+			}
+			return &activeCert, nil
 		},
 		// Security hardening
 		PreferServerCipherSuites: true,
@@ -90,22 +125,122 @@ func main() {
 		},
 	}
 
-	port := 8443
-	serverAddr := fmt.Sprintf(":%d", port)
+	port := initialCfg.System.HTTPSPort
+	serverAddr := net.JoinHostPort("", strconv.Itoa(port))
 
-	log.Printf("routerd listening on https://127.0.0.1:%d/api/v1/\n", port)
+	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
 	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
 
 	srv := &http.Server{
-		Addr:      serverAddr,
-		Handler:   mux,
-		TLSConfig: tlsConfig,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              serverAddr,
+		Handler:           managementDestinationHandler(engine, mux),
+		TLSConfig:         tlsConfig,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// managementDestinationHandler is a second boundary behind nftables. Even if
+// a future firewall regression opens the TCP port, routerd refuses requests
+// whose destination address is not an active LAN or WireGuard management IP.
+func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		localAddr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		host, _, err := net.SplitHostPort(localAddr.String())
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		destination := net.ParseIP(host)
+		if destination == nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		allowed := make(map[string]struct{})
+		addConfigAddresses := func(cfg config.SystemConfig, includeLAN bool) {
+			if includeLAN {
+				if ip := net.ParseIP(cfg.LAN.IPAddress); ip != nil {
+					allowed[ip.String()] = struct{}{}
+				}
+			}
+			if cfg.WireGuard.Enabled {
+				if ip, _, parseErr := net.ParseCIDR(cfg.WireGuard.Address); parseErr == nil {
+					allowed[ip.String()] = struct{}{}
+				}
+			}
+		}
+
+		current := engine.GetCurrentConfig()
+		pending := engine.GetPendingTransaction()
+		if pending == nil {
+			addConfigAddresses(current, current.System.ManagementAccess != "wireguard_only")
+		} else if pending.Config.System.ManagementAccess == "wireguard_only" {
+			addConfigAddresses(pending.Config, false)
+		} else {
+			// LAN address changes are provisionally configured with both old
+			// and candidate addresses until connectivity is confirmed.
+			addConfigAddresses(current, true)
+			addConfigAddresses(pending.Config, true)
+		}
+		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") == "1" && destination.IsLoopback() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, exists := allowed[destination.String()]; !exists {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func staticHandler(root string) http.Handler {
+	root = filepath.Clean(root)
+	if absolute, err := filepath.Abs(root); err == nil {
+		root = absolute
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		relative := strings.TrimPrefix(filepath.Clean("/"+r.URL.Path), "/")
+		if relative == "." || relative == "" {
+			relative = "index.html"
+		}
+		candidate := filepath.Join(root, relative)
+		if !strings.HasPrefix(candidate, root+string(os.PathSeparator)) {
+			http.NotFound(w, r)
+			return
+		}
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() {
+			if filepath.Ext(relative) != "" {
+				http.NotFound(w, r)
+				return
+			}
+			candidate = filepath.Join(root, "index.html")
+			if _, err := os.Stat(candidate); err != nil {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		http.ServeFile(w, r, candidate)
+	})
 }

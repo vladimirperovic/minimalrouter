@@ -9,6 +9,7 @@ import (
 
 func TestGenerateNftables(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
 	cfg.Firewall.PortForwards = []config.PortForwardRule{
 		{
 			ID:           "pf1",
@@ -29,8 +30,8 @@ func TestGenerateNftables(t *testing.T) {
 	if !strings.Contains(out, "table inet minimalrouter") {
 		t.Errorf("Expected output to contain table definition")
 	}
-	if !strings.Contains(out, "tcp dport 8080 dnat to 192.168.1.50:80") {
-		t.Errorf("Expected output to contain DNAT rule for port 8080")
+	if strings.Contains(out, "tcp dport 8080") || strings.Contains(out, "dnat to 192.168.1.50:80") {
+		t.Errorf("secure appliance profile emitted a forbidden WAN port forward")
 	}
 }
 
@@ -62,7 +63,7 @@ func TestGenerateDnsmasq(t *testing.T) {
 		t.Fatalf("GenerateDnsmasq failed: %v", err)
 	}
 
-	if !strings.Contains(out, "dhcp-range=eth1,192.168.1.10,192.168.1.50,12h") {
+	if !strings.Contains(out, "dhcp-range=192.168.1.10,192.168.1.50,255.255.255.0,12h") {
 		t.Errorf("Expected dnsmasq config to contain rendered dhcp-range")
 	}
 }

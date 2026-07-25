@@ -23,6 +23,7 @@ var ErrUnauthorized = errors.New("unauthorized or expired session")
 type Session struct {
 	ID        string    `json:"id"`
 	CSRFToken string    `json:"csrf_token"`
+	ReadOnly  bool      `json:"read_only"`
 	CreatedAt time.Time `json:"created_at"`
 	LastSeen  time.Time `json:"last_seen"`
 }
@@ -42,21 +43,38 @@ func NewSessionManager() *SessionManager {
 	return sm
 }
 
-func generateRandomHex(n int) string {
+func generateRandomHex(n int) (string, error) {
 	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // CreateSession allocates a new random 256-bit session ID and CSRF token.
 func (sm *SessionManager) CreateSession() *Session {
+	return sm.CreateSessionWithMode(false)
+}
+
+// CreateSessionWithMode creates either a full administrator session or a
+// server-enforced read-only observer session.
+func (sm *SessionManager) CreateSessionWithMode(readOnly bool) *Session {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	sessionID, err := generateRandomHex(32)
+	if err != nil {
+		return nil
+	}
+	csrfToken, err := generateRandomHex(32)
+	if err != nil {
+		return nil
+	}
 	now := time.Now()
 	session := &Session{
-		ID:        generateRandomHex(32), // 256 bits
-		CSRFToken: generateRandomHex(16),
+		ID:        sessionID,
+		CSRFToken: csrfToken,
+		ReadOnly:  readOnly,
 		CreatedAt: now,
 		LastSeen:  now,
 	}
@@ -71,6 +89,9 @@ func (sm *SessionManager) ValidateSession(r *http.Request) (*Session, error) {
 	if err != nil || cookie.Value == "" {
 		return nil, ErrUnauthorized
 	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
 	var matchedSession *Session
 	for sid, sess := range sm.sessions {
@@ -92,7 +113,8 @@ func (sm *SessionManager) ValidateSession(r *http.Request) (*Session, error) {
 	}
 
 	session.LastSeen = now
-	return session, nil
+	copy := *session
+	return &copy, nil
 }
 
 // DestroySession invalidates the active session.
@@ -105,6 +127,9 @@ func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter)
 	}
 
 	// Expire cookie
+	if w == nil {
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    "",
@@ -114,6 +139,14 @@ func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter)
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+// DestroyAllSessions invalidates every active administrator session.
+func (sm *SessionManager) DestroyAllSessions() error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	clear(sm.sessions)
+	return nil
 }
 
 // SetSessionCookie attaches HTTP-only, Secure, SameSite=Strict cookie to response.

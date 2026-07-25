@@ -1,6 +1,7 @@
 package persistent
 
 import (
+	"database/sql"
 	"sync"
 	"time"
 
@@ -9,11 +10,11 @@ import (
 
 // PersistentRateLimiter enforces rate limits with SQLite persistence.
 type PersistentRateLimiter struct {
-	mu      sync.Mutex
-	store   *config.SQLiteStore
-	limit   int
-	window  time.Duration
-	cache   map[string]*ipHistory // in-memory cache for performance
+	mu     sync.Mutex
+	store  *config.SQLiteStore
+	limit  int
+	window time.Duration
+	cache  map[string]*ipHistory // in-memory cache for performance
 }
 
 type ipHistory struct {
@@ -48,31 +49,30 @@ func (rl *PersistentRateLimiter) Allow(ip string) bool {
 			// Window expired, reset
 			rec.attempts = 1
 			rec.firstSeen = now
-			go rl.store.SetRateLimitBucket(ip, 1, now)
-			return true
+			return rl.store.SetRateLimitBucket(ip, 1, now) == nil
 		}
 		if rec.attempts >= rl.limit {
 			return false
 		}
 		rec.attempts++
-		go rl.store.SetRateLimitBucket(ip, rec.attempts, rec.firstSeen)
-		return true
+		return rl.store.SetRateLimitBucket(ip, rec.attempts, rec.firstSeen) == nil
 	}
 
 	// Not in cache - load from SQLite
 	attempts, windowStart, err := rl.store.GetRateLimitBucket(ip)
 	if err != nil {
+		if err != sql.ErrNoRows {
+			return false
+		}
 		// Not found in SQLite - first attempt
 		rl.cache[ip] = &ipHistory{attempts: 1, firstSeen: now}
-		go rl.store.SetRateLimitBucket(ip, 1, now)
-		return true
+		return rl.store.SetRateLimitBucket(ip, 1, now) == nil
 	}
 
 	if now.Sub(windowStart) > rl.window {
 		// Window expired in SQLite too
 		rl.cache[ip] = &ipHistory{attempts: 1, firstSeen: now}
-		go rl.store.SetRateLimitBucket(ip, 1, now)
-		return true
+		return rl.store.SetRateLimitBucket(ip, 1, now) == nil
 	}
 
 	if attempts >= rl.limit {
@@ -83,8 +83,7 @@ func (rl *PersistentRateLimiter) Allow(ip string) bool {
 
 	// Allow and update
 	rl.cache[ip] = &ipHistory{attempts: attempts + 1, firstSeen: windowStart}
-	go rl.store.SetRateLimitBucket(ip, attempts+1, windowStart)
-	return true
+	return rl.store.SetRateLimitBucket(ip, attempts+1, windowStart) == nil
 }
 
 func (rl *PersistentRateLimiter) cleanLoop() {
@@ -101,6 +100,6 @@ func (rl *PersistentRateLimiter) cleanLoop() {
 		rl.mu.Unlock()
 
 		// Clean SQLite
-		go rl.store.CleanExpiredRateLimitBuckets(rl.window)
+		_ = rl.store.CleanExpiredRateLimitBuckets(rl.window)
 	}
 }

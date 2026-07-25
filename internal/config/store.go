@@ -1,11 +1,16 @@
 package config
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,6 +24,14 @@ type Snapshot struct {
 	CreatedAt  string   `json:"created_at"`
 	Checksum   string   `json:"checksum"`
 	ConfigJSON string   `json:"config_json,omitempty"`
+}
+
+type AuditEvent struct {
+	ID        string            `json:"id"`
+	EventType string            `json:"event_type"`
+	Actor     string            `json:"actor"`
+	Timestamp time.Time         `json:"timestamp"`
+	Details   map[string]string `json:"details"`
 }
 
 // SQLiteStore provides canonical SQLite persistence and snapshot management
@@ -39,17 +52,40 @@ func NewFileStore(dirPath string) (*FileStore, error) {
 // NewStore initializes canonical SQLite configuration persistence.
 // Creates the database file and runs schema migrations on first use.
 func NewStore(dirPath string) (*SQLiteStore, error) {
-	dbPath := dirPath + "/minimalrouter.db"
+	if err := os.MkdirAll(dirPath, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create private data directory: %w", err)
+	}
+	if err := os.Chmod(dirPath, 0700); err != nil {
+		return nil, fmt.Errorf("failed to secure data directory: %w", err)
+	}
+	dbPath := filepath.Join(dirPath, "minimalrouter.db")
 
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database at %s: %w", dbPath, err)
 	}
 
-	// Enable WAL mode for concurrent readers + single writer
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	// Prefer durability over throughput: configuration commits are rare and
+	// must survive abrupt power loss.
+	if _, err := db.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA synchronous=FULL;
+		PRAGMA foreign_keys=ON;
+		PRAGMA trusted_schema=OFF;
+		PRAGMA secure_delete=ON;
+		PRAGMA busy_timeout=5000;
+	`); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("failed to set WAL mode: %w", err)
+		return nil, fmt.Errorf("failed to harden SQLite connection: %w", err)
+	}
+	if err := os.Chmod(dbPath, 0600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to secure SQLite database: %w", err)
+	}
+	var integrity string
+	if err := db.QueryRow("PRAGMA quick_check").Scan(&integrity); err != nil || integrity != "ok" {
+		db.Close()
+		return nil, fmt.Errorf("SQLite integrity check failed")
 	}
 
 	// Run schema migrations (idempotent with IF NOT EXISTS)
@@ -105,6 +141,7 @@ func runMigrations(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS sessions (
 		id TEXT PRIMARY KEY,
 		csrf_token TEXT NOT NULL,
+		read_only INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL,
 		last_seen DATETIME NOT NULL
 	);
@@ -123,8 +160,37 @@ func runMigrations(db *sql.DB) error {
 		details_json TEXT NOT NULL
 	);
 	`
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Migrate databases created before observer sessions were introduced.
+	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		return err
+	}
+	hasReadOnly := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "read_only" {
+			hasReadOnly = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasReadOnly {
+		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetLatestConfig reads the most recent canonical configuration from SQLite.
@@ -144,6 +210,9 @@ func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		return SystemConfig{}, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return SystemConfig{}, fmt.Errorf("stored configuration failed validation: %w", err)
+	}
 
 	return cfg, nil
 }
@@ -153,6 +222,25 @@ func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("refusing to persist invalid configuration: %w", err)
+	}
+
+	var currentJSON string
+	err := s.db.QueryRow(
+		"SELECT config_json FROM config_revisions ORDER BY revision DESC LIMIT 1",
+	).Scan(&currentJSON)
+	if err == nil {
+		var current SystemConfig
+		if json.Unmarshal([]byte(currentJSON), &current) != nil ||
+			cfg.Revision != current.Revision+1 {
+			return fmt.Errorf("configuration revision must advance exactly once")
+		}
+	} else if err != sql.ErrNoRows {
+		return fmt.Errorf("failed to inspect current revision: %w", err)
+	} else if cfg.Revision != 1 {
+		return fmt.Errorf("initial configuration revision must be 1")
+	}
 
 	cfg.UpdatedAt = time.Now()
 	data, err := json.Marshal(cfg)
@@ -265,8 +353,104 @@ func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("snapshot not found: %s", id)
 	}
 	snap.Revision = Revision(rev)
+	actual := sha256.Sum256([]byte(snap.ConfigJSON))
+	expected, decodeErr := hex.DecodeString(snap.Checksum)
+	if decodeErr != nil || len(expected) != sha256.Size ||
+		subtle.ConstantTimeCompare(actual[:], expected) != 1 {
+		return Snapshot{}, fmt.Errorf("snapshot integrity check failed: %s", id)
+	}
 
 	return snap, nil
+}
+
+// AppendAuditEvent stores metadata only. Callers must never include request
+// bodies, credentials, keys, tokens, or generated configuration in details.
+func (s *SQLiteStore) AppendAuditEvent(eventType, actor string, details map[string]string) error {
+	if eventType == "" || len(eventType) > 96 || actor == "" || len(actor) > 255 {
+		return fmt.Errorf("invalid audit event metadata")
+	}
+	detailsJSON, err := json.Marshal(details)
+	if err != nil || len(detailsJSON) > 4096 {
+		return fmt.Errorf("invalid audit event details")
+	}
+	idBytes := make([]byte, 18)
+	if _, err := rand.Read(idBytes); err != nil {
+		return fmt.Errorf("generate audit event ID: %w", err)
+	}
+	id := "audit-" + base64.RawURLEncoding.EncodeToString(idBytes)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin audit event: %w", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO audit_events (id, event_type, actor, timestamp, details_json) VALUES (?, ?, ?, ?, ?)`,
+		id, eventType, actor, time.Now().UTC(), string(detailsJSON),
+	); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("insert audit event: %w", err)
+	}
+	// Bound local metadata growth without weakening recent incident history.
+	if _, err := tx.Exec(`
+		DELETE FROM audit_events
+		WHERE id NOT IN (
+			SELECT id FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT 5000
+		)
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("prune audit events: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit audit event: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListAuditEvents(limit int) ([]AuditEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rows, err := s.db.Query(
+		`SELECT id, event_type, actor, timestamp, details_json
+		 FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list audit events: %w", err)
+	}
+	defer rows.Close()
+	events := make([]AuditEvent, 0, limit)
+	for rows.Next() {
+		var event AuditEvent
+		var detailsJSON string
+		if err := rows.Scan(&event.ID, &event.EventType, &event.Actor, &event.Timestamp, &detailsJSON); err != nil {
+			return nil, fmt.Errorf("read audit event: %w", err)
+		}
+		if err := json.Unmarshal([]byte(detailsJSON), &event.Details); err != nil {
+			return nil, fmt.Errorf("decode audit event details: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit events: %w", err)
+	}
+	return events, nil
+}
+
+// DeleteAllSessions invalidates every authenticated session after credential
+// or second-factor changes.
+func (s *SQLiteStore) DeleteAllSessions() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`DELETE FROM sessions`)
+	return err
 }
 
 // GetAdminHash retrieves the stored Argon2id admin password hash.
@@ -344,33 +528,33 @@ func (s *SQLiteStore) Close() error {
 // === Session Persistence ===
 
 // CreateSession stores a new session in SQLite.
-func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, createdAt, lastSeen time.Time) error {
+func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, readOnly bool, createdAt, lastSeen time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, csrf_token, created_at, last_seen) VALUES (?, ?, ?, ?)`,
-		sessionID, csrfToken, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
+		`INSERT INTO sessions (id, csrf_token, read_only, created_at, last_seen) VALUES (?, ?, ?, ?, ?)`,
+		sessionID, csrfToken, readOnly, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
 	)
 	return err
 }
 
 // GetSession retrieves a session by ID.
-func (s *SQLiteStore) GetSession(sessionID string) (csrfToken string, createdAt, lastSeen time.Time, err error) {
+func (s *SQLiteStore) GetSession(sessionID string) (csrfToken string, readOnly bool, createdAt, lastSeen time.Time, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var csrf, created, lastSeenStr string
 	err = s.db.QueryRow(
-		`SELECT csrf_token, created_at, last_seen FROM sessions WHERE id = ?`, sessionID,
-	).Scan(&csrf, &created, &lastSeenStr)
+		`SELECT csrf_token, read_only, created_at, last_seen FROM sessions WHERE id = ?`, sessionID,
+	).Scan(&csrf, &readOnly, &created, &lastSeenStr)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, err
+		return "", false, time.Time{}, time.Time{}, err
 	}
 
 	createdAt, _ = time.Parse(time.RFC3339, created)
 	lastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
-	return csrf, createdAt, lastSeen, nil
+	return csrf, readOnly, createdAt, lastSeen, nil
 }
 
 // UpdateSessionLastSeen updates the last_seen timestamp for a session.

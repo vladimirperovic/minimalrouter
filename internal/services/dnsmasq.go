@@ -18,12 +18,16 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 	// Domain & Interface binding
 	buf.WriteString(fmt.Sprintf("domain=%s\n", cfg.System.Domain))
 	buf.WriteString(fmt.Sprintf("interface=%s\n", cfg.LAN.Interface))
+	buf.WriteString(fmt.Sprintf("listen-address=127.0.0.1,%s\n", cfg.LAN.IPAddress))
 	buf.WriteString("bind-interfaces\n")
+	buf.WriteString("no-resolv\n")
+	buf.WriteString("strict-order\n")
+	buf.WriteString("cache-size=1000\n")
 	buf.WriteString("bogus-priv\n")
 	buf.WriteString("domain-needed\n")
 	buf.WriteString("# pfSense Security Hardening: DNS Rebind Attack Protection\n")
 	buf.WriteString("stop-dns-rebind\n")
-	buf.WriteString("rebind-localhost-ok\n\n")
+	buf.WriteString("rebind-domain-ok=/use-application-dns.net/\n\n")
 
 	// Upstream DNS Servers
 	if len(cfg.DHCP.DNSServers) > 0 {
@@ -37,12 +41,14 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 	// DHCP Server settings
 	if cfg.DHCP.Enabled {
 		buf.WriteString("# DHCP Pool\n")
-		buf.WriteString(fmt.Sprintf("dhcp-range=%s,%s,%s,%s\n\n",
-			cfg.LAN.Interface,
+		buf.WriteString(fmt.Sprintf("dhcp-range=%s,%s,%s,%s\n",
 			cfg.DHCP.RangeStart,
 			cfg.DHCP.RangeEnd,
+			cfg.LAN.Netmask,
 			cfg.DHCP.LeaseTime,
 		))
+		buf.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", cfg.LAN.IPAddress))
+		buf.WriteString(fmt.Sprintf("dhcp-option=option:dns-server,%s\n\n", cfg.LAN.IPAddress))
 
 		// Static Leases
 		if len(cfg.DHCP.StaticLeases) > 0 {
@@ -65,20 +71,6 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n# AdGuard DNS Sinkhole Blocklist\n")
 		buf.WriteString("conf-file=/etc/dnsmasq.d/adblock_hosts.conf\n")
 
-		// Per-device service blocking
-		for _, dev := range cfg.AdGuard.FilterDevices {
-			if !dev.Enabled || len(dev.BlockedServices) == 0 {
-				continue
-			}
-			buf.WriteString(fmt.Sprintf("\n# Blocked services for %s (%s)\n", dev.Hostname, dev.IPAddress))
-			for _, serviceKey := range dev.BlockedServices {
-				if domains, ok := ServiceDomains[serviceKey]; ok {
-					for _, d := range domains {
-						buf.WriteString(fmt.Sprintf("address=/%s/0.0.0.0\n", d))
-					}
-				}
-			}
-		}
 	}
 
 	return buf.String(), nil
