@@ -142,6 +142,13 @@ local console access and must invalidate all sessions.
 - Use a 30-minute idle timeout and a 12-hour absolute timeout initially.
 - Do not place session IDs or CSRF tokens in URLs or logs.
 
+All HTTP responses must include strict security headers:
+- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (HSTS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Resource-Policy: same-origin`
+
 All state-changing browser requests require:
 
 1. A valid authenticated session.
@@ -178,6 +185,7 @@ clearly and support fingerprint verification.
 - Limit request body size, collection size, string length, and nesting depth.
 - Validate enums, numeric ranges, IP/CIDR values, ports, interface identifiers,
   hostnames, and cross-field invariants.
+- Use constant-time byte comparisons (`crypto/subtle.ConstantTimeCompare` in Go) for validating session IDs, API tokens, and CSRF header tokens to prevent timing attacks.
 - Use parameterized SQL only.
 - Return minimal errors without stack traces, paths, secrets, or command output.
 - Require a revision/ETag on configuration updates to prevent stale writes.
