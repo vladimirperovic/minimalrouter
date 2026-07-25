@@ -14,7 +14,8 @@ const navItems = [
   ["06", "Cloudflare", "cloudflare"],
   ["07", "Squid Proxy", "squid"],
   ["08", "AdGuard Filter", "adguard"],
-  ["09", "Recovery", "recovery"],
+  ["09", "Wi-Fi AP", "wifi"],
+  ["10", "Recovery", "recovery"],
 ] as const;
 
 const trafficDown = [
@@ -488,6 +489,40 @@ export default function Home() {
             username: squidUser,
             password: squidPass,
             restricted_ips: updated,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const [wifiEnabled, setWifiEnabled] = useState(false);
+  const [wifiSSID, setWifiSSID] = useState("MinimalRouter-Home");
+  const [wifiPass, setWifiPass] = useState("change-this-wifi-pass");
+  const [wifiBand, setWifiBand] = useState("5ghz");
+  const [wifiChannel, setWifiChannel] = useState("36");
+  const [wifiHideSSID, setWifiHideSSID] = useState(false);
+  const [wifiModalOpen, setWifiModalOpen] = useState(false);
+
+  const handleSaveWiFi = (e: React.FormEvent) => {
+    e.preventDefault();
+    setWifiModalOpen(false);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.wifi = {
+            enabled: wifiEnabled,
+            interface: "wlan0",
+            ssid: wifiSSID,
+            passphrase: wifiPass,
+            band: wifiBand,
+            channel: parseInt(wifiChannel, 10) || 36,
+            hide_ssid: wifiHideSSID,
           };
           return fetch("/api/v1/config", {
             method: "PUT",
@@ -1985,6 +2020,80 @@ export default function Home() {
             </article>
           </section>
 
+          <section className="section-block" id="wifi">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Wi-Fi Access Point</p>
+                <h2>Wireless LAN & WPA2/WPA3 Security</h2>
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <span className="quiet-meta">
+                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : "Disabled (Default)"}</strong>
+                </span>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setWifiModalOpen(true)}
+                  style={{ fontSize: "13px" }}
+                >
+                  Configure Wi-Fi
+                </button>
+              </div>
+            </div>
+
+            <article className="card" style={{ padding: "20px" }}>
+              <div className="setting-row" style={{ paddingBottom: "16px", borderBottom: "1px solid var(--separator)" }}>
+                <div>
+                  <strong style={{ fontSize: "15px" }}>Enable Wireless Access Point (hostapd)</strong>
+                  <span>Broadcast Wi-Fi network for phones, laptops, and smart home devices</span>
+                </div>
+                <Toggle
+                  checked={wifiEnabled}
+                  onChange={() => {
+                    const nextState = !wifiEnabled;
+                    setWifiEnabled(nextState);
+                    if (apiConnected) {
+                      fetch("/api/v1/config")
+                        .then((res) => res.json())
+                        .then((cfg) => {
+                          cfg.wifi = {
+                            ...cfg.wifi,
+                            enabled: nextState,
+                          };
+                          return fetch("/api/v1/config", {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify(cfg),
+                          });
+                        })
+                        .catch(console.error);
+                    }
+                  }}
+                  label="Enable Wi-Fi Access Point"
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px", marginTop: "20px" }}>
+                <div>
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Network Name (SSID)</span>
+                  <strong style={{ fontSize: "15px", color: "var(--text-primary)" }}>{wifiSSID}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Frequency Band</span>
+                  <strong style={{ fontSize: "15px", color: "var(--text-primary)" }}>{wifiBand === "5ghz" ? "5 GHz (802.11ac High Speed)" : "2.4 GHz (802.11n Long Range)"}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Wi-Fi Channel</span>
+                  <strong style={{ fontSize: "15px", color: "var(--text-primary)" }}>Channel {wifiChannel}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Broadcast Mode</span>
+                  <strong style={{ fontSize: "15px", color: "var(--text-primary)" }}>{wifiHideSSID ? "Hidden SSID" : "Visible Broadcast"}</strong>
+                </div>
+              </div>
+            </article>
+          </section>
+
           <section className="section-block" id="recovery">
             <div className="section-heading">
               <div>
@@ -3028,6 +3137,90 @@ export default function Home() {
                 </button>
                 <button className="button primary" type="submit">
                   Save QoS Settings
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {wifiModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setWifiModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "480px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setWifiModalOpen(false)}>×</button>
+            <p className="eyebrow">Wi-Fi Access Point</p>
+            <h2>Configure Wireless Network</h2>
+            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              Configure your router's wireless access point settings (SSID, WPA2/WPA3 passphrase, frequency band, and channel).
+            </p>
+            <form onSubmit={handleSaveWiFi} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Wi-Fi Network Name (SSID)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. MinimalRouter-Home"
+                  value={wifiSSID}
+                  onChange={(e) => setWifiSSID(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Wi-Fi WPA2/WPA3 Passphrase</label>
+                <input
+                  type="password"
+                  placeholder="At least 8 characters"
+                  value={wifiPass}
+                  onChange={(e) => setWifiPass(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Frequency Band</label>
+                  <select
+                    value={wifiBand}
+                    onChange={(e) => setWifiBand(e.target.value)}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  >
+                    <option value="5ghz">5 GHz (High Speed)</option>
+                    <option value="2.4ghz">2.4 GHz (Long Range)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Wi-Fi Channel</label>
+                  <input
+                    type="number"
+                    placeholder="36"
+                    value={wifiChannel}
+                    onChange={(e) => setWifiChannel(e.target.value)}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", marginTop: "4px" }}>
+                  <input
+                    type="checkbox"
+                    checked={wifiHideSSID}
+                    onChange={(e) => setWifiHideSSID(e.target.checked)}
+                  />
+                  Hide SSID (Invisible Broadcast)
+                </label>
+              </div>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button className="button secondary" type="button" onClick={() => setWifiModalOpen(false)}>
+                  Cancel
+                </button>
+                <button className="button primary" type="submit">
+                  Save Wi-Fi Settings
                 </button>
               </div>
             </form>

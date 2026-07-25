@@ -102,6 +102,14 @@ func handleConnection(conn net.Conn) {
 			}
 		}
 
+		// 3. Write hostapd Wi-Fi Access Point configuration
+		if req.Hostapd != "" {
+			hostapdPath := "/run/minimalrouter/hostapd.conf"
+			if err := os.WriteFile(hostapdPath, []byte(req.Hostapd), 0600); err == nil {
+				logs = append(logs, fmt.Sprintf("Wrote hostapd config to %s", hostapdPath))
+			}
+		}
+
 		// 3. Apply QoS CAKE / FQ-CoDel traffic shaping if configured
 		if req.Config.QoS.Enabled && req.Config.WAN.Interface != "" {
 			if _, err := os.Stat("/sbin/tc"); err == nil {

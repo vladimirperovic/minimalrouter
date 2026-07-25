@@ -96,6 +96,13 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		return tx, err
 	}
 
+	hostapdCfg, err := services.GenerateHostapd(&newCfg)
+	if err != nil {
+		tx.CurrentState = StateRejected
+		tx.Error = fmt.Sprintf("hostapd generator failed: %v", err)
+		return tx, err
+	}
+
 	tx.CurrentState = StateGenerated
 
 	// 3. Snapshot: Save pre-apply snapshot of known-good configuration
@@ -118,14 +125,15 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		Nftables: nftablesCfg,
 		PPPoE:    pppoeText,
 		Dnsmasq:  dnsmasqCfg,
+		Hostapd:  hostapdCfg,
 	}
 
 	resp, err := sendIPCRequest(applyReq)
 	if err != nil {
 		// In development mode (no router-applyd running), log and continue
 		log.Printf("[ENGINE] IPC to router-applyd unavailable (dev mode?): %v\n", err)
-		log.Printf("[ENGINE] Generated nftables (%d bytes), pppoe (%d bytes), dnsmasq (%d bytes)\n",
-			len(nftablesCfg), len(pppoeText), len(dnsmasqCfg))
+		log.Printf("[ENGINE] Generated nftables (%d bytes), pppoe (%d bytes), dnsmasq (%d bytes), hostapd (%d bytes)\n",
+			len(nftablesCfg), len(pppoeText), len(dnsmasqCfg), len(hostapdCfg))
 	} else if !resp.Success {
 		tx.CurrentState = StateRolledBack
 		tx.Error = fmt.Sprintf("Privileged apply failed: %s", resp.Error)

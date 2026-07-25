@@ -31,6 +31,7 @@ type ApplyRequest struct {
 	Nftables    string              `json:"nftables"`
 	PPPoE       string              `json:"pppoe,omitempty"`
 	Dnsmasq     string              `json:"dnsmasq,omitempty"`
+	Hostapd     string              `json:"hostapd,omitempty"`
 	ServiceName string              `json:"service_name,omitempty"`
 }
 

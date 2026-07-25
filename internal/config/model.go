@@ -19,6 +19,18 @@ type SystemConfig struct {
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 	AdGuard    AdGuardConfig    `json:"adguard"`
 	QoS        QoSConfig        `json:"qos"`
+	WiFi       WiFiConfig       `json:"wifi"`
+}
+
+// WiFiConfig holds hostapd Wi-Fi Access Point configuration settings.
+type WiFiConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Interface  string `json:"interface"`            // e.g. "wlan0"
+	SSID       string `json:"ssid"`                 // e.g. "MinimalRouter-Home"
+	Passphrase string `json:"passphrase,omitempty"` // WPA2/WPA3 WPA passphrase
+	Band       string `json:"band"`                 // "2.4ghz" or "5ghz"
+	Channel    int    `json:"channel"`              // e.g. 6 or 36
+	HideSSID   bool   `json:"hide_ssid"`
 }
 
 // QoSConfig holds traffic shaping and CAKE / FQ-CoDel bufferbloat prevention settings.
@@ -194,6 +206,15 @@ func DefaultConfig() SystemConfig {
 			Algorithm:         "cake",
 			DownloadLimitMbps: 100,
 			UploadLimitMbps:   20,
+		},
+		WiFi: WiFiConfig{
+			Enabled:    false,
+			Interface:  "wlan0",
+			SSID:       "MinimalRouter-Home",
+			Passphrase: "change-this-wifi-pass",
+			Band:       "5ghz",
+			Channel:    36,
+			HideSSID:   false,
 		},
 	}
 }
