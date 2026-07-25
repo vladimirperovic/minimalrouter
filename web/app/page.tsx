@@ -13,7 +13,8 @@ const navItems = [
   ["05", "WireGuard", "wireguard"],
   ["06", "Cloudflare", "cloudflare"],
   ["07", "Squid Proxy", "squid"],
-  ["08", "Recovery", "recovery"],
+  ["08", "AdGuard Filter", "adguard"],
+  ["09", "Recovery", "recovery"],
 ] as const;
 
 const trafficDown = [
@@ -487,6 +488,140 @@ export default function Home() {
             username: squidUser,
             password: squidPass,
             restricted_ips: updated,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const [adguardEnabled, setAdguardEnabled] = useState(false);
+  const [adguardLastUpdated, setAdguardLastUpdated] = useState("Just now");
+  const [filterDevices, setFilterDevices] = useState<
+    { id: string; hostname: string; ip_address: string; blocked_services: string[]; enabled: boolean }[]
+  >([
+    {
+      id: "f-1",
+      hostname: "Kid's Tablet",
+      ip_address: "10.0.0.80",
+      blocked_services: ["youtube", "tiktok"],
+      enabled: true,
+    },
+    {
+      id: "f-2",
+      hostname: "Living Room TV",
+      ip_address: "10.0.0.81",
+      blocked_services: ["tiktok", "adult"],
+      enabled: true,
+    },
+  ]);
+  const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
+  const [newFilterHost, setNewFilterHost] = useState("");
+  const [newFilterIP, setNewFilterIP] = useState("");
+  const [newFilterServices, setNewFilterServices] = useState<string[]>(["youtube", "tiktok"]);
+
+  const handleToggleAdGuard = (enabled: boolean) => {
+    setAdguardEnabled(enabled);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.adguard = {
+            ...cfg.adguard,
+            enabled: enabled,
+            filter_devices: filterDevices,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleUpdateBlocklist = () => {
+    setAdguardLastUpdated("Just now");
+  };
+
+  const handleToggleFilterDevice = (id: string) => {
+    const updated = filterDevices.map((item) =>
+      item.id === id ? { ...item, enabled: !item.enabled } : item
+    );
+    setFilterDevices(updated);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.adguard = {
+            ...cfg.adguard,
+            enabled: adguardEnabled,
+            filter_devices: updated,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleRemoveFilterDevice = (id: string) => {
+    const updated = filterDevices.filter((item) => item.id !== id);
+    setFilterDevices(updated);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.adguard = {
+            ...cfg.adguard,
+            enabled: adguardEnabled,
+            filter_devices: updated,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleAddFilterDevice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newFilterIP) return;
+    const newItem = {
+      id: `f-${Date.now()}`,
+      hostname: newFilterHost || "Device",
+      ip_address: newFilterIP,
+      blocked_services: newFilterServices,
+      enabled: true,
+    };
+    const updated = [...filterDevices, newItem];
+    setFilterDevices(updated);
+    setNewFilterHost("");
+    setNewFilterIP("");
+    setNewFilterServices(["youtube", "tiktok"]);
+    setAddFilterModalOpen(false);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.adguard = {
+            ...cfg.adguard,
+            enabled: adguardEnabled,
+            filter_devices: updated,
           };
           return fetch("/api/v1/config", {
             method: "PUT",
@@ -1652,6 +1787,145 @@ export default function Home() {
             </article>
           </section>
 
+          <section className="section-block" id="adguard">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">AdGuard Home & Content Filter</p>
+                <h2>DNS Sinkhole & Per-Device Service Blocking</h2>
+              </div>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <span className="quiet-meta">
+                  Status: <strong style={{ color: adguardEnabled ? "#34C759" : "var(--text-tertiary)" }}>{adguardEnabled ? "Active (AdBlock ON)" : "Disabled (Default)"}</strong>
+                </span>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={handleUpdateBlocklist}
+                  style={{ fontSize: "13px" }}
+                >
+                  🔄 Update Blocklist
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => handleToggleAdGuard(!adguardEnabled)}
+                  style={{ fontSize: "13px" }}
+                >
+                  {adguardEnabled ? "Disable Filter" : "Enable Filter"}
+                </button>
+              </div>
+            </div>
+
+            <article className="card table-card">
+              <div className="card-title-row">
+                <div>
+                  <h3>Target Devices & Blocked Services</h3>
+                  <p>Selectively block YouTube, TikTok, Facebook, Adult or Gaming services per device IP address</p>
+                </div>
+                <button
+                  className="quiet-button"
+                  type="button"
+                  onClick={() => setAddFilterModalOpen(true)}
+                  style={{ color: "#0071E3", fontWeight: 650 }}
+                >
+                  + Add Filtered Device
+                </button>
+              </div>
+              <div className="table-scroll">
+                <table>
+                  <caption className="sr-only">AdGuard Device Filter list</caption>
+                  <thead>
+                    <tr>
+                      <th>Host</th>
+                      <th>IP Address</th>
+                      <th>Blocked Services</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filterDevices.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                          No device filters added. All LAN devices have unrestricted access.
+                        </td>
+                      </tr>
+                    ) : (
+                      filterDevices.map((item) => (
+                        <tr key={item.id}>
+                          <td><strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>{item.hostname}</strong></td>
+                          <td><code>{item.ip_address}</code></td>
+                          <td>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {item.blocked_services.includes("youtube") && (
+                                <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                  🎬 YouTube
+                                </span>
+                              )}
+                              {item.blocked_services.includes("tiktok") && (
+                                <span style={{ fontSize: "11px", background: "#00000015", color: "var(--text-primary)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                  🎵 TikTok
+                                </span>
+                              )}
+                              {item.blocked_services.includes("facebook") && (
+                                <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                  💬 Facebook/IG
+                                </span>
+                              )}
+                              {item.blocked_services.includes("adult") && (
+                                <span style={{ fontSize: "11px", background: "#FF950015", color: "#FF9500", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                  🔞 Adult
+                                </span>
+                              )}
+                              {item.blocked_services.includes("gaming") && (
+                                <span style={{ fontSize: "11px", background: "#AF52DE15", color: "#AF52DE", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                  🎮 Gaming
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>
+                              <input
+                                type="checkbox"
+                                checked={item.enabled}
+                                onChange={() => handleToggleFilterDevice(item.id)}
+                                style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                              />
+                              {item.enabled ? "Active" : "Disabled"}
+                            </label>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveFilterDevice(item.id)}
+                              style={{
+                                border: "none",
+                                background: "#FF3B3015",
+                                color: "#FF3B30",
+                                width: "24px",
+                                height: "24px",
+                                borderRadius: "50%",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                                fontSize: "12px",
+                                display: "grid",
+                                placeItems: "center",
+                              }}
+                              title="Remove filter rule for this device"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+
           <section className="section-block" id="recovery">
             <div className="section-heading">
               <div>
@@ -2567,6 +2841,83 @@ export default function Home() {
                 </button>
                 <button className="button primary" type="submit">
                   Save Credentials
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {addFilterModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAddFilterModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "480px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setAddFilterModalOpen(false)}>×</button>
+            <p className="eyebrow">AdGuard Content Filter</p>
+            <h2>Add Filtered Device</h2>
+            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              Select which online services to block for this device IP address via DNS sinkhole.
+            </p>
+            <form onSubmit={handleAddFilterDevice} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Device Name / Host</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Kid's Tablet, Living Room TV"
+                  value={newFilterHost}
+                  onChange={(e) => setNewFilterHost(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Target Device IP Address</label>
+                <input
+                  type="text"
+                  placeholder="10.0.0.80"
+                  value={newFilterIP}
+                  onChange={(e) => setNewFilterIP(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Blocked Services</label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  {[
+                    { id: "youtube", label: "🎬 YouTube" },
+                    { id: "tiktok", label: "🎵 TikTok" },
+                    { id: "facebook", label: "💬 Facebook & IG" },
+                    { id: "adult", label: "🔞 Adult Content" },
+                    { id: "gaming", label: "🎮 Gaming & Roblox" },
+                  ].map((s) => (
+                    <label key={s.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", background: "var(--surface)", padding: "8px 10px", borderRadius: "8px", border: "1px solid var(--separator)" }}>
+                      <input
+                        type="checkbox"
+                        checked={newFilterServices.includes(s.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewFilterServices([...newFilterServices, s.id]);
+                          } else {
+                            setNewFilterServices(newFilterServices.filter((x) => x !== s.id));
+                          }
+                        }}
+                      />
+                      {s.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button className="button secondary" type="button" onClick={() => setAddFilterModalOpen(false)}>
+                  Cancel
+                </button>
+                <button className="button primary" type="submit">
+                  Save Device Filter
                 </button>
               </div>
             </form>

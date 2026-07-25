@@ -57,5 +57,35 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("# DHCP Disabled\n")
 	}
 
+	// AdGuard Home & Content Filter integration
+	if cfg.AdGuard.Enabled {
+		buf.WriteString("\n# AdGuard DNS Sinkhole Blocklist\n")
+		buf.WriteString("conf-file=/etc/dnsmasq.d/adblock_hosts.conf\n")
+
+		// Per-device service blocking
+		for _, dev := range cfg.AdGuard.FilterDevices {
+			if !dev.Enabled || len(dev.BlockedServices) == 0 {
+				continue
+			}
+			buf.WriteString(fmt.Sprintf("\n# Blocked services for %s (%s)\n", dev.Hostname, dev.IPAddress))
+			for _, serviceKey := range dev.BlockedServices {
+				if domains, ok := ServiceDomains[serviceKey]; ok {
+					for _, d := range domains {
+						buf.WriteString(fmt.Sprintf("address=/%s/0.0.0.0\n", d))
+					}
+				}
+			}
+		}
+	}
+
 	return buf.String(), nil
+}
+
+// ServiceDomains maps service identifiers to domain names for content filtering.
+var ServiceDomains = map[string][]string{
+	"youtube":  {"youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"},
+	"tiktok":   {"tiktok.com", "byteoversea.com", "ibytedtos.com", "tiktokv.com"},
+	"facebook": {"facebook.com", "instagram.com", "fbcdn.net", "messenger.com"},
+	"adult":    {"pornhub.com", "xvideos.com", "xnxx.com", "onlyfans.com"},
+	"gaming":   {"roblox.com", "twitch.tv", "steamcommunity.com", "epicgames.com"},
 }

@@ -17,6 +17,24 @@ type SystemConfig struct {
 	DHCP       DHCPSettings     `json:"dhcp"`
 	Firewall   FirewallConfig   `json:"firewall"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
+	AdGuard    AdGuardConfig    `json:"adguard"`
+}
+
+// FilterDeviceRule represents a device subject to per-device content/service blocking (YouTube, TikTok, etc.)
+type FilterDeviceRule struct {
+	ID              string   `json:"id"`
+	Hostname        string   `json:"hostname"`
+	IPAddress       string   `json:"ip_address"`
+	BlockedServices []string `json:"blocked_services"` // e.g. ["youtube", "tiktok", "facebook", "adult", "gaming"]
+	Enabled         bool     `json:"enabled"`
+}
+
+// AdGuardConfig holds AdBlock and per-device parental content filtering settings.
+type AdGuardConfig struct {
+	Enabled       bool               `json:"enabled"`
+	BlocklistURL  string             `json:"blocklist_url"`
+	LastUpdated   string             `json:"last_updated"`
+	FilterDevices []FilterDeviceRule `json:"filter_devices"`
 }
 
 // RestrictedIPItem represents a device IP in the Restricted Alias list with a toggle state.
@@ -155,6 +173,12 @@ func DefaultConfig() SystemConfig {
 			Username:      "proxyadmin",
 			Password:      "",
 			RestrictedIPs: []RestrictedIPItem{},
+		},
+		AdGuard: AdGuardConfig{
+			Enabled:       false,
+			BlocklistURL:  "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+			LastUpdated:   "Never",
+			FilterDevices: []FilterDeviceRule{},
 		},
 	}
 }
