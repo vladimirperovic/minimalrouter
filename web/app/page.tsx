@@ -311,6 +311,64 @@ export default function Home() {
     apiToken: "",
     tunnelDomain: "minimalrouter-home",
   });
+  const [cfModalOpen, setCfModalOpen] = useState(false);
+  const [editCfDomain, setEditCfDomain] = useState(cfConfig.domain);
+  const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
+  const [editCfToken, setEditCfToken] = useState("");
+
+  const handleSaveCfConfig = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCfConfig({
+      ...cfConfig,
+      domain: editCfDomain,
+      zoneId: editCfZone,
+      apiToken: editCfToken,
+    });
+    setCfModalOpen(false);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.cloudflare = {
+            ddns_enabled: true,
+            domain: editCfDomain,
+            zone_id: editCfZone,
+            api_token: editCfToken,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const [dnsModalOpen, setDnsModalOpen] = useState(false);
+  const [dnsPrimary, setDnsPrimary] = useState("1.1.1.1");
+  const [dnsSecondary, setDnsSecondary] = useState("1.0.0.1");
+  const [dnsProvider, setDnsProvider] = useState("cloudflare");
+  const [dnsOverHttps, setDnsOverHttps] = useState(true);
+
+  const handleSaveDnsSettings = (e: React.FormEvent) => {
+    e.preventDefault();
+    setDnsModalOpen(false);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.dhcp.dns_servers = [dnsPrimary, dnsSecondary];
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
   const [ddnsModalOpen, setDdnsModalOpen] = useState(false);
   const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
   const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
@@ -534,36 +592,6 @@ export default function Home() {
     setNewWgPeerIP("");
     setAddWgModalOpen(false);
     setQrOpen(true);
-  };
-
-  const handleSaveCfConfig = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCfConfig({
-      ...cfConfig,
-      domain: editCfDomain,
-      zoneId: editCfZone,
-      apiToken: editCfToken,
-    });
-    setCfModalOpen(false);
-
-    if (apiConnected) {
-      fetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.cloudflare = {
-            ddns_enabled: true,
-            domain: editCfDomain,
-            zone_id: editCfZone,
-            api_token: editCfToken,
-          };
-          return fetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
-    }
   };
 
   // Sync stateful firewall toggle with Go REST API
@@ -973,13 +1001,22 @@ export default function Home() {
                 <p className="eyebrow">LAN & DHCP</p>
                 <h2>{staticLeases.length + 12} devices at home.</h2>
               </div>
-              <button
-                className="button secondary"
-                type="button"
-                onClick={() => setDhcpModalOpen(true)}
-              >
-                Manage DHCP
-              </button>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setDnsModalOpen(true)}
+                >
+                  Configure DNS
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setDhcpModalOpen(true)}
+                >
+                  Manage DHCP
+                </button>
+              </div>
             </div>
 
             <div className="two-column wide-left">
@@ -2027,6 +2064,99 @@ export default function Home() {
                 Odjavi se (Logout)
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {dnsModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDnsModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "540px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setDnsModalOpen(false)}>×</button>
+            <p className="eyebrow">Network & Security</p>
+            <h2>DNS Server Settings</h2>
+            <form onSubmit={handleSaveDnsSettings} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>DNS Provider Preset</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  {[
+                    { id: 'cloudflare', name: 'Cloudflare', pri: '1.1.1.1', sec: '1.0.0.1' },
+                    { id: 'quad9', name: 'Quad9 (Malware Block)', pri: '9.9.9.9', sec: '149.112.112.112' },
+                    { id: 'adguard', name: 'AdGuard (Ad Blocking)', pri: '94.140.14.14', sec: '94.140.15.15' },
+                    { id: 'google', name: 'Google DNS', pri: '8.8.8.8', sec: '8.8.4.4' },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => {
+                        setDnsProvider(p.id);
+                        setDnsPrimary(p.pri);
+                        setDnsSecondary(p.sec);
+                      }}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: dnsProvider === p.id ? '2px solid #0071E3' : '1px solid var(--separator)',
+                        background: dnsProvider === p.id ? '#0071E310' : 'var(--surface)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ fontWeight: 650, fontSize: '13px' }}>{p.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{p.pri} · {p.sec}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Primary Upstream DNS</label>
+                  <input
+                    type="text"
+                    placeholder="1.1.1.1"
+                    value={dnsPrimary}
+                    onChange={(e) => setDnsPrimary(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Secondary Upstream DNS</label>
+                  <input
+                    type="text"
+                    placeholder="1.0.0.1"
+                    value={dnsSecondary}
+                    onChange={(e) => setDnsSecondary(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', background: 'var(--surface-muted)', border: '1px solid var(--separator)' }}>
+                <div>
+                  <strong style={{ display: 'block', fontSize: '13px' }}>Enforce DNS-over-HTTPS / TLS</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Encrypt outgoing DNS queries to prevent ISP tracking</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={dnsOverHttps}
+                  onChange={(e) => setDnsOverHttps(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: '8px' }}>
+                <button className="button secondary" type="button" onClick={() => setDnsModalOpen(false)}>Cancel</button>
+                <button className="button primary" type="submit">Save DNS Settings</button>
+              </div>
+            </form>
           </section>
         </div>
       )}
