@@ -320,7 +320,8 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		}
 
 		restricted, _ := squidCfg["restricted_ips"].([]interface{})
-		squidCfg["restricted_ips"] = append(restricted, ip)
+		newItem := map[string]interface{}{"ip_address": ip, "enabled": true}
+		squidCfg["restricted_ips"] = append(restricted, newItem)
 		cfg["squid_proxy"] = squidCfg
 
 		if err := saveConfig(client, cfg); err != nil {

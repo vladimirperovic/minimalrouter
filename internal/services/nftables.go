@@ -57,9 +57,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	// Block direct WAN access for Restricted IP Alias (Forced through Squid Proxy)
 	if cfg.SquidProxy.Enabled && len(cfg.SquidProxy.RestrictedIPs) > 0 {
 		buf.WriteString("    # Block direct WAN traffic for Restricted IP Alias (Must use Squid Proxy)\n")
-		for _, ip := range cfg.SquidProxy.RestrictedIPs {
-			ip = strings.TrimSpace(ip)
-			if ip != "" {
+		for _, item := range cfg.SquidProxy.RestrictedIPs {
+			ip := strings.TrimSpace(item.IPAddress)
+			if ip != "" && item.Enabled {
 				buf.WriteString(fmt.Sprintf("    ip saddr %s drop\n", ip))
 			}
 		}

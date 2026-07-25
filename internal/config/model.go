@@ -19,13 +19,19 @@ type SystemConfig struct {
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 }
 
+// RestrictedIPItem represents a device IP in the Restricted Alias list with a toggle state.
+type RestrictedIPItem struct {
+	IPAddress string `json:"ip_address"`
+	Enabled   bool   `json:"enabled"`
+}
+
 // SquidProxyConfig holds non-caching HTTP/HTTPS proxy configuration.
 type SquidProxyConfig struct {
-	Enabled       bool     `json:"enabled"`
-	Port          int      `json:"port"`           // e.g. 3128
-	Username      string   `json:"username"`       // Proxy auth username
-	Password      string   `json:"password,omitempty"` // Proxy auth password
-	RestrictedIPs []string `json:"restricted_ips"` // IP Alias list blocked from direct WAN, forced to use proxy
+	Enabled       bool               `json:"enabled"`
+	Port          int                `json:"port"`               // e.g. 3128
+	Username      string             `json:"username"`           // Proxy auth username
+	Password      string             `json:"password,omitempty"` // Proxy auth password
+	RestrictedIPs []RestrictedIPItem `json:"restricted_ips"`     // IP Alias list with enabled toggle
 }
 
 // SystemSettings holds basic appliance metadata and management settings.
@@ -143,11 +149,14 @@ func DefaultConfig() SystemConfig {
 			CustomRules:           []FirewallRule{},
 		},
 		SquidProxy: SquidProxyConfig{
-			Enabled:       false,
-			Port:          3128,
-			Username:      "proxyadmin",
-			Password:      "",
-			RestrictedIPs: []string{"10.0.0.50", "10.0.0.51"},
+			Enabled:  false,
+			Port:     3128,
+			Username: "proxyadmin",
+			Password: "",
+			RestrictedIPs: []RestrictedIPItem{
+				{IPAddress: "10.0.0.50", Enabled: true},
+				{IPAddress: "10.0.0.51", Enabled: true},
+			},
 		},
 	}
 }

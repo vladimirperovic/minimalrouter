@@ -350,7 +350,12 @@ export default function Home() {
   const [squidPort, setSquidPort] = useState(3128);
   const [squidUser, setSquidUser] = useState("proxyadmin");
   const [squidPass, setSquidPass] = useState("");
-  const [squidRestrictedIPs, setSquidRestrictedIPs] = useState(["10.0.0.50", "10.0.0.51"]);
+  const [squidRestrictedIPs, setSquidRestrictedIPs] = useState<
+    { ip_address: string; enabled: boolean }[]
+  >([
+    { ip_address: "10.0.0.50", enabled: true },
+    { ip_address: "10.0.0.51", enabled: true },
+  ]);
   const [newRestrictedIP, setNewRestrictedIP] = useState("");
   const [addRestrictedModalOpen, setAddRestrictedModalOpen] = useState(false);
 
@@ -367,6 +372,34 @@ export default function Home() {
             username: squidUser,
             password: squidPass,
             restricted_ips: squidRestrictedIPs,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
+  const handleToggleRestrictedIPItem = (targetIp: string) => {
+    const updated = squidRestrictedIPs.map((item) =>
+      item.ip_address === targetIp ? { ...item, enabled: !item.enabled } : item
+    );
+    setSquidRestrictedIPs(updated);
+
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.squid_proxy = {
+            ...cfg.squid_proxy,
+            enabled: squidEnabled,
+            port: squidPort,
+            username: squidUser,
+            password: squidPass,
+            restricted_ips: updated,
           };
           return fetch("/api/v1/config", {
             method: "PUT",
@@ -405,7 +438,7 @@ export default function Home() {
   const handleAddRestrictedIP = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRestrictedIP) return;
-    const updated = [...squidRestrictedIPs, newRestrictedIP];
+    const updated = [...squidRestrictedIPs, { ip_address: newRestrictedIP, enabled: true }];
     setSquidRestrictedIPs(updated);
     setNewRestrictedIP("");
     setAddRestrictedModalOpen(false);
@@ -433,7 +466,7 @@ export default function Home() {
   };
 
   const handleRemoveRestrictedIP = (ip: string) => {
-    const updated = squidRestrictedIPs.filter((item) => item !== ip);
+    const updated = squidRestrictedIPs.filter((item) => item.ip_address !== ip);
     setSquidRestrictedIPs(updated);
 
     if (apiConnected) {
@@ -1533,29 +1566,47 @@ export default function Home() {
                       <tr>
                         <th>IP Address</th>
                         <th>Direct WAN Access</th>
+                        <th>Status</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {squidRestrictedIPs.length === 0 ? (
                         <tr>
-                          <td colSpan={3} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
                             No restricted IPs defined. All LAN devices have direct WAN access.
                           </td>
                         </tr>
                       ) : (
-                        squidRestrictedIPs.map((ip, idx) => (
+                        squidRestrictedIPs.map((item, idx) => (
                           <tr key={idx}>
-                            <td><code>{ip}</code></td>
+                            <td><code>{item.ip_address}</code></td>
                             <td>
-                              <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
-                                🚫 Dropped (Blocked)
-                              </span>
+                              {item.enabled ? (
+                                <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                  🚫 Dropped (Blocked)
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: "11px", background: "#34C75915", color: "#34C759", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                  ✓ Allowed (Bypassed)
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={item.enabled}
+                                  onChange={() => handleToggleRestrictedIPItem(item.ip_address)}
+                                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                                />
+                                {item.enabled ? "Active" : "Disabled"}
+                              </label>
                             </td>
                             <td>
                               <button
                                 type="button"
-                                onClick={() => handleRemoveRestrictedIP(ip)}
+                                onClick={() => handleRemoveRestrictedIP(item.ip_address)}
                                 style={{
                                   border: "none",
                                   background: "#FF3B3015",
