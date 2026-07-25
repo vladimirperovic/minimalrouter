@@ -499,6 +499,35 @@ export default function Home() {
     }
   };
 
+  const [qosEnabled, setQosEnabled] = useState(false);
+  const [qosAlgorithm, setQosAlgorithm] = useState("cake");
+  const [qosDown, setQosDown] = useState("100");
+  const [qosUp, setQosUp] = useState("20");
+  const [qosModalOpen, setQosModalOpen] = useState(false);
+
+  const handleSaveQoS = (e: React.FormEvent) => {
+    e.preventDefault();
+    setQosModalOpen(false);
+    if (apiConnected) {
+      fetch("/api/v1/config")
+        .then((res) => res.json())
+        .then((cfg) => {
+          cfg.qos = {
+            enabled: qosEnabled,
+            algorithm: qosAlgorithm,
+            download_limit_mbps: parseInt(qosDown, 10) || 100,
+            upload_limit_mbps: parseInt(qosUp, 10) || 20,
+          };
+          return fetch("/api/v1/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+        })
+        .catch(console.error);
+    }
+  };
+
   const [adguardEnabled, setAdguardEnabled] = useState(false);
   const [adguardLastUpdated, setAdguardLastUpdated] = useState("Just now");
   const [filterDevices, setFilterDevices] = useState<
@@ -1517,6 +1546,36 @@ export default function Home() {
                   <div><strong>0</strong><span>Rules need attention</span></div>
                 </div>
               </article>
+            </div>
+
+            <div className="card" style={{ marginTop: "24px", padding: "20px" }}>
+              <div className="card-title-row">
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>QoS & Bufferbloat Prevention (CAKE)</h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-secondary)" }}>
+                    Traffic shaping prevents ping spikes during heavy downloads so gaming & video calls stay smooth
+                  </p>
+                </div>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => setQosModalOpen(true)}
+                  style={{ fontSize: "13px" }}
+                >
+                  Configure QoS
+                </button>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--separator)" }}>
+                <div>
+                  <span className="quiet-meta">
+                    Status: <strong style={{ color: qosEnabled ? "#34C759" : "var(--text-tertiary)" }}>{qosEnabled ? "Active (CAKE Shaping ON)" : "Disabled (Default)"}</strong>
+                  </span>
+                </div>
+                <div style={{ display: "flex", gap: "24px" }}>
+                  <div><span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Download Cap:</span> <strong style={{ fontSize: "14px" }}>{qosDown} Mbps</strong></div>
+                  <div><span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Upload Cap:</span> <strong style={{ fontSize: "14px" }}>{qosUp} Mbps</strong></div>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -2918,6 +2977,57 @@ export default function Home() {
                 </button>
                 <button className="button primary" type="submit">
                   Save Device Filter
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {qosModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setQosModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "460px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setQosModalOpen(false)}>×</button>
+            <p className="eyebrow">QoS & Traffic Management</p>
+            <h2>Configure CAKE Traffic Shaping</h2>
+            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              Set your ISP connection speed caps so CAKE algorithm can manage queue latency and prevent bufferbloat spikes.
+            </p>
+            <form onSubmit={handleSaveQoS} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Max Download Speed (Mbps)</label>
+                <input
+                  type="number"
+                  placeholder="100"
+                  value={qosDown}
+                  onChange={(e) => setQosDown(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Max Upload Speed (Mbps)</label>
+                <input
+                  type="number"
+                  placeholder="20"
+                  value={qosUp}
+                  onChange={(e) => setQosUp(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button className="button secondary" type="button" onClick={() => setQosModalOpen(false)}>
+                  Cancel
+                </button>
+                <button className="button primary" type="submit">
+                  Save QoS Settings
                 </button>
               </div>
             </form>

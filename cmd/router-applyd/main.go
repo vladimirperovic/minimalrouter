@@ -102,6 +102,20 @@ func handleConnection(conn net.Conn) {
 			}
 		}
 
+		// 3. Apply QoS CAKE / FQ-CoDel traffic shaping if configured
+		if req.Config.QoS.Enabled && req.Config.WAN.Interface != "" {
+			if _, err := os.Stat("/sbin/tc"); err == nil {
+				wanIf := req.Config.WAN.Interface
+				speed := fmt.Sprintf("%dmbit", req.Config.QoS.DownloadLimitMbps)
+				cmd := exec.Command("/sbin/tc", "qdisc", "replace", "dev", wanIf, "root", "cake", "bandwidth", speed)
+				if out, err := cmd.CombinedOutput(); err == nil {
+					logs = append(logs, fmt.Sprintf("Applied CAKE QoS on %s (%s)", wanIf, speed))
+				} else {
+					logs = append(logs, fmt.Sprintf("tc cake warning: %v (%s)", err, string(out)))
+				}
+			}
+		}
+
 		resp = apply.ApplyResponse{
 			ID:        req.ID,
 			Success:   true,

@@ -18,6 +18,15 @@ type SystemConfig struct {
 	Firewall   FirewallConfig   `json:"firewall"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 	AdGuard    AdGuardConfig    `json:"adguard"`
+	QoS        QoSConfig        `json:"qos"`
+}
+
+// QoSConfig holds traffic shaping and CAKE / FQ-CoDel bufferbloat prevention settings.
+type QoSConfig struct {
+	Enabled           bool   `json:"enabled"`
+	Algorithm         string `json:"algorithm"`           // "cake" or "fq_codel"
+	DownloadLimitMbps int    `json:"download_limit_mbps"` // e.g. 100
+	UploadLimitMbps   int    `json:"upload_limit_mbps"`   // e.g. 20
 }
 
 // FilterDeviceRule represents a device subject to per-device content/service blocking (YouTube, TikTok, etc.)
@@ -179,6 +188,12 @@ func DefaultConfig() SystemConfig {
 			BlocklistURL:  "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
 			LastUpdated:   "Never",
 			FilterDevices: []FilterDeviceRule{},
+		},
+		QoS: QoSConfig{
+			Enabled:           false,
+			Algorithm:         "cake",
+			DownloadLimitMbps: 100,
+			UploadLimitMbps:   20,
 		},
 	}
 }
