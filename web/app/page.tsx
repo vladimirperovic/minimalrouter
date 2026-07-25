@@ -860,14 +860,53 @@ export default function Home() {
         </header>
 
         <div className="content">
-          <section className="page-intro" id="overview">
-            <div className="intro-strip">
-              <span className="eyebrow">Friday, 24 July</span>
-              <span className="intro-meta">Uptime <strong>{systemInfo.uptime || "18d 04h"}</strong></span>
-              <span className="intro-meta">Public IP <strong>{systemInfo.public_ip || "185.33.42.117"}</strong></span>
-              <span className="intro-meta">Last backup <strong>{systemInfo.last_backup || "6 days ago"}</strong></span>
-              <span className="intro-meta">Last snapshot <strong>{systemInfo.last_snap || "8 min ago"}</strong></span>
-              <span className="intro-meta"><strong className="up-to-date">✓ {systemInfo.update || "Up to date"}</strong></span>
+          <section className="page-intro" id="overview" style={{ marginBottom: "24px" }}>
+            <div
+              className="card"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(4, 1fr)",
+                padding: "20px 24px",
+                alignItems: "center",
+                borderRadius: "20px",
+                gap: "0px",
+              }}
+            >
+              <div style={{ paddingRight: "20px" }}>
+                <span style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                  Public IP
+                </span>
+                <strong style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                  {systemInfo.public_ip || "185.33.42.117"}
+                </strong>
+              </div>
+
+              <div style={{ paddingLeft: "24px", borderLeft: "1px solid var(--separator)" }}>
+                <span style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                  Last Backup
+                </span>
+                <strong style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                  {systemInfo.last_backup || "6 days ago"}
+                </strong>
+              </div>
+
+              <div style={{ paddingLeft: "24px", borderLeft: "1px solid var(--separator)" }}>
+                <span style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                  Last Snapshot
+                </span>
+                <strong style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                  {snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : (systemInfo.last_snap || "8 min ago")}
+                </strong>
+              </div>
+
+              <div style={{ paddingLeft: "24px", borderLeft: "1px solid var(--separator)" }}>
+                <span style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>
+                  System Status
+                </span>
+                <strong style={{ fontSize: "15px", fontWeight: 700, color: "#34C759", display: "flex", alignItems: "center", gap: "6px" }}>
+                  <i className="status-dot" style={{ background: "#34C759" }} /> {systemInfo.update || "Up to date"}
+                </strong>
+              </div>
             </div>
           </section>
 
