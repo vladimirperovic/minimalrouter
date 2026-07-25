@@ -359,6 +359,7 @@ export default function Home() {
   const [newRestrictedHost, setNewRestrictedHost] = useState("");
   const [newRestrictedIP, setNewRestrictedIP] = useState("");
   const [addRestrictedModalOpen, setAddRestrictedModalOpen] = useState(false);
+  const [squidCredsModalOpen, setSquidCredsModalOpen] = useState(false);
 
   const handleToggleSquid = (enabled: boolean) => {
     setSquidEnabled(enabled);
@@ -414,6 +415,7 @@ export default function Home() {
 
   const handleSaveSquidCreds = (e: React.FormEvent) => {
     e.preventDefault();
+    setSquidCredsModalOpen(false);
     if (apiConnected) {
       fetch("/api/v1/config")
         .then((res) => res.json())
@@ -1548,13 +1550,21 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <article className="card table-card">
-                <div className="card-title-row">
-                  <div>
-                    <h3>Restricted IP Alias Group</h3>
-                    <p>Devices in this IP Alias are blocked from direct WAN access and must authenticate via Squid Proxy</p>
-                  </div>
+            <article className="card table-card">
+              <div className="card-title-row">
+                <div>
+                  <h3>Restricted IP Alias Group</h3>
+                  <p>Devices in this IP Alias are blocked from direct WAN access and must authenticate via Squid Proxy</p>
+                </div>
+                <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                  <button
+                    className="quiet-button"
+                    type="button"
+                    onClick={() => setSquidCredsModalOpen(true)}
+                    style={{ color: "#0071E3", fontWeight: 650 }}
+                  >
+                    🔑 Set User/Pass for Squid
+                  </button>
                   <button
                     className="quiet-button"
                     type="button"
@@ -1564,117 +1574,82 @@ export default function Home() {
                     + Add Restricted IP
                   </button>
                 </div>
-                <div className="table-scroll">
-                  <table>
-                    <caption className="sr-only">Restricted IP Alias list</caption>
-                    <thead>
+              </div>
+              <div className="table-scroll">
+                <table>
+                  <caption className="sr-only">Restricted IP Alias list</caption>
+                  <thead>
+                    <tr>
+                      <th>Host</th>
+                      <th>IP Address</th>
+                      <th>Direct WAN Access</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {squidRestrictedIPs.length === 0 ? (
                       <tr>
-                        <th>Host</th>
-                        <th>IP Address</th>
-                        <th>Direct WAN Access</th>
-                        <th>Status</th>
-                        <th>Action</th>
+                        <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                          No restricted IPs defined. All LAN devices have direct WAN access.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {squidRestrictedIPs.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
-                            No restricted IPs defined. All LAN devices have direct WAN access.
+                    ) : (
+                      squidRestrictedIPs.map((item, idx) => (
+                        <tr key={idx}>
+                          <td><strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>{item.hostname || "Device"}</strong></td>
+                          <td><code>{item.ip_address}</code></td>
+                          <td>
+                            {item.enabled ? (
+                              <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                🚫 Dropped (Blocked)
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: "11px", background: "#34C75915", color: "#34C759", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                                ✓ Allowed (Bypassed)
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>
+                              <input
+                                type="checkbox"
+                                checked={item.enabled}
+                                onChange={() => handleToggleRestrictedIPItem(item.ip_address)}
+                                style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                              />
+                              {item.enabled ? "Active" : "Disabled"}
+                            </label>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRestrictedIP(item.ip_address)}
+                              style={{
+                                border: "none",
+                                background: "#FF3B3015",
+                                color: "#FF3B30",
+                                width: "24px",
+                                height: "24px",
+                                borderRadius: "50%",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                                fontSize: "12px",
+                                display: "grid",
+                                placeItems: "center",
+                              }}
+                              title="Remove IP from restricted list"
+                            >
+                              ✕
+                            </button>
                           </td>
                         </tr>
-                      ) : (
-                        squidRestrictedIPs.map((item, idx) => (
-                          <tr key={idx}>
-                            <td><strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>{item.hostname || "Device"}</strong></td>
-                            <td><code>{item.ip_address}</code></td>
-                            <td>
-                              {item.enabled ? (
-                                <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
-                                  🚫 Dropped (Blocked)
-                                </span>
-                              ) : (
-                                <span style={{ fontSize: "11px", background: "#34C75915", color: "#34C759", padding: "3px 8px", borderRadius: "6px", fontWeight: 600 }}>
-                                  ✓ Allowed (Bypassed)
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={item.enabled}
-                                  onChange={() => handleToggleRestrictedIPItem(item.ip_address)}
-                                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
-                                />
-                                {item.enabled ? "Active" : "Disabled"}
-                              </label>
-                            </td>
-                            <td>
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveRestrictedIP(item.ip_address)}
-                                style={{
-                                  border: "none",
-                                  background: "#FF3B3015",
-                                  color: "#FF3B30",
-                                  width: "24px",
-                                  height: "24px",
-                                  borderRadius: "50%",
-                                  cursor: "pointer",
-                                  fontWeight: "bold",
-                                  fontSize: "12px",
-                                  display: "grid",
-                                  placeItems: "center",
-                                }}
-                                title="Remove IP from restricted list"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </article>
-
-              <aside className="card" style={{ padding: "20px", display: "flex", flexDirection: "column" }}>
-                <div style={{ marginBottom: "16px" }}>
-                  <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Proxy Authentication</h3>
-                  <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--text-secondary)" }}>NCSA Basic htpasswd credentials</p>
-                </div>
-                <form onSubmit={handleSaveSquidCreds} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Proxy Username</label>
-                    <input
-                      type="text"
-                      value={squidUser}
-                      onChange={(e) => setSquidUser(e.target.value)}
-                      style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)", fontSize: "14px" }}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Proxy Password</label>
-                    <input
-                      type="password"
-                      placeholder="••••••••"
-                      value={squidPass}
-                      onChange={(e) => setSquidPass(e.target.value)}
-                      style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)", fontSize: "14px" }}
-                    />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
-                    <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Proxy Port: <strong>3128</strong></span>
-                    <button className="button primary" type="submit" style={{ fontSize: "13px", padding: "8px 16px" }}>
-                      Save Credentials
-                    </button>
-                  </div>
-                </form>
-              </aside>
-            </div>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </article>
           </section>
 
           <section className="section-block" id="recovery">
@@ -2543,6 +2518,55 @@ export default function Home() {
                 </button>
                 <button className="button primary" type="submit">
                   Add to Restricted Group
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {squidCredsModalOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSquidCredsModalOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ maxWidth: "460px", borderRadius: "20px" }}
+          >
+            <button className="modal-close" type="button" onClick={() => setSquidCredsModalOpen(false)}>×</button>
+            <p className="eyebrow">Squid Proxy Authentication</p>
+            <h2>Set User/Pass for Squid</h2>
+            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+              NCSA Basic htpasswd credentials used by restricted devices to authenticate with the proxy server on port 3128.
+            </p>
+            <form onSubmit={handleSaveSquidCreds} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Proxy Username</label>
+                <input
+                  type="text"
+                  value={squidUser}
+                  onChange={(e) => setSquidUser(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Proxy Password</label>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  value={squidPass}
+                  onChange={(e) => setSquidPass(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                />
+              </div>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button className="button secondary" type="button" onClick={() => setSquidCredsModalOpen(false)}>
+                  Cancel
+                </button>
+                <button className="button primary" type="submit">
+                  Save Credentials
                 </button>
               </div>
             </form>
