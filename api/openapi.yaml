@@ -107,16 +107,20 @@ paths:
                 properties:
                   status:
                     type: string
-                  uptime:
+                    enum: [Connected, Disconnected]
+                  version:
                     type: string
-                  public_ip:
+                  wan_iface:
                     type: string
-                  last_backup:
+                  lan_ip:
                     type: string
-                  last_snap:
-                    type: string
-                  update:
-                    type: string
+                  revision:
+                    type: integer
+                  update_trust_configured:
+                    type: boolean
+                  runtime:
+                    type: object
+                    description: Real Linux runtime telemetry; available=false in the macOS preview
 
   /config:
     get:
@@ -158,6 +162,15 @@ paths:
       responses:
         '200':
           description: List of snapshots
+    post:
+      summary: Create an immutable checksummed configuration snapshot
+      operationId: createSnapshot
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Snapshot created
 
   /snapshots/{id}/restore:
     post:
@@ -175,6 +188,60 @@ paths:
       responses:
         '200':
           description: Snapshot restored successfully
+        '202':
+          description: Snapshot provisionally restored; connectivity confirmation required
+
+  /wireguard/peers:
+    post:
+      summary: Provision a WireGuard peer and return its client configuration once
+      description: The client private key is returned only in this no-store response and is never persisted.
+      operationId: provisionWireGuardPeer
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, client_ip_address, server_endpoint]
+              properties:
+                name:
+                  type: string
+                client_ip_address:
+                  type: string
+                  example: 10.8.0.2
+                server_endpoint:
+                  type: string
+                  example: router.example.net:51820
+      responses:
+        '200':
+          description: Peer committed; one-time client .conf and PNG QR returned
+        '409':
+          description: WAN is not configured
+        '422':
+          description: Invalid or duplicate peer settings
+
+  /audit/events:
+    get:
+      summary: List bounded metadata-only security audit events
+      operationId: listAuditEvents
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Audit events without request bodies or secrets
+        '403':
+          description: Read-only sessions cannot inspect the administrator audit log
 
   /transactions/pending:
     get:

@@ -88,6 +88,7 @@ before installation.
 ## Documentation
 
 - [AI Agent Integration (MCP Protocol)](docs/MCP.md)
+- [AI continuation, macOS preview, and Alpine VM test guide](AI_HANDOFF.md)
 - [Proxmox VE & Homelab Guide](docs/PROXMOX.md)
 - [Product vision and scope](PROJECT.md)
 - [Product design system](DESIGN.md)

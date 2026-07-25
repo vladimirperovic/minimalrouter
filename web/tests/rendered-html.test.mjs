@@ -22,17 +22,15 @@ async function render() {
   );
 }
 
-test("server-renders the Minimal Router dashboard shell", async () => {
+test("server-renders the secure Minimal Router authentication shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Minimal Router OS — Dashboard Preview<\/title>/i);
-  assert.match(html, /Your network, at a glance\./);
-  assert.match(html, /PPPoE session active/);
-  assert.match(html, /LAN &amp; DHCP/);
-  assert.match(html, /WireGuard/);
-  assert.match(html, /Cloudflare/);
+  assert.match(html, /Checking secure session/);
+  assert.doesNotMatch(html, /Online and verified/);
+  assert.doesNotMatch(html, /minimalrouter-preview/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });

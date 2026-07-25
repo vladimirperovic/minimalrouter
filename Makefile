@@ -1,4 +1,4 @@
-.PHONY: all build build-linux test clean run-routerd run-applyd
+.PHONY: all build build-linux build-linux-arm64 test clean run-routerd run-applyd
 
 GO_BUILD_FLAGS := -trimpath
 GO_LDFLAGS := -s -w -buildid=
@@ -14,6 +14,11 @@ build-linux:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd ./cmd/routerd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
+
+build-linux-arm64:
+	mkdir -p bin
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd ./cmd/routerd
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
 
 test:
 	go test -v ./...

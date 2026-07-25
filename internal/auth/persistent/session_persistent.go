@@ -13,16 +13,24 @@ import (
 
 // PersistentSessionManager handles server-side session lifecycle with SQLite persistence.
 type PersistentSessionManager struct {
-	mu       sync.RWMutex
-	store    *config.SQLiteStore
-	sessions map[string]*auth.Session // in-memory cache for performance
+	mu            sync.RWMutex
+	store         *config.SQLiteStore
+	sessions      map[string]*auth.Session // in-memory cache for performance
+	secureCookies bool
 }
 
 // NewPersistentSessionManager initializes a new persistent session manager.
 func NewPersistentSessionManager(store *config.SQLiteStore) *PersistentSessionManager {
+	return NewPersistentSessionManagerWithSecureCookies(store, true)
+}
+
+// NewPersistentSessionManagerWithSecureCookies exists only so the loopback-only
+// macOS preview can use plain HTTP. Appliance callers must keep secure=true.
+func NewPersistentSessionManagerWithSecureCookies(store *config.SQLiteStore, secure bool) *PersistentSessionManager {
 	psm := &PersistentSessionManager{
-		store:    store,
-		sessions: make(map[string]*auth.Session),
+		store:         store,
+		sessions:      make(map[string]*auth.Session),
+		secureCookies: secure,
 	}
 	// Load existing sessions from SQLite on startup
 	psm.loadSessions()
@@ -168,7 +176,7 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   psm.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
 }
@@ -188,7 +196,7 @@ func (psm *PersistentSessionManager) SetSessionCookie(w http.ResponseWriter, ses
 		Value:    session.ID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true, // Require HTTPS in production
+		Secure:   psm.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(auth.AbsoluteTimeout.Seconds()),
 	})

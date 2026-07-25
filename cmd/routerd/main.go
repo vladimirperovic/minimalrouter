@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,7 +51,21 @@ func main() {
 		log.Println("[AUTH] Loaded persisted administrator password hash from SQLite store")
 	}
 
-	engine := apply.NewEngine(initialCfg, store)
+	previewMode := os.Getenv("MINIMALROUTER_PREVIEW_MODE") == "1"
+	previewHTTP := previewMode && os.Getenv("MINIMALROUTER_PREVIEW_HTTP") == "1"
+	var engine *apply.Engine
+	if previewMode {
+		if runtime.GOOS != "darwin" {
+			log.Fatal("MINIMALROUTER_PREVIEW_MODE is restricted to the macOS development build")
+		}
+		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") != "1" {
+			log.Fatal("macOS preview mode requires MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW=1")
+		}
+		engine = apply.NewEngineWithClient(initialCfg, store, newPreviewApplyClient())
+		log.Println("[PREVIEW] Linux changes are simulated; no host networking commands will run")
+	} else {
+		engine = apply.NewEngine(initialCfg, store)
+	}
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
 	if err := engine.Reconcile(reconcileCtx); err != nil {
 		reconcileCancel()
@@ -59,13 +74,14 @@ func main() {
 	reconcileCancel()
 
 	// Setup persistent session manager and rate limiter
-	sessionMgr := persistent.NewPersistentSessionManager(store)
+	sessionMgr := persistent.NewPersistentSessionManagerWithSecureCookies(store, !previewHTTP)
 	rateLimiter := persistent.NewPersistentRateLimiter(store, 5, 60*time.Second)
 	globalRateLimiter := persistent.NewPersistentRateLimiter(store, 100, 60*time.Second)
 
 	// Setup API server with persistent auth
 	server := api.NewServerWithAuth(engine, sessionMgr, rateLimiter, adminHash, store)
 	server.ConfigureGlobalLoginLimiter(globalRateLimiter)
+	server.ConfigureLoopbackHTTPPreview(previewHTTP)
 	const firmwareKeyPath = "/etc/minimalrouter/firmware-signing.pub"
 	if trustedKey, err := firmware.LoadTrustedPublicKey(firmwareKeyPath); err == nil {
 		server.ConfigureFirmwareTrust(trustedKey, "/var/lib/minimalrouter-update/staging")
@@ -127,6 +143,9 @@ func main() {
 
 	port := initialCfg.System.HTTPSPort
 	serverAddr := net.JoinHostPort("", strconv.Itoa(port))
+	if previewHTTP {
+		serverAddr = net.JoinHostPort("127.0.0.1", "8080")
+	}
 
 	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
 	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
@@ -142,6 +161,13 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 
+	if previewHTTP {
+		log.Printf("[PREVIEW] Dashboard available on loopback-only http://127.0.0.1:8080")
+		if err := srv.ListenAndServe(); err != nil {
+			log.Fatalf("Preview server error: %v", err)
+		}
+		return
+	}
 	if err := srv.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}

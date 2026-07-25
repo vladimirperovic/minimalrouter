@@ -41,6 +41,7 @@ type Server struct {
 	pendingTOTP    map[string]pendingTOTPEnrollment
 	pendingImports map[string]pendingPfSenseImport
 	totpReplay     map[[sha256.Size]byte]time.Time
+	previewHTTP    bool
 	mu             sync.RWMutex
 }
 
@@ -68,6 +69,13 @@ func (s *Server) ConfigureFirmwareTrust(key ed25519.PublicKey, stagingDir string
 // per-source limit, preventing distributed password guessing.
 func (s *Server) ConfigureGlobalLoginLimiter(limiter RateLimiterInterface) {
 	s.globalLimiter = limiter
+}
+
+// ConfigureLoopbackHTTPPreview permits a same-origin HTTP Origin header only
+// for the explicitly loopback-bound macOS preview server. Production callers
+// never enable this and continue to require HTTPS origins.
+func (s *Server) ConfigureLoopbackHTTPPreview(enabled bool) {
+	s.previewHTTP = enabled
 }
 
 // SessionManagerInterface defines the session management operations needed by the API.
@@ -215,7 +223,15 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			if origin := r.Header.Get("Origin"); origin != "" {
 				parsed, parseErr := url.Parse(origin)
-				if parseErr != nil || parsed.Scheme != "https" || parsed.Host != r.Host {
+				previewOrigin := false
+				if parseErr == nil {
+					originIP := net.ParseIP(parsed.Hostname())
+					previewOrigin = s.previewHTTP &&
+						parsed.Scheme == "http" &&
+						originIP != nil &&
+						originIP.IsLoopback()
+				}
+				if parseErr != nil || parsed.Host != r.Host || (parsed.Scheme != "https" && !previewOrigin) {
 					s.appendAudit("auth.origin_rejected", auditActor(r.RemoteAddr), map[string]string{
 						"method": r.Method,
 						"path":   r.URL.Path,

@@ -14,7 +14,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [pppoeUser, setPppoeUser] = useState("");
   const [pppoePass, setPppoePass] = useState("");
   const [adminPass, setAdminPass] = useState("");
-  const [lanIP, setLanIP] = useState("192.168.1.1");
+  const lanIP = "192.168.1.1";
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [testingLink, setTestingLink] = useState(false);

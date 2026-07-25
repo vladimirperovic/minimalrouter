@@ -89,6 +89,31 @@ func TestUnauthenticatedProtectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestHTTPOriginIsAllowedOnlyInExplicitLoopbackPreview(t *testing.T) {
+	server, mux, tempDir := setupTestServer(t)
+	defer os.RemoveAll(tempDir)
+
+	session := server.sessionMgr.CreateSession()
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/api/v1/snapshots", nil)
+		req.Host = "127.0.0.1:8080"
+		req.Header.Set("Origin", "http://127.0.0.1:8080")
+		req.Header.Set(auth.CSRFHeaderName, session.CSRFToken)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	if recorder := request(); recorder.Code != http.StatusForbidden {
+		t.Fatalf("production mode accepted an HTTP Origin: %d", recorder.Code)
+	}
+	server.ConfigureLoopbackHTTPPreview(true)
+	if recorder := request(); recorder.Code != http.StatusOK {
+		t.Fatalf("explicit loopback preview rejected its same-origin HTTP request: %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestSetupApplyAndLoginFlow(t *testing.T) {
 	_, mux, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)

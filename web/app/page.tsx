@@ -190,6 +190,8 @@ function Toggle({
 function QrPreview({ source }: { source: string }) {
   return (
     <div className="qr-shell" aria-label="WireGuard configuration QR code">
+      {/* A one-time data URL cannot use an image-optimization endpoint. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img alt="Scannable WireGuard client configuration" src={source} width={280} height={280} />
     </div>
   );
@@ -207,7 +209,6 @@ function Dashboard() {
   } | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [statefulRules, setStatefulRules] = useState(true);
-  const [portForward, setPortForward] = useState(true);
   const [activeSection, setActiveSection] = useState("overview");
   const [fontScale, setFontScale] = useState(100);
   const [apiConnected, setApiConnected] = useState(false);
@@ -264,136 +265,6 @@ function Dashboard() {
   const resetFontScale = () => {
     applyScale(100);
   };
-
-  // Hydrate the dashboard from the canonical Go API. Preview data is used only
-  // when the appliance API is unavailable.
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [systemResponse, configResponse, snapshotsResponse, pendingResponse] = await Promise.all([
-          apiFetch("/api/v1/system"),
-          apiFetch("/api/v1/config"),
-          apiFetch("/api/v1/snapshots"),
-          apiFetch("/api/v1/transactions/pending"),
-        ]);
-        if (!systemResponse.ok || !configResponse.ok || !snapshotsResponse.ok || !pendingResponse.ok) {
-          throw new Error("Router API unavailable");
-        }
-        const [system, cfg, snapshotPayload, pendingPayload] = await Promise.all([
-          systemResponse.json(),
-          configResponse.json(),
-          snapshotsResponse.json(),
-          pendingResponse.json(),
-        ]);
-        setSystemInfo(system);
-        setStaticLeases((cfg.dhcp?.static_leases ?? []).map((lease: { hostname: string; mac: string; ip_address: string }) => ({
-          hostname: lease.hostname,
-          mac: lease.mac,
-          ip: lease.ip_address,
-        })));
-        setPortForwardRules((cfg.firewall?.port_forwards ?? []).map((rule: {
-          name: string; protocol: string; external_port: number; internal_ip: string; internal_port: number; enabled: boolean;
-        }) => ({
-          name: rule.name,
-          proto: rule.protocol.toUpperCase(),
-          extPort: rule.external_port,
-          intIP: rule.internal_ip,
-          intPort: rule.internal_port,
-          enabled: rule.enabled,
-        })));
-        setStatefulRules(cfg.firewall?.stateful_firewall === true);
-        setWireGuardEnabled(cfg.wireguard?.enabled === true);
-        setWgPeers((cfg.wireguard?.peers ?? []).map((peer: {
-          id: string; name: string; allowed_ips: string[]; enabled: boolean;
-        }) => ({
-          id: peer.id,
-          name: peer.name,
-          ip: peer.allowed_ips?.[0]?.replace(/\/32$/, "") ?? "",
-          traffic: peer.enabled ? "Configured" : "Disabled",
-          active: "Awaiting runtime telemetry",
-        })));
-        setCloudflareEnabled(cfg.cloudflare?.ddns_enabled === true || cfg.cloudflare?.tunnel_enabled === true);
-        setDhcpRangeStart(cfg.dhcp?.range_start ?? "");
-        setDhcpRangeEnd(cfg.dhcp?.range_end ?? "");
-        setDhcpLeaseHours(Number.parseInt(cfg.dhcp?.lease_time ?? "24", 10) || 24);
-        setDhcpGateway(cfg.lan?.ip_address ?? "");
-        setDnsPrimary(cfg.dhcp?.dns_servers?.[0] ?? "");
-        setDnsSecondary(cfg.dhcp?.dns_servers?.[1] ?? "");
-        setSquidEnabled(cfg.squid_proxy?.enabled === true);
-        setSquidPort(cfg.squid_proxy?.port ?? 3128);
-        setSquidUser(cfg.squid_proxy?.username ?? "");
-        setSquidRestrictedIPs(cfg.squid_proxy?.restricted_ips ?? []);
-        setAdguardEnabled(cfg.adguard?.enabled === true);
-        setFilterDevices(cfg.adguard?.filter_devices ?? []);
-        setWifiEnabled(cfg.wifi?.enabled === true);
-        setWifiSSID(cfg.wifi?.ssid ?? "");
-        setWifiBand(cfg.wifi?.band ?? "5ghz");
-        setWifiChannel(String(cfg.wifi?.channel ?? 36));
-        setWifiHideSSID(cfg.wifi?.hide_ssid === true);
-        setQosEnabled(cfg.qos?.enabled === true);
-        setQosAlgorithm(cfg.qos?.algorithm ?? "cake");
-        setQosDown(String(cfg.qos?.download_limit_mbps ?? 100));
-        setQosUp(String(cfg.qos?.upload_limit_mbps ?? 20));
-        setCfConfig({
-          domain: cfg.cloudflare?.domain ?? "",
-          zoneId: cfg.cloudflare?.zone_id ?? "",
-          apiToken: "",
-          tunnelDomain: cfg.cloudflare?.domain ?? "",
-        });
-        setSnapshotsList((snapshotPayload.snapshots ?? []).map((snapshot: {
-          id: string; revision: number; created_at: string; checksum: string;
-        }) => ({
-          id: snapshot.id,
-          revision: snapshot.revision,
-          label: "Configuration snapshot",
-          time: new Date(snapshot.created_at).toLocaleString(),
-          checksum: snapshot.checksum,
-        })));
-        setPendingConfirmationID(pendingPayload.pending === true ? pendingPayload.id : "");
-        setApiConnected(true);
-        setOperationError("");
-      } catch {
-        setApiConnected(false);
-      }
-    };
-    void load();
-  }, []);
-
-  useEffect(() => {
-    if (!apiConnected) return;
-    let cancelled = false;
-    const sample = async () => {
-      try {
-        const response = await apiFetch("/api/v1/system");
-        if (!response.ok) return;
-        const next = await response.json();
-        if (cancelled) return;
-        setSystemInfo(next);
-        const rx = Number(next.runtime?.rx_bytes ?? 0);
-        const tx = Number(next.runtime?.tx_bytes ?? 0);
-        const at = Date.now();
-        const previous = trafficPrevious.current;
-        if (previous && at > previous.at && rx >= previous.rx && tx >= previous.tx) {
-          const seconds = (at - previous.at) / 1000;
-          const down = ((rx - previous.rx) * 8) / seconds / 1_000_000;
-          const up = ((tx - previous.tx) * 8) / seconds / 1_000_000;
-          setDownloadMbps(down);
-          setUploadMbps(up);
-          setTrafficDown((samples) => [...samples, down].slice(-32));
-          setTrafficUp((samples) => [...samples, up].slice(-32));
-        }
-        trafficPrevious.current = { rx, tx, at };
-      } catch {
-        // The regular API availability banner handles prolonged failures.
-      }
-    };
-    void sample();
-    const timer = window.setInterval(() => void sample(), 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [apiConnected]);
 
   const [staticLeases, setStaticLeases] = useState<Array<{ hostname: string; mac: string; ip: string }>>([]);
   const [leaseModalOpen, setLeaseModalOpen] = useState(false);
@@ -687,25 +558,9 @@ function Dashboard() {
   };
 
   const [adguardEnabled, setAdguardEnabled] = useState(false);
-  const [adguardLastUpdated, setAdguardLastUpdated] = useState("Just now");
   const [filterDevices, setFilterDevices] = useState<
     { id: string; hostname: string; ip_address: string; blocked_services: string[]; enabled: boolean }[]
-  >([
-    {
-      id: "f-1",
-      hostname: "Kid's Tablet",
-      ip_address: "10.0.0.80",
-      blocked_services: ["youtube", "tiktok"],
-      enabled: true,
-    },
-    {
-      id: "f-2",
-      hostname: "Living Room TV",
-      ip_address: "10.0.0.81",
-      blocked_services: ["tiktok", "adult"],
-      enabled: true,
-    },
-  ]);
+  >([]);
   const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
   const [newFilterHost, setNewFilterHost] = useState("");
   const [newFilterIP, setNewFilterIP] = useState("");
@@ -733,7 +588,7 @@ function Dashboard() {
   };
 
   const handleUpdateBlocklist = () => {
-    setAdguardLastUpdated("Just now");
+    setOperationError("AdGuard blocklist updates are unavailable until the privileged lifecycle adapter is implemented.");
   };
 
   const handleToggleFilterDevice = (id: string) => {
@@ -949,7 +804,6 @@ function Dashboard() {
   const [snapshotSuccessMsg, setSnapshotSuccessMsg] = useState("");
 
   const [backupModalOpen, setBackupModalOpen] = useState(false);
-  const [includeSecrets, setIncludeSecrets] = useState(true);
   const [backupNotice, setBackupNotice] = useState("");
   const [backupAdminPassword, setBackupAdminPassword] = useState("");
   const [backupPassphrase, setBackupPassphrase] = useState("");
@@ -1435,6 +1289,137 @@ function Dashboard() {
     }
   };
 
+  // Hydrate the dashboard from the canonical Go API. Preview data is used only
+  // when the appliance API is unavailable. This effect stays below all state
+  // declarations so React's compiler can safely track every setter it uses.
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [systemResponse, configResponse, snapshotsResponse, pendingResponse] = await Promise.all([
+          apiFetch("/api/v1/system"),
+          apiFetch("/api/v1/config"),
+          apiFetch("/api/v1/snapshots"),
+          apiFetch("/api/v1/transactions/pending"),
+        ]);
+        if (!systemResponse.ok || !configResponse.ok || !snapshotsResponse.ok || !pendingResponse.ok) {
+          throw new Error("Router API unavailable");
+        }
+        const [system, cfg, snapshotPayload, pendingPayload] = await Promise.all([
+          systemResponse.json(),
+          configResponse.json(),
+          snapshotsResponse.json(),
+          pendingResponse.json(),
+        ]);
+        setSystemInfo(system);
+        setStaticLeases((cfg.dhcp?.static_leases ?? []).map((lease: { hostname: string; mac: string; ip_address: string }) => ({
+          hostname: lease.hostname,
+          mac: lease.mac,
+          ip: lease.ip_address,
+        })));
+        setPortForwardRules((cfg.firewall?.port_forwards ?? []).map((rule: {
+          name: string; protocol: string; external_port: number; internal_ip: string; internal_port: number; enabled: boolean;
+        }) => ({
+          name: rule.name,
+          proto: rule.protocol.toUpperCase(),
+          extPort: rule.external_port,
+          intIP: rule.internal_ip,
+          intPort: rule.internal_port,
+          enabled: rule.enabled,
+        })));
+        setStatefulRules(cfg.firewall?.stateful_firewall === true);
+        setWireGuardEnabled(cfg.wireguard?.enabled === true);
+        setWgPeers((cfg.wireguard?.peers ?? []).map((peer: {
+          id: string; name: string; allowed_ips: string[]; enabled: boolean;
+        }) => ({
+          id: peer.id,
+          name: peer.name,
+          ip: peer.allowed_ips?.[0]?.replace(/\/32$/, "") ?? "",
+          traffic: peer.enabled ? "Configured" : "Disabled",
+          active: "Awaiting runtime telemetry",
+        })));
+        setCloudflareEnabled(cfg.cloudflare?.ddns_enabled === true || cfg.cloudflare?.tunnel_enabled === true);
+        setDhcpRangeStart(cfg.dhcp?.range_start ?? "");
+        setDhcpRangeEnd(cfg.dhcp?.range_end ?? "");
+        setDhcpLeaseHours(Number.parseInt(cfg.dhcp?.lease_time ?? "24", 10) || 24);
+        setDhcpGateway(cfg.lan?.ip_address ?? "");
+        setDnsPrimary(cfg.dhcp?.dns_servers?.[0] ?? "");
+        setDnsSecondary(cfg.dhcp?.dns_servers?.[1] ?? "");
+        setSquidEnabled(cfg.squid_proxy?.enabled === true);
+        setSquidPort(cfg.squid_proxy?.port ?? 3128);
+        setSquidUser(cfg.squid_proxy?.username ?? "");
+        setSquidRestrictedIPs(cfg.squid_proxy?.restricted_ips ?? []);
+        setAdguardEnabled(cfg.adguard?.enabled === true);
+        setFilterDevices(cfg.adguard?.filter_devices ?? []);
+        setWifiEnabled(cfg.wifi?.enabled === true);
+        setWifiSSID(cfg.wifi?.ssid ?? "");
+        setWifiBand(cfg.wifi?.band ?? "5ghz");
+        setWifiChannel(String(cfg.wifi?.channel ?? 36));
+        setWifiHideSSID(cfg.wifi?.hide_ssid === true);
+        setQosEnabled(cfg.qos?.enabled === true);
+        setQosAlgorithm(cfg.qos?.algorithm ?? "cake");
+        setQosDown(String(cfg.qos?.download_limit_mbps ?? 100));
+        setQosUp(String(cfg.qos?.upload_limit_mbps ?? 20));
+        setCfConfig({
+          domain: cfg.cloudflare?.domain ?? "",
+          zoneId: cfg.cloudflare?.zone_id ?? "",
+          apiToken: "",
+          tunnelDomain: cfg.cloudflare?.domain ?? "",
+        });
+        setSnapshotsList((snapshotPayload.snapshots ?? []).map((snapshot: {
+          id: string; revision: number; created_at: string; checksum: string;
+        }) => ({
+          id: snapshot.id,
+          revision: snapshot.revision,
+          label: "Configuration snapshot",
+          time: new Date(snapshot.created_at).toLocaleString(),
+          checksum: snapshot.checksum,
+        })));
+        setPendingConfirmationID(pendingPayload.pending === true ? pendingPayload.id : "");
+        setApiConnected(true);
+        setOperationError("");
+      } catch {
+        setApiConnected(false);
+      }
+    };
+    void load();
+  }, []);
+
+  useEffect(() => {
+    if (!apiConnected) return;
+    let cancelled = false;
+    const sample = async () => {
+      try {
+        const response = await apiFetch("/api/v1/system");
+        if (!response.ok) return;
+        const next = await response.json();
+        if (cancelled) return;
+        setSystemInfo(next);
+        const rx = Number(next.runtime?.rx_bytes ?? 0);
+        const tx = Number(next.runtime?.tx_bytes ?? 0);
+        const at = Date.now();
+        const previous = trafficPrevious.current;
+        if (previous && at > previous.at && rx >= previous.rx && tx >= previous.tx) {
+          const seconds = (at - previous.at) / 1000;
+          const down = ((rx - previous.rx) * 8) / seconds / 1_000_000;
+          const up = ((tx - previous.tx) * 8) / seconds / 1_000_000;
+          setDownloadMbps(down);
+          setUploadMbps(up);
+          setTrafficDown((samples) => [...samples, down].slice(-32));
+          setTrafficUp((samples) => [...samples, up].slice(-32));
+        }
+        trafficPrevious.current = { rx, tx, at };
+      } catch {
+        // The regular API availability banner handles prolonged failures.
+      }
+    };
+    void sample();
+    const timer = window.setInterval(() => void sample(), 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [apiConnected]);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -1491,6 +1476,8 @@ function Dashboard() {
       <aside className={`sidebar ${menuOpen ? "is-open" : ""}`}>
         <div className="brand-row">
           <div className="brand-mark brand-favicon-wrap" aria-hidden="true">
+            {/* The static appliance has no image-optimization route. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/favicon.svg" alt="Minimal Router logo" width={26} height={26} />
           </div>
           <div>
@@ -1811,7 +1798,7 @@ function Dashboard() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
                 <span className="status-label success" style={{ padding: "6px 12px", fontSize: "12px", fontWeight: 650, borderRadius: "20px" }}>
-                  <i className="status-dot" /> DNS Active
+                  <i className="status-dot" /> DNS configured
                 </span>
                 <div>
                   <strong style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", display: "block" }}>
@@ -1989,8 +1976,8 @@ function Dashboard() {
                   </div>
                 ))}
                 <div className="firewall-stat">
-                  <div><strong>2,841</strong><span>Blocked today</span></div>
-                  <div><strong>0</strong><span>Rules need attention</span></div>
+                  <div><strong>Deny</strong><span>Default WAN input policy</span></div>
+                  <div><strong>{portForwardRules.length}</strong><span>Port forwards enabled</span></div>
                 </div>
               </article>
             </div>
@@ -2136,17 +2123,17 @@ function Dashboard() {
                   <div className="card-title-row">
                     <div>
                       <h3>Dynamic DNS</h3>
-                      <p>Public IP is synchronized.</p>
+                      <p>{apiConnected ? "Lifecycle adapter is not installed." : "Offline design preview."}</p>
                     </div>
-                    <span className="status-label success"><i className="status-dot" /> Updated</span>
+                    <span className="status-label"><i className="status-dot" /> Unavailable</span>
                   </div>
                   <div className="cloud-host">
                     <span>Hostname</span>
                     <code>{cfConfig.domain}</code>
                   </div>
                   <div className="cloud-meta">
-                    <span>185.33.42.117</span>
-                    <span>Checked 42 seconds ago</span>
+                    <span>No runtime status</span>
+                    <span>Fail closed</span>
                   </div>
                 </div>
               </article>
@@ -2157,17 +2144,17 @@ function Dashboard() {
                   <div className="card-title-row">
                     <div>
                       <h3>Cloudflare Tunnel</h3>
-                      <p>Encrypted outbound connection.</p>
+                      <p>Disabled by the secure appliance profile.</p>
                     </div>
-                    <span className="status-label success"><i className="status-dot" /> Healthy</span>
+                    <span className="status-label"><i className="status-dot" /> Unavailable</span>
                   </div>
                   <div className="cloud-host">
                     <span>Tunnel</span>
                     <code>minimalrouter-home</code>
                   </div>
                   <div className="cloud-meta">
-                    <span>2 connections</span>
-                    <span>Frankfurt · 24 ms</span>
+                    <span>0 connections</span>
+                    <span>No public service exposure</span>
                   </div>
                 </div>
               </article>

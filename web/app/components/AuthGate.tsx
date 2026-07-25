@@ -19,13 +19,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     let active = true;
     const initialize = async () => {
       const localPreviewHosts = new Set(["localhost", "127.0.0.1", "::1"]);
-      if (localPreviewHosts.has(window.location.hostname)) {
-        if (active) {
-          setPreviewMode(true);
-          setState("login");
-        }
-        return;
-      }
       try {
         if (await refreshSession()) {
           if (active) setState("authenticated");
@@ -43,8 +36,12 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         if (active) setState(result.is_configured ? "login" : "setup");
       } catch {
         if (active) {
-          setPreviewMode(true);
-          setState("login");
+          if (localPreviewHosts.has(window.location.hostname)) {
+            setPreviewMode(true);
+            setState("login");
+          } else {
+            setState("offline");
+          }
         }
       }
     };
