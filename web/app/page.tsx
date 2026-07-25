@@ -1803,7 +1803,7 @@ export default function Home() {
                   onClick={handleUpdateBlocklist}
                   style={{ fontSize: "13px" }}
                 >
-                  🔄 Update Blocklist
+                  Update Blocklist
                 </button>
                 <button
                   className="button secondary"
@@ -1859,27 +1859,27 @@ export default function Home() {
                             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                               {item.blocked_services.includes("youtube") && (
                                 <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  🎬 YouTube
+                                  YouTube
                                 </span>
                               )}
                               {item.blocked_services.includes("tiktok") && (
                                 <span style={{ fontSize: "11px", background: "#00000015", color: "var(--text-primary)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  🎵 TikTok
+                                  TikTok
                                 </span>
                               )}
                               {item.blocked_services.includes("facebook") && (
                                 <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  💬 Facebook/IG
+                                  Facebook/IG
                                 </span>
                               )}
                               {item.blocked_services.includes("adult") && (
                                 <span style={{ fontSize: "11px", background: "#FF950015", color: "#FF9500", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  🔞 Adult
+                                  Adult
                                 </span>
                               )}
                               {item.blocked_services.includes("gaming") && (
                                 <span style={{ fontSize: "11px", background: "#AF52DE15", color: "#AF52DE", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  🎮 Gaming
+                                  Gaming
                                 </span>
                               )}
                             </div>
@@ -2889,11 +2889,11 @@ export default function Home() {
                 <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Blocked Services</label>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                   {[
-                    { id: "youtube", label: "🎬 YouTube" },
-                    { id: "tiktok", label: "🎵 TikTok" },
-                    { id: "facebook", label: "💬 Facebook & IG" },
-                    { id: "adult", label: "🔞 Adult Content" },
-                    { id: "gaming", label: "🎮 Gaming & Roblox" },
+                    { id: "youtube", label: "YouTube" },
+                    { id: "tiktok", label: "TikTok" },
+                    { id: "facebook", label: "Facebook & IG" },
+                    { id: "adult", label: "Adult Content" },
+                    { id: "gaming", label: "Gaming & Roblox" },
                   ].map((s) => (
                     <label key={s.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", background: "var(--surface)", padding: "8px 10px", borderRadius: "8px", border: "1px solid var(--separator)" }}>
                       <input
