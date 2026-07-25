@@ -25,7 +25,7 @@ func TestImportPfSenseXML(t *testing.T) {
 	<ppps>
 		<ppp>
 			<username>user@myisp.net</username>
-			<password>secret123</password>
+			<password>secret1234567890</password>
 			<if>em0</if>
 		</ppp>
 	</ppps>

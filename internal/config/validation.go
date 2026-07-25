@@ -39,6 +39,16 @@ func (c *SystemConfig) Validate() error {
 		})
 	}
 
+	// WAN PPPoE Password Validation
+	if c.WAN.Enabled && c.WAN.Password != "" && c.WAN.Password != "[REDACTED]" {
+		if len([]rune(c.WAN.Password)) < 15 {
+			errs = append(errs, ValidationError{
+				Field:   "wan.password",
+				Message: "WAN PPPoE password must be at least 15 characters long",
+			})
+		}
+	}
+
 	// LAN Validation
 	lanIP := net.ParseIP(c.LAN.IPAddress)
 	if lanIP == nil || lanIP.To4() == nil {
