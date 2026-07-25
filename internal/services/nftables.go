@@ -45,10 +45,17 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" accept\n\n", cfg.LAN.Interface))
 	}
 
-	// pfSense Security Hardening: Block Bogons & Private RFC1918 spoofing on WAN
+	// pfSense Security Hardening: Block Bogons, CGNAT, Multicast & Private RFC1918 spoofing on WAN
 	if cfg.WAN.Interface != "" {
-		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Block RFC1918 & spoofed source IPs on WAN (%s)\n", cfg.WAN.Interface))
-		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8 } drop\n\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Block RFC1918, CGNAT, Multicast & spoofed source IPs on WAN (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 100.64.0.0/10, 224.0.0.0/4 } drop\n\n", cfg.WAN.Interface))
+
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: uRPF Strict Anti-Spoofing on WAN (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" fib saddr . iif oif missing drop\n\n", cfg.WAN.Interface))
+
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Block IPv6 WAN input except required ICMPv6 Discovery (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip6 nexthdr ipv6-icmp icmpv6 type { nd-neighbor-solicit, nd-router-advert, nd-neighbor-advert, packet-too-big } accept\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip6 drop\n\n", cfg.WAN.Interface))
 
 		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Anti-DoS / SYN Flood rate limiting on WAN (%s)\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp flags syn ct state new limit rate 100/second accept\n", cfg.WAN.Interface))
@@ -111,7 +118,11 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// Output Chain
 	buf.WriteString("  chain output {\n")
-	buf.WriteString("    type filter hook output priority filter; policy accept;\n")
+	buf.WriteString("    type filter hook output priority filter; policy accept;\n\n")
+	if cfg.WAN.Interface != "" {
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Block Bogon/Private source leakage on WAN output (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    oifname \"%s\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 100.64.0.0/10, 224.0.0.0/4 } drop\n", cfg.WAN.Interface))
+	}
 	buf.WriteString("  }\n\n")
 
 	// Prerouting (DNAT for Port Forwarding)
