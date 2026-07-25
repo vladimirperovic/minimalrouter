@@ -53,6 +53,10 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Anti-DoS / SYN Flood rate limiting on WAN (%s)\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp flags syn ct state new limit rate 100/second accept\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp flags syn ct state new drop\n\n", cfg.WAN.Interface))
+
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: ICMP Ping Flood Protection on WAN (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" icmp type echo-request limit rate 10/second accept\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" icmp type echo-request drop\n\n", cfg.WAN.Interface))
 	}
 
 	buf.WriteString("    # Reject WAN unsolicited input\n")
@@ -65,6 +69,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    # Allow established/related\n")
 	buf.WriteString("    ct state established,related accept\n")
 	buf.WriteString("    ct state invalid drop\n\n")
+
+	buf.WriteString("    # pfSense Hardening: TCP MSS Clamping (MSS set to PMTU to prevent PPPoE fragmentation issues)\n")
+	buf.WriteString("    tcp flags syn tcp option maxseg size set rt mtu\n\n")
 
 	// Block direct WAN access for Restricted IP Alias (Forced through Squid Proxy)
 	if cfg.SquidProxy.Enabled && len(cfg.SquidProxy.RestrictedIPs) > 0 {

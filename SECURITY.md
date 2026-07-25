@@ -73,7 +73,9 @@ Minimal Router OS automatically enforces key pfSense enterprise security protect
 1. **Bogon & Private RFC1918 WAN Filtering**: Incoming packets on WAN interfaces claiming to originate from private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `0.0.0.0/8`) or bogon IP blocks are atomically dropped by `nftables`.
 2. **DNS Rebind Attack Protection**: `dnsmasq` enforces `stop-dns-rebind` to prevent malicious external DNS responses from mapping public domains to local private LAN IPs or loopback (`127.0.0.1`).
 3. **SYN Flood & Anti-DoS Rate Limiting**: `nftables` limits new TCP SYN connection attempts on WAN to 100/sec, dropping excess unestablished connection floods.
-4. **Strict Reverse Path Filtering (RPFilter)**: Linux kernel `sysctl net.ipv4.conf.all.rp_filter=1` prevents IP spoofing across interfaces.
+4. **ICMP Ping Flood Protection**: `nftables` limits incoming WAN ICMP echo requests to 10/sec, preventing WAN ping flood degradation.
+5. **TCP MSS Clamping (PMTU Discovery)**: Automatic MSS clamping (`tcp flags syn tcp option maxseg size set rt mtu`) on WAN/PPPoE interfaces prevents packet fragmentation attacks and connection stalls.
+6. **Strict Reverse Path Filtering (RPFilter)**: Linux kernel `sysctl net.ipv4.conf.all.rp_filter=1` prevents IP spoofing across interfaces.
 
 ## 5. Authentication
 
