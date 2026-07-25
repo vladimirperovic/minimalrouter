@@ -1387,19 +1387,24 @@ export default function Home() {
                 <span className="recovery-index">01</span>
                 <div>
                   <span className="mini-label">Latest snapshot</span>
-                  <h3>{snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "Protected 8 minutes ago"}</h3>
-                  <p>{snapshotsList.length > 0 ? snapshotsList[0].label : "Firewall rule update · Configuration revision 42"}</p>
+                  <h3 style={{ fontSize: "17px", fontWeight: 700, margin: "6px 0 4px" }}>
+                    {snapshotsList.length > 0 ? `Revision ${snapshotsList[0].revision} (${snapshotsList[0].time})` : "Protected 8 minutes ago"}
+                  </h3>
+                  <p style={{ color: "var(--text-secondary)", fontSize: "13px", margin: 0 }}>
+                    {snapshotsList.length > 0 ? snapshotsList[0].label : "Firewall rule update · Configuration revision 42"}
+                  </p>
                   {snapshotSuccessMsg && (
-                    <div style={{ color: "#34C759", fontSize: "12px", fontWeight: 600, marginTop: "4px" }}>
+                    <div style={{ color: "#34C759", fontSize: "12px", fontWeight: 600, marginTop: "6px" }}>
                       {snapshotSuccessMsg}
                     </div>
                   )}
                 </div>
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <div className="recovery-actions" style={{ marginTop: "auto", paddingTop: "20px", display: "flex", gap: "10px", flexWrap: "wrap", width: "100%" }}>
                   <button
                     className="button primary"
                     type="button"
                     onClick={handleMakeSnapshot}
+                    style={{ flex: 1, whiteSpace: "nowrap" }}
                   >
                     + Make snapshot
                   </button>
@@ -1407,6 +1412,7 @@ export default function Home() {
                     className="button secondary"
                     type="button"
                     onClick={() => setSnapshotsModalOpen(true)}
+                    style={{ flex: 1, whiteSpace: "nowrap" }}
                   >
                     View snapshots
                   </button>
