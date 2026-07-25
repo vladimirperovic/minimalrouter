@@ -1,72 +1,23 @@
-# 📦 Proxmox VE & Homelab Deployment Guide
+# Proxmox VE Deployment & Optimization Guide
 
-Minimal Router OS is engineered to run seamlessly as **VM #100** on Proxmox VE hypervisors (e.g. Intel N100 / dual 2.5G Intel NIC Mini PCs).
+Minimal Router OS runs efficiently as a QEMU/KVM virtual machine or unprivileged LXC container on Proxmox VE.
 
----
+## 1. Automated Setup Script
 
-## ⚡ 1-Line Automated Proxmox VM Setup
-
-Run this single command directly in your **Proxmox VE Node Shell**:
+Run the automated Proxmox guest optimization script inside your Minimal Router OS instance:
 
 ```bash
-bash <(curl -sSL https://raw.githubusercontent.com/vladimirperovic/minimalrouter/main/packaging/proxmox/create-vm.sh)
+sh /usr/local/bin/proxmox-setup.sh
 ```
 
-### What this script automates:
-1. **Creates VM #100** (`Minimal-Router-OS`) with 512 MB RAM, 1 vCPU (host architecture), and VirtIO SCSI storage.
-2. **Configures High Boot Priority** (`onboot: 1`, `order=1`) so Minimal Router OS starts **first before any other VMs**.
-3. **Verifies Proxmox Network Bridges**:
-   - `net0` → `vmbr0` (Physical WAN / Internet NIC)
-   - `net1` → `vmbr1` (Internal Virtual Private LAN Bridge for all your other Proxmox VMs & containers)
-4. **Pre-configures LUKS Full Disk Encryption Support** on the boot volume.
+Or run directly from GitHub:
 
----
-
-## 🛡️ LUKS Full Disk Encryption Setup
-
-To protect your PPPoE credentials, WireGuard private keys, and routing tables against physical theft:
-
-1. During initial setup, select **LUKS Disk Encryption** (`DISKOPTS="-m sys -e luks"`).
-2. Enter your strong disk encryption passphrase.
-3. Every system boot will verify disk integrity before launching `routerd` and `router-applyd`.
-
----
-
-## 🌐 Networking Architecture on Proxmox VE
-
-```
-+-------------------------------------------------------------------+
-|                        PROXMOX VE HOST                            |
-|                                                                   |
-|   +-----------------------------------------------------------+   |
-|   |         VM #100: MINIMAL ROUTER OS (512 MB RAM)           |   |
-|   |                                                           |   |
-|   |   [net0: VirtIO] <---------> vmbr0 <---> WAN / Modem      |   |
-|   |   [net1: VirtIO] <---------> vmbr1 <---> Private LAN      |   |
-|   |                                               |           |   |
-|   +-----------------------------------------------+-----------+   |
-|                                                   |               |
-|            +--------------------------------------+-------+       |
-|            |                      |                       |       |
-|    +---------------+      +---------------+      +------------+  |
-|    |  VM #101:     |      |  VM #102:     |      | LXC #103:  |  |
-|    |  Home Assistant|     |  Plex / NAS   |      | Nextcloud  |  |
-|    +---------------+      +---------------+      +------------+  |
-|                                                                   |
-+-------------------------------------------------------------------+
+```bash
+curl -sSL https://raw.githubusercontent.com/vladimirperovic/minimalrouter/main/scripts/proxmox-setup.sh | sh
 ```
 
----
+## 2. Included Optimizations
 
-## 🔧 Manual VM Creation Settings (Alternative)
-
-If you prefer manually creating the VM in the Proxmox Web GUI:
-
-- **OS**: Linux (kernel 6.x)
-- **System**: SCSI Controller = `VirtIO SCSI Single`, Qemu Agent = `Enabled`
-- **Disks**: `8 GB SCSI`, SSD emulation = `Enabled`, Discard = `Enabled`
-- **CPU**: `1 Core`, Type = `host`
-- **Memory**: `512 MB`
-- **Network**:
-  - Net 0: `vmbr0` (WAN)
-  - Net 1: `vmbr1` (LAN)
+- **QEMU Guest Agent (`qemu-guest-agent`)**: Enables Proxmox VE Web UI to display active router IP addresses, memory usage, and execute graceful VM reboots/shutdowns.
+- **Host Time Synchronization (`chrony`)**: Prevents Real-Time Clock (RTC) drift when Proxmox VE hosts pause, snapshot, or live-migrate the VM.
+- **VirtIO Net Offloading**: Tunes Linux Kernel `rp_filter` to `2` (loose mode) to ensure VirtIO Linux bridges (`vmbr0`, `vmbr1`) route packets cleanly without dropping asymmetrical VLAN packets.
