@@ -789,12 +789,24 @@ export default function Home() {
             <span />
           </button>
           <div className="service-chips">
-            <span className="chip ok"><i className="status-dot" /> Firewall</span>
-            <span className="chip ok"><i className="status-dot" /> WireGuard</span>
-            <span className="chip ok"><i className="status-dot" /> DHCP</span>
-            <span className="chip ok"><i className="status-dot" /> DNS</span>
-            <span className="chip ok"><i className="status-dot" /> DDNS</span>
-            <span className="chip ok"><i className="status-dot" /> Tunnel</span>
+            <span className="chip ok" title="Stateful Packet Filtering (nftables): Inspects all network traffic and blocks unauthorized WAN access">
+              <i className="status-dot" /> Firewall
+            </span>
+            <span className="chip ok" title="Encrypted VPN (WireGuard): High-speed secure remote access tunnel to your home network">
+              <i className="status-dot" /> WireGuard
+            </span>
+            <span className="chip ok" title="Dynamic Host Configuration Protocol (dnsmasq): Automatically assigns IP addresses to home devices">
+              <i className="status-dot" /> DHCP
+            </span>
+            <span className="chip ok" title="Domain Name System (DoH): Translates website names to IP addresses with encrypted DNS-over-HTTPS">
+              <i className="status-dot" /> DNS
+            </span>
+            <span className="chip ok" title="Dynamic DNS (Cloudflare): Keeps your home domain updated when your public IP changes">
+              <i className="status-dot" /> DDNS
+            </span>
+            <span className="chip ok" title="Cloudflare Tunnel: Safely exposes local web services to the internet without opening router ports">
+              <i className="status-dot" /> Tunnel
+            </span>
           </div>
           <div className="top-actions">
             <div className="font-scale-control" aria-label="Font size control">
