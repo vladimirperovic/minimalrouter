@@ -98,7 +98,29 @@ func runMigrations(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS admin_credentials (
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		password_hash TEXT NOT NULL,
+		totp_secret TEXT,
 		updated_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS sessions (
+		id TEXT PRIMARY KEY,
+		csrf_token TEXT NOT NULL,
+		created_at DATETIME NOT NULL,
+		last_seen DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+		ip TEXT PRIMARY KEY,
+		attempts INTEGER NOT NULL DEFAULT 0,
+		window_start DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS audit_events (
+		id TEXT PRIMARY KEY,
+		event_type TEXT NOT NULL,
+		actor TEXT NOT NULL,
+		timestamp DATETIME NOT NULL,
+		details_json TEXT NOT NULL
 	);
 	`
 	_, err := db.Exec(schema)
@@ -273,7 +295,160 @@ func (s *SQLiteStore) SetAdminHash(hash string) error {
 	return err
 }
 
+// GetAdminTOTPSecret retrieves the TOTP secret for admin.
+func (s *SQLiteStore) GetAdminTOTPSecret() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var secret sql.NullString
+	err := s.db.QueryRow("SELECT totp_secret FROM admin_credentials WHERE id = 1").Scan(&secret)
+	if err != nil {
+		return "", err
+	}
+	if !secret.Valid {
+		return "", nil
+	}
+	return secret.String, nil
+}
+
+// SetAdminTOTPSecret stores the TOTP secret for admin.
+func (s *SQLiteStore) SetAdminTOTPSecret(secret string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO admin_credentials (id, password_hash, totp_secret, updated_at) VALUES (1, '', ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET totp_secret = excluded.totp_secret, updated_at = excluded.updated_at`,
+		secret, time.Now().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ClearAdminTOTPSecret removes the TOTP secret for admin.
+func (s *SQLiteStore) ClearAdminTOTPSecret() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`UPDATE admin_credentials SET totp_secret = NULL, updated_at = ? WHERE id = 1`,
+		time.Now().Format(time.RFC3339),
+	)
+	return err
+}
+
 // Close closes the underlying SQLite database connection.
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
+}
+
+// === Session Persistence ===
+
+// CreateSession stores a new session in SQLite.
+func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, createdAt, lastSeen time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO sessions (id, csrf_token, created_at, last_seen) VALUES (?, ?, ?, ?)`,
+		sessionID, csrfToken, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
+	)
+	return err
+}
+
+// GetSession retrieves a session by ID.
+func (s *SQLiteStore) GetSession(sessionID string) (csrfToken string, createdAt, lastSeen time.Time, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var csrf, created, lastSeenStr string
+	err = s.db.QueryRow(
+		`SELECT csrf_token, created_at, last_seen FROM sessions WHERE id = ?`, sessionID,
+	).Scan(&csrf, &created, &lastSeenStr)
+	if err != nil {
+		return "", time.Time{}, time.Time{}, err
+	}
+
+	createdAt, _ = time.Parse(time.RFC3339, created)
+	lastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
+	return csrf, createdAt, lastSeen, nil
+}
+
+// UpdateSessionLastSeen updates the last_seen timestamp for a session.
+func (s *SQLiteStore) UpdateSessionLastSeen(sessionID string, lastSeen time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`UPDATE sessions SET last_seen = ? WHERE id = ?`,
+		lastSeen.Format(time.RFC3339), sessionID,
+	)
+	return err
+}
+
+// DeleteSession removes a session from SQLite.
+func (s *SQLiteStore) DeleteSession(sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, sessionID)
+	return err
+}
+
+// CleanExpiredSessions removes expired sessions (called periodically).
+func (s *SQLiteStore) CleanExpiredSessions(idleTimeout, absoluteTimeout time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	idleCutoff := now.Add(-idleTimeout).Format(time.RFC3339)
+	absCutoff := now.Add(-absoluteTimeout).Format(time.RFC3339)
+
+	_, err := s.db.Exec(
+		`DELETE FROM sessions WHERE last_seen < ? OR created_at < ?`,
+		idleCutoff, absCutoff,
+	)
+	return err
+}
+
+// === Rate Limiter Persistence ===
+
+// GetRateLimitBucket retrieves the rate limit bucket for an IP.
+func (s *SQLiteStore) GetRateLimitBucket(ip string) (attempts int, windowStart time.Time, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var attemptsVal int
+	var windowStartStr string
+	err = s.db.QueryRow(
+		`SELECT attempts, window_start FROM rate_limit_buckets WHERE ip = ?`, ip,
+	).Scan(&attemptsVal, &windowStartStr)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+
+	windowStart, _ = time.Parse(time.RFC3339, windowStartStr)
+	return attemptsVal, windowStart, nil
+}
+
+// SetRateLimitBucket creates or updates a rate limit bucket.
+func (s *SQLiteStore) SetRateLimitBucket(ip string, attempts int, windowStart time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(
+		`INSERT INTO rate_limit_buckets (ip, attempts, window_start) VALUES (?, ?, ?)
+		 ON CONFLICT(ip) DO UPDATE SET attempts = excluded.attempts, window_start = excluded.window_start`,
+		ip, attempts, windowStart.Format(time.RFC3339),
+	)
+	return err
+}
+
+// CleanExpiredRateLimitBuckets removes old rate limit entries.
+func (s *SQLiteStore) CleanExpiredRateLimitBuckets(window time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cutoff := time.Now().Add(-window).Format(time.RFC3339)
+	_, err := s.db.Exec(`DELETE FROM rate_limit_buckets WHERE window_start < ?`, cutoff)
+	return err
 }

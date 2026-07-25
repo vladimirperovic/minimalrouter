@@ -16,11 +16,24 @@ CREATE TABLE IF NOT EXISTS snapshots (
     FOREIGN KEY(revision) REFERENCES config_revisions(revision)
 );
 
+CREATE TABLE IF NOT EXISTS admin_credentials (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    password_hash TEXT NOT NULL,
+    totp_secret TEXT,
+    updated_at DATETIME NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     csrf_token TEXT NOT NULL,
     created_at DATETIME NOT NULL,
     last_seen DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+    ip TEXT PRIMARY KEY,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    window_start DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (

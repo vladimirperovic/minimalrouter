@@ -1,7 +1,13 @@
 package api
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,30 +23,46 @@ import (
 
 // Server handles REST API requests for Minimal Router OS.
 type Server struct {
-	engine     *apply.Engine
-	sessionMgr *auth.SessionManager
-	rateLimiter *auth.RateLimiter
-	adminHash  string // Argon2id hash of admin password
-	mu         sync.RWMutex
+	engine       *apply.Engine
+	sessionMgr   SessionManagerInterface
+	rateLimiter  RateLimiterInterface
+	adminHash    string // Argon2id hash of admin password
+	store        *config.SQLiteStore // for TOTP secret management
+	mu           sync.RWMutex
 }
 
-// NewServer creates a new API server instance with authentication subsystem.
+// SessionManagerInterface defines the session management operations needed by the API.
+type SessionManagerInterface interface {
+	ValidateSession(r *http.Request) (*auth.Session, error)
+	DestroySession(r *http.Request, w http.ResponseWriter)
+	SetSessionCookie(w http.ResponseWriter, session *auth.Session)
+	CreateSession() *auth.Session
+}
+
+// RateLimiterInterface defines the rate limiting operations needed by the API.
+type RateLimiterInterface interface {
+	Allow(ip string) bool
+}
+
+// NewServer creates a new API server instance with in-memory authentication subsystem.
 func NewServer(engine *apply.Engine) *Server {
-	srv := &Server{
-		engine:      engine,
-		sessionMgr:  auth.NewSessionManager(),
-		rateLimiter: auth.NewRateLimiter(5, 60*time.Second),
-		adminHash:   "",
+	return &Server{
+		engine:       engine,
+		sessionMgr:   auth.NewSessionManager(),
+		rateLimiter:  auth.NewRateLimiter(5, 60*time.Second),
+		adminHash:    "",
 	}
+}
 
-	if store := engine.GetStore(); store != nil {
-		if hash, err := store.GetAdminHash(); err == nil && hash != "" {
-			srv.adminHash = hash
-			log.Println("[AUTH] Loaded persisted administrator password hash from SQLite store")
-		}
+// NewServerWithAuth creates a new API server instance with persistent authentication subsystem.
+func NewServerWithAuth(engine *apply.Engine, sessionMgr SessionManagerInterface, rateLimiter RateLimiterInterface, adminHash string, store *config.SQLiteStore) *Server {
+	return &Server{
+		engine:       engine,
+		sessionMgr:   sessionMgr,
+		rateLimiter:  rateLimiter,
+		adminHash:    adminHash,
+		store:        store,
 	}
-
-	return srv
 }
 
 // authMiddleware validates session cookie and CSRF token for protected endpoints.
@@ -100,6 +122,11 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/auth/session", sh(s.authMiddleware(s.handleGetSession)))
 	mux.HandleFunc("POST /api/v1/auth/change-password", sh(s.authMiddleware(s.handleChangePassword)))
 
+	// TOTP endpoints (auth required)
+	mux.HandleFunc("POST /api/v1/auth/totp/enable", sh(s.authMiddleware(s.handleTOTPEnable)))
+	mux.HandleFunc("GET /api/v1/auth/totp/qr", sh(s.authMiddleware(s.handleTOTPQR)))
+	mux.HandleFunc("POST /api/v1/auth/totp/disable", sh(s.authMiddleware(s.handleTOTPDisable)))
+
 	mux.HandleFunc("GET /api/v1/system", sh(s.authMiddleware(s.handleGetSystem)))
 	mux.HandleFunc("GET /api/v1/system/diagnostics", sh(s.authMiddleware(s.handleGetDiagnostics)))
 	mux.HandleFunc("GET /api/v1/config", sh(s.authMiddleware(s.handleGetConfig)))
@@ -107,6 +134,13 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/snapshots", sh(s.authMiddleware(s.handleGetSnapshots)))
 	mux.HandleFunc("POST /api/v1/snapshots", sh(s.authMiddleware(s.handleCreateSnapshot)))
 	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", sh(s.authMiddleware(s.handleRestoreSnapshot)))
+
+	// ── Backup Encryption (P1) ──
+	mux.HandleFunc("POST /api/v1/backup/encrypt", sh(s.authMiddleware(s.handleBackupEncrypt)))
+	mux.HandleFunc("POST /api/v1/backup/decrypt", sh(s.authMiddleware(s.handleBackupDecrypt)))
+
+	// ── Firmware Verification (P1) ──
+	mux.HandleFunc("POST /api/v1/firmware/verify", sh(s.authMiddleware(s.handleFirmwareVerify)))
 
 	// ── Setup Wizard (first-run only, self-guarding) ──
 	mux.HandleFunc("POST /api/v1/setup/apply", sh(s.handleSetupApply))
@@ -129,6 +163,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -159,14 +194,118 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if TOTP is configured
+	if s.store != nil {
+		totpSecret, err := s.store.GetAdminTOTPSecret()
+		if err == nil && totpSecret != "" {
+			// TOTP is configured - require code
+			if req.TOTPCode == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":      "TOTP code required",
+					"totp_required": "true",
+				})
+				return
+			}
+			if !auth.ValidateTOTP(totpSecret, req.TOTPCode) {
+				log.Printf("[AUTH] Invalid TOTP code from %s\n", ip)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid TOTP code"})
+				return
+			}
+		}
+	}
+
 	session := s.sessionMgr.CreateSession()
 	s.sessionMgr.SetSessionCookie(w, session)
 
-	log.Printf("[AUTH] Successful login from %s (session: %s...)\n", ip, session.ID[:8])
+log.Printf("[AUTH] Successful login from %s (session: %s...)\n", ip, session.ID[:8])
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":    true,
 		"csrf_token": session.CSRFToken,
+	})
+}
+
+// ── Firmware Verification Handler (P1) ──
+
+func (s *Server) handleFirmwareVerify(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ManifestB64 string `json:"manifest_b64"` // base64-encoded JSON manifest
+		FirmwareDir string `json:"firmware_dir"` // path to extracted firmware
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Decode manifest
+	manifestJSON, err := base64.StdEncoding.DecodeString(req.ManifestB64)
+	if err != nil {
+		http.Error(w, "Invalid manifest base64", http.StatusBadRequest)
+		return
+	}
+
+	// Parse manifest
+	var manifest struct {
+		Version     string            `json:"version"`
+		BuildDate   string            `json:"build_date"`
+		GitCommit   string            `json:"git_commit"`
+		Files       map[string]string `json:"files"`
+		Signature   string            `json:"signature"`
+		PublicKey   string            `json:"public_key"`
+	}
+	if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+		http.Error(w, "Invalid manifest JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Verify
+	// This is a simplified verification - in production, firmwareDir would be a secure temp location
+	// For now, we just validate the manifest structure and signature
+	
+	// Decode public key
+	pubKeyBytes, err := hex.DecodeString(manifest.PublicKey)
+	if err != nil || len(pubKeyBytes) != 32 {
+		http.Error(w, "Invalid public key", http.StatusBadRequest)
+		return
+	}
+
+	// Decode signature
+	sigBytes, err := hex.DecodeString(manifest.Signature)
+	if err != nil || len(sigBytes) != 64 {
+		http.Error(w, "Invalid signature", http.StatusBadRequest)
+		return
+	}
+
+	// Recreate manifest bytes for verification (without signature)
+	verifyBytes, err := json.Marshal(struct {
+		Version   string            `json:"version"`
+		BuildDate string            `json:"build_date"`
+		GitCommit string            `json:"git_commit"`
+		Files     map[string]string `json:"files"`
+	}{
+		Version:   manifest.Version,
+		BuildDate: manifest.BuildDate,
+		GitCommit: manifest.GitCommit,
+		Files:     manifest.Files,
+	})
+	if err != nil {
+		http.Error(w, "Manifest marshal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify Ed25519 signature
+	valid := ed25519.Verify(pubKeyBytes, verifyBytes, sigBytes)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"valid":      valid,
+		"version":    manifest.Version,
+		"files_count": len(manifest.Files),
 	})
 }
 
@@ -235,11 +374,102 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
-	log.Printf("[AUTH] Admin password changed from %s\n", r.RemoteAddr)
+log.Printf("[AUTH] Admin password changed from %s\n", r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "Administrator password updated (Argon2id)",
+	})
+}
+
+// ── TOTP Handlers (2FA) ──
+
+func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the provided TOTP code
+	valid, err := auth.VerifyTOTP(s.store, req.Code)
+	if err != nil || !valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid TOTP code"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "TOTP enabled successfully",
+	})
+}
+
+func (s *Server) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
+	// Check if TOTP is already enabled
+	secret, err := s.store.GetAdminTOTPSecret()
+	if err != nil {
+		http.Error(w, "Failed to check TOTP status", http.StatusInternalServerError)
+		return
+	}
+
+	if secret != "" {
+		// Already enabled - return existing QR
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": true,
+			"qr_uri":  auth.BuildTOTPURI("admin", secret),
+		})
+		return
+	}
+
+	// Generate new secret for enrollment
+	newSecret, uri, err := auth.SetupTOTP(s.store)
+	if err != nil {
+		http.Error(w, "Failed to generate TOTP secret", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"enabled":  false,
+		"secret":   newSecret,
+		"qr_uri":   uri,
+	})
+}
+
+func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Verify TOTP code before disabling
+	valid, err := auth.VerifyTOTP(s.store, req.Code)
+	if err != nil || !valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid TOTP code"})
+		return
+	}
+
+	// Disable TOTP
+	if err := auth.DisableTOTP(s.store); err != nil {
+		http.Error(w, "Failed to disable TOTP", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "TOTP disabled successfully",
 	})
 }
 
@@ -413,4 +643,135 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(tx)
+}
+
+// ── Backup Encryption Handlers (P1) ──
+
+func (s *Server) handleBackupEncrypt(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SnapshotID string `json:"snapshot_id"`
+		KeyB64     string `json:"key_b64"` // base64-encoded 32-byte key
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	store := s.engine.GetStore()
+	if store == nil {
+		http.Error(w, "Snapshot store unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	snap, err := store.GetSnapshot(req.SnapshotID)
+	if err != nil {
+		http.Error(w, "Snapshot not found", http.StatusNotFound)
+		return
+	}
+
+	// Marshal snapshot to JSON
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		http.Error(w, "Failed to marshal snapshot", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode key
+	key, err := base64.StdEncoding.DecodeString(req.KeyB64)
+	if err != nil || len(key) != 32 {
+		http.Error(w, "Invalid key (must be 32 bytes base64)", http.StatusBadRequest)
+		return
+	}
+
+	// Encrypt using AES-GCM
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		http.Error(w, "Cipher error", http.StatusInternalServerError)
+		return
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		http.Error(w, "GCM error", http.StatusInternalServerError)
+		return
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		http.Error(w, "Nonce generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, snapJSON, nil)
+	encoded := base64.StdEncoding.EncodeToString(ciphertext)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"encrypted":     encoded,
+		"snapshot_id":   req.SnapshotID,
+		"algorithm":     "AES-256-GCM",
+		"key_b64":       req.KeyB64, // Return key for verification (client should store securely)
+	})
+}
+
+func (s *Server) handleBackupDecrypt(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EncryptedB64 string `json:"encrypted_b64"`
+		KeyB64       string `json:"key_b64"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(req.EncryptedB64)
+	if err != nil {
+		http.Error(w, "Invalid base64", http.StatusBadRequest)
+		return
+	}
+
+	key, err := base64.StdEncoding.DecodeString(req.KeyB64)
+	if err != nil || len(key) != 32 {
+		http.Error(w, "Invalid key (must be 32 bytes base64)", http.StatusBadRequest)
+		return
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		http.Error(w, "Cipher error", http.StatusInternalServerError)
+		return
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		http.Error(w, "GCM error", http.StatusInternalServerError)
+		return
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		http.Error(w, "Ciphertext too short", http.StatusBadRequest)
+		return
+	}
+
+	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		http.Error(w, "Decryption failed (wrong key?)", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse the decrypted snapshot
+	var snap config.Snapshot
+	if err := json.Unmarshal(plaintext, &snap); err != nil {
+		http.Error(w, "Corrupted snapshot data", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"snapshot": snap,
+	})
 }
