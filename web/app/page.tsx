@@ -788,14 +788,6 @@ export default function Home() {
             <span />
             <span />
           </button>
-          <div className="header-status">
-            <span className="status-dot" />
-            <div>
-              <strong>Connected</strong>
-              <span>PPPoE session active</span>
-            </div>
-          </div>
-          <div className="topbar-divider" />
           <div className="service-chips">
             <span className="chip ok"><i className="status-dot" /> Firewall</span>
             <span className="chip ok"><i className="status-dot" /> WireGuard</span>
