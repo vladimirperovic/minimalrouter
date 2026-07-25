@@ -11,9 +11,9 @@ if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi
 
-# 2. Install system dependencies from Alpine pinned repository
+# 2. Install system dependencies & LUKS encryption tools from Alpine pinned repository
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq ca-certificates
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq ca-certificates cryptsetup e2fsprogs lvm2
 
 # 3. Create unprivileged routerd user/group
 if ! id -u routerd >/dev/null 2>&1; then
