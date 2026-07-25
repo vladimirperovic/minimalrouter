@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
@@ -67,10 +69,43 @@ func handleConnection(conn net.Conn) {
 	var resp apply.ApplyResponse
 	switch req.Op {
 	case apply.OpApplyAll, apply.OpLoadNftables, apply.OpReloadService:
+		logs := []string{}
+
+		// 1. Write and apply nftables configuration
+		if req.Nftables != "" {
+			nftPath := "/run/minimalrouter/nftables.nft"
+			if err := os.WriteFile(nftPath, []byte(req.Nftables), 0600); err == nil {
+				logs = append(logs, fmt.Sprintf("Wrote nftables config to %s", nftPath))
+				// Try executing nft -f if binary is available
+				if _, err := os.Stat("/sbin/nft"); err == nil {
+					cmd := exec.Command("/sbin/nft", "-f", nftPath)
+					if out, err := cmd.CombinedOutput(); err != nil {
+						resp = apply.ApplyResponse{
+							ID:        req.ID,
+							Success:   false,
+							Error:     fmt.Sprintf("nftables apply failed: %v (%s)", err, string(out)),
+							Timestamp: time.Now().Unix(),
+						}
+						json.NewEncoder(conn).Encode(resp)
+						return
+					}
+					logs = append(logs, "Loaded nftables ruleset via /sbin/nft")
+				}
+			}
+		}
+
+		// 2. Write dnsmasq configuration
+		if req.Dnsmasq != "" {
+			dnsmasqPath := "/run/minimalrouter/dnsmasq.conf"
+			if err := os.WriteFile(dnsmasqPath, []byte(req.Dnsmasq), 0600); err == nil {
+				logs = append(logs, fmt.Sprintf("Wrote dnsmasq config to %s", dnsmasqPath))
+			}
+		}
+
 		resp = apply.ApplyResponse{
 			ID:        req.ID,
 			Success:   true,
-			Logs:      "Operation executed successfully in privileged helper",
+			Logs:      strings.Join(logs, "; "),
 			Timestamp: time.Now().Unix(),
 		}
 	default:

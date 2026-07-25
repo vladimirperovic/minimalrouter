@@ -27,14 +27,16 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    ct state established,related accept\n")
 	buf.WriteString("    ct state invalid drop\n\n")
 
-	// Allow Squid Proxy if enabled
+	// Allow Squid Proxy if enabled (LAN input only)
 	if cfg.SquidProxy.Enabled {
 		port := cfg.SquidProxy.Port
 		if port == 0 {
 			port = 3128
 		}
-		buf.WriteString(fmt.Sprintf("    # Allow Squid Proxy (port %d)\n", port))
-		buf.WriteString(fmt.Sprintf("    tcp dport %d accept\n\n", port))
+		if cfg.LAN.Interface != "" {
+			buf.WriteString(fmt.Sprintf("    # Allow Squid Proxy from LAN (%s, port %d)\n", cfg.LAN.Interface, port))
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport %d accept\n\n", cfg.LAN.Interface, port))
+		}
 	}
 
 	// LAN Input permissions

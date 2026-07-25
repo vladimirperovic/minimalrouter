@@ -25,12 +25,21 @@ type Server struct {
 
 // NewServer creates a new API server instance with authentication subsystem.
 func NewServer(engine *apply.Engine) *Server {
-	return &Server{
+	srv := &Server{
 		engine:      engine,
 		sessionMgr:  auth.NewSessionManager(),
 		rateLimiter: auth.NewRateLimiter(5, 60*time.Second),
-		adminHash:   "", // Empty until first-run wizard sets it
+		adminHash:   "",
 	}
+
+	if store := engine.GetStore(); store != nil {
+		if hash, err := store.GetAdminHash(); err == nil && hash != "" {
+			srv.adminHash = hash
+			log.Println("[AUTH] Loaded persisted administrator password hash from SQLite store")
+		}
+	}
+
+	return srv
 }
 
 // authMiddleware validates session cookie and CSRF token for protected endpoints.
@@ -204,6 +213,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	s.adminHash = newHash
+	if store := s.engine.GetStore(); store != nil {
+		if err := store.SetAdminHash(newHash); err != nil {
+			log.Printf("[AUTH] Failed to persist admin password hash to SQLite: %v\n", err)
+		}
+	}
 	s.mu.Unlock()
 
 	log.Printf("[AUTH] Admin password changed from %s\n", r.RemoteAddr)
@@ -354,6 +368,7 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 
 	// SECURITY: Redact sensitive fields before returning per SECURITY.md §12, §15
 	cfg.WAN.Password = "[REDACTED]"
+	cfg.SquidProxy.Password = "[REDACTED]"
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(cfg)

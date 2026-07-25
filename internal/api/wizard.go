@@ -37,6 +37,14 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
+	// SECURITY: Rate limit setup requests to prevent brute force
+	if !s.rateLimiter.Allow(r.RemoteAddr) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Too many setup attempts. Please wait."})
+		return
+	}
+
 	// SECURITY: Guard against re-running wizard after initial setup per SECURITY.md §8
 	s.mu.RLock()
 	alreadyConfigured := s.adminHash != ""
@@ -98,9 +106,14 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SECURITY: Persist the hashed admin password
+	// SECURITY: Persist the hashed admin password in memory and SQLite
 	s.mu.Lock()
 	s.adminHash = hashedPassword
+	if store := s.engine.GetStore(); store != nil {
+		if err := store.SetAdminHash(hashedPassword); err != nil {
+			log.Printf("[AUTH] Failed to persist wizard password to SQLite: %v\n", err)
+		}
+	}
 	s.mu.Unlock()
 
 	log.Printf("[AUTH] Wizard completed: admin password set, system configured from %s\n", r.RemoteAddr)
