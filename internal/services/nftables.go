@@ -45,6 +45,16 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" accept\n\n", cfg.LAN.Interface))
 	}
 
+	// pfSense Security Hardening: Block Bogons & Private RFC1918 spoofing on WAN
+	if cfg.WAN.Interface != "" {
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Block RFC1918 & spoofed source IPs on WAN (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8 } drop\n\n", cfg.WAN.Interface))
+
+		buf.WriteString(fmt.Sprintf("    # pfSense Hardening: Anti-DoS / SYN Flood rate limiting on WAN (%s)\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp flags syn ct state new limit rate 100/second accept\n", cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp flags syn ct state new drop\n\n", cfg.WAN.Interface))
+	}
+
 	buf.WriteString("    # Reject WAN unsolicited input\n")
 	buf.WriteString("    drop\n")
 	buf.WriteString("  }\n\n")

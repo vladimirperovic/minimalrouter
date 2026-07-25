@@ -66,6 +66,15 @@ management feature requires a separate threat model and explicit opt-in.
   implicitly.
 - Do not ship a default password.
 
+### 4.1 pfSense Security Hardening Controls
+
+Minimal Router OS automatically enforces key pfSense enterprise security protections in its core network generation pipelines:
+
+1. **Bogon & Private RFC1918 WAN Filtering**: Incoming packets on WAN interfaces claiming to originate from private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `0.0.0.0/8`) or bogon IP blocks are atomically dropped by `nftables`.
+2. **DNS Rebind Attack Protection**: `dnsmasq` enforces `stop-dns-rebind` to prevent malicious external DNS responses from mapping public domains to local private LAN IPs or loopback (`127.0.0.1`).
+3. **SYN Flood & Anti-DoS Rate Limiting**: `nftables` limits new TCP SYN connection attempts on WAN to 100/sec, dropping excess unestablished connection floods.
+4. **Strict Reverse Path Filtering (RPFilter)**: Linux kernel `sysctl net.ipv4.conf.all.rp_filter=1` prevents IP spoofing across interfaces.
+
 ## 5. Authentication
 
 Version 1 has one local administrator account.

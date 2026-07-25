@@ -20,7 +20,10 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString(fmt.Sprintf("interface=%s\n", cfg.LAN.Interface))
 	buf.WriteString("bind-interfaces\n")
 	buf.WriteString("bogus-priv\n")
-	buf.WriteString("domain-needed\n\n")
+	buf.WriteString("domain-needed\n")
+	buf.WriteString("# pfSense Security Hardening: DNS Rebind Attack Protection\n")
+	buf.WriteString("stop-dns-rebind\n")
+	buf.WriteString("rebind-localhost-ok\n\n")
 
 	// Upstream DNS Servers
 	if len(cfg.DHCP.DNSServers) > 0 {
