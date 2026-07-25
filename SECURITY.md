@@ -78,6 +78,8 @@ Minimal Router OS automatically enforces key pfSense enterprise security protect
 6. **SYN Flood & Anti-DoS Rate Limiting**: `nftables` limits new TCP SYN connection attempts on WAN to 100/sec, dropping excess unestablished connection floods.
 7. **ICMP Ping Flood Protection**: `nftables` limits incoming WAN ICMP echo requests to 10/sec, preventing WAN ping flood degradation.
 8. **TCP MSS Clamping (PMTU Discovery)**: Automatic MSS clamping (`tcp flags syn tcp option maxseg size set rt mtu`) on WAN/PPPoE interfaces prevents packet fragmentation attacks and connection stalls.
+9. **WireGuard PersistentKeepalive Enforcement**: `PersistentKeepalive = 25` is automatically generated for all active WireGuard peers to maintain tunnel state behind stateful NAT firewalls.
+10. **PPPoE Password Strength Validation**: Enforced minimum 15-character password length for WAN PPPoE credentials across both Setup Wizard and REST API models.
 
 ## 5. Authentication
 
