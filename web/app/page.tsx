@@ -1019,6 +1019,38 @@ export default function Home() {
               </div>
             </div>
 
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "12px 18px",
+                borderRadius: "14px",
+                background: "var(--surface)",
+                border: "1px solid var(--separator)",
+                marginBottom: "20px",
+                flexWrap: "wrap",
+                gap: "12px",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span className="status-label success" style={{ padding: "4px 10px", fontSize: "12px" }}>
+                  <i className="status-dot" /> DNS Active
+                </span>
+                <span style={{ fontSize: "13px", fontWeight: 650 }}>
+                  {dnsProvider === "cloudflare" ? "Cloudflare DNS" : dnsProvider === "quad9" ? "Quad9 Malware Block" : dnsProvider === "adguard" ? "AdGuard AdBlock" : dnsProvider === "google" ? "Google DNS" : "Custom DNS"} ({dnsPrimary}, {dnsSecondary})
+                </span>
+                {dnsOverHttps && (
+                  <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "2px 8px", borderRadius: "6px", fontWeight: 600 }}>
+                    🔒 DoH Enforced
+                  </span>
+                )}
+              </div>
+              <p style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)", maxWidth: "520px" }}>
+                DNS (Domain Name System) prevodi nazive sajtova u IP adrese za sve uređaje u kući. Enkripcija (DoH) sprečava praćenje od strane ISP provajdera.
+              </p>
+            </div>
+
             <div className="two-column wide-left">
               <article className="card table-card">
                 <div className="card-title-row">
