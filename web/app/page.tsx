@@ -351,11 +351,12 @@ export default function Home() {
   const [squidUser, setSquidUser] = useState("proxyadmin");
   const [squidPass, setSquidPass] = useState("");
   const [squidRestrictedIPs, setSquidRestrictedIPs] = useState<
-    { ip_address: string; enabled: boolean }[]
+    { hostname: string; ip_address: string; enabled: boolean }[]
   >([
-    { ip_address: "10.0.0.50", enabled: true },
-    { ip_address: "10.0.0.51", enabled: true },
+    { hostname: "Smart TV", ip_address: "10.0.0.50", enabled: true },
+    { hostname: "Guest Laptop", ip_address: "10.0.0.51", enabled: true },
   ]);
+  const [newRestrictedHost, setNewRestrictedHost] = useState("");
   const [newRestrictedIP, setNewRestrictedIP] = useState("");
   const [addRestrictedModalOpen, setAddRestrictedModalOpen] = useState(false);
 
@@ -438,8 +439,12 @@ export default function Home() {
   const handleAddRestrictedIP = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRestrictedIP) return;
-    const updated = [...squidRestrictedIPs, { ip_address: newRestrictedIP, enabled: true }];
+    const updated = [
+      ...squidRestrictedIPs,
+      { hostname: newRestrictedHost || "Device", ip_address: newRestrictedIP, enabled: true },
+    ];
     setSquidRestrictedIPs(updated);
+    setNewRestrictedHost("");
     setNewRestrictedIP("");
     setAddRestrictedModalOpen(false);
 
@@ -1543,8 +1548,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 310px", gap: "20px", alignItems: "start" }}>
-              <article className="card table-card" style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+              <article className="card table-card">
                 <div className="card-title-row">
                   <div>
                     <h3>Restricted IP Alias Group</h3>
@@ -1564,6 +1569,7 @@ export default function Home() {
                     <caption className="sr-only">Restricted IP Alias list</caption>
                     <thead>
                       <tr>
+                        <th>Host</th>
                         <th>IP Address</th>
                         <th>Direct WAN Access</th>
                         <th>Status</th>
@@ -1573,13 +1579,14 @@ export default function Home() {
                     <tbody>
                       {squidRestrictedIPs.length === 0 ? (
                         <tr>
-                          <td colSpan={4} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
+                          <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
                             No restricted IPs defined. All LAN devices have direct WAN access.
                           </td>
                         </tr>
                       ) : (
                         squidRestrictedIPs.map((item, idx) => (
                           <tr key={idx}>
+                            <td><strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>{item.hostname || "Device"}</strong></td>
                             <td><code>{item.ip_address}</code></td>
                             <td>
                               {item.enabled ? (
@@ -2509,6 +2516,16 @@ export default function Home() {
               Direct WAN access will be blocked in nftables for this IP. The device must configure browser proxy settings to port 3128 with username & password to access the internet.
             </p>
             <form onSubmit={handleAddRestrictedIP} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Device Name / Host</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Smart TV, Guest Laptop"
+                  value={newRestrictedHost}
+                  onChange={(e) => setNewRestrictedHost(e.target.value)}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
+                />
+              </div>
               <div>
                 <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Target Device IP Address</label>
                 <input

@@ -21,6 +21,7 @@ type SystemConfig struct {
 
 // RestrictedIPItem represents a device IP in the Restricted Alias list with a toggle state.
 type RestrictedIPItem struct {
+	Hostname  string `json:"hostname"`
 	IPAddress string `json:"ip_address"`
 	Enabled   bool   `json:"enabled"`
 }
@@ -154,8 +155,8 @@ func DefaultConfig() SystemConfig {
 			Username: "proxyadmin",
 			Password: "",
 			RestrictedIPs: []RestrictedIPItem{
-				{IPAddress: "10.0.0.50", Enabled: true},
-				{IPAddress: "10.0.0.51", Enabled: true},
+				{Hostname: "Smart TV", IPAddress: "10.0.0.50", Enabled: true},
+				{Hostname: "Guest Laptop", IPAddress: "10.0.0.51", Enabled: true},
 			},
 		},
 	}
