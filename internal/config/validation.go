@@ -107,6 +107,22 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
+	// QoS Validation
+	if c.QoS.Enabled {
+		if c.QoS.DownloadLimitMbps <= 0 {
+			errs = append(errs, ValidationError{
+				Field:   "qos.download_limit_mbps",
+				Message: "Download speed limit must be greater than 0 Mbps when QoS is enabled",
+			})
+		}
+		if c.QoS.UploadLimitMbps <= 0 {
+			errs = append(errs, ValidationError{
+				Field:   "qos.upload_limit_mbps",
+				Message: "Upload speed limit must be greater than 0 Mbps when QoS is enabled",
+			})
+		}
+	}
+
 	if len(errs) > 0 {
 		return errs
 	}
