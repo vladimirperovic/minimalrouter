@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import SetupWizard from "./components/SetupWizard";
 import AuthGate from "./components/AuthGate";
@@ -588,7 +586,27 @@ function Dashboard() {
   };
 
   const handleUpdateBlocklist = () => {
-    setOperationError("AdGuard blocklist updates are unavailable until the privileged lifecycle adapter is implemented.");
+    if (!apiConnected) return;
+    setOperationError("");
+    apiFetch("/api/v1/adguard/blocklist/update", { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          setOperationError(data.error);
+        } else {
+          setOperationError("");
+          // Refresh config to get updated last_updated
+          apiFetch("/api/v1/config")
+            .then((r) => r.json())
+            .then((cfg) => {
+              if (cfg.adguard) {
+                setAdguardEnabled(cfg.adguard.enabled ?? false);
+              }
+            })
+            .catch(console.error);
+        }
+      })
+      .catch((err) => setOperationError("Blocklist update failed: " + String(err)));
   };
 
   const handleToggleFilterDevice = (id: string) => {
@@ -679,6 +697,7 @@ function Dashboard() {
   const [dnsPrimary, setDnsPrimary] = useState("1.1.1.1");
   const [dnsSecondary, setDnsSecondary] = useState("1.0.0.1");
   const [dnsProvider, setDnsProvider] = useState("cloudflare");
+  const [dohEnabled, setDohEnabled] = useState(false);
 
   const handleSaveDnsSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -688,6 +707,7 @@ function Dashboard() {
         .then((res) => res.json())
         .then((cfg) => {
           cfg.dhcp.dns_servers = [dnsPrimary, dnsSecondary];
+          cfg.dhcp.dns_enabled = dohEnabled;
           return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1344,6 +1364,7 @@ function Dashboard() {
         setDhcpGateway(cfg.lan?.ip_address ?? "");
         setDnsPrimary(cfg.dhcp?.dns_servers?.[0] ?? "");
         setDnsSecondary(cfg.dhcp?.dns_servers?.[1] ?? "");
+        setDohEnabled(cfg.dhcp?.dns_enabled === true);
         setSquidEnabled(cfg.squid_proxy?.enabled === true);
         setSquidPort(cfg.squid_proxy?.port ?? 3128);
         setSquidUser(cfg.squid_proxy?.username ?? "");
@@ -1994,17 +2015,16 @@ function Dashboard() {
                   className="button secondary"
                   type="button"
                   onClick={() => setQosModalOpen(true)}
-                  disabled={apiConnected}
-                  title={apiConnected ? "QoS lifecycle adapter is not available in this build" : undefined}
+                  disabled={!apiConnected}
                   style={{ fontSize: "13px" }}
                 >
-                  {apiConnected ? "Not available" : "Configure QoS"}
+                  Configure QoS
                 </button>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px", paddingTop: "16px", borderTop: "1px solid var(--separator)" }}>
                 <div>
                   <span className="quiet-meta">
-                    Status: <strong style={{ color: qosEnabled ? "#34C759" : "var(--text-tertiary)" }}>{qosEnabled ? "Active (CAKE Shaping ON)" : apiConnected ? "Unavailable in this build" : "Disabled (Preview)"}</strong>
+                    Status: <strong style={{ color: qosEnabled ? "#34C759" : "var(--text-tertiary)" }}>{qosEnabled ? "Active (CAKE Shaping ON)" : "Disabled (Default)"}</strong>
                   </span>
                 </div>
                 <div style={{ display: "flex", gap: "24px" }}>
@@ -2105,27 +2125,26 @@ function Dashboard() {
                 className="button secondary"
                 type="button"
                 onClick={() => setCfModalOpen(true)}
-                disabled={apiConnected}
-                title={apiConnected ? "Cloudflare lifecycle adapter is not available in this build" : undefined}
+                disabled={!apiConnected}
               >
-                {apiConnected ? "Not available" : "Configure Cloudflare"}
+                Configure Cloudflare
               </button>
             </div>
 
             <div className="cloud-grid">
               <article
                 className="card cloud-card"
-                onClick={() => { if (!apiConnected) setDdnsModalOpen(true); }}
-                style={{ cursor: apiConnected ? "default" : "pointer" }}
+                onClick={() => setDdnsModalOpen(true)}
+                style={{ cursor: "pointer" }}
               >
                 <div className="cloud-icon" aria-hidden="true">DD</div>
                 <div>
                   <div className="card-title-row">
                     <div>
                       <h3>Dynamic DNS</h3>
-                      <p>{apiConnected ? "Lifecycle adapter is not installed." : "Offline design preview."}</p>
+                      <p>{apiConnected ? "Cloudflare DNS record updater" : "Offline design preview."}</p>
                     </div>
-                    <span className="status-label"><i className="status-dot" /> Unavailable</span>
+                    <span className="status-label"><i className="status-dot" /> {cfConfig.domain ? "Configured" : "Not configured"}</span>
                   </div>
                   <div className="cloud-host">
                     <span>Hostname</span>
@@ -2144,9 +2163,9 @@ function Dashboard() {
                   <div className="card-title-row">
                     <div>
                       <h3>Cloudflare Tunnel</h3>
-                      <p>Disabled by the secure appliance profile.</p>
+                      <p>Secure tunnel to Cloudflare edge network.</p>
                     </div>
-                    <span className="status-label"><i className="status-dot" /> Unavailable</span>
+                    <span className="status-label"><i className="status-dot" /> {cfConfig.tunnelDomain ? "Configured" : "Not configured"}</span>
                   </div>
                   <div className="cloud-host">
                     <span>Tunnel</span>
@@ -2298,7 +2317,7 @@ function Dashboard() {
                   className="button secondary"
                   type="button"
                   onClick={handleUpdateBlocklist}
-                  disabled={apiConnected}
+                  disabled={!apiConnected}
                   style={{ fontSize: "13px" }}
                 >
                   Update Blocklist
@@ -2307,7 +2326,7 @@ function Dashboard() {
                   className="button secondary"
                   type="button"
                   onClick={() => handleToggleAdGuard(!adguardEnabled)}
-                  disabled={apiConnected}
+                  disabled={!apiConnected}
                   style={{ fontSize: "13px" }}
                 >
                   {adguardEnabled ? "Disable Filter" : "Enable Filter"}
@@ -2433,16 +2452,16 @@ function Dashboard() {
               </div>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                 <span className="quiet-meta">
-                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : apiConnected ? "Unavailable in this build" : "Disabled (Preview)"}</strong>
+                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : "Disabled (Default)"}</strong>
                 </span>
                 <button
                   className="button secondary"
                   type="button"
                   onClick={() => setWifiModalOpen(true)}
-                  disabled={apiConnected}
+                  disabled={!apiConnected}
                   style={{ fontSize: "13px" }}
                 >
-                  {apiConnected ? "Not available" : "Configure Wi-Fi"}
+                  Configure Wi-Fi
                 </button>
               </div>
             </div>
@@ -2456,10 +2475,6 @@ function Dashboard() {
                 <Toggle
                   checked={wifiEnabled}
                   onChange={() => {
-                    if (apiConnected) {
-                      setOperationError("Wi-Fi requires a bridge-aware hostapd lifecycle adapter and is disabled in this build.");
-                      return;
-                    }
                     const nextState = !wifiEnabled;
                     setWifiEnabled(nextState);
                     if (apiConnected) {
@@ -2553,10 +2568,41 @@ function Dashboard() {
                 <span className="recovery-index">02</span>
                 <div>
                   <span className="mini-label">System update</span>
-                  <h3>{systemInfo.update_trust_configured ? "Signed update verification ready" : "Updates disabled"}</h3>
-                  <p>{systemInfo.version ?? "Minimal Router OS"} · no automatic update channel configured</p>
+                  <h3>{systemInfo.update_trust_configured ? "Signed update verification ready" : "Manual updates available"}</h3>
+                  <p>{systemInfo.version ?? "Minimal Router OS"} · check for signed package updates</p>
                 </div>
-                <button className="button secondary" type="button" disabled>Manual signed package only</button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={!apiConnected}
+                  onClick={() => {
+                    if (!apiConnected) return;
+                    apiFetch("/api/v1/system/update/check")
+                      .then((res) => res.json())
+                      .then((data) => {
+                        if (data.update_available) {
+                          if (window.confirm(`Update available: ${data.latest_version}\n\n${data.release_notes || "No release notes"}\n\nInstall now?`)) {
+                            apiFetch("/api/v1/system/update/install", { method: "POST" })
+                              .then((res) => res.json())
+                              .then((result) => {
+                                if (result.error) {
+                                  setOperationError(result.error);
+                                } else {
+                                  setOperationError("");
+                                  alert(result.message || "Update installed. Reboot recommended.");
+                                }
+                              })
+                              .catch((err) => setOperationError("Install failed: " + String(err)));
+                          }
+                        } else {
+                          alert(data.error || "System is up to date.");
+                        }
+                      })
+                      .catch((err) => setOperationError("Check failed: " + String(err)));
+                  }}
+                >
+                  Check for Updates
+                </button>
               </article>
               <article className="card recovery-card">
                 <span className="recovery-index">03</span>
@@ -3466,12 +3512,12 @@ function Dashboard() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', background: 'var(--surface-muted)', border: '1px solid var(--separator)' }}>
                 <div>
                   <strong style={{ display: 'block', fontSize: '13px' }}>DNS-over-HTTPS / TLS</strong>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Unavailable until a privileged encrypted-DNS service adapter is implemented</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Encrypt DNS queries via Cloudflare, Google, or Quad9 DoH endpoints</span>
                 </div>
                 <input
                   type="checkbox"
-                  checked={false}
-                  disabled
+                  checked={dohEnabled}
+                  onChange={(e) => setDohEnabled(e.target.checked)}
                   style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                 />
               </div>

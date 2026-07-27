@@ -67,11 +67,11 @@ install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
 # Binaries must have been built with `make build-linux`.
 install -m 0755 -o root -g root bin/routerd /usr/bin/routerd
 install -m 0755 -o root -g root bin/router-applyd /usr/sbin/router-applyd
-if [ -f web/dist/client/index.html ]; then
-    cp -R web/dist/client/. /usr/share/minimalrouter/web/
+if [ -f web/dist/index.html ]; then
+    cp -R web/dist/. /usr/share/minimalrouter/web/
     chown -R root:root /usr/share/minimalrouter/web
 else
-    echo "ERROR: static appliance dashboard is missing (web/dist/client/index.html)." >&2
+    echo "ERROR: static appliance dashboard is missing (web/dist/index.html)." >&2
     exit 1
 fi
 

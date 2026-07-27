@@ -65,15 +65,16 @@ Add `minimalrouter-mcp` to your Claude Desktop / AI Agent configuration. See [MC
 go run ./cmd/routerd
 ```
 
-### 4. Run Web Dashboard
+### 4. Run Web Dashboard (development only)
 
-```bash
+```sh
 cd web
 pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000` in browser.
+Open `http://localhost:3000` in browser. For VM tests, pre-built
+`web/dist/` is used automatically.
 
 ### 5. Build the Alpine appliance overlay
 

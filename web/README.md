@@ -3,7 +3,7 @@
 One-page Apple × Swiss interface prototype based on the project's `DESIGN.md`,
 `PROJECT.md`, `ARCHITECTURE.md`, and `SECURITY.md`.
 
-## Local preview
+## Local preview (development only)
 
 ```sh
 pnpm install
@@ -11,6 +11,9 @@ pnpm dev
 ```
 
 Open `http://localhost:3000`.
+
+> The pre-built `web/dist/` is used for VM deployment. Rebuild only if
+> the frontend source has changed.
 
 ## Production build
 

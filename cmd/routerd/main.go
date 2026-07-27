@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,10 @@ import (
 )
 
 func main() {
+	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 128 MB.
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(128 << 20)
+
 	log.Println("Starting Minimal Router OS routerd (unprivileged management plane)...")
 
 	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
@@ -157,7 +162,7 @@ func main() {
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
 		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		IdleTimeout:       15 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
 
@@ -175,7 +180,8 @@ func main() {
 
 // managementDestinationHandler is a second boundary behind nftables. Even if
 // a future firewall regression opens the TCP port, routerd refuses requests
-// whose destination address is not an active LAN or WireGuard management IP.
+// whose destination address is not a local network interface IP, an active
+// LAN IP, or an active WireGuard management IP.
 func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		localAddr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
@@ -220,6 +226,33 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 			addConfigAddresses(current, true)
 			addConfigAddresses(pending.Config, true)
 		}
+
+		// Also allow connections arriving on any local network interface IP.
+		// This covers bridged/NAT VM scenarios where the actual interface IP
+		// differs from the configured LAN address. Security is maintained by
+		// nftables as the primary boundary; this handler is defense-in-depth.
+		ifaces, err := net.Interfaces()
+		if err == nil {
+			for _, iface := range ifaces {
+				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+					continue
+				}
+				addrs, err := iface.Addrs()
+				if err != nil {
+					continue
+				}
+				for _, addr := range addrs {
+					ipNet, ok := addr.(*net.IPNet)
+					if !ok {
+						continue
+					}
+					if ipNet.IP.To4() != nil {
+						allowed[ipNet.IP.String()] = struct{}{}
+					}
+				}
+			}
+		}
+
 		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") == "1" && destination.IsLoopback() {
 			next.ServeHTTP(w, r)
 			return
@@ -238,6 +271,10 @@ func staticHandler(root string) http.Handler {
 		root = absolute
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return

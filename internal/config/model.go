@@ -134,10 +134,11 @@ type LANSettings struct {
 // DHCPSettings holds dnsmasq DHCP server configuration and static leases.
 type DHCPSettings struct {
 	Enabled      bool          `json:"enabled"`
-	RangeStart   string        `json:"range_start"` // e.g. "192.168.1.100"
-	RangeEnd     string        `json:"range_end"`   // e.g. "192.168.1.200"
-	LeaseTime    string        `json:"lease_time"`  // e.g. "12h"
-	DNSServers   []string      `json:"dns_servers"` // e.g. ["1.1.1.1", "8.8.8.8"]
+	DNSEnabled   bool          `json:"dns_enabled"`    // Enable DNS-over-HTTPS proxy
+	RangeStart   string        `json:"range_start"`    // e.g. "192.168.1.100"
+	RangeEnd     string        `json:"range_end"`      // e.g. "192.168.1.200"
+	LeaseTime    string        `json:"lease_time"`     // e.g. "12h"
+	DNSServers   []string      `json:"dns_servers"`    // e.g. ["1.1.1.1", "8.8.8.8"]
 	StaticLeases []StaticLease `json:"static_leases"`
 }
 

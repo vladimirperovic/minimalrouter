@@ -416,8 +416,20 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
-	if len(c.AdGuard.FilterDevices) > 0 {
-		appendFieldError(&errs, "adguard.filter_devices", "per-device DNS filtering is disabled until source-aware enforcement is implemented")
+	for i, fd := range c.AdGuard.FilterDevices {
+		if fd.Hostname == "" {
+			appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].hostname", i), "hostname is required")
+		}
+		if fd.IPAddress == "" {
+			appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "ip_address is required")
+		} else {
+			ip := parseIPv4(fd.IPAddress)
+			if ip == nil {
+				appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "must be a valid IPv4 address")
+			} else if lanNetwork != nil && !lanNetwork.Contains(ip) {
+				appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "must be within the LAN subnet")
+			}
+		}
 	}
 
 	if c.QoS.Enabled {

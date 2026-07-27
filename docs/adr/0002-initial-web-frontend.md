@@ -29,7 +29,7 @@ Benefits:
 
 Costs:
 
-- Contributors need the pinned Node.js and pnpm toolchain.
+- Contributors need the pinned Go toolchain and optionally the Vite build toolchain for rebuilding dist assets.
 - The project must define navigation, error, and loading conventions early.
 - The UI remains dependent on a JavaScript package supply chain during builds.
 

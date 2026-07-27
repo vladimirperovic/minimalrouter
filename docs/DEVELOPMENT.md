@@ -7,7 +7,6 @@ Go module, web application, and image builder are scaffolded.
 
 - Git
 - Current pinned Go toolchain
-- Node.js and pnpm versions pinned by the repository
 - QEMU/KVM or another supported hypervisor
 - Alpine image-building tools
 - nftables, pppd, dnsmasq, WireGuard tools, and cloudflared inside the test VM
@@ -37,7 +36,6 @@ Before application scaffolding:
 
 - Pin the Alpine stable branch and package repository URLs.
 - Pin Go with a checked-in toolchain declaration.
-- Pin Node.js and pnpm.
 - Commit `go.sum` and the frontend lockfile.
 - Record image-builder versions.
 

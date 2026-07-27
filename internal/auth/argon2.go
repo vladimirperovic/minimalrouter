@@ -11,10 +11,10 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// Argon2id parameters strictly following SECURITY.md section 5:
-// Memory: 64 MiB (65536 KiB), Iterations: 3, Parallelism: 2, KeyLen: 32, SaltLen: 16
+// Argon2id parameters following SECURITY.md section 5:
+// Memory: 32 MiB (32768 KiB), Iterations: 3, Parallelism: 2, KeyLen: 32, SaltLen: 16
 const (
-	argonMemory      = 64 * 1024
+	argonMemory      = 32 * 1024
 	argonIterations  = 3
 	argonParallelism = 2
 	argonKeyLen      = 32
@@ -77,7 +77,7 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parallelism); err != nil {
 		return false, ErrInvalidHash
 	}
-	if memory < 32*1024 || memory > 256*1024 ||
+	if memory < 16*1024 || memory > 256*1024 ||
 		iterations < 1 || iterations > 10 ||
 		parallelism < 1 || parallelism > 8 {
 		return false, ErrInvalidHash

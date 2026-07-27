@@ -26,3 +26,7 @@
 /state/
 /snapshots/
 alpine-standard-3.21.3-x86_64.iso
+
+# Build artifacts
+/build/
+/tools/macos-vm/minimalrouter-alpine-vm

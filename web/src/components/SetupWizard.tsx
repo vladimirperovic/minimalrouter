@@ -1,10 +1,8 @@
-"use client";
-
 import { useState } from "react";
 
 interface SetupWizardProps {
   onComplete: () => void;
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
@@ -132,24 +130,26 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               Minimal Router OS · First-Run Setup
             </span>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              border: "none",
-              background: "#F5F5F7",
-              width: "32px",
-              height: "32px",
-              borderRadius: "50%",
-              fontSize: "18px",
-              color: "#6E6E73",
-              cursor: "pointer",
-              display: "grid",
-              placeItems: "center",
-              lineHeight: 1,
-            }}
-          >
-            ✕
-          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              style={{
+                border: "none",
+                background: "#F5F5F7",
+                width: "32px",
+                height: "32px",
+                borderRadius: "50%",
+                fontSize: "18px",
+                color: "#6E6E73",
+                cursor: "pointer",
+                display: "grid",
+                placeItems: "center",
+                lineHeight: 1,
+              }}
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* Apple Stepper Track */}
@@ -660,7 +660,6 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
             <button
               onClick={() => {
                 onComplete();
-                onClose();
               }}
               style={{
                 background: "#0071E3",

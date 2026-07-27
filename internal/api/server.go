@@ -25,6 +25,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/services"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -324,11 +325,20 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// ── Authenticated encrypted backup and restore ──
 	mux.HandleFunc("POST /api/v1/backup/export", sh(s.authMiddleware(s.handleBackupExport)))
+	mux.HandleFunc("POST /api/v1/backup/encrypt", sh(s.authMiddleware(s.handleBackupEncrypt)))
+	mux.HandleFunc("POST /api/v1/backup/decrypt", sh(s.authMiddleware(s.handleBackupDecrypt)))
 	mux.HandleFunc("POST /api/v1/backup/import/preview", sh(s.authMiddleware(s.handleBackupImportPreview)))
 	mux.HandleFunc("POST /api/v1/import/backup/{id}/apply", sh(s.authMiddleware(s.handleBackupImportApply)))
 
 	// ── Firmware Verification (P1) ──
 	mux.HandleFunc("POST /api/v1/firmware/verify", sh(s.authMiddleware(s.handleFirmwareVerify)))
+
+	// ── AdGuard Blocklist Management ──
+	mux.HandleFunc("POST /api/v1/adguard/blocklist/update", sh(s.authMiddleware(s.handleAdGuardBlocklistUpdate)))
+
+	// ── System Update ──
+	mux.HandleFunc("GET /api/v1/system/update/check", sh(s.authMiddleware(s.handleUpdateCheck)))
+	mux.HandleFunc("POST /api/v1/system/update/install", sh(s.authMiddleware(s.handleUpdateInstall)))
 
 	// ── Setup Wizard (first-run only, self-guarding) ──
 	mux.HandleFunc("POST /api/v1/setup/apply", sh(s.handleSetupApply))
@@ -505,7 +515,60 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": "Session invalidated",
+	})
+}
+
+// ── AdGuard Handlers ──
+
+func (s *Server) handleAdGuardBlocklistUpdate(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.store.GetLatestConfig()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
+		return
+	}
+	if !cfg.AdGuard.Enabled {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "AdGuard is not enabled"})
+		return
+	}
+
+	hostsData, err := services.DownloadBlocklist(cfg.AdGuard.BlocklistURL)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Blocklist download failed: " + err.Error()})
+		return
+	}
+
+	// Parse domains to count
+	domains := services.ParseHostsFile(hostsData)
+	if len(domains) == 0 {
+		domains = services.BuiltinBlocklist()
+	}
+
+	// Update last_updated timestamp and advance revision
+	cfg.AdGuard.LastUpdated = time.Now().Format(time.RFC3339)
+	cfg.Revision++
+	if err := s.store.SaveConfig(cfg); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save config"})
+		return
+	}
+
+	s.appendAudit("adguard.blocklist_updated", "system", map[string]string{
+		"url":          cfg.AdGuard.BlocklistURL,
+		"domain_count": fmt.Sprintf("%d", len(domains)),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"domain_count": len(domains),
+		"last_updated": cfg.AdGuard.LastUpdated,
 	})
 }
 
@@ -574,7 +637,61 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": "Administrator password updated (Argon2id)",
+	})
+}
+
+// ── System Update Handlers ──
+
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.store.GetLatestConfig()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
+		return
+	}
+
+	currentVersion := cfg.System.Hostname // Use hostname as version placeholder
+	manifest, err := services.CheckForUpdate(currentVersion, "")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"current_version":  currentVersion,
+			"update_available": false,
+			"error":            err.Error(),
+		})
+		return
+	}
+
+	s.appendAudit("system.update_checked", "system", map[string]string{
+		"current": currentVersion,
+		"latest":  manifest.Version,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"current_version":  currentVersion,
+		"latest_version":   manifest.Version,
+		"update_available": manifest.Version != currentVersion,
+		"release_notes":    manifest.ReleaseNote,
+		"release_date":     manifest.ReleaseDate,
+	})
+}
+
+func (s *Server) handleUpdateInstall(w http.ResponseWriter, r *http.Request) {
+	if err := services.InstallUpdate(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Install failed: " + err.Error()})
+		return
+	}
+
+	s.appendAudit("system.update_installed", "system", map[string]string{})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Update installed successfully. A reboot may be required.",
 	})
 }
 

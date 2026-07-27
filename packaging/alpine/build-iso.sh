@@ -30,11 +30,11 @@ cp packaging/alpine/minimalrouter.modules "$OVERLAY_DIR/etc/modules-load.d/minim
 chmod +x "$OVERLAY_DIR/etc/init.d/routerd" "$OVERLAY_DIR/etc/init.d/router-applyd" "$OVERLAY_DIR/etc/init.d/pppoe-wan"
 
 echo "[3/4] Packaging static Web Dashboard assets..."
-if [ ! -f "web/dist/client/index.html" ]; then
-    echo "ERROR: web/dist/client/index.html is missing. Run 'cd web && pnpm build' first." >&2
+if [ ! -f "web/dist/index.html" ]; then
+    echo "ERROR: web/dist/index.html is missing. Run 'cd web && pnpm build' first." >&2
     exit 1
 fi
-cp -r web/dist/client/. "$OVERLAY_DIR/usr/share/minimalrouter/web/"
+cp -r web/dist/. "$OVERLAY_DIR/usr/share/minimalrouter/web/"
 
 echo "[4/4] Generating ISO manifest and boot scripts..."
 cat << 'EOF' > "$OVERLAY_DIR/etc/local.d/minimalrouter.start"

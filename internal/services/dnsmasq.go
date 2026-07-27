@@ -38,6 +38,11 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n")
 	}
 
+	// DNS-over-HTTPS integration: redirect upstream to local proxy
+	if cfg.DHCP.DNSEnabled {
+		buf.WriteString(GenerateDoHDnsmasqIntegration(cfg))
+	}
+
 	// DHCP Server settings
 	if cfg.DHCP.Enabled {
 		buf.WriteString("# DHCP Pool\n")

@@ -65,6 +65,11 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to open SQLite database at %s: %w", dbPath, err)
 	}
 
+	// Cap connection pool to limit memory usage on embedded appliance.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+
 	// Prefer durability over throughput: configuration commits are rare and
 	// must survive abrupt power loss.
 	if _, err := db.Exec(`
@@ -74,6 +79,7 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 		PRAGMA trusted_schema=OFF;
 		PRAGMA secure_delete=ON;
 		PRAGMA busy_timeout=5000;
+		PRAGMA cache_size=-2000;
 	`); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to harden SQLite connection: %w", err)

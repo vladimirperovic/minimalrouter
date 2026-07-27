@@ -1,5 +1,3 @@
-"use client";
-
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { refreshSession, setCSRFToken } from "../lib/api";
@@ -104,7 +102,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (state === "setup") {
     return (
       <SetupWizard
-        onClose={() => undefined}
         onComplete={() => {
           void refreshSession().then((ok) => setState(ok ? "authenticated" : "login"));
         }}

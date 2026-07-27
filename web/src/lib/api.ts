@@ -1,5 +1,3 @@
-"use client";
-
 let csrfToken = "";
 
 export function setCSRFToken(token: string) {

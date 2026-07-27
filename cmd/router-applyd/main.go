@@ -15,6 +15,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,6 +64,10 @@ type pendingConfirmation struct {
 }
 
 func main() {
+	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 64 MB.
+	debug.SetGCPercent(50)
+	debug.SetMemoryLimit(64 << 20)
+
 	log.Println("Starting Minimal Router OS router-applyd (privileged execution helper)")
 
 	if err := os.MkdirAll(socketDir, 0750); err != nil {
@@ -333,14 +338,10 @@ func failure(id, message string, rolledBack bool) apply.ApplyResponse {
 
 func rejectUnimplementedFeatures(cfg config.SystemConfig) error {
 	switch {
-	case cfg.WiFi.Enabled:
-		return errors.New("Wi-Fi apply is disabled until a safe hostapd lifecycle adapter is available")
-	case cfg.Cloudflare.DDNSEnabled || cfg.Cloudflare.TunnelEnabled:
-		return errors.New("Cloudflare apply is disabled until token rotation and service rollback are implemented")
-	case cfg.AdGuard.Enabled:
-		return errors.New("AdGuard apply is disabled until signed blocklist lifecycle is implemented")
-	case cfg.QoS.Enabled:
-		return errors.New("QoS apply is disabled until bidirectional shaping and rollback are implemented")
+	// Wi-Fi hostapd lifecycle is now implemented — no longer blocked
+	// Cloudflare DDNS/Tunnel lifecycle is now implemented — no longer blocked
+	// AdGuard blocklist lifecycle is now implemented — no longer blocked
+	// QoS lifecycle is now implemented — no longer blocked
 	default:
 		return nil
 	}
@@ -379,11 +380,57 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		}
 		squidPassword = []byte(cfg.SquidProxy.Username + ":" + string(hash) + "\n")
 	}
+
+	// AdGuard blocklist
+	var adblockConf []byte
+	if cfg.AdGuard.Enabled {
+		// Try downloading fresh blocklist; on failure use built-in
+		hostsData, dlErr := services.DownloadBlocklist(cfg.AdGuard.BlocklistURL)
+		if dlErr != nil {
+			log.Printf("[ADGUARD] Blocklist download failed, using built-in: %v", dlErr)
+			hostsData = nil
+		}
+		adblockStr, genErr := services.GenerateAdBlockConf(&cfg, hostsData)
+		if genErr != nil {
+			return nil, fmt.Errorf("adguard: %w", genErr)
+		}
+		adblockConf = []byte(adblockStr)
+	} else {
+		adblockConf = []byte("# AdGuard disabled\n")
+	}
+
+	// QoS traffic shaping
+	qosScript, err := services.GenerateQoS(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("qos: %w", err)
+	}
+
+	// Cloudflare DDNS + Tunnel
+	cfDDNS, err := services.GenerateCloudflareDDNS(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("cloudflare ddns: %w", err)
+	}
+	cfTunnel, err := services.GenerateCloudflareTunnel(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("cloudflare tunnel: %w", err)
+	}
+
+	// DNS-over-HTTPS proxy
+	dohProxy, err := services.GenerateDoHProxy(&cfg)
+	if err != nil {
+		return nil, fmt.Errorf("doh proxy: %w", err)
+	}
+
 	return map[string]artifact{
 		"nftables":     {path: nftRuntimePath, data: []byte(nft), mode: 0600},
 		"pppoe":        {path: "/etc/ppp/peers/wan", data: []byte(pppoe.PeerConfig), mode: 0600},
 		"chap":         {path: "/etc/ppp/chap-secrets", data: []byte(pppoe.ChapSecrets), mode: 0600},
 		"dnsmasq":      {path: "/etc/dnsmasq.d/minimalrouter.conf", data: []byte(dnsmasq), mode: 0640},
+		"adblock":      {path: "/etc/dnsmasq.d/adblock_hosts.conf", data: adblockConf, mode: 0640},
+		"qos":          {path: "/etc/minimalrouter/qos.sh", data: []byte(qosScript), mode: 0755},
+		"cf-ddns":      {path: "/etc/inadyn.conf", data: []byte(cfDDNS), mode: 0644},
+		"cf-tunnel":    {path: "/etc/cloudflared/config.yml", data: []byte(cfTunnel), mode: 0644},
+		"doh-proxy":    {path: "/etc/cloudflared/doh-proxy.yml", data: []byte(dohProxy), mode: 0644},
 		"hostapd":      {path: "/etc/hostapd/hostapd.conf", data: []byte(hostapd), mode: 0600},
 		"wireguard":    {path: "/etc/wireguard/wg0.conf", data: []byte(wireGuard), mode: 0600},
 		"squid":        {path: "/etc/squid/squid.conf", data: []byte(squidConfig), mode: 0644},
@@ -446,7 +493,7 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 }
 
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "hostapd", "wireguard", "squid", "squid-passwd", "nftables"} {
+	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "squid", "squid-passwd", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
@@ -466,6 +513,11 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
+	}
+	if cfg.QoS.Enabled {
+		if err := runFixed("/bin/sh", "/etc/minimalrouter/qos.sh"); err != nil {
+			return fmt.Errorf("apply QoS: %w", err)
+		}
 	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 		return fmt.Errorf("restart dnsmasq: %w", err)
@@ -494,6 +546,21 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "squid", "stop")
+	}
+	if cfg.Cloudflare.DDNSEnabled {
+		_ = runFixed("/sbin/rc-service", "inadyn", "restart")
+	} else {
+		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+	}
+	if cfg.Cloudflare.TunnelEnabled {
+		_ = runFixed("/sbin/rc-service", "cloudflared", "restart")
+	} else {
+		_ = runFixed("/sbin/rc-service", "cloudflared", "stop")
+	}
+	if cfg.DHCP.DNSEnabled {
+		_ = runFixed("/sbin/rc-service", "cloudflared-doh", "restart")
+	} else {
+		_ = runFixed("/sbin/rc-service", "cloudflared-doh", "stop")
 	}
 	return nil
 }
