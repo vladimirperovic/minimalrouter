@@ -26,6 +26,9 @@ penetration tests remain release gates.
 - **Model Context Protocol (MCP) AI Agent Integration**: Local Go MCP bridge (`cmd/minimalrouter-mcp`) with a server-enforced read-only default. Explicit admin mode is required for supported mutations.
 - **pfSense XML Importer**: Preview-first importer for selected settings. NAT rules are imported disabled because WireGuard is the only allowed WAN entry point.
 - **First-Run Installation Wizard**: Guided 5-step Apple × Swiss setup wizard per `DESIGN.md §14`.
+- **Live DHCP Devices**: The authenticated dashboard reads the bounded
+  dnsmasq lease table from RAM and shows currently leased IPv4 clients without
+  storing a separate device-history database.
 - **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, optional TOTP, CSRF protection, rate limiting, secret redaction, and encrypted backup export.
 - **Proxmox VE Support**: Manual Alpine VM lab deployment is documented. The
   automated ISO helper is retained for a future signed release and is not the

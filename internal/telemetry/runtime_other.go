@@ -10,5 +10,6 @@ func RuntimeSnapshot(_, _ string) RuntimeStatus {
 		OS:           runtime.GOOS,
 		Architecture: runtime.GOARCH,
 		CPUCount:     runtime.NumCPU(),
+		DHCPLeases:   []DHCPLease{},
 	}
 }

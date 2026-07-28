@@ -235,6 +235,12 @@ function Dashboard() {
       rx_bytes?: number;
       tx_bytes?: number;
       temperature_c?: number;
+      dhcp_leases?: Array<{
+        expires_at: number;
+        mac: string;
+        ip_address: string;
+        hostname?: string;
+      }>;
     };
   }>({});
   const [trafficDown, setTrafficDown] = useState<number[]>([]);
@@ -1449,6 +1455,7 @@ function Dashboard() {
 
   const closeMenu = () => setMenuOpen(false);
   const runtime = systemInfo.runtime ?? {};
+  const activeDHCPLeases = runtime.dhcp_leases ?? [];
   const cpuPercent = Math.max(0, Math.min(100, Math.round(runtime.cpu_load_percent ?? 0)));
   const memoryPercent = runtime.memory_total_bytes
     ? Math.round(((runtime.memory_used_bytes ?? 0) / runtime.memory_total_bytes) * 100)
@@ -1805,7 +1812,7 @@ function Dashboard() {
                 <div className="card-title-row">
                   <div>
                     <h3>Static DHCP reservations</h3>
-                    <p>{staticLeases.length} configured · live lease telemetry not collected</p>
+                    <p>{staticLeases.length} configured reservation{staticLeases.length === 1 ? "" : "s"}</p>
                   </div>
                 </div>
                 <div className="table-scroll">
@@ -1861,10 +1868,18 @@ function Dashboard() {
               </article>
 
               <aside className="card lan-summary">
-                <div className="summary-icon">{staticLeases.length}</div>
-                <h3>DHCP configuration</h3>
-                <p>Active dnsmasq leases will be added after runtime lease telemetry is implemented.</p>
+                <div className="summary-icon">{activeDHCPLeases.length}</div>
+                <h3>Active DHCP devices</h3>
+                <p>Live data read from the current dnsmasq lease table.</p>
                 <div className="summary-list">
+                  {activeDHCPLeases.length === 0 ? (
+                    <div><span>Devices</span><strong>None currently leased</strong></div>
+                  ) : activeDHCPLeases.slice(0, 6).map((lease) => (
+                    <div key={`${lease.mac}-${lease.ip_address}`}>
+                      <span>{lease.hostname || lease.mac}</span>
+                      <code>{lease.ip_address}</code>
+                    </div>
+                  ))}
                   <div><span>DHCP range</span><code>{dhcpRangeStart}–{dhcpRangeEnd.split('.').pop()}</code></div>
                   <div><span>Lease time</span><strong>{dhcpLeaseHours} hours</strong></div>
                   <div><span>Static addresses</span><strong>{staticLeases.length} reserved</strong></div>

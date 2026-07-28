@@ -165,6 +165,8 @@ else:
     cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.hostname'", 3)
     cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.runtime.memory_used_bytes / 1048576'", 3)
     cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.runtime.disk_used_bytes / 1048576'", 3)
+    cmd("printf '%s\\n' '4102444800 aa:bb:cc:dd:ee:ff 192.168.1.42 test-phone 01:aa:bb' > /run/minimalrouter/dnsmasq.leases && chmod 0644 /run/minimalrouter/dnsmasq.leases", 2)
+    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -e '.runtime.dhcp_leases[0] | .hostname == \"test-phone\" and .ip_address == \"192.168.1.42\"' && echo 'PASS:live DHCP lease telemetry'", 3)
     cmd("apk info | wc -l", 3)
     cmd("apk stats", 3)
 

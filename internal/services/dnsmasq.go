@@ -50,6 +50,7 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 	// DHCP Server settings
 	if cfg.DHCP.Enabled {
 		buf.WriteString("# DHCP Pool\n")
+		buf.WriteString("dhcp-leasefile=/run/minimalrouter/dnsmasq.leases\n")
 		buf.WriteString(fmt.Sprintf("dhcp-range=%s,%s,%s,%s\n",
 			cfg.DHCP.RangeStart,
 			cfg.DHCP.RangeEnd,

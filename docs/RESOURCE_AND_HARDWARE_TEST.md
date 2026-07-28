@@ -88,6 +88,11 @@ record, and real WAN address are required to test an actual public record
 update. Cloudflare Tunnel remains unavailable because WireGuard is the only
 allowed remote-entry path.
 
+The dashboard's connected-device count now comes from dnsmasq's bounded
+runtime lease table. The lease file lives under `/run/minimalrouter`, so a
+reboot clears it and the router does not create a separate history of client
+hostnames, MAC addresses, or IP assignments.
+
 ## Persistent disk, reboot, and hard-power result
 
 A fresh 4 GiB virtual block disk with an ext4 filesystem held the canonical

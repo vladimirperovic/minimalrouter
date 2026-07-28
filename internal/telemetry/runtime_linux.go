@@ -100,5 +100,6 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 	if raw := readUint("/sys/class/thermal/thermal_zone0/temp"); raw > 0 {
 		status.TemperatureC = float64(raw) / 1000
 	}
+	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
 	return status
 }

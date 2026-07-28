@@ -66,4 +66,7 @@ func TestGenerateDnsmasq(t *testing.T) {
 	if !strings.Contains(out, "dhcp-range=192.168.1.10,192.168.1.50,255.255.255.0,12h") {
 		t.Errorf("Expected dnsmasq config to contain rendered dhcp-range")
 	}
+	if !strings.Contains(out, "dhcp-leasefile=/run/minimalrouter/dnsmasq.leases") {
+		t.Errorf("Expected dnsmasq leases to use the runtime-only path")
+	}
 }

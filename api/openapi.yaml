@@ -121,6 +121,24 @@ paths:
                   runtime:
                     type: object
                     description: Real Linux runtime telemetry; available=false in the macOS preview
+                    properties:
+                      dhcp_leases:
+                        type: array
+                        description: Current bounded dnsmasq IPv4 lease table; empty when unavailable
+                        items:
+                          type: object
+                          required: [expires_at, mac, ip_address]
+                          properties:
+                            expires_at:
+                              type: integer
+                              format: int64
+                            mac:
+                              type: string
+                            ip_address:
+                              type: string
+                              format: ipv4
+                            hostname:
+                              type: string
 
   /config:
     get:

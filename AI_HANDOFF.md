@@ -22,6 +22,9 @@ Implemented and tested:
   and MCP are LAN/WireGuard-only. Port forwards and DNAT fail closed.
 - dnsmasq, PPPoE generation, WireGuard, Squid, global DNS blocklist,
   and bounded QoS privileged lifecycle paths.
+- Live DHCP client telemetry comes from the bounded dnsmasq lease file in
+  `/run/minimalrouter`; it is shown in the dashboard and is not persisted as
+  device history.
 - Real WireGuard client key generation, one-time `.conf`, and real PNG QR.
   The client private key is never persisted.
 - Argon2id authentication, TOTP, persistent rate limits, secure cookies, CSRF,

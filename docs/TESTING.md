@@ -33,6 +33,7 @@ Run in a pinned Alpine container or VM with the real binaries.
 - `nft --check` and atomic load behavior
 - `dnsmasq --test` behavior
 - pppd configuration and permissions
+- bounded dnsmasq lease parsing and authenticated live-device telemetry
 - WireGuard argument/config mapping
 - QoS qdisc installation and inspection
 - Cloudflare DDNS `inadyn` validation, bounded update, service health, and
