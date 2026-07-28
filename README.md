@@ -27,7 +27,9 @@ penetration tests remain release gates.
 - **pfSense XML Importer**: Preview-first importer for selected settings. NAT rules are imported disabled because WireGuard is the only allowed WAN entry point.
 - **First-Run Installation Wizard**: Guided 5-step Apple × Swiss setup wizard per `DESIGN.md §14`.
 - **Security Baseline**: Argon2id password hashing, 256-bit HttpOnly secure cookie sessions, optional TOTP, CSRF protection, rate limiting, secret redaction, and encrypted backup export.
-- **Proxmox VE Automated Helper**: 1-command Proxmox VM installer (`packaging/proxmox/create-vm.sh`) for automated VM #100 creation.
+- **Proxmox VE Support**: Manual Alpine VM lab deployment is documented. The
+  automated ISO helper is retained for a future signed release and is not the
+  current installation path.
 - **Alpine Linux Packaging**: OpenRC init scripts, hardened sysctls, required
   kernel-module loading, and an appliance overlay builder. `make iso` prepares
   the overlay; an Alpine `mkimage` build host is still required to produce and
@@ -53,17 +55,13 @@ penetration tests remain release gates.
 
 ### 1. Proxmox VE VM preparation
 
-Use a verified release checkout, inspect the script, and provide the ISO
-SHA-256 from independently verified release metadata:
-
-```bash
-export MINIMALROUTER_ISO_SHA256='<verified 64-hex digest>'
-bash packaging/proxmox/create-vm.sh
-```
-
-The helper creates the next available VM with 1 GiB RAM, 1 vCPU, a physical
-WAN bridge (`vmbr0`), and private LAN bridge (`vmbr1`). Install Alpine normally
-inside the guest before running the Minimal Router installer.
+No signed Minimal Router release ISO exists yet, so the automated ISO helper
+is not the current installation path. For a lab trial, manually create an
+Alpine Linux 3.22 x86_64 VM with 1 vCPU, 1 GiB RAM, an 8 GiB disk, and two
+VirtIO NICs. Keep the WAN NIC on a test/NAT bridge and the LAN NIC on an
+isolated bridge. Build `make dist-amd64` on a development computer, copy the
+resulting archive into the VM, verify its checksum, and run its `install.sh`.
+See the [Proxmox guide](docs/PROXMOX.md) for the exact sequence.
 
 ### 2. Connect your AI Agent via MCP
 
