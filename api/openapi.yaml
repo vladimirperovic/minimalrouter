@@ -273,3 +273,228 @@ paths:
           description: Confirmation did not arrive through required WireGuard path
         '409':
           description: Transaction is absent, expired, or not awaiting confirmation
+
+  /setup/status:
+    get:
+      summary: Read first-run status and configured interface defaults
+      operationId: getSetupStatus
+      responses:
+        '200':
+          description: Setup status; contains no secrets
+
+  /setup/apply:
+    post:
+      summary: Perform first-run setup once
+      operationId: applySetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wan_interface, lan_interface, admin_password, lan_ip_address]
+              properties:
+                wan_interface: {type: string}
+                lan_interface: {type: string}
+                pppoe_username: {type: string}
+                pppoe_password: {type: string}
+                admin_password: {type: string, minLength: 15, maxLength: 1024}
+                lan_ip_address: {type: string, example: 192.168.1.1}
+      responses:
+        '200': {description: Setup applied and initial session issued}
+        '403': {description: Appliance is already configured}
+        '422': {description: Input or privileged apply failed}
+        '429': {description: Setup attempt rate-limited}
+
+  /auth/change-password:
+    post:
+      summary: Change administrator password and revoke every session
+      operationId: changePassword
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password: {type: string}
+                new_password: {type: string, minLength: 15, maxLength: 1024}
+      responses:
+        '200': {description: Password changed; caller must log in again}
+        '401': {description: Current password is incorrect}
+
+  /auth/totp/enroll:
+    post:
+      summary: Begin TOTP enrollment after password reauthentication
+      operationId: enrollTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: {type: string}
+      responses:
+        '200': {description: One-time enrollment secret and URI}
+        '401': {description: Current password is incorrect}
+        '409': {description: TOTP is already enabled}
+
+  /auth/totp/enable:
+    post:
+      summary: Confirm pending TOTP enrollment
+      operationId: enableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: {type: string}
+      responses:
+        '200': {description: TOTP enabled and every session revoked}
+        '401': {description: Code is invalid or replayed}
+
+  /auth/totp/disable:
+    post:
+      summary: Disable TOTP after password and TOTP verification
+      operationId: disableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, code]
+              properties:
+                current_password: {type: string}
+                code: {type: string}
+      responses:
+        '200': {description: TOTP disabled and every session revoked}
+        '401': {description: Password or code is invalid}
+
+  /system/diagnostics:
+    get:
+      summary: Export a redacted diagnostic bundle
+      operationId: exportDiagnostics
+      security:
+        - sessionCookie: []
+      responses:
+        '200': {description: Redacted JSON diagnostic attachment}
+
+  /import/pfsense/preview:
+    post:
+      summary: Upload pfSense XML and create a session-bound preview
+      operationId: previewPfSenseImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': {description: Bounded preview with unsupported items reported}
+        '400': {description: Invalid or oversized XML}
+
+  /import/pfsense/{id}/apply:
+    post:
+      summary: Apply a previously previewed pfSense import
+      operationId: applyPfSenseImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Import transaction committed}
+        '202': {description: Import awaits connectivity confirmation}
+        '404': {description: Preview absent, expired, or belongs to another session}
+
+  /backup/export:
+    post:
+      summary: Export an Argon2id/AES-256-GCM encrypted backup
+      operationId: exportBackup
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, backup_passphrase]
+              properties:
+                current_password: {type: string}
+                backup_passphrase: {type: string, minLength: 15}
+      responses:
+        '200': {description: Encrypted .mrbak attachment}
+        '401': {description: Current password is incorrect}
+        '422': {description: Backup passphrase is invalid}
+
+  /backup/import/preview:
+    post:
+      summary: Authenticate, decrypt, validate, and preview a backup
+      operationId: previewBackupImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [current_password, backup_passphrase, backup]
+              properties:
+                current_password: {type: string}
+                backup_passphrase: {type: string}
+                backup: {type: string, format: binary}
+      responses:
+        '200': {description: Session-bound restore preview}
+        '401': {description: Current password is incorrect}
+        '422': {description: Backup authentication or validation failed}
+
+  /import/backup/{id}/apply:
+    post:
+      summary: Apply a previously previewed encrypted backup
+      operationId: applyBackupImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: Restore transaction committed}
+        '202': {description: Restore awaits connectivity confirmation}
+        '404': {description: Preview absent, expired, or belongs to another session}
+
+  /firmware/verify:
+    post:
+      summary: Verify an offline firmware manifest with the provisioned key
+      operationId: verifyFirmwareManifest
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': {description: Signature accepted}
+        '422': {description: Signature, manifest, or trust configuration rejected}

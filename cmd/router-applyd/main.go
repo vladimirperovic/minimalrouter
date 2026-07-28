@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,15 +30,18 @@ import (
 )
 
 const (
-	socketDir      = "/run/minimalrouter"
-	lastGoodPath   = "/var/lib/minimalrouter-applyd/last-good.json"
-	nftRuntimePath = "/run/minimalrouter/nftables.nft"
-	lastTxPath     = "/var/lib/minimalrouter-applyd/last-transaction.json"
-	pendingPath    = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
+	socketDir            = "/run/minimalrouter"
+	lastGoodPath         = "/var/lib/minimalrouter-applyd/last-good.json"
+	nftRuntimePath       = "/run/minimalrouter/nftables.nft"
+	wireGuardConfigPath  = "/run/minimalrouter/wg0.conf"
+	wireGuardRuntimePath = "/run/minimalrouter/wg0.runtime.conf"
+	lastTxPath           = "/var/lib/minimalrouter-applyd/last-transaction.json"
+	pendingPath          = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
 )
 
 var applyMu sync.Mutex
 var transactionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
 
 type artifact struct {
 	path string
@@ -240,9 +245,12 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 				previousConfig.LAN.CIDR != req.Config.LAN.CIDR)
 		managementChanged := previousConfig != nil &&
 			previousConfig.System.ManagementAccess != req.Config.System.ManagementAccess
+		topologyChanged := previousConfig != nil &&
+			(previousConfig.WiFi.Enabled != req.Config.WiFi.Enabled ||
+				previousConfig.WiFi.Interface != req.Config.WiFi.Interface)
 		if previousConfig == nil ||
 			previousConfig.LAN.Interface != req.Config.LAN.Interface ||
-			(!lanChanged && !managementChanged) {
+			(!lanChanged && !managementChanged && !topologyChanged) {
 			return failure(req.ID, "confirmation mode is invalid for this change", false)
 		}
 	}
@@ -309,7 +317,7 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmation does not match pending configuration", false)
 	}
-	if err := configureLAN(req.Config.LAN); err != nil {
+	if err := configureRuntimeLAN(req.Config); err != nil {
 		return failure(req.ID, "could not finalize LAN address", false)
 	}
 	if err := saveLastGood(req.Config); err != nil {
@@ -338,10 +346,12 @@ func failure(id, message string, rolledBack bool) apply.ApplyResponse {
 
 func rejectUnimplementedFeatures(cfg config.SystemConfig) error {
 	switch {
-	// Wi-Fi hostapd lifecycle is now implemented — no longer blocked
-	// Cloudflare DDNS/Tunnel lifecycle is now implemented — no longer blocked
-	// AdGuard blocklist lifecycle is now implemented — no longer blocked
-	// QoS lifecycle is now implemented — no longer blocked
+	case cfg.Cloudflare.TunnelEnabled:
+		return errors.New("Cloudflare Tunnel is unavailable because WireGuard is the only allowed remote-entry path")
+	case cfg.DHCP.DNSEnabled:
+		return errors.New("DNS-over-HTTPS has no verified Alpine 3.22 runtime adapter")
+	case len(cfg.AdGuard.FilterDevices) > 0:
+		return errors.New("per-device DNS filtering is unsupported because dnsmasq address rules are global")
 	default:
 		return nil
 	}
@@ -368,6 +378,10 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 	if err != nil {
 		return nil, err
 	}
+	wireGuardRuntime, err := services.GenerateWireGuardRuntime(&cfg.WireGuard)
+	if err != nil {
+		return nil, err
+	}
 	squidConfig, err := services.GenerateSquidConfig(&cfg)
 	if err != nil {
 		return nil, err
@@ -384,13 +398,9 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 	// AdGuard blocklist
 	var adblockConf []byte
 	if cfg.AdGuard.Enabled {
-		// Try downloading fresh blocklist; on failure use built-in
-		hostsData, dlErr := services.DownloadBlocklist(cfg.AdGuard.BlocklistURL)
-		if dlErr != nil {
-			log.Printf("[ADGUARD] Blocklist download failed, using built-in: %v", dlErr)
-			hostsData = nil
-		}
-		adblockStr, genErr := services.GenerateAdBlockConf(&cfg, hostsData)
+		// Root never fetches network-controlled configuration. The hardened
+		// pilot uses the reviewed built-in global list only.
+		adblockStr, genErr := services.GenerateAdBlockConf(&cfg, nil)
 		if genErr != nil {
 			return nil, fmt.Errorf("adguard: %w", genErr)
 		}
@@ -422,17 +432,22 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 	}
 
 	return map[string]artifact{
-		"nftables":     {path: nftRuntimePath, data: []byte(nft), mode: 0600},
-		"pppoe":        {path: "/etc/ppp/peers/wan", data: []byte(pppoe.PeerConfig), mode: 0600},
-		"chap":         {path: "/etc/ppp/chap-secrets", data: []byte(pppoe.ChapSecrets), mode: 0600},
-		"dnsmasq":      {path: "/etc/dnsmasq.d/minimalrouter.conf", data: []byte(dnsmasq), mode: 0640},
-		"adblock":      {path: "/etc/dnsmasq.d/adblock_hosts.conf", data: adblockConf, mode: 0640},
-		"qos":          {path: "/etc/minimalrouter/qos.sh", data: []byte(qosScript), mode: 0755},
-		"cf-ddns":      {path: "/etc/inadyn.conf", data: []byte(cfDDNS), mode: 0644},
-		"cf-tunnel":    {path: "/etc/cloudflared/config.yml", data: []byte(cfTunnel), mode: 0644},
-		"doh-proxy":    {path: "/etc/cloudflared/doh-proxy.yml", data: []byte(dohProxy), mode: 0644},
-		"hostapd":      {path: "/etc/hostapd/hostapd.conf", data: []byte(hostapd), mode: 0600},
-		"wireguard":    {path: "/etc/wireguard/wg0.conf", data: []byte(wireGuard), mode: 0600},
+		"nftables":  {path: nftRuntimePath, data: []byte(nft), mode: 0600},
+		"pppoe":     {path: "/etc/ppp/peers/wan", data: []byte(pppoe.PeerConfig), mode: 0600},
+		"chap":      {path: "/etc/ppp/chap-secrets", data: []byte(pppoe.ChapSecrets), mode: 0600},
+		"dnsmasq":   {path: "/etc/dnsmasq.d/minimalrouter.conf", data: []byte(dnsmasq), mode: 0640},
+		"adblock":   {path: "/etc/dnsmasq.d/adblock_hosts.conf", data: adblockConf, mode: 0640},
+		"qos":       {path: "/etc/minimalrouter/qos.plan", data: []byte(qosScript), mode: 0600},
+		"cf-ddns":   {path: "/etc/inadyn/inadyn.conf", data: []byte(cfDDNS), mode: 0640},
+		"cf-tunnel": {path: "/etc/cloudflared/config.yml", data: []byte(cfTunnel), mode: 0600},
+		"doh-proxy": {path: "/etc/cloudflared/doh-proxy.yml", data: []byte(dohProxy), mode: 0600},
+		"hostapd":   {path: "/etc/hostapd/hostapd.conf", data: []byte(hostapd), mode: 0600},
+		"wireguard": {path: wireGuardConfigPath, data: []byte(wireGuard), mode: 0600},
+		"wireguard-runtime": {
+			path: wireGuardRuntimePath,
+			data: []byte(wireGuardRuntime),
+			mode: 0600,
+		},
 		"squid":        {path: "/etc/squid/squid.conf", data: []byte(squidConfig), mode: 0644},
 		"squid-passwd": {path: "/etc/squid/passwd", data: squidPassword, mode: 0640},
 	}, nil
@@ -480,8 +495,18 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 		}
 	}
 	if cfg.WireGuard.Enabled {
-		if err := runFixed("/usr/bin/wg-quick", "strip", candidates["wireguard"]); err != nil {
+		if err := preflightWireGuard(candidates["wireguard-runtime"]); err != nil {
 			return fmt.Errorf("WireGuard: %w", err)
+		}
+	}
+	if cfg.WiFi.Enabled {
+		if err := preflightWiFi(cfg.WiFi.Interface); err != nil {
+			return fmt.Errorf("Wi-Fi: %w", err)
+		}
+	}
+	if cfg.Cloudflare.DDNSEnabled {
+		if err := runFixed("/usr/sbin/inadyn", "--check-config", "-f", candidates["cf-ddns"]); err != nil {
+			return fmt.Errorf("Cloudflare DDNS: %w", err)
 		}
 	}
 	if cfg.SquidProxy.Enabled {
@@ -493,7 +518,7 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 }
 
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "squid", "squid-passwd", "nftables"} {
+	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
@@ -502,12 +527,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
+	// A running AP owns the wireless bridge membership. Stop it before any LAN
+	// topology change so enabling, disabling, and rollback are deterministic.
+	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	if provisional {
-		if err := configureProvisionalLAN(cfg.LAN, previous.LAN); err != nil {
+		if err := configureProvisionalRuntimeLAN(cfg, *previous); err != nil {
 			return err
 		}
 	} else {
-		if err := configureLAN(cfg.LAN); err != nil {
+		if err := configureRuntimeLAN(cfg); err != nil {
 			return err
 		}
 	}
@@ -515,9 +543,11 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		return fmt.Errorf("load nftables: %w", err)
 	}
 	if cfg.QoS.Enabled {
-		if err := runFixed("/bin/sh", "/etc/minimalrouter/qos.sh"); err != nil {
+		if err := applyQoS(cfg); err != nil {
 			return fmt.Errorf("apply QoS: %w", err)
 		}
+	} else {
+		clearQoS(cfg)
 	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 		return fmt.Errorf("restart dnsmasq: %w", err)
@@ -529,8 +559,47 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	} else {
 		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 	}
-	if err := activateWireGuard(cfg.WireGuard.Enabled); err != nil {
+	if err := activateWireGuard(cfg); err != nil {
 		return err
+	}
+	if cfg.WiFi.Enabled {
+		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
+			return fmt.Errorf("restart hostapd: %w", err)
+		}
+	} else {
+		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	}
+	if cfg.Cloudflare.DDNSEnabled {
+		group, lookupErr := user.LookupGroup("inadyn")
+		if lookupErr != nil {
+			return errors.New("Cloudflare DDNS service group is unavailable")
+		}
+		gid, parseErr := strconv.Atoi(group.Gid)
+		if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
+			return errors.New("could not secure Cloudflare DDNS configuration ownership")
+		}
+		if err := runFixedTimeout(45*time.Second, "/usr/sbin/inadyn",
+			"--once", "--force", "--foreground", "--no-pidfile",
+			"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice"); err != nil {
+			return fmt.Errorf("verify Cloudflare DDNS credentials and update: %w", err)
+		}
+		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
+		}
+	} else {
+		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+	}
+	if cfg.QoS.Enabled {
+		iface := cfg.WAN.Interface
+		if cfg.WAN.Enabled {
+			iface = "ppp0"
+		}
+		output, err := runFixedOutput("/sbin/tc", "qdisc", "show", "dev", iface)
+		if err != nil || (!strings.Contains(output, " cake ") &&
+			!strings.Contains(output, " fq_codel ") &&
+			!strings.Contains(output, " htb ")) {
+			return errors.New("configured QoS qdisc is not active")
+		}
 	}
 	if cfg.SquidProxy.Enabled {
 		group, lookupErr := user.LookupGroup("squid")
@@ -547,21 +616,6 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	} else {
 		_ = runFixed("/sbin/rc-service", "squid", "stop")
 	}
-	if cfg.Cloudflare.DDNSEnabled {
-		_ = runFixed("/sbin/rc-service", "inadyn", "restart")
-	} else {
-		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
-	}
-	if cfg.Cloudflare.TunnelEnabled {
-		_ = runFixed("/sbin/rc-service", "cloudflared", "restart")
-	} else {
-		_ = runFixed("/sbin/rc-service", "cloudflared", "stop")
-	}
-	if cfg.DHCP.DNSEnabled {
-		_ = runFixed("/sbin/rc-service", "cloudflared-doh", "restart")
-	} else {
-		_ = runFixed("/sbin/rc-service", "cloudflared-doh", "stop")
-	}
 	return nil
 }
 
@@ -572,7 +626,8 @@ func verifyActive(cfg config.SystemConfig) error {
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "status"); err != nil {
 		return fmt.Errorf("dnsmasq unhealthy: %w", err)
 	}
-	output, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", cfg.LAN.Interface)
+	lanInterface := cfg.RuntimeLANInterface()
+	output, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", lanInterface)
 	if err != nil {
 		return fmt.Errorf("LAN interface unavailable: %w", err)
 	}
@@ -611,6 +666,23 @@ func verifyActive(cfg config.SystemConfig) error {
 			return fmt.Errorf("WireGuard address unavailable: %w", err)
 		}
 	}
+	if cfg.WiFi.Enabled {
+		if err := runFixed("/sbin/rc-service", "hostapd", "status"); err != nil {
+			return fmt.Errorf("hostapd unhealthy: %w", err)
+		}
+		if err := runFixed("/sbin/ip", "link", "show", "dev", cfg.WiFi.Interface); err != nil {
+			return fmt.Errorf("Wi-Fi interface unavailable: %w", err)
+		}
+		bridgeLink, err := os.Readlink(filepath.Join("/sys/class/net", cfg.WiFi.Interface, "master"))
+		if err != nil || filepath.Base(bridgeLink) != config.WiFiBridgeInterface {
+			return errors.New("Wi-Fi interface is not attached to the LAN bridge")
+		}
+	}
+	if cfg.Cloudflare.DDNSEnabled {
+		if err := runFixed("/sbin/rc-service", "inadyn", "status"); err != nil {
+			return fmt.Errorf("Cloudflare DDNS unhealthy: %w", err)
+		}
+	}
 	if cfg.SquidProxy.Enabled {
 		port := cfg.SquidProxy.Port
 		if port == 0 {
@@ -636,14 +708,104 @@ func verifyActive(cfg config.SystemConfig) error {
 	return nil
 }
 
-func activateWireGuard(enabled bool) error {
-	_ = runFixed("/usr/bin/wg-quick", "down", "/etc/wireguard/wg0.conf")
-	if !enabled {
+func preflightWireGuard(runtimePath string) error {
+	var suffix [4]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return errors.New("could not allocate validation interface name")
+	}
+	checkInterface := "mrwg" + hex.EncodeToString(suffix[:])
+	if err := runFixed("/sbin/ip", "link", "add", "dev", checkInterface, "type", "wireguard"); err != nil {
+		return fmt.Errorf("create validation interface: %w", err)
+	}
+	defer func() {
+		_ = runFixed("/sbin/ip", "link", "delete", "dev", checkInterface)
+	}()
+	if err := runFixed("/usr/bin/wg", "setconf", checkInterface, runtimePath); err != nil {
+		return fmt.Errorf("validate configuration: %w", err)
+	}
+	return nil
+}
+
+func preflightWiFi(interfaceName string) error {
+	if err := runFixed("/sbin/ip", "link", "show", "dev", interfaceName); err != nil {
+		return fmt.Errorf("interface unavailable: %w", err)
+	}
+	if _, err := runFixedOutput("/usr/sbin/iw", "dev", interfaceName, "info"); err != nil {
+		return fmt.Errorf("interface is not a managed wireless radio: %w", err)
+	}
+	capabilities, err := runFixedOutput("/usr/sbin/iw", "list")
+	if err != nil {
+		return fmt.Errorf("read radio capabilities: %w", err)
+	}
+	if !strings.Contains(capabilities, "Supported interface modes:") ||
+		!strings.Contains(capabilities, "* AP") {
+		return errors.New("wireless radio does not advertise access-point mode")
+	}
+	return nil
+}
+
+func removeWireGuard(interfaceName string) error {
+	_ = runFixed("/sbin/ip", "link", "delete", "dev", interfaceName)
+	if err := runFixed("/sbin/ip", "link", "show", "dev", interfaceName); err == nil {
+		return errors.New("WireGuard interface remained active")
+	}
+	return nil
+}
+
+func wireGuardMTU(cfg config.SystemConfig) int {
+	const wireGuardOverhead = 80
+	mtu := cfg.WAN.MTU - wireGuardOverhead
+	if mtu < 576 {
+		return 576
+	}
+	if mtu > 1420 {
+		return 1420
+	}
+	return mtu
+}
+
+func activateWireGuard(cfg config.SystemConfig) error {
+	interfaceName := cfg.WireGuard.Interface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+	if err := removeWireGuard(interfaceName); err != nil {
+		return fmt.Errorf("stop WireGuard: %w", err)
+	}
+	if !cfg.WireGuard.Enabled {
 		return nil
 	}
-	if err := runFixed("/usr/bin/wg-quick", "up", "/etc/wireguard/wg0.conf"); err != nil {
-		return fmt.Errorf("start WireGuard: %w", err)
+
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = removeWireGuard(interfaceName)
+		}
+	}()
+
+	if err := runFixed("/sbin/ip", "link", "add", "dev", interfaceName, "type", "wireguard"); err != nil {
+		return fmt.Errorf("create WireGuard interface: %w", err)
 	}
+	if err := runFixed("/usr/bin/wg", "setconf", interfaceName, wireGuardRuntimePath); err != nil {
+		return fmt.Errorf("load WireGuard configuration: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "address", "add", cfg.WireGuard.Address, "dev", interfaceName); err != nil {
+		return fmt.Errorf("assign WireGuard address: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", interfaceName, "mtu", strconv.Itoa(wireGuardMTU(cfg)), "up"); err != nil {
+		return fmt.Errorf("bring WireGuard up: %w", err)
+	}
+	for _, peer := range cfg.WireGuard.Peers {
+		if !peer.Enabled {
+			continue
+		}
+		for _, allowedIP := range peer.AllowedIPs {
+			if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+				return fmt.Errorf("install WireGuard peer route: %w", err)
+			}
+		}
+	}
+	cleanup = false
 	return nil
 }
 
@@ -690,7 +852,8 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		if err := applyKernelHardening(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
-		if err := configureLAN(previousConfig.LAN); err != nil {
+		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+		if err := configureRuntimeLAN(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
 	}
@@ -719,11 +882,32 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 	}
 	if previousConfig != nil {
-		if err := activateWireGuard(previousConfig.WireGuard.Enabled); err != nil {
+		if err := activateWireGuard(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
 	} else {
-		_ = activateWireGuard(false)
+		_ = removeWireGuard("wg0")
+	}
+	if previousConfig != nil && previousConfig.WiFi.Enabled {
+		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	} else {
+		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	}
+	if previousConfig != nil && previousConfig.Cloudflare.DDNSEnabled {
+		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	} else {
+		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+	}
+	if previousConfig != nil && previousConfig.QoS.Enabled {
+		if err := applyQoS(*previousConfig); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	} else if previousConfig != nil {
+		clearQoS(*previousConfig)
 	}
 	if previousConfig != nil && previousConfig.SquidProxy.Enabled {
 		if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
@@ -740,6 +924,33 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		return verifyActive(*previousConfig)
 	}
 	return nil
+}
+
+func applyQoS(cfg config.SystemConfig) error {
+	clearQoS(cfg)
+	commands, err := services.QoSCommands(&cfg)
+	if err != nil {
+		return err
+	}
+	for _, args := range commands {
+		if err := runFixed("/sbin/tc", args...); err != nil {
+			clearQoS(cfg)
+			return err
+		}
+	}
+	return nil
+}
+
+func clearQoS(cfg config.SystemConfig) {
+	iface := cfg.WAN.Interface
+	if cfg.WAN.Enabled {
+		iface = "ppp0"
+	}
+	if iface == "" {
+		iface = "eth0"
+	}
+	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "root")
+	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "ingress")
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
@@ -792,18 +1003,73 @@ func configureLAN(lan config.LANSettings) error {
 	return nil
 }
 
-func configureProvisionalLAN(candidate, previous config.LANSettings) error {
-	if candidate.Interface != previous.Interface {
+func removeOwnedLANBridge() error {
+	bridge := config.WiFiBridgeInterface
+	if err := runFixed("/sbin/ip", "link", "show", "dev", bridge); err != nil {
+		return nil
+	}
+	members, err := os.ReadDir(filepath.Join("/sys/class/net", bridge, "brif"))
+	if err == nil {
+		for _, member := range members {
+			if !interfaceNamePattern.MatchString(member.Name()) {
+				return errors.New("LAN bridge has an invalid member name")
+			}
+			_ = runFixed("/sbin/ip", "link", "set", "dev", member.Name(), "nomaster")
+		}
+	}
+	_ = runFixed("/sbin/ip", "-4", "addr", "flush", "dev", bridge, "scope", "global")
+	if err := runFixed("/sbin/ip", "link", "delete", "dev", bridge, "type", "bridge"); err != nil {
+		return fmt.Errorf("remove LAN bridge: %w", err)
+	}
+	return nil
+}
+
+func configureRuntimeLAN(cfg config.SystemConfig) error {
+	if !cfg.WiFi.Enabled {
+		if err := removeOwnedLANBridge(); err != nil {
+			return err
+		}
+		return configureLAN(cfg.LAN)
+	}
+
+	bridge := config.WiFiBridgeInterface
+	if err := runFixed("/sbin/ip", "link", "show", "dev", bridge); err != nil {
+		if err := runFixed("/sbin/ip", "link", "add", "name", bridge, "type", "bridge"); err != nil {
+			return fmt.Errorf("create LAN bridge: %w", err)
+		}
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", cfg.LAN.Interface, "up"); err != nil {
+		return fmt.Errorf("bring wired LAN up: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", cfg.LAN.Interface, "scope", "global"); err != nil {
+		return fmt.Errorf("move LAN address to bridge: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", cfg.LAN.Interface, "master", bridge); err != nil {
+		return fmt.Errorf("attach wired LAN to bridge: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", bridge, "up"); err != nil {
+		return fmt.Errorf("bring LAN bridge up: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", bridge, "scope", "global"); err != nil {
+		return fmt.Errorf("clear previous bridge addresses: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "add", cfg.LAN.CIDR, "dev", bridge); err != nil {
+		return fmt.Errorf("configure LAN bridge address: %w", err)
+	}
+	return nil
+}
+
+func configureProvisionalRuntimeLAN(candidate, previous config.SystemConfig) error {
+	if candidate.LAN.Interface != previous.LAN.Interface {
 		return errors.New("LAN interface changes cannot be provisionally applied")
 	}
-	if err := runFixed("/sbin/ip", "link", "set", "dev", candidate.Interface, "up"); err != nil {
-		return fmt.Errorf("bring LAN up: %w", err)
+	if err := configureRuntimeLAN(candidate); err != nil {
+		return err
 	}
-	if err := runFixed("/sbin/ip", "-4", "addr", "replace", previous.CIDR, "dev", candidate.Interface); err != nil {
-		return fmt.Errorf("retain previous LAN address: %w", err)
-	}
-	if err := runFixed("/sbin/ip", "-4", "addr", "replace", candidate.CIDR, "dev", candidate.Interface); err != nil {
-		return fmt.Errorf("add candidate LAN address: %w", err)
+	if previous.LAN.CIDR != candidate.LAN.CIDR {
+		if err := runFixed("/sbin/ip", "-4", "addr", "add", previous.LAN.CIDR, "dev", candidate.RuntimeLANInterface()); err != nil {
+			return fmt.Errorf("retain previous LAN address: %w", err)
+		}
 	}
 	return nil
 }
@@ -853,6 +1119,24 @@ func applyKernelHardening(cfg config.SystemConfig) error {
 func runFixed(binary string, args ...string) error {
 	_, err := runFixedOutput(binary, args...)
 	return err
+}
+
+func runFixedTimeout(timeout time.Duration, binary string, args ...string) error {
+	if _, err := os.Stat(binary); err != nil {
+		return fmt.Errorf("required binary unavailable: %s", filepath.Base(binary))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = []string{"PATH=/sbin:/usr/sbin:/bin:/usr/bin", "LANG=C", "LC_ALL=C"}
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return fmt.Errorf("%s timed out", filepath.Base(binary))
+	}
+	if err != nil {
+		return fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeOutput(output))
+	}
+	return nil
 }
 
 // runNftFile replaces the helper-owned table in one atomic nft batch. When

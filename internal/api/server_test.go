@@ -89,6 +89,25 @@ func TestUnauthenticatedProtectedEndpoints(t *testing.T) {
 	}
 }
 
+func TestUnsafeLegacyAndUnverifiedUpdateRoutesAreNotRegistered(t *testing.T) {
+	_, mux, tempDir := setupTestServer(t)
+	defer os.RemoveAll(tempDir)
+
+	for _, endpoint := range []string{
+		"/api/v1/backup/encrypt",
+		"/api/v1/backup/decrypt",
+		"/api/v1/system/update/install",
+		"/api/v1/adguard/blocklist/update",
+	} {
+		req := httptest.NewRequest(http.MethodPost, endpoint, bytes.NewReader([]byte(`{}`)))
+		recorder := httptest.NewRecorder()
+		mux.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s returned %d, want 404", endpoint, recorder.Code)
+		}
+	}
+}
+
 func TestHTTPOriginIsAllowedOnlyInExplicitLoopbackPreview(t *testing.T) {
 	server, mux, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)

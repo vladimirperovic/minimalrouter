@@ -22,6 +22,10 @@ func TestRedactSecrets(t *testing.T) {
 func TestBuildDiagnosticBundle(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.WAN.Password = "SuperSecretPass!"
+	cfg.WireGuard.PrivateKey = "VerySecretPrivateKey"
+	cfg.WireGuard.Peers = []config.WireGuardPeer{{PresharedKey: "VerySecretPresharedKey"}}
+	cfg.Cloudflare.APIToken = "VerySecretAPIToken"
+	cfg.Cloudflare.TunnelToken = "VerySecretTunnelToken"
 
 	bundleBytes, err := BuildDiagnosticBundle(cfg)
 	if err != nil {
@@ -31,5 +35,15 @@ func TestBuildDiagnosticBundle(t *testing.T) {
 	bundleStr := string(bundleBytes)
 	if strings.Contains(bundleStr, "SuperSecretPass!") {
 		t.Errorf("Expected WAN password to be redacted from diagnostic bundle")
+	}
+	for _, secret := range []string{
+		"VerySecretPrivateKey",
+		"VerySecretPresharedKey",
+		"VerySecretAPIToken",
+		"VerySecretTunnelToken",
+	} {
+		if strings.Contains(bundleStr, secret) {
+			t.Errorf("diagnostic bundle leaked %q", secret)
+		}
 	}
 }

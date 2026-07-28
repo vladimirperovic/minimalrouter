@@ -5,9 +5,9 @@ import Virtualization
 struct MinimalRouterAlpineVM {
     @MainActor
     static func main() async throws {
-        guard CommandLine.arguments.count == 5 else {
+        guard CommandLine.arguments.count == 5 || CommandLine.arguments.count == 6 else {
             FileHandle.standardError.write(
-                Data("usage: vm-runner KERNEL INITRAMFS ISO REPOSITORY\n".utf8)
+                Data("usage: vm-runner KERNEL INITRAMFS ISO REPOSITORY [PERSISTENT_DISK]\n".utf8)
             )
             exit(64)
         }
@@ -19,7 +19,16 @@ struct MinimalRouterAlpineVM {
 
         let configuration = VZVirtualMachineConfiguration()
         configuration.cpuCount = 2
-        configuration.memorySize = 2 * 1024 * 1024 * 1024
+        let requestedMemoryMiB = UInt64(
+            ProcessInfo.processInfo.environment["MINIMALROUTER_VM_MEMORY_MIB"] ?? "2048"
+        ) ?? 2048
+        guard requestedMemoryMiB >= 256 && requestedMemoryMiB <= 8192 else {
+            FileHandle.standardError.write(
+                Data("MINIMALROUTER_VM_MEMORY_MIB must be between 256 and 8192\n".utf8)
+            )
+            exit(64)
+        }
+        configuration.memorySize = requestedMemoryMiB * 1024 * 1024
 
         let bootLoader = VZLinuxBootLoader(kernelURL: kernelURL)
         bootLoader.initialRamdiskURL = initramfsURL
@@ -27,9 +36,20 @@ struct MinimalRouterAlpineVM {
         configuration.bootLoader = bootLoader
 
         let isoAttachment = try VZDiskImageStorageDeviceAttachment(url: isoURL, readOnly: true)
-        configuration.storageDevices = [
+        var storageDevices: [VZStorageDeviceConfiguration] = [
             VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment)
         ]
+        if CommandLine.arguments.count == 6 {
+            let diskURL = URL(fileURLWithPath: CommandLine.arguments[5])
+            let diskAttachment = try VZDiskImageStorageDeviceAttachment(
+                url: diskURL,
+                readOnly: false
+            )
+            storageDevices.append(
+                VZVirtioBlockDeviceConfiguration(attachment: diskAttachment)
+            )
+        }
+        configuration.storageDevices = storageDevices
 
         let network = VZVirtioNetworkDeviceConfiguration()
         network.attachment = VZNATNetworkDeviceAttachment()

@@ -12,11 +12,12 @@ import (
 )
 
 var (
-	interfaceNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
-	hostnamePattern       = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
-	domainPattern         = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
-	safeNamePattern       = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
-	credentialNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	interfaceNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
+	hostnamePattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+	domainPattern          = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+	safeNamePattern        = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
+	credentialNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	cloudflareTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
 )
 
 func hasUnsafeControl(value string) bool {
@@ -361,7 +362,15 @@ func (c *SystemConfig) Validate() error {
 			}
 			for j, allowed := range peer.AllowedIPs {
 				ip, network, err := net.ParseCIDR(allowed)
-				if err != nil || ip.To4() == nil || (wgNetwork != nil && !wgNetwork.Contains(ip)) {
+				allowedPrefix, wgPrefix := 0, 0
+				if network != nil {
+					allowedPrefix, _ = network.Mask.Size()
+				}
+				if wgNetwork != nil {
+					wgPrefix, _ = wgNetwork.Mask.Size()
+				}
+				if err != nil || ip.To4() == nil ||
+					(wgNetwork != nil && (!wgNetwork.Contains(ip) || allowedPrefix < wgPrefix)) {
 					appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].allowed_ips[%d]", i, j), "must be an IPv4 CIDR inside the WireGuard subnet")
 					continue
 				}
@@ -377,21 +386,22 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
-	if c.Cloudflare.DDNSEnabled || c.Cloudflare.TunnelEnabled {
+	if c.Cloudflare.DDNSEnabled {
+		if !c.WAN.Enabled {
+			appendFieldError(&errs, "cloudflare.ddns_enabled", "requires an enabled WAN connection")
+		}
 		if !domainPattern.MatchString(c.Cloudflare.Domain) || !strings.Contains(c.Cloudflare.Domain, ".") {
 			appendFieldError(&errs, "cloudflare.domain", "must be a valid fully qualified domain")
 		}
-		if c.Cloudflare.DDNSEnabled {
-			if strings.TrimSpace(c.Cloudflare.ZoneID) == "" || len(c.Cloudflare.ZoneID) > 64 {
-				appendFieldError(&errs, "cloudflare.zone_id", "is required and must be at most 64 characters")
-			}
-			if strings.TrimSpace(c.Cloudflare.APIToken) == "" || hasUnsafeControl(c.Cloudflare.APIToken) {
-				appendFieldError(&errs, "cloudflare.api_token", "is required and contains forbidden characters")
-			}
+		if !domainPattern.MatchString(c.Cloudflare.ZoneName) || !strings.Contains(c.Cloudflare.ZoneName, ".") {
+			appendFieldError(&errs, "cloudflare.zone_name", "must be the Cloudflare zone name, for example example.com")
 		}
-		if c.Cloudflare.TunnelEnabled && (strings.TrimSpace(c.Cloudflare.TunnelToken) == "" || hasUnsafeControl(c.Cloudflare.TunnelToken)) {
-			appendFieldError(&errs, "cloudflare.tunnel_token", "is required and contains forbidden characters")
+		if !cloudflareTokenPattern.MatchString(c.Cloudflare.APIToken) {
+			appendFieldError(&errs, "cloudflare.api_token", "must be a valid API token")
 		}
+	}
+	if c.Cloudflare.TunnelEnabled {
+		appendFieldError(&errs, "cloudflare.tunnel_enabled", "is unavailable because WireGuard is the only allowed remote-entry path")
 	}
 
 	if c.SquidProxy.Enabled {
@@ -417,6 +427,7 @@ func (c *SystemConfig) Validate() error {
 	}
 
 	for i, fd := range c.AdGuard.FilterDevices {
+		appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d]", i), "per-device DNS filtering is unavailable; dnsmasq address rules are global")
 		if fd.Hostname == "" {
 			appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].hostname", i), "hostname is required")
 		}
@@ -431,6 +442,9 @@ func (c *SystemConfig) Validate() error {
 			}
 		}
 	}
+	if c.AdGuard.BlocklistURL != "" {
+		appendFieldError(&errs, "adguard.blocklist_url", "external blocklist refresh is unavailable in the hardened pilot; use the built-in global list")
+	}
 
 	if c.QoS.Enabled {
 		if c.QoS.Algorithm != "cake" && c.QoS.Algorithm != "fq_codel" {
@@ -442,13 +456,21 @@ func (c *SystemConfig) Validate() error {
 		if c.QoS.UploadLimitMbps <= 0 {
 			appendFieldError(&errs, "qos.upload_limit_mbps", "must be greater than zero")
 		}
+		if c.QoS.DownloadLimitMbps > 100000 || c.QoS.UploadLimitMbps > 100000 {
+			appendFieldError(&errs, "qos", "limits must not exceed 100000 Mbps")
+		}
+	}
+
+	if c.DHCP.DNSEnabled {
+		appendFieldError(&errs, "dhcp.dns_enabled", "DNS-over-HTTPS is unavailable until a packaged and verified local resolver is installed")
 	}
 
 	if c.WiFi.Enabled {
 		if !validInterfaceName(c.WiFi.Interface) {
 			appendFieldError(&errs, "wifi.interface", "must be a valid Linux interface name")
 		}
-		if c.WiFi.Interface == c.WAN.Interface || c.WiFi.Interface == c.LAN.Interface {
+		if c.WiFi.Interface == c.WAN.Interface || c.WiFi.Interface == c.LAN.Interface ||
+			c.WiFi.Interface == WiFiBridgeInterface {
 			appendFieldError(&errs, "wifi.interface", "must not reuse the WAN or LAN interface")
 		}
 		if len([]byte(c.WiFi.SSID)) < 1 || len([]byte(c.WiFi.SSID)) > 32 || hasUnsafeControl(c.WiFi.SSID) {
@@ -459,6 +481,14 @@ func (c *SystemConfig) Validate() error {
 		}
 		if c.WiFi.Band != "2.4ghz" && c.WiFi.Band != "5ghz" {
 			appendFieldError(&errs, "wifi.band", "must be 2.4ghz or 5ghz")
+		}
+		if c.WiFi.Band == "2.4ghz" && (c.WiFi.Channel < 1 || c.WiFi.Channel > 11) {
+			appendFieldError(&errs, "wifi.channel", "must be 1-11 for 2.4 GHz")
+		}
+		if c.WiFi.Band == "5ghz" &&
+			c.WiFi.Channel != 36 && c.WiFi.Channel != 40 &&
+			c.WiFi.Channel != 44 && c.WiFi.Channel != 48 {
+			appendFieldError(&errs, "wifi.channel", "must be 36, 40, 44, or 48 for the portable 5 GHz profile")
 		}
 	}
 

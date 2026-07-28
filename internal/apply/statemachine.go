@@ -117,6 +117,12 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		tx.Error = fmt.Sprintf("Validation failed: %v", err)
 		return tx, err
 	}
+	// The privileged helper must apply and persist the exact revision that will
+	// later be confirmed and committed. Increment before generating artifacts
+	// so commit-confirm hashes cannot diverge.
+	newCfg.Revision = e.currentConfig.Revision + 1
+	newCfg.UpdatedAt = time.Now()
+	tx.Config = newCfg
 	tx.CurrentState = StatePlanned
 
 	// 2. Generate Candidate Configurations
@@ -205,8 +211,7 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	}
 	tx.CurrentState = StateVerified
 
-	// 6. Commit: Increment revision, save to store, update active config
-	newCfg.Revision = e.currentConfig.Revision + 1
+	// 6. Commit the exact revision that the privileged helper applied.
 	tx.Config = newCfg
 	if applyReq.RequireConfirmation {
 		deadline := time.Now().Add(confirmationTimeout)
@@ -242,7 +247,9 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
 		current.LAN.CIDR != candidate.LAN.CIDR ||
-		current.System.ManagementAccess != candidate.System.ManagementAccess
+		current.System.ManagementAccess != candidate.System.ManagementAccess ||
+		current.WiFi.Enabled != candidate.WiFi.Enabled ||
+		current.WiFi.Interface != candidate.WiFi.Interface
 }
 
 // GetPendingTransaction returns a copy of the provisionally active transaction.

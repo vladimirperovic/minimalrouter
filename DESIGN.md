@@ -37,7 +37,7 @@ opening the dashboard:
 1. Am I online?
 2. Is the connection healthy?
 3. How many devices are connected?
-4. Are WireGuard and Cloudflare running?
+4. Is WireGuard running, and which optional integrations are unavailable?
 5. Is the router itself healthy?
 
 ## 3. Design principles
@@ -178,7 +178,7 @@ Primary navigation order:
 4. Static Leases
 5. Firewall
 6. WireGuard
-7. Cloudflare
+7. Optional integrations (unsupported items are disabled and labelled)
 
 Lifecycle navigation is visually separated:
 
@@ -224,15 +224,17 @@ Show:
 - Wired/WireGuard distinction only when useful
 - **View all devices**
 
-Do not imply Wi-Fi radio data when the appliance does not control Wi-Fi.
+Show Wi-Fi radio state only when the configured adapter is present and
+controlled by the appliance.
 
 ### 7.3 Secure connectivity
 
-WireGuard and Cloudflare appear as two compact status cards:
+WireGuard and optional integrations appear as compact status cards:
 
 - Service state
 - Number of active WireGuard peers, if known
-- Cloudflare DDNS/Tunnel state
+- Real Cloudflare DDNS state; explicit “unavailable” state for Cloudflare
+  Tunnel
 - Last successful check
 
 ### 7.4 Router health
@@ -486,8 +488,8 @@ instant toggles.
 The label states the feature, not the current value. Status text may clarify:
 
 ```text
-Cloudflare Tunnel          [ on ]
-Running · checked 1 minute ago
+Cloudflare Tunnel          [ unavailable ]
+No verified Alpine runtime adapter
 ```
 
 ### 12.5 Tables and lists
@@ -652,7 +654,7 @@ Prefer:
 - **Internet connection lost**
 - **Checking PPPoE credentials**
 - **Previous settings restored**
-- **This port forward is available from the internet**
+- **WAN port forwards are forbidden; use WireGuard**
 
 Avoid:
 
@@ -681,7 +683,8 @@ Details: pppd exit code 19
   re-authentication.
 - WAN exposure is labeled in plain language and visually distinct from LAN-only
   access.
-- Port forwarding warns that a service will become reachable from the internet.
+- WAN port forwarding controls are not offered; WireGuard is the only allowed
+  new WAN ingress.
 - Firewall rule ordering and effect are previewed before apply.
 - Audit diffs redact secrets.
 - Copy buttons provide accessible confirmation without exposing values in logs.
@@ -689,7 +692,7 @@ Details: pppd exit code 19
 ## 19. Implementation rules
 
 - Implement tokens as CSS custom properties.
-- Build accessible Svelte primitives before assembling pages.
+- Build accessible React primitives before assembling pages.
 - Keep page components independent from raw API response shapes.
 - Use semantic HTML before adding ARIA.
 - Avoid a large visual component framework unless an ADR demonstrates a clear
@@ -697,7 +700,9 @@ Details: pppd exit code 19
 - No external fonts, icon CDNs, analytics scripts, or runtime design
   dependencies are loaded by the appliance UI.
 - Compile all required UI assets into the appliance.
-- Respect Content Security Policy without `unsafe-inline`.
+- Respect Content Security Policy without inline-script exceptions. The current
+  React implementation still requires `style-src 'unsafe-inline'` because it
+  uses style attributes; removing those attributes is tracked hardening work.
 - Preserve useful content when JavaScript is slow; loading skeletons must match
   real layout and appear only when needed.
 - Use actual backend status; never invent optimistic “healthy” values.

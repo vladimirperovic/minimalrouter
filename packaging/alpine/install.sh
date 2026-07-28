@@ -5,50 +5,16 @@ set -e
 ALPINE_VERSION="v3.22"
 echo "=== Installing Minimal Router OS on Alpine Linux ($ALPINE_VERSION) ==="
 
-# 1. Ensure Alpine v3.22 stable repository is pinned
+# 1. Pin repositories.
 if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi
 
-# 2. Install system dependencies & LUKS encryption tools from Alpine pinned repository
+# 2. Install system dependencies from the pinned repository.
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    cryptsetup e2fsprogs lvm2 wireguard-tools-wg-quick squid
-
-is_backed_by_luks() {
-    device_path="$1"
-    resolved_path="$(readlink -f "$device_path" 2>/dev/null || true)"
-    block_name="$(basename "$resolved_path")"
-    [ -n "$block_name" ] || return 1
-
-    dm_uuid_path="/sys/class/block/$block_name/dm/uuid"
-    if [ -r "$dm_uuid_path" ]; then
-        case "$(cat "$dm_uuid_path")" in
-            CRYPT-LUKS*) return 0 ;;
-        esac
-    fi
-
-    slaves_path="/sys/class/block/$block_name/slaves"
-    [ -d "$slaves_path" ] || return 1
-    for slave_path in "$slaves_path"/*; do
-        [ -e "$slave_path" ] || continue
-        if is_backed_by_luks "/dev/$(basename "$slave_path")"; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-ROOT_SOURCE="$(awk '$2 == "/" { print $1; exit }' /proc/mounts)"
-if ! is_backed_by_luks "$ROOT_SOURCE"; then
-    if [ "${MINIMALROUTER_ALLOW_UNENCRYPTED:-0}" != "1" ]; then
-        echo "ERROR: The root block-device chain has no CRYPT-LUKS layer." >&2
-        echo "Install Alpine on LUKS first, or set MINIMALROUTER_ALLOW_UNENCRYPTED=1 for an isolated lab only." >&2
-        exit 1
-    fi
-    echo "WARNING: Installing on unencrypted storage (lab override enabled)." >&2
-fi
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
 
 # 3. Create unprivileged routerd user/group
 if ! id -u routerd >/dev/null 2>&1; then
@@ -60,13 +26,24 @@ fi
 install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
 install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 install -d -m 0750 -o root -g routerd /run/minimalrouter
+install -d -m 0750 -o root -g inadyn /etc/inadyn
 install -d -m 0755 -o root -g root /usr/share/minimalrouter/web /etc/minimalrouter
-install -d -m 0700 -o root -g root /etc/ppp/peers /etc/wireguard /etc/hostapd
+install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
 install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
 
-# Binaries must have been built with `make build-linux`.
-install -m 0755 -o root -g root bin/routerd /usr/bin/routerd
-install -m 0755 -o root -g root bin/router-applyd /usr/sbin/router-applyd
+# Binaries are architecture-specific so a stale artifact from another target
+# can never be installed accidentally.
+case "$(uname -m)" in
+    x86_64) BIN_ARCH="amd64"; BUILD_TARGET="build-linux" ;;
+    aarch64) BIN_ARCH="arm64"; BUILD_TARGET="build-linux-arm64" ;;
+    *) echo "ERROR: Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+esac
+[ -f "bin/routerd-linux-${BIN_ARCH}" ] || {
+    echo "ERROR: Run make ${BUILD_TARGET} first." >&2
+    exit 1
+}
+install -m 0755 -o root -g root "bin/routerd-linux-${BIN_ARCH}" /usr/bin/routerd
+install -m 0755 -o root -g root "bin/router-applyd-linux-${BIN_ARCH}" /usr/sbin/router-applyd
 if [ -f web/dist/index.html ]; then
     cp -R web/dist/. /usr/share/minimalrouter/web/
     chown -R root:root /usr/share/minimalrouter/web

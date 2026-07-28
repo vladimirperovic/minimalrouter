@@ -267,6 +267,15 @@ func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 		tx.Rollback()
 		return fmt.Errorf("failed to insert config revision: %w", err)
 	}
+	if _, err := tx.Exec(`
+		DELETE FROM config_revisions
+		WHERE revision NOT IN (
+			SELECT revision FROM config_revisions ORDER BY revision DESC LIMIT 100
+		)
+	`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("failed to prune config revisions: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit config transaction: %w", err)
@@ -302,6 +311,15 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 	if err != nil {
 		tx.Rollback()
 		return Snapshot{}, fmt.Errorf("failed to insert snapshot: %w", err)
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM snapshots
+		WHERE id NOT IN (
+			SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 20
+		)
+	`); err != nil {
+		_ = tx.Rollback()
+		return Snapshot{}, fmt.Errorf("failed to prune snapshots: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +15,9 @@ import (
 )
 
 const defaultBlocklistURL = "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+const maxBlocklistBytes = 50 * 1024 * 1024
+
+var blockDomainPattern = regexp.MustCompile(`(?i)^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // GenerateAdBlockConf generates /etc/dnsmasq.d/adblock_hosts.conf
 // containing blocked domains derived from the hosts-format blocklist.
@@ -38,38 +43,34 @@ func GenerateAdBlockConf(cfg *config.SystemConfig, hostsData []byte) (string, er
 	}
 	buf.WriteString(fmt.Sprintf("\n# Total blocked domains: %d\n", len(domains)))
 
-	// Per-device service blocking
-	if len(cfg.AdGuard.FilterDevices) > 0 {
-		buf.WriteString("\n# ── Per-Device Content Filtering ──\n")
-		for _, device := range cfg.AdGuard.FilterDevices {
-			if !device.Enabled || device.IPAddress == "" {
-				continue
-			}
-			for _, svc := range device.BlockedServices {
-				svcDomains, ok := ServiceDomains[svc]
-				if !ok {
-					continue
-				}
-				for _, d := range svcDomains {
-					// address=/domain/ip — dnsmasq resolves this domain ONLY for that IP
-					buf.WriteString(fmt.Sprintf("address=/%s/%s\n", d, device.IPAddress))
-				}
-			}
-		}
-	}
-
 	return buf.String(), nil
 }
 
 // DownloadBlocklist fetches a hosts-format blocklist from the configured URL.
-// Falls back to built-in list on network error.
+// The hardened appliance does not call this from its privileged apply path; it
+// remains available for a future unprivileged, signed blocklist workflow.
 func DownloadBlocklist(url string) ([]byte, error) {
 	if url == "" {
 		url = defaultBlocklistURL
 	}
+	parsed, err := neturlParseHTTPS(url)
+	if err != nil {
+		return nil, err
+	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return fmt.Errorf("too many redirects")
+			}
+			if req.URL.Scheme != "https" || !strings.EqualFold(req.URL.Hostname(), parsed.Hostname()) {
+				return fmt.Errorf("cross-origin or non-HTTPS redirect rejected")
+			}
+			return nil
+		},
+	}
+	resp, err := client.Get(parsed.String())
 	if err != nil {
 		return nil, fmt.Errorf("download blocklist: %w", err)
 	}
@@ -79,12 +80,24 @@ func DownloadBlocklist(url string) ([]byte, error) {
 		return nil, fmt.Errorf("blocklist download failed: HTTP %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024)) // 50MB limit
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBlocklistBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read blocklist: %w", err)
 	}
+	if len(data) > maxBlocklistBytes {
+		return nil, fmt.Errorf("blocklist exceeds %d bytes", maxBlocklistBytes)
+	}
 
 	return data, nil
+}
+
+func neturlParseHTTPS(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" ||
+		parsed.User != nil || parsed.Fragment != "" {
+		return nil, fmt.Errorf("blocklist URL must be an absolute HTTPS URL without credentials or fragment")
+	}
+	return parsed, nil
 }
 
 // ParseHostsFile extracts unique domain names from a hosts-format file.
@@ -95,6 +108,7 @@ func ParseHostsFile(data []byte) []string {
 	var domains []string
 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -107,16 +121,16 @@ func ParseHostsFile(data []byte) []string {
 		}
 
 		ip := fields[0]
-		domain := fields[1]
-
-		// Skip loopback and sinkhole entries
-		if ip == "0.0.0.0" || ip == "127.0.0.1" || ip == "::1" {
-			// This is a blocked domain in hosts format — extract it
-			domain = fields[1]
+		if ip != "0.0.0.0" && ip != "127.0.0.1" && ip != "::1" {
+			continue
 		}
+		domain := strings.ToLower(strings.TrimSuffix(fields[1], "."))
 
 		// Skip localhost entries
 		if domain == "localhost" || domain == "localhost.localdomain" {
+			continue
+		}
+		if len(domain) > 253 || !blockDomainPattern.MatchString(domain) {
 			continue
 		}
 
@@ -138,7 +152,7 @@ func BuiltinBlocklist() []string {
 		"adservice.google.com",
 		"googleads.g.doubleclick.net",
 		"tpc.googlesyndication.com",
-		"wwwgooglesyndicationcom",
+		"www.googlesyndication.com",
 		"partner.googleadservices.com",
 		"ad.doubleclick.net",
 		"ad.turn.com",
@@ -152,9 +166,5 @@ func BuiltinBlocklist() []string {
 		"tr.snapchat.com",
 		"ads.tiktok.com",
 		"analytics.tiktok.com",
-		// Malware / phishing
-		"malware.customdomain.com",
-		"phishing.example.com",
-		"cryptominer.example.com",
 	}
 }

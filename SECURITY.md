@@ -31,7 +31,8 @@ The following are not fully mitigated in version 1:
 - An attacker with persistent physical access
 - A compromised BIOS, hypervisor, kernel, or root account
 - Bootloader compromise or lack of UEFI Secure Boot enforcement
-- Single-user mode local console attacks (deferred to V2 encrypted root/locked bootloader)
+- Offline disk inspection or single-user-mode access; bootloader locking, UEFI
+  Secure Boot enforcement, and at-rest secret protection remain release work
 - LAN-side Layer 2 attacks like ARP spoofing or rogue DHCP servers (deferred to V2 managed VLAN switch integration)
 - Malicious hardware or firmware
 - Traffic analysis by the ISP
@@ -157,7 +158,8 @@ local console access and must invalidate all sessions.
 - Do not place session IDs or CSRF tokens in URLs or logs.
 
 All HTTP responses must include strict security headers:
-- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` (HSTS)
+- `Strict-Transport-Security: max-age=63072000` (HSTS). The local appliance
+  domain is not submitted to the public preload list.
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `Cross-Origin-Opener-Policy: same-origin`
@@ -278,7 +280,12 @@ root requirement must not be described as eliminated.
 - Source/destination ranges, overlapping networks, broadcast addresses, and
   reserved values are validated.
 - dnsmasq binds only to selected LAN interfaces.
-- Cloudflare integration remains disabled. Firmware verification is fail-closed
+- Cloudflare DDNS is accepted only when `inadyn` validates the generated
+  configuration and completes a bounded real update. Wi-Fi is accepted only
+  on an AP-capable radio and uses a transactional LAN bridge with health
+  checks and rollback. Cloudflare Tunnel, DoH, and per-device DNS policy remain
+  disabled. Global DNS blocklisting and QoS are accepted only when their real
+  preflight/apply/health checks succeed. Firmware verification is fail-closed
   unless a trusted signing key is provisioned.
 
 IPv6 must have policy parity with IPv4 before it is enabled. If unsupported in a
@@ -289,9 +296,12 @@ release, it is disabled or explicitly blocked at every relevant boundary.
 Secrets include:
 
 - Administrator password verifier
+- TOTP enrollment secret
 - PPPoE credentials
 - WireGuard private and preshared keys
 - Cloudflare API and tunnel tokens
+- Wi-Fi passphrase
+- Squid proxy credential
 - TLS private keys
 - Session and CSRF tokens
 - Backup-encryption material
@@ -312,6 +322,15 @@ Requirements:
 Never invent encryption schemes. Local encryption at rest does not protect
 against a root attacker unless keys are anchored outside the filesystem, so the
 UI and documentation must not overstate its guarantees.
+
+Current pilot limitation: the canonical SQLite configuration, revisions,
+snapshots, privileged rollback state, TOTP secret, and active sessions are
+permission-protected but not encrypted at rest. WireGuard service files are
+generated under `/run/minimalrouter` so those extra runtime copies disappear on
+reboot, but the server private key and peer preshared keys still exist in the
+canonical and rollback state. A newly provisioned client's private key is
+returned exactly once with `Cache-Control: no-store` and is not persisted by
+the router.
 
 ## 13. Snapshots and rollback security
 
@@ -341,6 +360,12 @@ snapshots trusted against root compromise.
 - Never use Alpine's `--allow-untrusted` in installation or update paths.
 - Create a pre-update snapshot and test boot/health before declaring success.
 - Publish supported-version and security-update windows before public release.
+
+Automatic update check/install routes are intentionally not exposed in the
+current pilot build. The dormant verifier requires HTTPS, a mandatory
+SHA-256, an exact Ed25519 signature, a bounded package size, and an Alpine
+package signature; it must still be connected through the privileged,
+reauthenticated update transaction before automatic updates can ship.
 
 ### 14.1 Go Compiler & Binary Hardening
 

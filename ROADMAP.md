@@ -49,7 +49,7 @@ Goal: make the appliance safely configurable from a browser and API client.
 - CSRF and same-origin controls
 - Rate limiting and local-console recovery
 - Versioned REST API and OpenAPI contract
-- Svelte application shell and design system
+- React/Vite static application shell and design system
 
 Exit criteria: authentication and session security gates in `SECURITY.md` pass
 end-to-end tests.
@@ -64,7 +64,7 @@ Goal: deliver the smallest useful router.
 - LAN addressing
 - DHCP and static leases
 - DNS forwarding
-- Simple firewall, NAT, and port forwarding
+- Simple firewall and LAN-to-WAN NAT; prove WAN port forwards remain forbidden
 - Minimal dashboard
 - Connected-device view
 
@@ -76,8 +76,12 @@ recover automatically from a lockout-prone change.
 Goal: add the remaining version 1 network integrations.
 
 - WireGuard
-- Cloudflare DDNS
-- Cloudflare Tunnel
+- Cloudflare DDNS through the stable Alpine `inadyn` package, including
+  credential/update verification and rollback
+- Wi-Fi AP through `hostapd` with AP-capability preflight, LAN bridging,
+  commit-confirm, health verification, and rollback
+- Keep Cloudflare Tunnel deferred unless the security policy is explicitly
+  changed; WireGuard is currently the only WAN entry point
 - Secret rotation and redacted status
 - Integration-specific failure and rollback tests
 
@@ -118,4 +122,6 @@ in `SECURITY.md` pass with recorded evidence.
 ## Explicitly deferred
 
 IDS/IPS, captive portals, multi-WAN, BGP, OSPF, Docker, Kubernetes, enterprise
-QoS, OpenVPN, and IPsec remain outside version 1.
+QoS, OpenVPN, and IPsec remain outside version 1. The pilot includes
+a narrow CAKE/fq_codel shaper, but it is not an enterprise traffic-policy
+system.

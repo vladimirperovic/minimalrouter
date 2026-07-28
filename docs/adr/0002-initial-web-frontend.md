@@ -1,6 +1,6 @@
 # 0002 — Initial web frontend
 
-- Status: Accepted
+- Status: Superseded by the React/Vite implementation on 2026-07-26
 - Date: 2026-07-24
 - Owners: project maintainers
 

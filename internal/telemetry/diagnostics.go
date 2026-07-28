@@ -36,6 +36,20 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 	if clean.WiFi.Passphrase != "" {
 		clean.WiFi.Passphrase = "[REDACTED]"
 	}
+	if clean.WireGuard.PrivateKey != "" {
+		clean.WireGuard.PrivateKey = "[REDACTED]"
+	}
+	for i := range clean.WireGuard.Peers {
+		if clean.WireGuard.Peers[i].PresharedKey != "" {
+			clean.WireGuard.Peers[i].PresharedKey = "[REDACTED]"
+		}
+	}
+	if clean.Cloudflare.APIToken != "" {
+		clean.Cloudflare.APIToken = "[REDACTED]"
+	}
+	if clean.Cloudflare.TunnelToken != "" {
+		clean.Cloudflare.TunnelToken = "[REDACTED]"
+	}
 	return clean
 }
 

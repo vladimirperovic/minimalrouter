@@ -12,9 +12,9 @@ import (
 )
 
 // Argon2id parameters following SECURITY.md section 5:
-// Memory: 32 MiB (32768 KiB), Iterations: 3, Parallelism: 2, KeyLen: 32, SaltLen: 16
+// Memory: 64 MiB (65536 KiB), Iterations: 3, Parallelism: 2, KeyLen: 32, SaltLen: 16
 const (
-	argonMemory      = 32 * 1024
+	argonMemory      = 64 * 1024
 	argonIterations  = 3
 	argonParallelism = 2
 	argonKeyLen      = 32

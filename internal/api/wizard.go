@@ -76,6 +76,10 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Administrator password must be at least 15 characters long", http.StatusUnprocessableEntity)
 		return
 	}
+	if (req.PPPoEUsername == "") != (req.PPPoEPassword == "") {
+		http.Error(w, "Provide both PPPoE username and password, or leave both empty", http.StatusUnprocessableEntity)
+		return
+	}
 
 	// Hash admin password with Argon2id and STORE it
 	hashedPassword, err := auth.HashPassword(req.AdminPassword)
@@ -145,7 +149,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":      true,
 		"csrf_token":   session.CSRFToken,
-		"redirect_url": fmt.Sprintf("https://%s", cfg.LAN.IPAddress),
+		"redirect_url": fmt.Sprintf("https://%s", net.JoinHostPort(cfg.LAN.IPAddress, fmt.Sprint(cfg.System.HTTPSPort))),
 		"tx":           redactTransaction(tx),
 	})
 }

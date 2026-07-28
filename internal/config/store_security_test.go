@@ -49,3 +49,24 @@ func TestAuditEventsAreBoundedMetadata(t *testing.T) {
 		t.Fatal("oversized audit metadata was accepted")
 	}
 }
+
+func TestSnapshotRetentionIsBounded(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cfg := DefaultConfig()
+	for i := 0; i < 25; i++ {
+		if _, err := store.CreateSnapshot(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshots, err := store.ListSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) != 20 {
+		t.Fatalf("snapshot retention kept %d entries, want 20", len(snapshots))
+	}
+}

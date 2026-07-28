@@ -34,7 +34,12 @@ Run in a pinned Alpine container or VM with the real binaries.
 - `dnsmasq --test` behavior
 - pppd configuration and permissions
 - WireGuard argument/config mapping
-- cloudflared configuration validation
+- QoS qdisc installation and inspection
+- Cloudflare DDNS `inadyn` validation, bounded update, service health, and
+  rollback
+- Wi-Fi AP capability checks, bridge membership, hostapd health,
+  commit-confirm, and rollback
+- unsupported Cloudflare Tunnel/DoH/per-device DNS settings fail closed
 - OpenRC service reload/restart behavior
 - SQLite locking, corruption detection, and recovery
 
@@ -50,9 +55,9 @@ Run in disposable network namespaces or VMs.
 - DHCP allocation and static leases
 - DNS forwarding
 - Firewall allow/deny
-- NAT and port forwarding
+- NAT forwarding from LAN to WAN; new WAN port forwards must remain rejected
 - WireGuard connectivity
-- Cloudflare process lifecycle using a controlled test boundary
+- QoS lifecycle using controlled test interfaces
 - Snapshot apply and restore
 - Concurrent and repeated API mutations
 
@@ -65,7 +70,8 @@ Boot the actual image and drive the public HTTPS API/UI.
 - CSRF and same-origin rejection
 - Complete configuration flows
 - Commit-confirmed LAN and firewall changes
-- Backup, restore, update, and factory reset
+- Backup and restore. Automatic update and factory-reset tests become required
+  only when those routes are implemented.
 - Reboot during every durable transaction stage
 
 ### Platform tests
@@ -126,6 +132,34 @@ audit result after recovery.
   versions.
 
 Maintain regression tests for every reported vulnerability.
+
+## 4.1 Current pilot evidence (2026-07-28)
+
+The macOS host suite passes `go test ./...`, `go test -race ./...`,
+`go vet ./...`, frontend lint/type-check/build, and the dependency audit.
+The current change set was then rebuilt and exercised in an Alpine 3.22.5
+ARM64 VM: authentication, process separation, management-boundary checks,
+global DNS filtering, CAKE, fq_codel, QoS removal, nftables, unsupported-feature
+rejection, and commit-confirm revision consistency all produced the expected
+result. A subsequent clean 512 MiB VM proved that Bash and `wg-quick` are absent
+and ran the opt-in production WireGuard lifecycle integration test: preflight,
+real handshake, five encrypted packets, PPPoE-aware MTU, peer route, and cleanup
+passed. See [the dated security review](SECURITY_REVIEW.md) and
+[resource/network report](RESOURCE_AND_HARDWARE_TEST.md) for exact evidence.
+Real PPPoE, physical NIC/radio behavior, signed recovery media, and an external
+WAN scan remain manual release gates.
+
+The root Linux test is gated so an ordinary host test never alters interfaces:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go test -c -o bin/router-applyd-integration-test ./cmd/router-applyd
+MINIMALROUTER_WIREGUARD_INTEGRATION=1 \
+  ./bin/router-applyd-integration-test \
+  -test.run '^TestBashlessWireGuardLifecycleIntegration$' -test.v
+```
+
+Run the resulting binary only inside a disposable root VM/network namespace.
 
 ## 5. Performance tests
 

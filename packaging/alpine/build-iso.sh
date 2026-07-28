@@ -9,7 +9,9 @@ echo "=== Minimal Router OS ISO Builder ==="
 OUTPUT_DIR="./build/iso"
 OVERLAY_DIR="./build/overlay"
 
-mkdir -p "$OUTPUT_DIR" "$OVERLAY_DIR/usr/bin" "$OVERLAY_DIR/usr/sbin" \
+mkdir -p "$OUTPUT_DIR"
+rm -rf "$OVERLAY_DIR"
+mkdir -p "$OVERLAY_DIR/usr/bin" "$OVERLAY_DIR/usr/sbin" \
     "$OVERLAY_DIR/etc/init.d" "$OVERLAY_DIR/etc/sysctl.d" \
     "$OVERLAY_DIR/etc/modules-load.d" \
     "$OVERLAY_DIR/etc/local.d" "$OVERLAY_DIR/var/lib/minimalrouter" \
@@ -18,8 +20,8 @@ mkdir -p "$OUTPUT_DIR" "$OVERLAY_DIR/usr/bin" "$OVERLAY_DIR/usr/sbin" \
 
 echo "[1/4] Compiling Go binaries for Linux (x86_64)..."
 make build-linux
-cp bin/routerd "$OVERLAY_DIR/usr/bin/routerd"
-cp bin/router-applyd "$OVERLAY_DIR/usr/sbin/router-applyd"
+cp bin/routerd-linux-amd64 "$OVERLAY_DIR/usr/bin/routerd"
+cp bin/router-applyd-linux-amd64 "$OVERLAY_DIR/usr/sbin/router-applyd"
 
 echo "[2/4] Installing OpenRC init scripts..."
 cp packaging/alpine/routerd.initd "$OVERLAY_DIR/etc/init.d/routerd"
@@ -46,4 +48,5 @@ EOF
 chmod +x "$OVERLAY_DIR/etc/local.d/minimalrouter.start"
 
 echo "=== Appliance Overlay Ready at $OVERLAY_DIR ==="
-echo "To produce bootable .iso image on Alpine build host, run: mkimage.sh --profile minimalrouter --overlay $OVERLAY_DIR"
+echo "No bootable ISO was produced."
+echo "A reviewed Alpine mkimage profile, package repository, signing, and boot test remain release gates."

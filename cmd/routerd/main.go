@@ -180,8 +180,7 @@ func main() {
 
 // managementDestinationHandler is a second boundary behind nftables. Even if
 // a future firewall regression opens the TCP port, routerd refuses requests
-// whose destination address is not a local network interface IP, an active
-// LAN IP, or an active WireGuard management IP.
+// whose destination address is not an active LAN or WireGuard management IP.
 func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		localAddr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
@@ -201,15 +200,26 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 		}
 
 		allowed := make(map[string]struct{})
+		allowedHosts := make(map[string]struct{})
 		addConfigAddresses := func(cfg config.SystemConfig, includeLAN bool) {
+			hostname := strings.ToLower(strings.TrimSpace(cfg.System.Hostname))
+			domain := strings.ToLower(strings.Trim(strings.TrimSpace(cfg.System.Domain), "."))
+			if hostname != "" {
+				allowedHosts[hostname] = struct{}{}
+				if domain != "" {
+					allowedHosts[hostname+"."+domain] = struct{}{}
+				}
+			}
 			if includeLAN {
 				if ip := net.ParseIP(cfg.LAN.IPAddress); ip != nil {
 					allowed[ip.String()] = struct{}{}
+					allowedHosts[ip.String()] = struct{}{}
 				}
 			}
 			if cfg.WireGuard.Enabled {
 				if ip, _, parseErr := net.ParseCIDR(cfg.WireGuard.Address); parseErr == nil {
 					allowed[ip.String()] = struct{}{}
+					allowedHosts[ip.String()] = struct{}{}
 				}
 			}
 		}
@@ -227,33 +237,13 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 			addConfigAddresses(pending.Config, true)
 		}
 
-		// Also allow connections arriving on any local network interface IP.
-		// This covers bridged/NAT VM scenarios where the actual interface IP
-		// differs from the configured LAN address. Security is maintained by
-		// nftables as the primary boundary; this handler is defense-in-depth.
-		ifaces, err := net.Interfaces()
-		if err == nil {
-			for _, iface := range ifaces {
-				if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-					continue
-				}
-				addrs, err := iface.Addrs()
-				if err != nil {
-					continue
-				}
-				for _, addr := range addrs {
-					ipNet, ok := addr.(*net.IPNet)
-					if !ok {
-						continue
-					}
-					if ipNet.IP.To4() != nil {
-						allowed[ipNet.IP.String()] = struct{}{}
-					}
-				}
-			}
-		}
-
 		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") == "1" && destination.IsLoopback() {
+			allowedHosts["127.0.0.1"] = struct{}{}
+			allowedHosts["localhost"] = struct{}{}
+			if !requestHostAllowed(r.Host, allowedHosts) {
+				http.NotFound(w, r)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -261,8 +251,24 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 			http.NotFound(w, r)
 			return
 		}
+		if !requestHostAllowed(r.Host, allowedHosts) {
+			http.NotFound(w, r)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func requestHostAllowed(rawHost string, allowed map[string]struct{}) bool {
+	host := rawHost
+	if parsed, _, err := net.SplitHostPort(rawHost); err == nil {
+		host = parsed
+	} else if strings.Contains(rawHost, ":") {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	_, ok := allowed[host]
+	return ok
 }
 
 func staticHandler(root string) http.Handler {
@@ -300,10 +306,17 @@ func staticHandler(root string) http.Handler {
 				return
 			}
 		}
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if filepath.Base(candidate) == "index.html" {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		http.ServeFile(w, r, candidate)
 	})
 }

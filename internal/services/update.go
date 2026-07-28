@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,18 +23,20 @@ const (
 	updateSignatureFile  = "minimalrouter.sig"
 	updateStagingDir     = "/var/lib/minimalrouter-update/staging"
 	updateInstalledDir   = "/var/lib/minimalrouter-update/installed"
+	updateReceiptFile    = "verified.json"
+	maxUpdatePackageSize = 256 << 20
 )
 
 // UpdateManifest describes an available system update.
 type UpdateManifest struct {
-	Version     string `json:"version"`
-	ReleaseDate string `json:"release_date"`
-	ReleaseNote string `json:"release_notes"`
-	PackageURL  string `json:"package_url"`
+	Version      string `json:"version"`
+	ReleaseDate  string `json:"release_date"`
+	ReleaseNote  string `json:"release_notes"`
+	PackageURL   string `json:"package_url"`
 	SignatureURL string `json:"signature_url"`
-	Checksum    string `json:"sha256"`
-	Size        int64  `json:"size"`
-	MinVersion  string `json:"min_version"`
+	Checksum     string `json:"sha256"`
+	Size         int64  `json:"size"`
+	MinVersion   string `json:"min_version"`
 }
 
 // UpdateStatus represents the current update state.
@@ -45,14 +49,23 @@ type UpdateStatus struct {
 	Error           string `json:"error,omitempty"`
 }
 
+type verificationReceipt struct {
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+}
+
 // CheckForUpdate queries the update server for available packages.
 func CheckForUpdate(currentVersion, updateURL string) (*UpdateManifest, error) {
 	if updateURL == "" {
 		updateURL = defaultUpdateURL
 	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(updateURL + "/manifest.json")
+	manifestURL, err := secureUpdateURL(updateURL, updateManifestFile)
+	if err != nil {
+		return nil, err
+	}
+	client := secureUpdateClient(manifestURL)
+	resp, err := client.Get(manifestURL.String())
 	if err != nil {
 		return nil, fmt.Errorf("check update: %w", err)
 	}
@@ -63,8 +76,16 @@ func CheckForUpdate(currentVersion, updateURL string) (*UpdateManifest, error) {
 	}
 
 	var manifest UpdateManifest
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&manifest); err != nil {
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, (1<<20)+1))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
 		return nil, fmt.Errorf("parse update manifest: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, fmt.Errorf("update manifest contains trailing data")
+	}
+	if err := validateUpdateManifest(&manifest, updateURL); err != nil {
+		return nil, err
 	}
 
 	return &manifest, nil
@@ -77,13 +98,20 @@ func DownloadAndVerifyUpdate(manifest *UpdateManifest, trustedKey ed25519.Public
 		updateURL = defaultUpdateURL
 	}
 
+	if len(trustedKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("trusted Ed25519 update key is required")
+	}
+	if err := validateUpdateManifest(manifest, updateURL); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(updateStagingDir, 0700); err != nil {
 		return fmt.Errorf("create staging dir: %w", err)
 	}
 
 	// Download package
 	pkgPath := filepath.Join(updateStagingDir, updatePackageFile)
-	if err := downloadFile(updateURL+"/"+manifest.PackageURL, pkgPath); err != nil {
+	pkgURL, _ := secureUpdateURL(updateURL, manifest.PackageURL)
+	if err := downloadFile(pkgURL, pkgPath, manifest.Size); err != nil {
 		return fmt.Errorf("download package: %w", err)
 	}
 
@@ -94,14 +122,15 @@ func DownloadAndVerifyUpdate(manifest *UpdateManifest, trustedKey ed25519.Public
 	}
 	hash := sha256.Sum256(pkgData)
 	actualChecksum := hex.EncodeToString(hash[:])
-	if manifest.Checksum != "" && actualChecksum != manifest.Checksum {
+	if actualChecksum != strings.ToLower(manifest.Checksum) {
 		os.Remove(pkgPath)
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", manifest.Checksum, actualChecksum)
 	}
 
 	// Download signature
 	sigPath := filepath.Join(updateStagingDir, updateSignatureFile)
-	if err := downloadFile(updateURL+"/"+manifest.SignatureURL, sigPath); err != nil {
+	sigURL, _ := secureUpdateURL(updateURL, manifest.SignatureURL)
+	if err := downloadFile(sigURL, sigPath, ed25519.SignatureSize); err != nil {
 		os.Remove(pkgPath)
 		return fmt.Errorf("download signature: %w", err)
 	}
@@ -113,12 +142,10 @@ func DownloadAndVerifyUpdate(manifest *UpdateManifest, trustedKey ed25519.Public
 	}
 
 	// Verify Ed25519 signature
-	if trustedKey != nil && len(sigData) == ed25519.SignatureSize {
-		if !ed25519.Verify(trustedKey, pkgData, sigData) {
-			os.Remove(pkgPath)
-			os.Remove(sigPath)
-			return fmt.Errorf("signature verification failed — package may be tampered")
-		}
+	if len(sigData) != ed25519.SignatureSize || !ed25519.Verify(trustedKey, pkgData, sigData) {
+		_ = os.Remove(pkgPath)
+		_ = os.Remove(sigPath)
+		return fmt.Errorf("signature verification failed — package may be tampered")
 	}
 
 	// Save manifest for install step
@@ -126,6 +153,13 @@ func DownloadAndVerifyUpdate(manifest *UpdateManifest, trustedKey ed25519.Public
 	manifestData, _ := json.MarshalIndent(manifest, "", "  ")
 	if err := os.WriteFile(manifestPath, manifestData, 0600); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
+	}
+	receiptData, err := json.Marshal(verificationReceipt{SHA256: actualChecksum, Size: int64(len(pkgData))})
+	if err != nil {
+		return fmt.Errorf("create verification receipt: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(updateStagingDir, updateReceiptFile), receiptData, 0600); err != nil {
+		return fmt.Errorf("save verification receipt: %w", err)
 	}
 
 	return nil
@@ -135,8 +169,19 @@ func DownloadAndVerifyUpdate(manifest *UpdateManifest, trustedKey ed25519.Public
 // On Alpine Linux, this uses apk to install the package.
 func InstallUpdate() error {
 	pkgPath := filepath.Join(updateStagingDir, updatePackageFile)
-	if _, err := os.Stat(pkgPath); os.IsNotExist(err) {
+	pkgData, err := os.ReadFile(pkgPath)
+	if err != nil {
 		return fmt.Errorf("no update package found in staging")
+	}
+	var receipt verificationReceipt
+	receiptData, err := os.ReadFile(filepath.Join(updateStagingDir, updateReceiptFile))
+	if err != nil || json.Unmarshal(receiptData, &receipt) != nil {
+		return fmt.Errorf("update package has no valid verification receipt")
+	}
+	hash := sha256.Sum256(pkgData)
+	if len(pkgData) == 0 || int64(len(pkgData)) != receipt.Size ||
+		hex.EncodeToString(hash[:]) != receipt.SHA256 {
+		return fmt.Errorf("staged update changed after verification")
 	}
 
 	// Create installed dir for rollback
@@ -145,7 +190,8 @@ func InstallUpdate() error {
 	}
 
 	// Install via apk
-	cmd := exec.Command("/sbin/apk", "add", "--allow-untrusted", pkgPath)
+	// apk must independently validate the APK's Alpine package signature.
+	cmd := exec.Command("/sbin/apk", "add", "--no-interactive", pkgPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -158,9 +204,12 @@ func InstallUpdate() error {
 	return nil
 }
 
-func downloadFile(url, dest string) error {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(url)
+func downloadFile(source *url.URL, dest string, expectedSize int64) error {
+	if expectedSize <= 0 || expectedSize > maxUpdatePackageSize {
+		return fmt.Errorf("invalid expected download size")
+	}
+	client := secureUpdateClient(source)
+	resp, err := client.Get(source.String())
 	if err != nil {
 		return err
 	}
@@ -170,12 +219,68 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	f, err := os.Create(dest)
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	written, err := io.Copy(f, io.LimitReader(resp.Body, expectedSize+1))
+	if err != nil {
+		return err
+	}
+	if written != expectedSize {
+		return fmt.Errorf("download size mismatch: expected %d, received %d", expectedSize, written)
+	}
+	return f.Sync()
+}
+
+func secureUpdateURL(baseURL, relative string) (*url.URL, error) {
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil {
+		return nil, fmt.Errorf("update base URL must be absolute HTTPS")
+	}
+	ref, err := url.Parse(relative)
+	if err != nil || ref.IsAbs() || ref.Host != "" || ref.User != nil ||
+		ref.Fragment != "" || strings.HasPrefix(ref.Path, "/") {
+		return nil, fmt.Errorf("update artifact URL must be a safe relative path")
+	}
+	resolved := base.ResolveReference(ref)
+	if !strings.EqualFold(resolved.Host, base.Host) || resolved.Scheme != "https" {
+		return nil, fmt.Errorf("update artifact URL escaped the trusted origin")
+	}
+	return resolved, nil
+}
+
+func secureUpdateClient(origin *url.URL) *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 || req.URL.Scheme != "https" ||
+				!strings.EqualFold(req.URL.Host, origin.Host) {
+				return fmt.Errorf("unsafe update redirect rejected")
+			}
+			return nil
+		},
+	}
+}
+
+func validateUpdateManifest(manifest *UpdateManifest, updateURL string) error {
+	if manifest == nil || manifest.Version == "" || len(manifest.Version) > 64 {
+		return fmt.Errorf("manifest version is missing or invalid")
+	}
+	if manifest.Size <= 0 || manifest.Size > maxUpdatePackageSize {
+		return fmt.Errorf("manifest package size is invalid")
+	}
+	checksum, err := hex.DecodeString(manifest.Checksum)
+	if err != nil || len(checksum) != sha256.Size {
+		return fmt.Errorf("manifest must contain a valid SHA-256 checksum")
+	}
+	if _, err := secureUpdateURL(updateURL, manifest.PackageURL); err != nil {
+		return err
+	}
+	if _, err := secureUpdateURL(updateURL, manifest.SignatureURL); err != nil {
+		return err
+	}
+	return nil
 }

@@ -20,7 +20,8 @@ Implemented and tested:
   atomic apply, verification, commit-confirm, and rollback.
 - Default-deny nftables; new inbound WAN traffic is WireGuard-only. Dashboard
   and MCP are LAN/WireGuard-only. Port forwards and DNAT fail closed.
-- dnsmasq, PPPoE generation, WireGuard, and Squid privileged lifecycle paths.
+- dnsmasq, PPPoE generation, WireGuard, Squid, global DNS blocklist,
+  and bounded QoS privileged lifecycle paths.
 - Real WireGuard client key generation, one-time `.conf`, and real PNG QR.
   The client private key is never persisted.
 - Argon2id authentication, TOTP, persistent rate limits, secure cookies, CSRF,
@@ -28,15 +29,19 @@ Implemented and tested:
   Argon2id + AES-GCM backups, and bounded metadata-only audit events.
 - Preview-first pfSense import with explicit Linux interface mapping. NAT is
   imported disabled and unsupported sections are reported.
-- Truthful runtime status. Unsupported Cloudflare, AdGuard, Wi-Fi, QoS, DoH,
-  and automatic update lifecycle paths are visibly unavailable rather than
-  simulated.
-- **Session 6: Migrated from vinext (Next.js) to Vite + React.**
-  Build time: 266ms (was ~5s). 2 deps + 7 devDeps (was 3+13). Dashboard: 360 KB (was ~30 MB).
+- Truthful runtime status. Cloudflare DDNS uses Alpine `inadyn`; Wi-Fi uses
+  `hostapd` and a commit-confirmed `br-lan` bridge on AP-capable hardware.
+  Cloudflare Tunnel, DoH, per-device DNS policy, and automatic updates remain
+  visibly unavailable rather than simulated. QoS must apply a real qdisc;
+  AdGuard is a global dnsmasq sinkhole only.
+- **Frontend: migrated from vinext (Next.js) to Vite + React.**
+  Current local build time is about 250ms. There are 2 runtime and 12 pinned
+  development dependencies. Dashboard assets are about 360 KB uncompressed
+  (the old framework output was about 30 MB).
   `web/dist/index.html` is the entry point (not `web/dist/client/`).
-- **Session 6: Memory optimization.** GOGC=50, GOMEMLIMIT=128/64 MB,
-  SQLite pool capped (MaxOpen=4, MaxIdle=2), Argon2 memory reduced to 32 MiB.
-  Post-optimization: 152 MB RAM (was 216 MB, -30%).
+- **Memory baseline.** GOGC=50, GOMEMLIMIT=128/64 MB and a bounded SQLite
+  pool remain. Authentication Argon2id is 64 MiB, matching `SECURITY.md`;
+  historical 32 MiB measurements are not the current release baseline.
 - **Session 7: Distribution pipeline.** `make dist-arm64` / `make dist-amd64`
   produces self-contained tarballs. `quick-test.sh` automates VM boot + install.
 
@@ -50,7 +55,8 @@ From the repository root:
 ```sh
 go test ./...
 go vet ./...
-[Web dist pre-built check] if [ ! -f web/dist/index.html ]; then echo "ERROR: run 'cd web && npm run build' first"; exit 1; fi
+pnpm --dir web lint
+pnpm --dir web build
 ```
 
 The Unix-socket test can require execution outside a restrictive sandbox. Do
@@ -76,17 +82,20 @@ Output: `build/minimalrouter-linux-{arm64,amd64}.tar.gz` (~8 MB each).
 On target Alpine machine:
 
 ```sh
-tar xzf minimalrouter-linux-aarch64.tar.gz
-cd minimalrouter-linux-aarch64
+tar xzf minimalrouter-linux-arm64.tar.gz
+cd minimalrouter-linux-arm64
 sudo sh install.sh
 ```
 
-The dist installer (`install-dist.sh`) does not require the source repo.
+The dist installer's source is `packaging/alpine/install-dist.sh`; it is
+packaged as `install.sh` and does not require the source repo.
 The source-repo installer (`packaging/alpine/install.sh`) is for development.
 
-## Quick VM test (one command)
+## Quick VM smoke run (one command)
 
-Boots Alpine VM, installs router, runs tests, leaves VM running:
+Builds current assets, boots an Alpine VM, installs the router, prints smoke
+checks, and leaves the VM running for manual inspection. This convenience
+harness is not a substitute for the release evidence matrix:
 
 ```sh
 sh quick-test.sh              # Boot + install + test
@@ -101,7 +110,7 @@ This is a simulator for UI/API/SQLite/transaction behavior only. It must not be
 described as a Linux firewall test and it must never be enabled on Linux.
 
 ```sh
-# Web assets (if rebuilding): cd web && npm run build
+# Web assets (if rebuilding): pnpm --dir web build
 # For VM tests, pre-built web/dist/ is used automatically.
 cd ..
 go build -o /tmp/minimalrouter-routerd-preview ./cmd/routerd
@@ -133,7 +142,7 @@ Prepare official Alpine 3.22.5 ARM64 assets and verify the published SHA-256:
 ```sh
 tools/macos-vm/prepare-alpine.sh 3.22.5
 make build-linux-arm64
-# Web assets (if rebuilding): cd web && npm run build
+# Web assets (if rebuilding): pnpm --dir web build
 # For VM tests, pre-built web/dist/ is used automatically.
 cd ..
 tools/macos-vm/run-alpine.sh 3.22.5
@@ -159,19 +168,18 @@ printf '%s\n' \
   > /etc/apk/repositories
 apk update
 apk add nftables ppp ppp-pppoe dnsmasq iproute2 curl ca-certificates \
-  wireguard-tools-wg-quick squid
+  wireguard-tools-wg squid
 ```
 
-For a disposable lab install only:
+Install and start the appliance:
 
 ```sh
-MINIMALROUTER_ALLOW_UNENCRYPTED=1 sh packaging/alpine/install.sh
+sh packaging/alpine/install.sh
 rc-service router-applyd start
 rc-service routerd start
 ```
 
-The unencrypted override is forbidden on a real appliance. This live ISO is
-ephemeral: all VM changes disappear when it stops.
+This live ISO is ephemeral: all VM changes disappear when it stops.
 
 ## VM-specific constraints
 
@@ -179,64 +187,42 @@ ephemeral: all VM changes disappear when it stops.
 - **VM has only `eth0`** (NAT) — must create `ip link add eth1 type dummy` before starting services
 - **PTY heredocs are unreliable** — use `jq` to parse JSON responses inside the VM, and Go-based helper tools on the host instead of inline `python3 -c`
 - **WireGuard requires WAN enabled** — `validation.go:326` needs `WAN.Enabled=true` → needs PPPoE → `/dev/ppp` unavailable in VM
-- **AdGuard/Update blocked** — nftables output chain blocks outbound HTTPS
-- **LUKS unavailable** — requires interactive password at boot
+- **Global blocklist** — built-in list works offline; online refresh is
+  intentionally not exposed in the hardened pilot
 - **`web/dist/index.html` must exist** for `install.sh` to succeed
 
 ## Resource usage (real VM measurements)
 
 | Metric | Our Router | OpenWrt | pfSense |
 |--------|-----------|---------|---------|
-| RAM | 152 MB | 30-60 MB | 300-500 MB |
-| Disk | 77 MB | 8-16 MB | 8+ GB |
-| Dashboard | 360 KB | N/A | ~50 MB |
-| Packages | 100 | 50-100 | 300-500 |
-| Build time | 266ms | N/A | N/A |
+| RAM | 140 MiB idle; 203 MiB after setup/config work | 64 MiB minimum; 128 MiB preferable | 1 GiB minimum |
+| Disk | ~60 MiB initial payload; 4 GiB bench / 8 GiB production provision | >32 MiB flash recommended | 8 GB minimum |
+| Dashboard | 360 KiB | Image dependent | Included |
+| Packages | 89 in the Bash-free Wi-Fi/DDNS 2026-07-28 test VM | Image dependent | Installation dependent |
 
-Our router is 3x lighter than pfSense, 3-5x heavier than OpenWrt.
-Cost of modern Go+React stack vs embedded C/busybox.
+OpenWrt and pfSense figures are official minimum/recommended provisioning
+guidance, while our figures are measured. Do not turn this into a security or
+feature-parity claim. Use 512 MiB as the current tested minimum and 1 GiB for
+comfortable production headroom.
 
-## Linux integration checks already demonstrated
+Node.js and Bash are absent at runtime. Project-owned Alpine scripts use
+BusyBox `ash`; WireGuard uses the `wireguard-tools-wg` subpackage and fixed
+`wg`/`ip` calls rather than `wg-quick`. The ARM64 integration test completed a
+real handshake and encrypted packet transfer.
 
-All tests pass (17/17 functional + 28/28 security audit):
+## Verification status
 
-### Functional tests (all PASS)
-1. Login → redirect to dashboard (HTTP 200)
-2. CSRF token refresh
-3. Config read/write
-4. System status (CPU, RAM, disk, uptime)
-5. Backup create/restore
-6. TOTP enable/disable
-7. nftables firewall status
-8. WireGuard status (stub)
-9. AdGuard status (stub)
-10. QoS status (stub)
-11. Cloudflare DDNS status (stub)
-12. Squid proxy config
-13. Reboot trigger
-14. Audit event log
-15. Session logout
-16. Setup wizard apply
-17. Static dashboard serve
+Historical VM runs demonstrated the firewall, HTTPS, authentication, process
+split, and core apply path, but they also exposed a stale ARM packaging bug and
+a commit-confirm revision mismatch. Both have regression fixes and were
+retested on 2026-07-28. Treat older “all pass” counts as obsolete after material
+changes. Exact current host and VM results are in
+[`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md); never list an unsupported
+status stub as a functional pass.
 
-### Security audit (all 28 checks PASS)
-- WAN default deny policy: YES
-- WireGuard-only ingress: YES
-- LAN/WireGuard-only dashboard: YES
-- Port forwards fail closed: YES
-- HTTPS-only with Secure cookies: YES
-- CSRF protection: YES
-- Rate limiting: YES
-- Response redaction: YES
-- Argon2id password hashing: YES
-- AES-256-GCM backup encryption: YES
-- Ed25519 firmware verification: YES
-- Persistent audit events: YES
-- (All 28 checks verified in session 5)
-
-Repeat them after material firewall, apply-helper, WireGuard, authentication,
-or packaging changes. Record exact commands and results in this file or
-`docs/TESTING.md`; do not convert previous observations into permanent claims.
+Detailed resource, encrypted-state, hard-power, rollback, synthetic scan, and
+throughput evidence is in
+[`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md).
 
 Useful service evidence:
 

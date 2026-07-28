@@ -46,7 +46,8 @@ type WireGuardPeer struct {
 type CloudflareConfig struct {
 	DDNSEnabled   bool   `json:"ddns_enabled"`
 	APIToken      string `json:"api_token,omitempty"`
-	ZoneID        string `json:"zone_id"`
+	ZoneID        string `json:"zone_id,omitempty"` // Legacy field retained for import compatibility
+	ZoneName      string `json:"zone_name,omitempty"`
 	Domain        string `json:"domain"`
 	TunnelEnabled bool   `json:"tunnel_enabled"`
 	TunnelToken   string `json:"tunnel_token,omitempty"`
@@ -61,6 +62,18 @@ type WiFiConfig struct {
 	Band       string `json:"band"`                 // "2.4ghz" or "5ghz"
 	Channel    int    `json:"channel"`              // e.g. 6 or 36
 	HideSSID   bool   `json:"hide_ssid"`
+}
+
+const WiFiBridgeInterface = "br-lan"
+
+// RuntimeLANInterface returns the interface that owns the LAN address and
+// receives LAN firewall/DHCP policy. Wi-Fi clients join the same LAN through a
+// bridge instead of being placed on an unprotected parallel subnet.
+func (c SystemConfig) RuntimeLANInterface() string {
+	if c.WiFi.Enabled {
+		return WiFiBridgeInterface
+	}
+	return c.LAN.Interface
 }
 
 // QoSConfig holds traffic shaping and CAKE / FQ-CoDel bufferbloat prevention settings.
@@ -134,11 +147,11 @@ type LANSettings struct {
 // DHCPSettings holds dnsmasq DHCP server configuration and static leases.
 type DHCPSettings struct {
 	Enabled      bool          `json:"enabled"`
-	DNSEnabled   bool          `json:"dns_enabled"`    // Enable DNS-over-HTTPS proxy
-	RangeStart   string        `json:"range_start"`    // e.g. "192.168.1.100"
-	RangeEnd     string        `json:"range_end"`      // e.g. "192.168.1.200"
-	LeaseTime    string        `json:"lease_time"`     // e.g. "12h"
-	DNSServers   []string      `json:"dns_servers"`    // e.g. ["1.1.1.1", "8.8.8.8"]
+	DNSEnabled   bool          `json:"dns_enabled"` // Enable DNS-over-HTTPS proxy
+	RangeStart   string        `json:"range_start"` // e.g. "192.168.1.100"
+	RangeEnd     string        `json:"range_end"`   // e.g. "192.168.1.200"
+	LeaseTime    string        `json:"lease_time"`  // e.g. "12h"
+	DNSServers   []string      `json:"dns_servers"` // e.g. ["1.1.1.1", "8.8.8.8"]
 	StaticLeases []StaticLease `json:"static_leases"`
 }
 
@@ -235,6 +248,7 @@ func DefaultConfig() SystemConfig {
 			DDNSEnabled:   false,
 			APIToken:      "",
 			ZoneID:        "",
+			ZoneName:      "",
 			Domain:        "",
 			TunnelEnabled: false,
 			TunnelToken:   "",
@@ -248,7 +262,7 @@ func DefaultConfig() SystemConfig {
 		},
 		AdGuard: AdGuardConfig{
 			Enabled:       false,
-			BlocklistURL:  "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+			BlocklistURL:  "",
 			LastUpdated:   "Never",
 			FilterDevices: []FilterDeviceRule{},
 		},

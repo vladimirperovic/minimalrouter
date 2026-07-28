@@ -4,15 +4,21 @@
 
 | Metric | Minimal Router OS | OpenWrt | pfSense |
 |--------|-------------------|---------|---------|
-| RAM (running) | ~152 MB | ~30–60 MB | ~300–500 MB |
-| Disk (installed) | ~77 MB | ~8–16 MB | ~8+ GB |
-| Dashboard | ~360 KB (static SPA) | ~0 KB (UCI/webif) | ~50 MB (PHP/HTML) |
-| Packages | ~86 (Alpine base + router services) | ~50–100 (BusyBox based) | ~300–500 (FreeBSD base + pkg) |
+| RAM | 140 MiB idle; 203 MiB after setup/config work; 512 MiB tested minimum, 1 GiB comfortable | 64 MiB minimum, 128 MiB preferable (official device guidance) | 1 GiB minimum (official requirement) |
+| Disk | ~60 MiB initial payload; use 4 GiB bench / 8 GiB production | >32 MiB flash recommended for modern use | 8 GB minimum (official requirement) |
+| Dashboard | 360 KiB static SPA | LuCI is optional and device/image dependent | Included web configurator |
+| Packages | 89 in the measured Alpine VM | Image/device dependent | Installation/package set dependent |
 | OS base | Alpine Linux 3.22 (musl) | BusyBox (musl) | FreeBSD 14 |
-| Build system | Go 1.24 + Vite/React + Alpine mkimage | C/Cross-compile (Buildroot) | Go + C (FreeBSD kernel + userland) |
-| Binary size (routerd) | ~6 MB (static, CGO_ENABLED=0, stripped) | N/A | N/A |
-| Boot time | ~3–5 s (QEMU/KVM) | ~2–4 s | ~10–30 s |
+| Build system | Go 1.25 + Vite/React + Alpine mkimage | C/Cross-compile (Buildroot) | Go + C (FreeBSD kernel + userland) |
+| Application binaries | 18.2 MiB combined, static and stripped | Image/package dependent | Installation/package set dependent |
 | Management API | REST (`/api/v1`) | UCI + LuCI HTML forms | XML API + Web GUI |
+
+The Minimal Router values were measured in an Alpine ARM64 VM on 2026-07-28.
+OpenWrt and pfSense values above are official provisioning guidance, not
+identical workload measurements. Footprint does not imply equivalent feature
+coverage, maturity, or security assurance. See the
+[resource and hardware test](RESOURCE_AND_HARDWARE_TEST.md) for method,
+limitations, and primary sources.
 
 ## Security Model Comparison
 
@@ -44,7 +50,7 @@
 
 | Feature | Minimal Router OS | OpenWrt | pfSense |
 |---------|-------------------|---------|---------|
-| Password hashing | **Argon2id** (64 MiB, 3 I, 4 lanes) | MD5/SHA (legacy) | bcrypt |
+| Password hashing | **Argon2id** (64 MiB, 3 iterations, 2 lanes) | Platform/version dependent | Platform/version dependent |
 | Session cookies | **Secure + HttpOnly + SameSite=Strict**, 256-bit entropy, 30 min idle / 8 hr absolute | Session-based (web) | Session-based (web) |
 | CSRF protection | **Mandatory** per-stateful request | Limited | Built-in |
 | Rate limiting | **Per-source + global**, bounded, restart-aware | Basic (uci) | Basic |
@@ -56,7 +62,7 @@
 
 | Feature | Minimal Router OS | OpenWrt | pfSense |
 |---------|-------------------|---------|---------|
-| API spec | **OpenAPI typed**, strict models | UCI (text-based) | REST API (JSON) |
+| API spec | Versioned REST API; OpenAPI coverage is still being completed | UCI (text-based) | Platform/package dependent |
 | Unknown field rejection | **Yes** (`DisallowUnknownFields`) | No (text parsing) | No (JSON loose) |
 | Constant-time compare | **Yes** (`crypto/subtle`) for session/token comparison | No | No |
 | Parameterized storage | **SQLite** (parameterized queries) | UCI text files | PHP/PostgreSQL |
@@ -84,11 +90,11 @@
 |---------|-------------------|---------|---------|
 | Go module pinning | **Yes** (go.sum, GOSUMDB) | N/A (C toolchain) | N/A |
 | Frontend lockfile | **Yes** (pnpm-lock.yaml) | N/A | N/A |
-| Reproducible builds | Yes (Go static, Alpine reproducible) | Partial | Partial |
+| Reproducible builds | Targeted; independent reproducibility evidence is a release gate | Project-dependent | Project-dependent |
 | SBOM generation | Planned | No | No |
-| Firmware verification | **Ed25519** signatures | No | Manual |
+| Firmware verification | Ed25519 verifier exists; automatic update path is disabled | Signed release mechanism | Signed release mechanism |
 | Signed updates | Planned | Yes (opkg) | Yes (pkg) |
-| Recovery media | Bootable ISO, signed | Not standard | Bootable USB |
+| Recovery media | Planned; signed boot evidence is a release gate | Project release images | Project release images |
 
 ## Key Differentiators
 
@@ -103,10 +109,14 @@
 - **Embedded flexibility**: Runs on many hardware platforms
 - **Customizability**: UCI + shell scripting, enormous package ecosystem
 - **Lightweight**: Smallest footprint of all three
-- **Community driven**: Large package collection, but less security review
+- **Community driven**: Large package collection and long deployment history
 
 ### pfSense is designed for:
 - **Enterprise features**: VLANs, HA clustering, IPsec, extensive plugin ecosystem
 - **Maturity**: Based on FreeBSD, long track record
 - **Flexibility**: Rich GUI, comprehensive network management
 - **Resource hungry**: Much larger footprint than Minimal Router OS or OpenWrt
+
+Minimal Router currently has the smallest supported surface of the three, but
+also the least deployment history and external review. It must not be described
+as more secure than OpenWrt or pfSense solely because it is smaller.

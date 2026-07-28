@@ -19,7 +19,10 @@ networking knowledge, and just works with excellent UX and minimal overhead.
 5. The UI and API are two clients of the same validated configuration model.
 6. Hypervisor-specific optimizations are optional and never required.
 
-## Supported platforms
+## Target platforms
+
+These remain targets until the release compatibility matrix records a passing
+install, boot, networking, rollback, and performance run for each platform.
 
 - Bare metal
 - Proxmox VE
@@ -32,12 +35,11 @@ networking knowledge, and just works with excellent UX and minimal overhead.
 
 - Alpine Linux
 - Go backend
-- Svelte + TypeScript frontend
+- React + TypeScript + Vite frontend (static assets; no Node.js runtime)
 - nftables
 - pppd
 - dnsmasq
 - WireGuard
-- cloudflared
 - SQLite
 
 ## Installation experience
@@ -69,7 +71,7 @@ The dashboard shows only:
 - WAN and LAN traffic
 - Connected devices
 - WireGuard status
-- Cloudflare Tunnel status
+- Supported-service health and explicit unavailable states
 
 There are no decorative or unnecessary graphs.
 
@@ -78,9 +80,13 @@ The primary pages are:
 - Internet
 - LAN and DHCP
 - Static Leases
-- Simple Firewall: allow, deny, port forward, and NAT
+- Simple Firewall: allow/deny and LAN-to-WAN NAT; inbound WAN port forwards are
+  forbidden
 - WireGuard
-- Cloudflare DDNS and Tunnel
+- Cloudflare DDNS through the packaged and verified Alpine `inadyn` lifecycle
+- Wi-Fi access point on a compatible AP-capable Linux radio
+- Cloudflare Tunnel remains unavailable because WireGuard is the only remote
+  entry path
 - Backup and Restore
 - Updates
 
@@ -149,10 +155,12 @@ Version 1 is complete when a user can:
 - Install on bare metal and at least one supported hypervisor.
 - Complete the first-run wizard without networking expertise.
 - Establish a PPPoE internet connection.
-- Manage LAN, DHCP, static leases, simple firewall rules, NAT, and port
-  forwarding.
-- Configure WireGuard and Cloudflare features.
-- Back up, restore, and update the appliance safely.
+- Manage LAN, DHCP, static leases, simple firewall rules, and LAN-to-WAN NAT
+  while WAN port forwarding remains forbidden.
+- Configure WireGuard, Cloudflare DDNS, and a Wi-Fi access point on compatible
+  hardware. Cloudflare Tunnel and DoH are visibly unavailable and rejected.
+- Back up and restore the appliance safely. Automatic updates are a later
+  release gate, not a current capability.
 - Recover automatically from an invalid or connectivity-breaking change.
 
 The release must also meet the security gates in `SECURITY.md` and performance

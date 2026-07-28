@@ -10,7 +10,7 @@ Minimal Router OS separates the control plane (Go management services) from the 
 ```mermaid
 flowchart LR
     Browser["Admin Browser / Client"]
-    UI["Static Web UI (Svelte)"]
+    UI["Static Web UI (React + Vite)"]
     API["routerd (unprivileged Go)"]
     DB[("SQLite Canonical Store")]
     Apply["router-applyd (privileged Go)"]
@@ -28,9 +28,12 @@ flowchart LR
 ## Configuration Decisions (v1 Baseline)
 
 - **Alpine Linux**: Pinned to stable branch `3.22`
-- **Go Version**: `1.24`
+- **Go Version**: `1.25`
 - **Certificate Strategy**: Self-signed TLS bootstrap for initial v1 setup
-- **Deferred Integrations**: WireGuard, Cloudflare DDNS, Cloudflare Tunnel (deferred to iteration 2 for modularity)
+- **Implemented Integrations**: WireGuard, Cloudflare DDNS through `inadyn`,
+  and Wi-Fi AP through `hostapd` on compatible hardware.
+- **Deferred Integrations**: Cloudflare Tunnel, DoH, per-device DNS policy,
+  and automatic updates.
 - **Primary Core Focus**: Scaffolding, SQLite canonical store, Apply State Machine, `router-applyd` Unix socket IPC, REST API, `nftables` generator, `pppd` generator, `dnsmasq` generator, LAN/DHCP commit-confirmed safety.
 
 ---
@@ -64,7 +67,7 @@ Scaffold standard Go directory layout per `ARCHITECTURE.md`:
 ```
 
 ### 1.2 Go Module & Dependencies
-Initialize `go.mod` (Go 1.24):
+Initialize `go.mod` (Go 1.25):
 - `modernc.org/sqlite` or `github.com/mattn/go-sqlite3` (CGO-free / embedded SQLite)
 - `golang.org/x/crypto/argon2` (Argon2id hashing)
 - Standard Go HTTP / router (`net/http`)
@@ -107,4 +110,5 @@ Initialize `go.mod` (Go 1.24):
 
 - **Unit tests**: `make test` for config generators, validation rules, state machine transitions.
 - **Rollback Safety**: Commit-confirmed timeout for LAN address changes.
-- **Preview Preservation**: Existing preview (`web/app/page.tsx`) preserved without modification.
+- **Static UI**: `web/src/App.tsx` builds to `web/dist/`; the appliance has no
+  Node.js runtime.

@@ -98,3 +98,88 @@ func TestValidationRejectsEveryEnabledWANPortForward(t *testing.T) {
 		t.Fatalf("expected WireGuard-only WAN ingress rejection, got %v", err)
 	}
 }
+
+func TestValidationRejectsUnavailableDashboardFeatures(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*SystemConfig)
+	}{
+		{"doh", func(cfg *SystemConfig) { cfg.DHCP.DNSEnabled = true }},
+		{"per-device DNS", func(cfg *SystemConfig) {
+			cfg.AdGuard.FilterDevices = []FilterDeviceRule{{
+				Hostname: "child", IPAddress: "192.168.1.50", Enabled: true,
+			}}
+		}},
+		{"external blocklist", func(cfg *SystemConfig) {
+			cfg.AdGuard.BlocklistURL = "https://example.com/hosts"
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			tc.mutate(&cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("unavailable feature was accepted")
+			}
+		})
+	}
+}
+
+func TestValidationAcceptsSupportedWiFiAndCloudflareDDNS(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WiFi.Enabled = true
+	cfg.WiFi.Interface = "wlan0"
+	cfg.WiFi.SSID = "Office"
+	cfg.WiFi.Passphrase = "secure-wifi-passphrase"
+	cfg.WiFi.Band = "5ghz"
+	cfg.WiFi.Channel = 36
+	cfg.Cloudflare.DDNSEnabled = true
+	cfg.Cloudflare.Domain = "router.example.com"
+	cfg.Cloudflare.ZoneName = "example.com"
+	cfg.Cloudflare.APIToken = "abcdefghijklmnopqrstuvwxyz_123456"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("supported Wi-Fi and Cloudflare DDNS config was rejected: %v", err)
+	}
+}
+
+func TestValidationStillRejectsCloudflareTunnel(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Cloudflare.TunnelEnabled = true
+	cfg.Cloudflare.TunnelToken = "abcdefghijklmnopqrstuvwxyz_123456"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "WireGuard is the only allowed remote-entry path") {
+		t.Fatalf("expected Cloudflare Tunnel rejection, got %v", err)
+	}
+}
+
+func TestValidationBoundsQoSRate(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.QoS.Enabled = true
+	cfg.QoS.DownloadLimitMbps = 100001
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("unbounded QoS rate was accepted")
+	}
+}
+
+func TestValidationRejectsWireGuardRouteWiderThanTunnelSubnet(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Peers = []WireGuardPeer{{
+		ID:         "peer-1",
+		Name:       "peer-one",
+		PublicKey:  "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		AllowedIPs: []string{"10.8.0.0/16"},
+		Enabled:    true,
+	}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "inside the WireGuard subnet") {
+		t.Fatalf("expected wider WireGuard route rejection, got %v", err)
+	}
+}

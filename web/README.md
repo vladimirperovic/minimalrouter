@@ -10,7 +10,7 @@ pnpm install
 pnpm dev
 ```
 
-Open `http://localhost:3000`.
+Open the URL printed by Vite (normally `http://localhost:5173`).
 
 > The pre-built `web/dist/` is used for VM deployment. Rebuild only if
 > the frontend source has changed.
@@ -21,5 +21,7 @@ Open `http://localhost:3000`.
 pnpm build
 ```
 
-The current values and controls are illustrative. The production interface will
-receive state from the versioned Minimal Router REST API.
+The appliance interface reads state from the versioned REST API. Controls
+without a verified Alpine runtime adapter are disabled and labelled rather
+than simulated. Node.js and pnpm are build-time dependencies only; the router
+serves `dist/` directly from the Go process.

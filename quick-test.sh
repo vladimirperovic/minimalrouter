@@ -4,11 +4,13 @@
 # Usage: sh quick-test.sh [--teardown]
 set -e
 
-VM_DIR="/private/tmp/minimalrouter-alpine-3.22.5"
-REPO="/Users/Vladimir/Documents/minimalrouter"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+VM_DIR="${MINIMALROUTER_VM_DIR:-/private/tmp/minimalrouter-alpine-3.22.5}"
+REPO="$SCRIPT_DIR"
 API="https://192.168.1.1:8443"
-PASSWD="SuperSecure12345678"
+PASSWD="${MINIMALROUTER_TEST_PASSWORD:-SuperSecure12345678}"
 LOG="$VM_DIR/quick-test.log"
+PID_FILE="$VM_DIR/quick-test.pid"
 
 # Parse args
 TEARDOWN=0
@@ -21,8 +23,15 @@ done
 cleanup() {
     if [ "$TEARDOWN" = "1" ]; then
         echo "Tearing down existing VM..."
-        ps aux | grep minimalrouter-alpine-vm | grep -v grep | awk '{print $2}' | xargs kill 2>/dev/null || true
-        sleep 2
+        if [ -f "$PID_FILE" ]; then
+            old_pid="$(cat "$PID_FILE")"
+            case "$old_pid" in
+                *[!0-9]*|"") echo "Ignoring invalid PID file: $PID_FILE" >&2 ;;
+                *) kill "$old_pid" 2>/dev/null || true ;;
+            esac
+            rm -f "$PID_FILE"
+            sleep 2
+        fi
     fi
 }
 
@@ -30,53 +39,36 @@ cleanup() {
 echo "=== Step 1: Building binaries + web assets ==="
 cd "$REPO"
 make build-linux-arm64 2>&1 | tail -3
-if [ ! -f web/dist/index.html ]; then
-    cd web && npm run build 2>&1 | tail -3
-else
-    echo "  (web/dist already built, skipping npm)"
-fi
-cd "$REPO"
+pnpm --dir web build 2>&1 | tail -8
 
 # Verify builds
 [ -f bin/routerd-linux-arm64 ] || { echo "ERROR: bin/routerd-linux-arm64 not found" >&2; exit 1; }
 [ -f bin/router-applyd-linux-arm64 ] || { echo "ERROR: bin/router-applyd-linux-arm64 not found" >&2; exit 1; }
 [ -f web/dist/index.html ] || { echo "ERROR: web/dist/index.html not found" >&2; exit 1; }
 
-# Copy binaries to expected locations
-cp bin/routerd-linux-arm64 bin/routerd
-cp bin/router-applyd-linux-arm64 bin/router-applyd
-
 echo "=== Step 2: Preparing VM ==="
 mkdir -p "$VM_DIR"
-
-# Prepare VM directory with dist content
-mkdir -p "$VM_DIR/dist/bin" "$VM_DIR/dist/web/dist" "$VM_DIR/dist/init.d" "$VM_DIR/dist/sysctl" "$VM_DIR/dist/modules"
-cp bin/routerd-linux-arm64 "$VM_DIR/dist/bin/routerd-arm64"
-cp bin/router-applyd-linux-arm64 "$VM_DIR/dist/bin/router-applyd-arm64"
-cp -R web/dist/. "$VM_DIR/dist/web/dist/"
-cp packaging/alpine/routerd.initd "$VM_DIR/dist/init.d/routerd"
-cp packaging/alpine/router-applyd.initd "$VM_DIR/dist/init.d/router-applyd"
-cp packaging/alpine/pppoe-wan.initd "$VM_DIR/dist/init.d/pppoe-wan"
-cp packaging/alpine/99-minimalrouter.conf "$VM_DIR/dist/sysctl/99-minimalrouter.conf"
-cp packaging/alpine/minimalrouter.modules "$VM_DIR/dist/modules/minimalrouter.conf"
-cp packaging/alpine/install-dist.sh "$VM_DIR/dist/install.sh"
-chmod +x "$VM_DIR/dist/install.sh"
 
 echo "=== Step 3: Booting VM ==="
 cleanup
 
 # Write the pty script — all VM-side logic uses ash + jq (no python3, no node)
 cat > "$VM_DIR/quick-test-pty.py" << 'PYEOF'
-import pty, os, sys, time, fcntl
+import fcntl
+import os
+import pty
+import signal
+import sys
+import time
 
-VM_DIR = "/private/tmp/minimalrouter-alpine-3.22.5"
+VM_DIR = os.environ["MINIMALROUTER_VM_DIR"]
 IMAGE = f"{VM_DIR}/boot/Image"
 INITRAMFS = f"{VM_DIR}/boot/initramfs-virt"
 ISO = f"{VM_DIR}/alpine-virt-3.22.5-aarch64.iso"
-REPO = "/Users/Vladimir/Documents/minimalrouter"
+REPO = os.environ["MINIMALROUTER_REPO"]
 RUNNER = f"{VM_DIR}/minimalrouter-alpine-vm"
 API = "https://192.168.1.1:8443"
-PASSWD = "SuperSecure12345678"
+PASSWD = os.environ["MINIMALROUTER_TEST_PASSWORD"]
 
 master_fd, slave_fd = pty.openpty()
 pid = os.fork()
@@ -91,6 +83,17 @@ else:
     os.close(slave_fd)
     flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
     fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+    def stop_vm(_signum=None, _frame=None):
+        try:
+            os.kill(pid, signal.SIGTERM)
+            os.waitpid(pid, 0)
+        except OSError:
+            pass
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, stop_vm)
+    signal.signal(signal.SIGINT, stop_vm)
 
     def drain(timeout=2):
         end = time.time() + timeout
@@ -127,8 +130,8 @@ else:
     cmd("mount -t virtiofs minimalrouter /mnt/minimalrouter", 2)
     cmd("printf '%s\\n' https://dl-cdn.alpinelinux.org/alpine/v3.22/main https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /etc/apk/repositories", 1)
     cmd("apk update", 15)
-    cmd("apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 curl ca-certificates wireguard-tools-wg-quick squid jq", 60)
-    cmd("cd /mnt/minimalrouter && MINIMALROUTER_ALLOW_UNENCRYPTED=1 sh packaging/alpine/install.sh", 30)
+    cmd("apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 curl ca-certificates wireguard-tools-wg squid jq", 60)
+    cmd("cd /mnt/minimalrouter && sh packaging/alpine/install.sh", 30)
     cmd("ip link add eth1 type dummy && ip link set eth1 up", 2)
     cmd("touch /var/log/routerd.log /var/log/routerd.err /var/log/router-applyd.log /var/log/router-applyd.err", 1)
     cmd("chown routerd:routerd /var/log/routerd.log /var/log/routerd.err", 1)
@@ -160,9 +163,23 @@ else:
 
     # System test
     cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.hostname'", 3)
-    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.ram_used_bytes / 1048576'", 3)
-    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.disk_used_bytes / 1048576'", 3)
-    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.installed_packages'", 3)
+    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.runtime.memory_used_bytes / 1048576'", 3)
+    cmd(f"curl -sk {API}/api/v1/system -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.runtime.disk_used_bytes / 1048576'", 3)
+    cmd("apk info | wc -l", 3)
+    cmd("apk stats", 3)
+
+    # Removed runtime dependencies and secret-file placement
+    cmd("for p in bash wireguard-tools cryptsetup e2fsprogs lvm2; do apk info -e \"$p\" >/dev/null 2>&1 && echo \"UNEXPECTED:$p\" || echo \"ABSENT:$p\"; done", 5)
+    cmd("for p in hostapd hostapd-openrc iw inadyn inadyn-openrc; do apk info -e \"$p\" >/dev/null 2>&1 && echo \"PRESENT:$p\" || echo \"MISSING:$p\"; done", 5)
+    cmd("hostapd -v 2>&1 | head -2; iw --version 2>&1; inadyn --version 2>&1 | head -2", 4)
+    cmd("test -f /run/minimalrouter/wg0.runtime.conf && echo 'PASS:WireGuard runtime config is in RAM'", 3)
+    cmd("test ! -e /etc/wireguard/wg0.conf && test ! -e /etc/minimalrouter/wg0.runtime.conf && echo 'PASS:no persistent WireGuard service files'", 3)
+
+    # New feature adapters: generated syntax/package path and fail-closed
+    # behavior when the VM has no physical Wi-Fi radio or Cloudflare account.
+    cmd("printf '%s\\n' 'period = 300' 'secure-ssl = true' 'provider cloudflare.com:1 {' ' username = \"example.com\"' ' password = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"' ' hostname = \"home.example.com\"' ' ttl = 300' ' proxied = false' '}' > /tmp/inadyn.conf && inadyn --check-config -f /tmp/inadyn.conf && echo 'PASS:inadyn Cloudflare config accepted'", 5)
+    cmd(f"curl -sk {API}/api/v1/config -b /tmp/cookies.txt > /tmp/wifi-base.json && jq '.wifi={{\"enabled\":true,\"interface\":\"wlan0\",\"ssid\":\"MinimalRouter-Test\",\"passphrase\":\"TestWiFiPassword123\",\"band\":\"5ghz\",\"channel\":36,\"hide_ssid\":false}}' /tmp/wifi-base.json > /tmp/wifi-test.json && curl -sk -o /tmp/wifi-result.json -w 'WIFI_HTTP:%{{http_code}}\\n' -X PUT {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" -H 'Content-Type: application/json' --data-binary @/tmp/wifi-test.json && jq -r '.error // .state' /tmp/wifi-result.json", 8)
+    cmd(f"jq '.cloudflare={{\"ddns_enabled\":true,\"tunnel_enabled\":false,\"domain\":\"home.example.com\",\"zone_name\":\"example.com\",\"api_token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}' /tmp/wifi-base.json > /tmp/cf-test.json && curl -sk -o /tmp/cf-result.json -w 'CLOUDFLARE_HTTP:%{{http_code}}\\n' -X PUT {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" -H 'Content-Type: application/json' --data-binary @/tmp/cf-test.json && jq -r '.error // .state' /tmp/cf-result.json", 6)
 
     # Audit events
     cmd(f"curl -sk {API}/api/v1/audit/events -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '. | length'", 3)
@@ -179,7 +196,7 @@ else:
     print("\n" + "=" * 60)
     print("  TESTS COMPLETE")
     print("  Dashboard: https://192.168.1.1:8443")
-    print("  Password:  SuperSecure12345678")
+    print(f"  Password:  {PASSWD}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
@@ -188,21 +205,27 @@ else:
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
-        os.kill(pid, 15)
-        os.waitpid(pid, 0)
+        stop_vm()
 PYEOF
 
 # Start VM in detached process so it survives parent shell exit
+: > "$LOG"
+MINIMALROUTER_VM_DIR="$VM_DIR" \
+MINIMALROUTER_REPO="$REPO" \
+MINIMALROUTER_TEST_PASSWORD="$PASSWD" \
 nohup python3 "$VM_DIR/quick-test-pty.py" > "$LOG" 2>&1 &
 VM_PID=$!
+printf '%s\n' "$VM_PID" > "$PID_FILE"
 disown 2>/dev/null || true
 echo "VM PID: $VM_PID"
 
 # Wait for setup to complete
 echo "Waiting for VM setup (~3 min)..."
-for i in $(seq 1 120); do
+VM_TEST_COMPLETE=0
+for i in $(seq 1 180); do
     if grep -q "TESTS COMPLETE" "$LOG" 2>/dev/null; then
         echo "VM setup and tests complete!"
+        VM_TEST_COMPLETE=1
         break
     fi
     if grep -q "VM READY" "$LOG" 2>/dev/null; then
@@ -211,9 +234,15 @@ for i in $(seq 1 120); do
     sleep 2
 done
 
+if [ "$VM_TEST_COMPLETE" != "1" ]; then
+    echo "ERROR: VM tests did not complete within 6 minutes." >&2
+    tail -40 "$LOG" >&2
+    exit 1
+fi
+
 echo ""
 echo "=== VM running in background (PID: $VM_PID) ==="
 echo "Dashboard: https://192.168.1.1:8443"
-echo "Password:  SuperSecure12345678"
-echo "Stop: kill $VM_PID"
+echo "Password:  $PASSWD"
+echo "Stop: kill \$(cat \"$PID_FILE\")"
 echo "Log:  $LOG"

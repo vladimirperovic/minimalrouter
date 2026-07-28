@@ -1,8 +1,12 @@
 # Session 6 — Optimizacija i Migracija (26. Juli 2026)
 
+> Istorijski radni zapis, ne trenutni sigurnosni ili release ugovor. Ako se
+> razlikuje od `README.md`, `SECURITY.md` ili `docs/SECURITY_REVIEW.md`, važe
+> trenutni dokumenti.
+
 ## Dnevni red
 1. ~~Ukloni Python za CSRF~~ → Već čist Go (crypto/rand)
-2. ~~Zameni bash sa ash~~ → Već koristi #!/bin/sh (BusyBox ash)
+2. Bash → ash → završeno naknadno direktnim `wg`/`ip` adapterom
 3. ~~Migiraj Next.js → Vite + React~~ → Kompletno
 4. ~~Optimizuj memoriju~~ → 216 MB → 152 MB (-64 MB)
 5. Poređenje sa OpenWrt i pfSense
@@ -14,10 +18,12 @@
 - Python3 se koristi samo u VM test skriptama (ne u production)
 - **Zaključak:** Nikakve promene nisu potrebne
 
-## 2. Bash → ash — VEĆ REŠENO
+## 2. Bash → ash — REŠENO I RETESTIRANO
 - Sve router skripte koriste `#!/bin/sh` (BusyBox ash na Alpineu)
 - Samo `create-vm.sh` (Proxmox helper) koristi bash — ne radi na routeru
-- **Zaključak:** Nikakve promene nisu potrebne
+- Router instalira samo `wireguard-tools-wg`; `wg-quick` i Bash nijesu prisutni.
+- `router-applyd` koristi fiksne `wg setconf` i `ip` argumente bez shell hookova.
+- ARM64 integration test je ostvario handshake i prenio šifrovane pakete.
 
 ## 3. Migracija vinext → Vite + React
 
@@ -57,9 +63,10 @@
 
 ## 4. Optimizacija memorije
 
-### Problem
+### Istorijsko mjerenje
 - Pre optimizacije: **216 MB** RAM (idle)
-- OpenWrt koristi 30-60 MB, pfSense 300-500 MB
+- Tadašnja procjena poslije optimizacije bila je 152 MB. Aktuelno mjerenje od
+  2026-07-28 je 140 MiB nakon restarta i 203 MiB poslije setup/config rada.
 
 ### Analiza potrošnje
 | Komponenta | Procena |
@@ -97,7 +104,7 @@ PRAGMA cache_size=-2000;  -- 2 MB limit po konekciji
 #### 4. Argon2id memory (štedi ~32 MB transient)
 ```go
 // internal/auth/argon2.go
-argonMemory = 32 * 1024  // 32 MiB (bilo 64 MiB)
+argonMemory = 32 * 1024  // istorijski eksperiment; sada je 64 MiB
 ```
 
 #### 5. HTTP IdleTimeout (štedi ~5-10 MB)
@@ -127,28 +134,19 @@ IdleTimeout: 15 * time.Second  // bilo 60s
 | Ostalo | ~41 MB | ~44 MB |
 | **Ukupno** | **~216 MB** | **~152 MB** |
 
-## 5. Poređenje sa OpenWrt i pfSense
+## 5. Aktuelno poređenje sa OpenWrt i pfSense
 
-| Resurs | Naš Router | OpenWrt | pfSense | OPNsense |
-|--------|-----------|---------|---------|----------|
-| **RAM (idle)** | **152 MB** | 30-60 MB | 300-500 MB | 500+ MB |
-| **Disk** | **77 MB** | 8-16 MB | 8+ GB | 8+ GB |
-| **Paketi** | **100** | ~100 | ~500+ | ~500+ |
-| **Web dashboard** | **360 KB** | ~5 MB | ~50 MB | ~50 MB |
-| **Go binary** | **20.5 MB** | N/A | N/A | N/A |
-| **Shell** | ash/busybox | ash/busybox | csh | csh |
-| **Firewall** | nftables | nftables | pf (BSD) | pf (BSD) |
-| **Config format** | JSON+SQLite | UCI (text) | XML (text) | XML (text) |
-| **Init system** | OpenRC | procd | rc | rc |
-| **DNS** | dnsmasq+AdGuard | dnsmasq | unbound | unbound |
-| **VPN** | WireGuard | WireGuard | OpenVPN+WG | OpenVPN+WG |
+| Resurs | Naš Router | OpenWrt | pfSense |
+|--------|-----------|---------|---------|
+| **RAM** | 140 MiB idle; 203 MiB poslije rada; 512 MiB testirani minimum, 1 GiB komotno | 64 MiB minimum, 128 MiB poželjnije | 1 GiB minimum |
+| **Disk** | ~60 MiB početni payload; 4 GiB bench / 8 GiB produkcija | >32 MiB flash preporučeno | 8 GB minimum |
+| **Web dashboard** | 360 KiB | zavisi od image-a | uključen |
+| **Shell** | BusyBox ash; bez Basha i `wg-quick` | BusyBox ash | FreeBSD shell |
 
-### Zaključak
-- Naš router je **3x lakši od pfSense** po RAM-u
-- **100x manji disk** od pfSense
-- **80x lakši web dashboard** od pfSense
-- Još uvek **3-5x teži od OpenWrt** — to je cena modernog Go + React stack-a
-- Ali zato imamo: ECDSA TLS, bcrypt, LUKS, Ed25519 firmware verification, SQLite audit log
+OpenWrt i pfSense brojevi su njihove zvanične preporuke/minimumi, a naši su
+izmjereni u ARM64 VM-u. Veličina ne dokazuje veću sigurnost niti feature
+paritet. Važeći detalji su u
+[`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md).
 
 ## VM Test Environment
 - Alpine 3.22.5 aarch64 (VM via Apple Virtualization.framework)
@@ -160,7 +158,7 @@ IdleTimeout: 15 * time.Second  // bilo 60s
 - `cmd/routerd/main.go` — GOGC, GOMEMLIMIT, IdleTimeout
 - `cmd/router-applyd/main.go` — GOGC, GOMEMLIMIT
 - `internal/config/store.go` — SQLite pool limits, cache_size pragma
-- `internal/auth/argon2.go` — argonMemory 32 MiB
+- `internal/auth/argon2.go` — sada 64 MiB; 32 MiB je napušten eksperiment
 - `web/package.json` — Vite dependencies
 - `web/vite.config.ts` — Vite config
 - `web/src/` — novi source direktorijum

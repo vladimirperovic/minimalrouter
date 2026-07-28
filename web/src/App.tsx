@@ -189,7 +189,6 @@ function QrPreview({ source }: { source: string }) {
   return (
     <div className="qr-shell" aria-label="WireGuard configuration QR code">
       {/* A one-time data URL cannot use an image-optimization endpoint. */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img alt="Scannable WireGuard client configuration" src={source} width={280} height={280} />
     </div>
   );
@@ -293,33 +292,38 @@ function Dashboard() {
 
   const [cfConfig, setCfConfig] = useState({
     domain: "home.example.net",
-    zoneId: "cf-zone-12345",
+    zoneName: "example.net",
     apiToken: "",
     tunnelDomain: "minimalrouter-home",
   });
   const [cfModalOpen, setCfModalOpen] = useState(false);
   const [editCfDomain, setEditCfDomain] = useState(cfConfig.domain);
-  const [editCfZone, setEditCfZone] = useState(cfConfig.zoneId);
+  const [editCfZone, setEditCfZone] = useState(cfConfig.zoneName);
   const [editCfToken, setEditCfToken] = useState("");
+  const [cloudflareTokenStored, setCloudflareTokenStored] = useState(false);
 
   const handleSaveCfConfig = (e: React.FormEvent) => {
     e.preventDefault();
     setCfConfig({
       ...cfConfig,
       domain: editCfDomain,
-      zoneId: editCfZone,
+      zoneName: editCfZone,
       apiToken: editCfToken,
     });
-    setCfModalOpen(false);
     if (apiConnected) {
       apiFetch("/api/v1/config")
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`Configuration load failed (${res.status})`);
+          return res.json();
+        })
         .then((cfg) => {
           cfg.cloudflare = {
-            ddns_enabled: true,
+            ...cfg.cloudflare,
+            ddns_enabled: cloudflareEnabled,
+            tunnel_enabled: false,
             domain: editCfDomain,
-            zone_id: editCfZone,
-            api_token: editCfToken,
+            zone_name: editCfZone,
+            api_token: editCfToken || "[REDACTED]",
           };
           return apiFetch("/api/v1/config", {
             method: "PUT",
@@ -327,7 +331,15 @@ function Dashboard() {
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `Cloudflare DDNS apply failed (${res.status})`);
+          if (data.state === "AwaitingConfirmation") setPendingConfirmationID(data.id);
+          if (editCfToken) setCloudflareTokenStored(true);
+          setOperationError("");
+          setCfModalOpen(false);
+        })
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Cloudflare DDNS apply failed"));
     }
   };
 
@@ -494,7 +506,8 @@ function Dashboard() {
 
   const [wifiEnabled, setWifiEnabled] = useState(false);
   const [wifiSSID, setWifiSSID] = useState("MinimalRouter-Home");
-  const [wifiPass, setWifiPass] = useState("change-this-wifi-pass");
+  const [wifiPass, setWifiPass] = useState("");
+  const [wifiPassStored, setWifiPassStored] = useState(false);
   const [wifiBand, setWifiBand] = useState("5ghz");
   const [wifiChannel, setWifiChannel] = useState("36");
   const [wifiHideSSID, setWifiHideSSID] = useState(false);
@@ -502,16 +515,18 @@ function Dashboard() {
 
   const handleSaveWiFi = (e: React.FormEvent) => {
     e.preventDefault();
-    setWifiModalOpen(false);
     if (apiConnected) {
       apiFetch("/api/v1/config")
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`Configuration load failed (${res.status})`);
+          return res.json();
+        })
         .then((cfg) => {
           cfg.wifi = {
             enabled: wifiEnabled,
             interface: "wlan0",
             ssid: wifiSSID,
-            passphrase: wifiPass,
+            passphrase: wifiPass || "[REDACTED]",
             band: wifiBand,
             channel: parseInt(wifiChannel, 10) || 36,
             hide_ssid: wifiHideSSID,
@@ -522,7 +537,15 @@ function Dashboard() {
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `Wi-Fi apply failed (${res.status})`);
+          if (data.state === "AwaitingConfirmation") setPendingConfirmationID(data.id);
+          if (wifiPass) setWifiPassStored(true);
+          setOperationError("");
+          setWifiModalOpen(false);
+        })
+        .catch((err) => setOperationError(String(err)));
     }
   };
 
@@ -534,10 +557,12 @@ function Dashboard() {
 
   const handleSaveQoS = (e: React.FormEvent) => {
     e.preventDefault();
-    setQosModalOpen(false);
     if (apiConnected) {
       apiFetch("/api/v1/config")
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`Configuration load failed (${res.status})`);
+          return res.json();
+        })
         .then((cfg) => {
           cfg.qos = {
             enabled: qosEnabled,
@@ -551,7 +576,13 @@ function Dashboard() {
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `QoS apply failed (${res.status})`);
+          setOperationError("");
+          setQosModalOpen(false);
+        })
+        .catch((err) => setOperationError(String(err)));
     }
   };
 
@@ -565,15 +596,17 @@ function Dashboard() {
   const [newFilterServices, setNewFilterServices] = useState<string[]>(["youtube", "tiktok"]);
 
   const handleToggleAdGuard = (enabled: boolean) => {
-    setAdguardEnabled(enabled);
     if (apiConnected) {
       apiFetch("/api/v1/config")
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`Configuration load failed (${res.status})`);
+          return res.json();
+        })
         .then((cfg) => {
           cfg.adguard = {
             ...cfg.adguard,
             enabled: enabled,
-            filter_devices: filterDevices,
+            filter_devices: [],
           };
           return apiFetch("/api/v1/config", {
             method: "PUT",
@@ -581,32 +614,18 @@ function Dashboard() {
             body: JSON.stringify(cfg),
           });
         })
-        .catch(console.error);
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || `DNS filter apply failed (${res.status})`);
+          setAdguardEnabled(enabled);
+          setOperationError("");
+        })
+        .catch((err) => setOperationError(String(err)));
     }
   };
 
   const handleUpdateBlocklist = () => {
-    if (!apiConnected) return;
-    setOperationError("");
-    apiFetch("/api/v1/adguard/blocklist/update", { method: "POST" })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setOperationError(data.error);
-        } else {
-          setOperationError("");
-          // Refresh config to get updated last_updated
-          apiFetch("/api/v1/config")
-            .then((r) => r.json())
-            .then((cfg) => {
-              if (cfg.adguard) {
-                setAdguardEnabled(cfg.adguard.enabled ?? false);
-              }
-            })
-            .catch(console.error);
-        }
-      })
-      .catch((err) => setOperationError("Blocklist update failed: " + String(err)));
+    setOperationError("Online blocklist refresh is disabled in this hardened build; the built-in global blocklist remains available.");
   };
 
   const handleToggleFilterDevice = (id: string) => {
@@ -708,42 +727,6 @@ function Dashboard() {
         .then((cfg) => {
           cfg.dhcp.dns_servers = [dnsPrimary, dnsSecondary];
           cfg.dhcp.dns_enabled = dohEnabled;
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
-    }
-  };
-
-  const [ddnsModalOpen, setDdnsModalOpen] = useState(false);
-  const [ddnsProvider, setDdnsProvider] = useState("cloudflare");
-  const [ddnsDomain, setDdnsDomain] = useState("home.example.net");
-  const [ddnsUser, setDdnsUser] = useState("");
-  const [ddnsPass, setDdnsPass] = useState("");
-  const [ddnsZoneId, setDdnsZoneId] = useState("cf-zone-12345");
-
-  const handleSaveDdns = (e: React.FormEvent) => {
-    e.preventDefault();
-    setCfConfig({
-      ...cfConfig,
-      domain: ddnsDomain,
-    });
-    setDdnsModalOpen(false);
-
-    if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.cloudflare = {
-            ddns_enabled: true,
-            provider: ddnsProvider,
-            domain: ddnsDomain,
-            zone_id: ddnsZoneId,
-            api_token: ddnsPass,
-          };
           return apiFetch("/api/v1/config", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1174,28 +1157,6 @@ function Dashboard() {
     URL.revokeObjectURL(url);
   };
 
-  // Sync stateful firewall toggle with Go REST API
-  const handleToggleStateful = (val: boolean) => {
-    if (!val) {
-      setOperationError("The stateful firewall is a mandatory security control and cannot be disabled.");
-      return;
-    }
-    setStatefulRules(val);
-    if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.firewall.stateful_firewall = val;
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch((err) => console.error("API update error:", err));
-    }
-  };
-
   const handleTogglePortForward = (index: number) => {
     const updated = portForwardRules.map((rule, itemIndex) =>
       itemIndex === index ? { ...rule, enabled: !rule.enabled } : rule
@@ -1358,6 +1319,7 @@ function Dashboard() {
           active: "Awaiting runtime telemetry",
         })));
         setCloudflareEnabled(cfg.cloudflare?.ddns_enabled === true || cfg.cloudflare?.tunnel_enabled === true);
+        setCloudflareTokenStored(cfg.cloudflare?.ddns_enabled === true);
         setDhcpRangeStart(cfg.dhcp?.range_start ?? "");
         setDhcpRangeEnd(cfg.dhcp?.range_end ?? "");
         setDhcpLeaseHours(Number.parseInt(cfg.dhcp?.lease_time ?? "24", 10) || 24);
@@ -1372,6 +1334,7 @@ function Dashboard() {
         setAdguardEnabled(cfg.adguard?.enabled === true);
         setFilterDevices(cfg.adguard?.filter_devices ?? []);
         setWifiEnabled(cfg.wifi?.enabled === true);
+        setWifiPassStored(cfg.wifi?.enabled === true);
         setWifiSSID(cfg.wifi?.ssid ?? "");
         setWifiBand(cfg.wifi?.band ?? "5ghz");
         setWifiChannel(String(cfg.wifi?.channel ?? 36));
@@ -1382,10 +1345,12 @@ function Dashboard() {
         setQosUp(String(cfg.qos?.upload_limit_mbps ?? 20));
         setCfConfig({
           domain: cfg.cloudflare?.domain ?? "",
-          zoneId: cfg.cloudflare?.zone_id ?? "",
+          zoneName: cfg.cloudflare?.zone_name ?? "",
           apiToken: "",
           tunnelDomain: cfg.cloudflare?.domain ?? "",
         });
+        setEditCfDomain(cfg.cloudflare?.domain ?? "");
+        setEditCfZone(cfg.cloudflare?.zone_name ?? "");
         setSnapshotsList((snapshotPayload.snapshots ?? []).map((snapshot: {
           id: string; revision: number; created_at: string; checksum: string;
         }) => ({
@@ -1498,7 +1463,6 @@ function Dashboard() {
         <div className="brand-row">
           <div className="brand-mark brand-favicon-wrap" aria-hidden="true">
             {/* The static appliance has no image-optimization route. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/favicon.svg" alt="Minimal Router logo" width={26} height={26} />
           </div>
           <div>
@@ -1945,7 +1909,8 @@ function Dashboard() {
                   </div>
                   <Toggle
                     checked={statefulRules}
-                    onChange={() => handleToggleStateful(!statefulRules)}
+                    disabled
+                    onChange={() => undefined}
                     label="Stateful firewall"
                   />
                 </div>
@@ -1974,11 +1939,10 @@ function Dashboard() {
                   <button
                     className="quiet-button"
                     type="button"
-                    disabled={apiConnected}
-                    title={apiConnected ? "WAN port forwarding is disabled by the secure appliance profile" : undefined}
-                    onClick={() => setPfModalOpen(true)}
+                    disabled
+                    title="WAN port forwarding is disabled by the secure appliance profile"
                   >
-                    {apiConnected ? "Locked" : "Add rule"}
+                    Locked
                   </button>
                 </div>
                 {portForwardRules.map((rule, idx) => (
@@ -1992,13 +1956,13 @@ function Dashboard() {
                       checked={rule.enabled}
                       onChange={() => handleTogglePortForward(idx)}
                       label={`${rule.name} port forward`}
-                      disabled={apiConnected}
+                      disabled
                     />
                   </div>
                 ))}
                 <div className="firewall-stat">
                   <div><strong>Deny</strong><span>Default WAN input policy</span></div>
-                  <div><strong>{portForwardRules.length}</strong><span>Port forwards enabled</span></div>
+                  <div><strong>0</strong><span>Port forwards enabled</span></div>
                 </div>
               </article>
             </div>
@@ -2126,6 +2090,7 @@ function Dashboard() {
                 type="button"
                 onClick={() => setCfModalOpen(true)}
                 disabled={!apiConnected}
+                title={!apiConnected ? "Connect to the router API first" : "Configure Cloudflare Dynamic DNS"}
               >
                 Configure Cloudflare
               </button>
@@ -2134,15 +2099,14 @@ function Dashboard() {
             <div className="cloud-grid">
               <article
                 className="card cloud-card"
-                onClick={() => setDdnsModalOpen(true)}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: "default" }}
               >
                 <div className="cloud-icon" aria-hidden="true">DD</div>
                 <div>
                   <div className="card-title-row">
                     <div>
                       <h3>Dynamic DNS</h3>
-                      <p>{apiConnected ? "Cloudflare DNS record updater" : "Offline design preview."}</p>
+                      <p>Keeps your hostname pointed at the current public IPv4 address.</p>
                     </div>
                     <span className="status-label"><i className="status-dot" /> {cfConfig.domain ? "Configured" : "Not configured"}</span>
                   </div>
@@ -2151,8 +2115,8 @@ function Dashboard() {
                     <code>{cfConfig.domain}</code>
                   </div>
                   <div className="cloud-meta">
-                    <span>No runtime status</span>
-                    <span>Fail closed</span>
+                    <span>Alpine inadyn service</span>
+                    <span>{cloudflareEnabled ? "Active" : "Off"}</span>
                   </div>
                 </div>
               </article>
@@ -2163,9 +2127,9 @@ function Dashboard() {
                   <div className="card-title-row">
                     <div>
                       <h3>Cloudflare Tunnel</h3>
-                      <p>Secure tunnel to Cloudflare edge network.</p>
+                      <p>Unavailable: WireGuard remains the only remote-entry path.</p>
                     </div>
-                    <span className="status-label"><i className="status-dot" /> {cfConfig.tunnelDomain ? "Configured" : "Not configured"}</span>
+                    <span className="status-label"><i className="status-dot" /> Unavailable</span>
                   </div>
                   <div className="cloud-host">
                     <span>Tunnel</span>
@@ -2307,7 +2271,7 @@ function Dashboard() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">AdGuard Home & Content Filter</p>
-                <h2>DNS Sinkhole & Per-Device Service Blocking</h2>
+                <h2>Global DNS sinkhole</h2>
               </div>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                 <span className="quiet-meta">
@@ -2317,7 +2281,8 @@ function Dashboard() {
                   className="button secondary"
                   type="button"
                   onClick={handleUpdateBlocklist}
-                  disabled={!apiConnected}
+                  disabled
+                  title="Online refresh is disabled; the built-in blocklist is applied transactionally"
                   style={{ fontSize: "13px" }}
                 >
                   Update Blocklist
@@ -2337,13 +2302,14 @@ function Dashboard() {
             <article className="card table-card">
               <div className="card-title-row">
                 <div>
-                  <h3>Target Devices & Blocked Services</h3>
-                  <p>Selectively block YouTube, TikTok, Facebook, Adult or Gaming services per device IP address</p>
+                  <h3>Per-device rules unavailable</h3>
+                  <p>dnsmasq address rules are global; this build refuses to claim client-specific filtering.</p>
                 </div>
                 <button
                   className="quiet-button"
                   type="button"
-                  onClick={() => setAddFilterModalOpen(true)}
+                  disabled
+                  title="Requires a resolver that can enforce client-specific policy"
                   style={{ color: "#0071E3", fontWeight: 650 }}
                 >
                   + Add Filtered Device
@@ -2365,7 +2331,7 @@ function Dashboard() {
                     {filterDevices.length === 0 ? (
                       <tr>
                         <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
-                          No device filters added. All LAN devices have unrestricted access.
+                          Global filtering applies equally to all LAN devices when enabled.
                         </td>
                       </tr>
                     ) : (
@@ -2408,7 +2374,9 @@ function Dashboard() {
                                 type="checkbox"
                                 checked={item.enabled}
                                 onChange={() => handleToggleFilterDevice(item.id)}
-                                style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                                disabled
+                                title="Per-device DNS filtering is unavailable"
+                                style={{ width: "16px", height: "16px", cursor: "not-allowed" }}
                               />
                               {item.enabled ? "Active" : "Disabled"}
                             </label>
@@ -2417,6 +2385,7 @@ function Dashboard() {
                             <button
                               type="button"
                               onClick={() => handleRemoveFilterDevice(item.id)}
+                              disabled
                               style={{
                                 border: "none",
                                 background: "#FF3B3015",
@@ -2424,13 +2393,13 @@ function Dashboard() {
                                 width: "24px",
                                 height: "24px",
                                 borderRadius: "50%",
-                                cursor: "pointer",
+                                cursor: "not-allowed",
                                 fontWeight: "bold",
                                 fontSize: "12px",
                                 display: "grid",
                                 placeItems: "center",
                               }}
-                              title="Remove filter rule for this device"
+                              title="Per-device DNS filtering is unavailable"
                             >
                               ✕
                             </button>
@@ -2452,13 +2421,14 @@ function Dashboard() {
               </div>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
                 <span className="quiet-meta">
-                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Active (Broadcasting)" : "Disabled (Default)"}</strong>
+                  Status: <strong style={{ color: wifiEnabled ? "#34C759" : "var(--text-tertiary)" }}>{wifiEnabled ? "Enabled" : "Off"}</strong>
                 </span>
                 <button
                   className="button secondary"
                   type="button"
-                  onClick={() => setWifiModalOpen(true)}
                   disabled={!apiConnected}
+                  onClick={() => setWifiModalOpen(true)}
+                  title={!apiConnected ? "Connect to the router API first" : "Configure a compatible Wi-Fi radio"}
                   style={{ fontSize: "13px" }}
                 >
                   Configure Wi-Fi
@@ -2469,31 +2439,13 @@ function Dashboard() {
             <article className="card" style={{ padding: "20px" }}>
               <div className="setting-row" style={{ paddingBottom: "16px", borderBottom: "1px solid var(--separator)" }}>
                 <div>
-                  <strong style={{ fontSize: "15px" }}>Enable Wireless Access Point (hostapd)</strong>
-                  <span>Broadcast Wi-Fi network for phones, laptops, and smart home devices</span>
+                  <strong style={{ fontSize: "15px" }}>Wireless access point</strong>
+                  <span>Requires a Linux Wi-Fi adapter that supports access-point mode.</span>
                 </div>
                 <Toggle
                   checked={wifiEnabled}
-                  onChange={() => {
-                    const nextState = !wifiEnabled;
-                    setWifiEnabled(nextState);
-                    if (apiConnected) {
-                      apiFetch("/api/v1/config")
-                        .then((res) => res.json())
-                        .then((cfg) => {
-                          cfg.wifi = {
-                            ...cfg.wifi,
-                            enabled: nextState,
-                          };
-                          return apiFetch("/api/v1/config", {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(cfg),
-                          });
-                        })
-                        .catch(console.error);
-                    }
-                  }}
+                  disabled={!apiConnected}
+                  onChange={() => setWifiEnabled(!wifiEnabled)}
                   label="Enable Wi-Fi Access Point"
                 />
               </div>
@@ -2568,40 +2520,16 @@ function Dashboard() {
                 <span className="recovery-index">02</span>
                 <div>
                   <span className="mini-label">System update</span>
-                  <h3>{systemInfo.update_trust_configured ? "Signed update verification ready" : "Manual updates available"}</h3>
-                  <p>{systemInfo.version ?? "Minimal Router OS"} · check for signed package updates</p>
+                  <h3>Manual, signed updates only</h3>
+                  <p>{systemInfo.version ?? "Minimal Router OS"} · automatic installation is fail-closed</p>
                 </div>
                 <button
                   className="button secondary"
                   type="button"
-                  disabled={!apiConnected}
-                  onClick={() => {
-                    if (!apiConnected) return;
-                    apiFetch("/api/v1/system/update/check")
-                      .then((res) => res.json())
-                      .then((data) => {
-                        if (data.update_available) {
-                          if (window.confirm(`Update available: ${data.latest_version}\n\n${data.release_notes || "No release notes"}\n\nInstall now?`)) {
-                            apiFetch("/api/v1/system/update/install", { method: "POST" })
-                              .then((res) => res.json())
-                              .then((result) => {
-                                if (result.error) {
-                                  setOperationError(result.error);
-                                } else {
-                                  setOperationError("");
-                                  alert(result.message || "Update installed. Reboot recommended.");
-                                }
-                              })
-                              .catch((err) => setOperationError("Install failed: " + String(err)));
-                          }
-                        } else {
-                          alert(data.error || "System is up to date.");
-                        }
-                      })
-                      .catch((err) => setOperationError("Check failed: " + String(err)));
-                  }}
+                  disabled
+                  title="Automatic update installation is disabled until the privileged signed-update path is complete"
                 >
-                  Check for Updates
+                  Automatic updates disabled
                 </button>
               </article>
               <article className="card recovery-card">
@@ -2880,9 +2808,17 @@ function Dashboard() {
             onMouseDown={(event) => event.stopPropagation()}
           >
             <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setCfModalOpen(false)}>×</button>
-            <p className="eyebrow">Cloudflare DDNS & Tunnel</p>
-            <h2>Configure Cloudflare</h2>
+            <p className="eyebrow">Cloudflare Dynamic DNS</p>
+            <h2>Configure hostname updates</h2>
             <form onSubmit={handleSaveCfConfig} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={cloudflareEnabled}
+                  onChange={(event) => setCloudflareEnabled(event.target.checked)}
+                />
+                Enable Cloudflare Dynamic DNS
+              </label>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Domain Name</label>
                 <input
@@ -2891,28 +2827,29 @@ function Dashboard() {
                   value={editCfDomain}
                   onChange={(e) => setEditCfDomain(e.target.value)}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                  required
+                  required={cloudflareEnabled}
                 />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare Zone ID</label>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare Zone Name</label>
                 <input
                   type="text"
-                  placeholder="Zone ID string"
+                  placeholder="example.net"
                   value={editCfZone}
                   onChange={(e) => setEditCfZone(e.target.value)}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                  required
+                  required={cloudflareEnabled}
                 />
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare API Token</label>
                 <input
                   type="password"
-                  placeholder="••••••••••••••••••••"
+                  placeholder={cloudflareTokenStored ? "Leave blank to keep the saved token" : "Paste a Cloudflare API token"}
                   value={editCfToken}
                   onChange={(e) => setEditCfToken(e.target.value)}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
+                  required={cloudflareEnabled && !cloudflareTokenStored}
                 />
               </div>
               <div className="modal-actions" style={{ marginTop: '8px' }}>
@@ -2987,92 +2924,6 @@ function Dashboard() {
               <div className="modal-actions" style={{ marginTop: '8px' }}>
                 <button className="button secondary" type="button" onClick={() => setDhcpModalOpen(false)}>Cancel</button>
                 <button className="button primary" type="submit">Save DHCP Configuration</button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {ddnsModalOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setDdnsModalOpen(false)}>
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Router configuration dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setDdnsModalOpen(false)}>×</button>
-            <p className="eyebrow">Dynamic DNS (DDNS)</p>
-            <h2>Configure Dynamic DNS</h2>
-            <form onSubmit={handleSaveDdns} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>DDNS Provider</label>
-                <select
-                  value={ddnsProvider}
-                  onChange={(e) => setDdnsProvider(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                >
-                  <option value="cloudflare">Cloudflare DDNS</option>
-                  <option value="noip">No-IP</option>
-                  <option value="duckdns">DuckDNS</option>
-                  <option value="custom">Custom DynDNS Service</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Domain / Hostname</label>
-                <input
-                  type="text"
-                  placeholder="e.g. home.example.net or myhome.duckdns.org"
-                  value={ddnsDomain}
-                  onChange={(e) => setDdnsDomain(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                  required
-                />
-              </div>
-
-              {ddnsProvider === "cloudflare" && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Cloudflare Zone ID</label>
-                  <input
-                    type="text"
-                    placeholder="cf-zone-12345"
-                    value={ddnsZoneId}
-                    onChange={(e) => setDdnsZoneId(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                  />
-                </div>
-              )}
-
-              {(ddnsProvider === "noip" || ddnsProvider === "custom") && (
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>Username / Account Email</label>
-                  <input
-                    type="text"
-                    placeholder="user@example.com"
-                    value={ddnsUser}
-                    onChange={(e) => setDdnsUser(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                  />
-                </div>
-              )}
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
-                  {ddnsProvider === "cloudflare" ? "API Token" : ddnsProvider === "duckdns" ? "Token" : "Password / Key"}
-                </label>
-                <input
-                  type="password"
-                  placeholder="••••••••••••••••••••"
-                  value={ddnsPass}
-                  onChange={(e) => setDdnsPass(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--separator)', background: 'var(--surface)' }}
-                />
-              </div>
-
-              <div className="modal-actions" style={{ marginTop: '8px' }}>
-                <button className="button secondary" type="button" onClick={() => setDdnsModalOpen(false)}>Cancel</button>
-                <button className="button primary" type="submit">Save Dynamic DNS</button>
               </div>
             </form>
           </section>
@@ -3511,14 +3362,15 @@ function Dashboard() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', borderRadius: '10px', background: 'var(--surface-muted)', border: '1px solid var(--separator)' }}>
                 <div>
-                  <strong style={{ display: 'block', fontSize: '13px' }}>DNS-over-HTTPS / TLS</strong>
-                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Encrypt DNS queries via Cloudflare, Google, or Quad9 DoH endpoints</span>
+                  <strong style={{ display: 'block', fontSize: '13px' }}>DNS-over-HTTPS / TLS unavailable</strong>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Disabled until a packaged and verified local resolver adapter is included.</span>
                 </div>
                 <input
                   type="checkbox"
                   checked={dohEnabled}
+                  disabled
                   onChange={(e) => setDohEnabled(e.target.checked)}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  style={{ width: '18px', height: '18px', cursor: 'not-allowed' }}
                 />
               </div>
 
@@ -3794,11 +3646,11 @@ function Dashboard() {
                 <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Wi-Fi WPA2/WPA3 Passphrase</label>
                 <input
                   type="password"
-                  placeholder="At least 8 characters"
+                  placeholder={wifiPassStored ? "Leave blank to keep the saved password" : wifiEnabled ? "At least 12 characters" : "Not required while Wi-Fi is off"}
                   value={wifiPass}
                   onChange={(e) => setWifiPass(e.target.value)}
                   style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
-                  required
+                  required={wifiEnabled && !wifiPassStored}
                 />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>

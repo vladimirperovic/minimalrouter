@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -12,37 +12,41 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [pppoeUser, setPppoeUser] = useState("");
   const [pppoePass, setPppoePass] = useState("");
   const [adminPass, setAdminPass] = useState("");
+  const [adminPassConfirm, setAdminPassConfirm] = useState("");
   const lanIP = "192.168.1.1";
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [testingLink, setTestingLink] = useState(false);
-  const [autoDetectSuccess, setAutoDetectSuccess] = useState(true);
-  const [detectedWan, setDetectedWan] = useState("eth0");
-
-  const handleAutoDetectPorts = () => {
-    setTestingLink(true);
-    setAutoDetectSuccess(false);
-    setTimeout(() => {
-      setWanIf("eth0");
-      setLanIf("eth1");
-      setDetectedWan("eth0");
-      setTestingLink(false);
-      setAutoDetectSuccess(true);
-    }, 1000);
-  };
+  useEffect(() => {
+    fetch("/api/v1/setup/status")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("status unavailable");
+        return response.json();
+      })
+      .then((status) => {
+        if (typeof status.wan_interface === "string") setWanIf(status.wan_interface);
+        if (typeof status.lan_interface === "string") setLanIf(status.lan_interface);
+      })
+      .catch(() => {
+        // Defaults remain editable when status cannot be read.
+      });
+  }, []);
 
   const totalSteps = 5;
   const stepTitles = ["Welcome", "Interfaces", "PPPoE", "Security", "Review"];
 
   const handleNext = () => {
     setErrorMsg("");
-    if (step === 3 && (!pppoeUser || !pppoePass)) {
-      setErrorMsg("Molimo unesite PPPoE korisničko ime i lozinku.");
+    if (step === 3 && ((pppoeUser && !pppoePass) || (!pppoeUser && pppoePass))) {
+      setErrorMsg("Unesite oba PPPoE podatka ili ostavite oba polja prazna.");
       return;
     }
     if (step === 4) {
       if (adminPass.length < 15) {
         setErrorMsg("Administrator lozinka mora imati najmanje 15 karaktera.");
+        return;
+      }
+      if (adminPass !== adminPassConfirm) {
+        setErrorMsg("Administrator lozinke se ne poklapaju.");
         return;
       }
     }
@@ -259,32 +263,8 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               Potvrdite WAN i LAN interfejse
             </h2>
             <p style={{ fontSize: "15px", color: "#6E6E73", marginBottom: "20px" }}>
-              Sistem automatski testira mrežne portove i prepoznaje koji priključak ima aktivnu internet konekciju.
+              Provjerite stvarna Linux imena interfejsa na lokalnoj konzoli. Čarobnjak ne nagađa hardver niti tvrdi da je internet veza aktivna.
             </p>
-
-            <button
-              type="button"
-              onClick={handleAutoDetectPorts}
-              disabled={testingLink}
-              style={{
-                width: "100%",
-                padding: "12px 16px",
-                borderRadius: "12px",
-                background: autoDetectSuccess ? "#34C75915" : "#F5F5F7",
-                border: `1px solid ${autoDetectSuccess ? "#34C759" : "#D2D2D7"}`,
-                color: autoDetectSuccess ? "#28CD41" : "#0071E3",
-                fontWeight: 600,
-                fontSize: "14px",
-                cursor: "pointer",
-                marginBottom: "24px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-              }}
-            >
-              {testingLink ? "Skeniranje priključaka..." : autoDetectSuccess ? "✓ Priključak eth0 prepoznat i testiran (PPPoE Signal Aktivna)" : "Automatski testiraj i detektuj WAN priključak"}
-            </button>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "36px" }}>
               <div>
@@ -292,14 +272,10 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                   <label style={{ fontSize: "13px", fontWeight: 600, color: "#1D1D1F" }}>
                     WAN Port (Internet priključak)
                   </label>
-                  {wanIf === detectedWan && (
-                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#34C759", background: "#34C75915", padding: "3px 10px", borderRadius: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#34C759" }}></span>
-                      ONLINE (Carrier Connected)
-                    </span>
-                  )}
+                  <span style={{ fontSize: "11px", color: "#86868B" }}>Podrazumijevano: eth0</span>
                 </div>
-                <select
+                <input
+                  type="text"
                   value={wanIf}
                   onChange={(e) => setWanIf(e.target.value)}
                   style={{
@@ -312,11 +288,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                     color: "#1D1D1F",
                     outline: "none",
                   }}
-                >
-                  <option value="eth0">eth0 · Realtek 2.5 GbE (WAN Port — Online)</option>
-                  <option value="eth1">eth1 · Intel I225-V (LAN Port)</option>
-                  <option value="em0">em0 · Intel Gigabit NIC</option>
-                </select>
+                />
               </div>
 
               <div>
@@ -328,7 +300,8 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                     Automatski dodijeljen (192.168.1.1)
                   </span>
                 </div>
-                <select
+                <input
+                  type="text"
                   value={lanIf}
                   onChange={(e) => setLanIf(e.target.value)}
                   style={{
@@ -341,11 +314,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                     color: "#1D1D1F",
                     outline: "none",
                   }}
-                >
-                  <option value="eth1">eth1 · Intel I225-V (LAN Port)</option>
-                  <option value="eth0">eth0 · Realtek 2.5 GbE (WAN Port)</option>
-                  <option value="em1">em1 · Intel Gigabit NIC</option>
-                </select>
+                />
               </div>
             </div>
 
@@ -394,7 +363,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               Unesite PPPoE podatke
             </h2>
             <p style={{ fontSize: "15px", color: "#6E6E73", marginBottom: "28px" }}>
-              Korisničko ime i lozinku koje ste dobili od vašeg internet provajdera (ISP).
+              Unesite oba podatka koja ste dobili od ISP-a. Za laboratoriju bez PPPoE veze ostavite oba polja prazna.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "36px" }}>
@@ -491,7 +460,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
               Zahtijeva se najmanje 15 karaktera uz Argon2id zaštitu.
             </p>
 
-            <div style={{ marginBottom: "36px" }}>
+            <div style={{ marginBottom: "36px", display: "grid", gap: "16px" }}>
               <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F", marginBottom: "8px" }}>
                 Administrator Lozinka
               </label>
@@ -505,6 +474,25 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                   padding: "14px 16px",
                   borderRadius: "14px",
                   border: `1px solid ${adminPass.length >= 15 ? "#34C759" : "#D2D2D7"}`,
+                  background: "#FFFFFF",
+                  fontSize: "15px",
+                  color: "#1D1D1F",
+                  outline: "none",
+                }}
+              />
+              <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F" }}>
+                Potvrdite administrator lozinku
+              </label>
+              <input
+                type="password"
+                placeholder="Ponovite lozinku"
+                value={adminPassConfirm}
+                onChange={(e) => setAdminPassConfirm(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  borderRadius: "14px",
+                  border: `1px solid ${adminPassConfirm && adminPassConfirm === adminPass ? "#34C759" : "#D2D2D7"}`,
                   background: "#FFFFFF",
                   fontSize: "15px",
                   color: "#1D1D1F",

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Minimal Router OS — Self-contained dist installer
 # Runs from extracted tarball (no source repo needed)
-# Usage: tar xzf minimalrouter-linux-aarch64.tar.gz && cd minimalrouter-linux-aarch64 && sudo sh install-dist.sh
+# Usage: tar xzf minimalrouter-linux-arm64.tar.gz && cd minimalrouter-linux-arm64 && sudo sh install.sh
 set -e
 
 echo "=== Minimal Router OS Distribution Installer ==="
@@ -23,8 +23,9 @@ echo "Architecture: $ARCH ($BIN_ARCH)"
 [ -f "web/dist/index.html" ] || { echo "ERROR: Missing web/dist/index.html" >&2; exit 1; }
 [ -f "init.d/routerd" ] || { echo "ERROR: Missing init.d/routerd" >&2; exit 1; }
 
-# 1. Alpine repos
 ALPINE_VERSION="v3.22"
+
+# 1. Pin Alpine repositories.
 if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
@@ -34,7 +35,7 @@ fi
 echo "[1/6] Installing dependencies..."
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    wireguard-tools-wg-quick squid
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
 
 # 3. Routerd user
 echo "[2/6] Creating user..."
@@ -48,8 +49,9 @@ echo "[3/6] Installing binaries..."
 install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
 install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 install -d -m 0750 -o root -g routerd /run/minimalrouter
+install -d -m 0750 -o root -g inadyn /etc/inadyn
 install -d -m 0755 -o root -g root /usr/share/minimalrouter/web /etc/minimalrouter
-install -d -m 0700 -o root -g root /etc/ppp/peers /etc/wireguard /etc/hostapd
+install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
 install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
 
 install -m 0755 "bin/routerd-${BIN_ARCH}" /usr/bin/routerd

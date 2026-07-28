@@ -25,6 +25,7 @@ func GenerateHostapd(cfg *config.SystemConfig) (string, error) {
 	}
 
 	buf.WriteString(fmt.Sprintf("interface=%s\n", iface))
+	buf.WriteString(fmt.Sprintf("bridge=%s\n", config.WiFiBridgeInterface))
 	buf.WriteString("driver=nl80211\n")
 	buf.WriteString(fmt.Sprintf("ssid=%s\n", cfg.WiFi.SSID))
 
@@ -50,11 +51,12 @@ func GenerateHostapd(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("ignore_broadcast_ssid=0\n")
 	}
 
-	// WPA2 / WPA3 Security
+	// WPA2/WPA3 transition mode with protected management frames. TKIP is
+	// intentionally forbidden.
 	buf.WriteString("wpa=2\n")
 	buf.WriteString(fmt.Sprintf("wpa_passphrase=%s\n", cfg.WiFi.Passphrase))
-	buf.WriteString("wpa_key_mgmt=WPA-PSK\n")
-	buf.WriteString("wpa_pairwise=TKIP CCMP\n")
+	buf.WriteString("wpa_key_mgmt=WPA-PSK SAE\n")
+	buf.WriteString("ieee80211w=1\n")
 	buf.WriteString("rsn_pairwise=CCMP\n")
 
 	return buf.String(), nil

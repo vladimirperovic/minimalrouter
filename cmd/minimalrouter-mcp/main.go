@@ -122,6 +122,11 @@ func newAPIClient() (*apiClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read password file: %w", err)
 	}
+	password = bytes.TrimSuffix(password, []byte("\n"))
+	password = bytes.TrimSuffix(password, []byte("\r"))
+	if bytes.ContainsAny(password, "\r\n") {
+		return nil, fmt.Errorf("password file must contain exactly one password line")
+	}
 	jar, _ := cookiejar.New(nil)
 	client := &apiClient{
 		http: &http.Client{
@@ -134,7 +139,7 @@ func newAPIClient() (*apiClient, error) {
 		},
 	}
 	loginBody, _ := json.Marshal(map[string]interface{}{
-		"password":  strings.TrimSpace(string(password)),
+		"password":  string(password),
 		"totp_code": strings.TrimSpace(os.Getenv("MINIMALROUTER_TOTP_CODE")),
 		"read_only": !allowMutations,
 	})

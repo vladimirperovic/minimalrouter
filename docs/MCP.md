@@ -33,7 +33,9 @@ Create a password file readable only by your local account:
 install -m 0600 /dev/null /path/to/minimalrouter-password
 ```
 
-Put only the router administrator password in that file. Copy the router's
+Put exactly one router administrator password line in that file. A single
+trailing newline is removed; leading/trailing spaces in the password itself
+are preserved. Copy the router's
 verified certificate to a local CA file, then configure the MCP process:
 
 ```json

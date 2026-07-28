@@ -6,7 +6,12 @@ set -e
 
 echo "[PROXMOX] Detecting virtualization environment..."
 
-if command -v systemd-detect-virt >/dev/null 2>&1; range=$(systemd-detect-virt); echo "Virtualization: $range"; fi
+if command -v systemd-detect-virt >/dev/null 2>&1; then
+    virtualization_type="$(systemd-detect-virt 2>/dev/null || true)"
+    echo "Virtualization: ${virtualization_type:-unknown}"
+else
+    echo "Virtualization: detection utility unavailable"
+fi
 
 echo "[PROXMOX] Installing QEMU Guest Agent & Time Sync (chrony)..."
 apk add --no-cache qemu-guest-agent chrony ethtool
@@ -30,8 +35,8 @@ service chronyd restart || true
 echo "[PROXMOX] Applying VirtIO bridge & kernel sysctl optimizations..."
 cat << 'EOF' > /etc/sysctl.d/99-proxmox-virtio.conf
 # Proxmox VirtIO bridge compatibility
-net.ipv4.conf.all.rp_filter = 2
-net.ipv4.conf.default.rp_filter = 2
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 EOF

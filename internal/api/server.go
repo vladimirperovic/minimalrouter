@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -25,7 +23,6 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
-	"github.com/vladimirperovic/minimalrouter/internal/services"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -276,7 +273,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // securityHeadersMiddleware sets strict web security headers on all API responses per SECURITY.md §6.
 func (s *Server) securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
@@ -325,20 +322,11 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// ── Authenticated encrypted backup and restore ──
 	mux.HandleFunc("POST /api/v1/backup/export", sh(s.authMiddleware(s.handleBackupExport)))
-	mux.HandleFunc("POST /api/v1/backup/encrypt", sh(s.authMiddleware(s.handleBackupEncrypt)))
-	mux.HandleFunc("POST /api/v1/backup/decrypt", sh(s.authMiddleware(s.handleBackupDecrypt)))
 	mux.HandleFunc("POST /api/v1/backup/import/preview", sh(s.authMiddleware(s.handleBackupImportPreview)))
 	mux.HandleFunc("POST /api/v1/import/backup/{id}/apply", sh(s.authMiddleware(s.handleBackupImportApply)))
 
 	// ── Firmware Verification (P1) ──
 	mux.HandleFunc("POST /api/v1/firmware/verify", sh(s.authMiddleware(s.handleFirmwareVerify)))
-
-	// ── AdGuard Blocklist Management ──
-	mux.HandleFunc("POST /api/v1/adguard/blocklist/update", sh(s.authMiddleware(s.handleAdGuardBlocklistUpdate)))
-
-	// ── System Update ──
-	mux.HandleFunc("GET /api/v1/system/update/check", sh(s.authMiddleware(s.handleUpdateCheck)))
-	mux.HandleFunc("POST /api/v1/system/update/install", sh(s.authMiddleware(s.handleUpdateInstall)))
 
 	// ── Setup Wizard (first-run only, self-guarding) ──
 	mux.HandleFunc("POST /api/v1/setup/apply", sh(s.handleSetupApply))
@@ -430,7 +418,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessionMgr.SetSessionCookie(w, session)
 
-	log.Printf("[AUTH] Successful login from %s (session: %s...)\n", ip, session.ID[:8])
+	log.Printf("[AUTH] Successful login from %s\n", ip)
 	s.appendAudit("auth.login_succeeded", ip, map[string]string{
 		"mode": map[bool]string{true: "read_only", false: "administrator"}[session.ReadOnly],
 	})
@@ -518,60 +506,6 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ── AdGuard Handlers ──
-
-func (s *Server) handleAdGuardBlocklistUpdate(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetLatestConfig()
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
-		return
-	}
-	if !cfg.AdGuard.Enabled {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "AdGuard is not enabled"})
-		return
-	}
-
-	hostsData, err := services.DownloadBlocklist(cfg.AdGuard.BlocklistURL)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Blocklist download failed: " + err.Error()})
-		return
-	}
-
-	// Parse domains to count
-	domains := services.ParseHostsFile(hostsData)
-	if len(domains) == 0 {
-		domains = services.BuiltinBlocklist()
-	}
-
-	// Update last_updated timestamp and advance revision
-	cfg.AdGuard.LastUpdated = time.Now().Format(time.RFC3339)
-	cfg.Revision++
-	if err := s.store.SaveConfig(cfg); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save config"})
-		return
-	}
-
-	s.appendAudit("adguard.blocklist_updated", "system", map[string]string{
-		"url":          cfg.AdGuard.BlocklistURL,
-		"domain_count": fmt.Sprintf("%d", len(domains)),
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":      true,
-		"domain_count": len(domains),
-		"last_updated": cfg.AdGuard.LastUpdated,
-	})
-}
-
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess, _ := s.sessionMgr.ValidateSession(r)
 	w.Header().Set("Content-Type", "application/json")
@@ -640,61 +574,6 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ── System Update Handlers ──
-
-func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetLatestConfig()
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to load config"})
-		return
-	}
-
-	currentVersion := cfg.System.Hostname // Use hostname as version placeholder
-	manifest, err := services.CheckForUpdate(currentVersion, "")
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"current_version":  currentVersion,
-			"update_available": false,
-			"error":            err.Error(),
-		})
-		return
-	}
-
-	s.appendAudit("system.update_checked", "system", map[string]string{
-		"current": currentVersion,
-		"latest":  manifest.Version,
-	})
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"current_version":  currentVersion,
-		"latest_version":   manifest.Version,
-		"update_available": manifest.Version != currentVersion,
-		"release_notes":    manifest.ReleaseNote,
-		"release_date":     manifest.ReleaseDate,
-	})
-}
-
-func (s *Server) handleUpdateInstall(w http.ResponseWriter, r *http.Request) {
-	if err := services.InstallUpdate(); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Install failed: " + err.Error()})
-		return
-	}
-
-	s.appendAudit("system.update_installed", "system", map[string]string{})
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Update installed successfully. A reboot may be required.",
-	})
-}
-
 // ── TOTP Handlers (2FA) ──
 
 func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
@@ -741,6 +620,17 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+	}
+	if err := decodeJSON(w, r, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if !s.verifyCurrentPassword(req.CurrentPassword) {
+		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+		return
+	}
 	if s.store == nil {
 		http.Error(w, "TOTP store unavailable", http.StatusServiceUnavailable)
 		return
@@ -779,7 +669,12 @@ func (s *Server) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Code string `json:"code"`
+		Code            string `json:"code"`
+		CurrentPassword string `json:"current_password"`
+	}
+	if !s.verifyCurrentPassword(req.CurrentPassword) {
+		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+		return
 	}
 	if err := decodeJSON(w, r, &req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -953,7 +848,7 @@ func (s *Server) handlePfSenseImportPreview(w http.ResponseWriter, r *http.Reque
 	s.mu.Lock()
 	now := time.Now()
 	for id, pending := range s.pendingImports {
-		if now.After(pending.expiresAt) {
+		if now.After(pending.expiresAt) || pending.sessionID == session.ID {
 			delete(s.pendingImports, id)
 		}
 	}
@@ -1252,10 +1147,16 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 	importID := base64.RawURLEncoding.EncodeToString(idBytes)
 	candidate.Revision = s.engine.GetCurrentConfig().Revision
 	s.mu.Lock()
+	now := time.Now()
+	for id, pending := range s.pendingImports {
+		if now.After(pending.expiresAt) || pending.sessionID == session.ID {
+			delete(s.pendingImports, id)
+		}
+	}
 	s.pendingImports[importID] = pendingPfSenseImport{
 		sessionID: session.ID,
 		config:    candidate,
-		expiresAt: time.Now().Add(10 * time.Minute),
+		expiresAt: now.Add(10 * time.Minute),
 	}
 	s.mu.Unlock()
 
@@ -1298,134 +1199,4 @@ func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusAccepted)
 	}
 	json.NewEncoder(w).Encode(redactTransaction(tx))
-}
-
-// Legacy raw-key helpers are retained as internal compatibility code but are
-// intentionally not registered as HTTP routes.
-func (s *Server) handleBackupEncrypt(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SnapshotID string `json:"snapshot_id"`
-		KeyB64     string `json:"key_b64"` // base64-encoded 32-byte key
-	}
-	if err := decodeJSON(w, r, &req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	store := s.engine.GetStore()
-	if store == nil {
-		http.Error(w, "Snapshot store unavailable", http.StatusInternalServerError)
-		return
-	}
-
-	snap, err := store.GetSnapshot(req.SnapshotID)
-	if err != nil {
-		http.Error(w, "Snapshot not found", http.StatusNotFound)
-		return
-	}
-
-	// Marshal snapshot to JSON
-	snapJSON, err := json.Marshal(snap)
-	if err != nil {
-		http.Error(w, "Failed to marshal snapshot", http.StatusInternalServerError)
-		return
-	}
-
-	// Decode key
-	key, err := base64.StdEncoding.DecodeString(req.KeyB64)
-	if err != nil || len(key) != 32 {
-		http.Error(w, "Invalid key (must be 32 bytes base64)", http.StatusBadRequest)
-		return
-	}
-
-	// Encrypt using AES-GCM
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		http.Error(w, "Cipher error", http.StatusInternalServerError)
-		return
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		http.Error(w, "GCM error", http.StatusInternalServerError)
-		return
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		http.Error(w, "Nonce generation failed", http.StatusInternalServerError)
-		return
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, snapJSON, nil)
-	encoded := base64.StdEncoding.EncodeToString(ciphertext)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":     true,
-		"encrypted":   encoded,
-		"snapshot_id": req.SnapshotID,
-		"algorithm":   "AES-256-GCM",
-	})
-}
-
-func (s *Server) handleBackupDecrypt(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		EncryptedB64 string `json:"encrypted_b64"`
-		KeyB64       string `json:"key_b64"`
-	}
-	if err := decodeJSON(w, r, &req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(req.EncryptedB64)
-	if err != nil {
-		http.Error(w, "Invalid base64", http.StatusBadRequest)
-		return
-	}
-
-	key, err := base64.StdEncoding.DecodeString(req.KeyB64)
-	if err != nil || len(key) != 32 {
-		http.Error(w, "Invalid key (must be 32 bytes base64)", http.StatusBadRequest)
-		return
-	}
-
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		http.Error(w, "Cipher error", http.StatusInternalServerError)
-		return
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		http.Error(w, "GCM error", http.StatusInternalServerError)
-		return
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		http.Error(w, "Ciphertext too short", http.StatusBadRequest)
-		return
-	}
-
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		http.Error(w, "Decryption failed (wrong key?)", http.StatusUnauthorized)
-		return
-	}
-
-	// Parse the decrypted snapshot
-	var snap config.Snapshot
-	if err := json.Unmarshal(plaintext, &snap); err != nil {
-		http.Error(w, "Corrupted snapshot data", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"snapshot": snap,
-	})
 }

@@ -35,6 +35,24 @@ func TestGenerateWireGuard(t *testing.T) {
 	if !strings.Contains(out, "PublicKey = sOmEPuBlIcKeY=") {
 		t.Errorf("Expected peer public key in output")
 	}
+
+	runtimeConfig, err := GenerateWireGuardRuntime(wg)
+	if err != nil {
+		t.Fatalf("GenerateWireGuardRuntime failed: %v", err)
+	}
+	if strings.Contains(runtimeConfig, "Address =") {
+		t.Fatal("wg setconf runtime input must not contain wg-quick-only Address")
+	}
+	for _, expected := range []string{
+		"PrivateKey = sOmEPriVaTeKeY=",
+		"ListenPort = 51820",
+		"PublicKey = sOmEPuBlIcKeY=",
+		"AllowedIPs = 10.0.0.2/32",
+	} {
+		if !strings.Contains(runtimeConfig, expected) {
+			t.Fatalf("runtime config is missing %q", expected)
+		}
+	}
 }
 
 func TestGenerateClientConfig(t *testing.T) {

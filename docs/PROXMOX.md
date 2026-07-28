@@ -1,23 +1,34 @@
 # Proxmox VE Deployment & Optimization Guide
 
-Minimal Router OS runs efficiently as a QEMU/KVM virtual machine or unprivileged LXC container on Proxmox VE.
+Minimal Router OS targets a QEMU/KVM virtual machine on Proxmox VE. An
+unprivileged LXC container is not a supported router boundary because it
+shares the host kernel and cannot provide the same nftables, interface, and
+device isolation.
 
 ## 1. Automated Setup Script
 
-Run the automated Proxmox guest optimization script inside your Minimal Router OS instance:
+Run the reviewed local script from a verified checkout inside the guest:
 
 ```bash
 sh /usr/local/bin/proxmox-setup.sh
 ```
 
-Or run directly from GitHub:
+Do not pipe a mutable network response into a root shell. For VM creation,
+provide an independently verified ISO digest:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/vladimirperovic/minimalrouter/main/scripts/proxmox-setup.sh | sh
+export MINIMALROUTER_ISO_SHA256='<verified 64-hex digest>'
+bash packaging/proxmox/create-vm.sh
 ```
 
 ## 2. Included Optimizations
 
 - **QEMU Guest Agent (`qemu-guest-agent`)**: Enables Proxmox VE Web UI to display active router IP addresses, memory usage, and execute graceful VM reboots/shutdowns.
 - **Host Time Synchronization (`chrony`)**: Prevents Real-Time Clock (RTC) drift when Proxmox VE hosts pause, snapshot, or live-migrate the VM.
-- **VirtIO Net Offloading**: Tunes Linux Kernel `rp_filter` to `2` (loose mode) to ensure VirtIO Linux bridges (`vmbr0`, `vmbr1`) route packets cleanly without dropping asymmetrical VLAN packets.
+- **VirtIO networking**: Keeps `rp_filter=1` (strict) to preserve anti-spoofing.
+  A deployment that genuinely needs asymmetric routing requires a documented
+  threat review before relaxing this.
+
+The helper only creates an empty virtual disk. Install Alpine normally inside
+the VM. The current helper allocates 1 GiB RAM for production headroom; 512 MiB
+is the measured test minimum.

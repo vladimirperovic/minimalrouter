@@ -1,11 +1,14 @@
 #!/bin/sh
+set -eu
+
 API="https://192.168.1.1:8443"
-PASSWD="SuperSecure12345678"
-OUT="/tmp/dashboard-test.txt"
-echo "========================================" > $OUT
-echo "  MINIMAL ROUTER OS — DASHBOARD E2E TEST" >> $OUT
-echo "========================================" >> $OUT
-echo "" >> $OUT
+PASSWD="${MINIMALROUTER_TEST_PASSWORD:-SuperSecure12345678}"
+OUT="${MINIMALROUTER_DASHBOARD_TEST_OUTPUT:-/tmp/dashboard-test.txt}"
+umask 077
+echo "========================================" > "$OUT"
+echo "  MINIMAL ROUTER OS — DASHBOARD E2E TEST" >> "$OUT"
+echo "========================================" >> "$OUT"
+echo "" >> "$OUT"
 
 echo "=== 1. LOGIN ===" >> $OUT
 LOGIN_RESP=$(curl -sk -X POST $API/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"password\":\"$PASSWD\"}" -c /tmp/cookies.txt -w '\n%{http_code}')
@@ -15,10 +18,10 @@ LOGIN_SUCCESS=$(echo "$LOGIN_RESP" | head -1 | jq -r '.success // false' 2>/dev/
 echo "success: $LOGIN_SUCCESS" >> $OUT
 echo "" >> $OUT
 
-echo "=== 2. CSRF TOKEN ===" >> $OUT
+echo "=== 2. CSRF TOKEN ===" >> "$OUT"
 CSRF=$(curl -sk $API/api/v1/auth/session -b /tmp/cookies.txt 2>/dev/null | jq -r '.csrf_token // ""')
-echo "csrf_token: ${CSRF:0:16}... (len=${#CSRF})" >> $OUT
-echo "" >> $OUT
+echo "csrf_token: present=$([ -n "$CSRF" ] && echo yes || echo no) (len=${#CSRF})" >> "$OUT"
+echo "" >> "$OUT"
 
 echo "=== 3. DASHBOARD HTML ===" >> $OUT
 DASH_HTTP=$(curl -sk $API/ -b /tmp/cookies.txt -o /tmp/dash.html -w '%{http_code}' 2>/dev/null)

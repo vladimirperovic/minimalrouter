@@ -1,30 +1,32 @@
 # Development
 
-This is the initial development contract. Exact commands will be added when the
-Go module, web application, and image builder are scaffolded.
+This is the active development contract for the Go 1.25 and React/Vite
+implementation.
 
 ## Prerequisites
 
 - Git
-- Current pinned Go toolchain
+- Go 1.25-compatible toolchain
+- Node.js 22.13+ and pnpm 11 for rebuilding static dashboard assets only
 - QEMU/KVM or another supported hypervisor
 - Alpine image-building tools
-- nftables, pppd, dnsmasq, WireGuard tools, and cloudflared inside the test VM
+- nftables, pppd, dnsmasq, WireGuard tools, Squid, and iproute2 inside the test
+  VM. Wi-Fi AP testing additionally needs `hostapd`, `iw`, and an AP-capable
+  radio; Cloudflare DDNS uses `inadyn`. Cloudflare Tunnel and DoH remain
+  unsupported.
 
 Do not require these networking services on a developer's host. Integration and
 end-to-end tests run in an isolated Linux VM or namespace environment.
 
 ## Intended local workflow
 
-```text
-make bootstrap   # verify/install project-local development dependencies
-make generate    # generate API types, mocks, and deterministic artifacts
-make lint        # Go and frontend static checks
-make test        # fast unit tests
-make integration # isolated real-component tests
-make image       # reproducible Alpine development image
-make e2e         # boot image and exercise management/apply flows
-make check       # all pre-commit checks that do not require special hardware
+```sh
+go test ./...
+go vet ./...
+pnpm --dir web lint
+pnpm --dir web build
+make build-linux-arm64
+make dist-arm64
 ```
 
 The `Makefile` is a discoverable front door; underlying scripts must also work
@@ -66,9 +68,9 @@ Generated service files:
 - Are validated before installation.
 - Are never edited in place.
 
-Golden files are appropriate for nftables, dnsmasq, pppd, WireGuard, and
-cloudflared generators, but tests must normalize only truly nondeterministic
-values.
+Golden files are appropriate for nftables, dnsmasq, pppd, WireGuard, Squid,
+global blocklist, and QoS generators. Tests must normalize only truly
+nondeterministic values.
 
 ## Database migrations
 

@@ -66,3 +66,4 @@ How will tests or a proof of concept confirm the decision?
 
 - [0001 — Canonical configuration and apply pipeline](0001-config-state-and-apply-pipeline.md)
 - [0002 — Initial web frontend](0002-initial-web-frontend.md)
+- [0003 — React/Vite static frontend](0003-react-vite-frontend.md)

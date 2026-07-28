@@ -119,9 +119,10 @@ The store contains:
 - Audit events
 - Non-secret operational state
 
-Generated files for nftables, pppd, dnsmasq, WireGuard, cloudflared, and
-networking are derived artifacts. They are not edited by hand and are not the
-source of truth.
+Generated files for nftables, pppd, dnsmasq, WireGuard, Squid, global DNS
+blocklisting, QoS, Cloudflare DDNS, Wi-Fi, and networking are derived
+artifacts. They are not edited by hand and are not the source of truth.
+Cloudflare Tunnel and DoH placeholders are not activated in the pilot build.
 
 Secrets are stored separately from ordinary settings where practical, with
 strict ownership and permissions. Passwords are hashed, not encrypted.
@@ -134,8 +135,12 @@ strict ownership and permissions. Passwords are hashed, not encrypted.
 | PPPoE | pppd | Generate peer and secret material; validate paths and permissions |
 | DHCP and DNS | dnsmasq | Generate isolated configuration; run syntax preflight |
 | VPN | WireGuard | Use kernel/userspace tooling through typed operations |
-| DDNS and tunnel | cloudflared | Disabled until lifecycle, token rotation, verification, and rollback are complete |
-| Updates | Alpine `apk` plus project repository | Verify signed packages and release metadata |
+| Wi-Fi AP | hostapd + Linux bridge | Require an AP-capable radio; bridge wired and wireless LAN, preflight hardware, verify service and membership, and commit-confirm or roll back |
+| Global DNS blocklist | dnsmasq | Parse bounded HTTPS hosts data or use the built-in list; rules remain global |
+| QoS | iproute2 `tc` | Apply a bounded CAKE/fq_codel policy and verify qdisc state |
+| Cloudflare DDNS | inadyn | Stable Alpine package; validate configuration, perform a bounded real update, verify OpenRC service, and roll back |
+| Cloudflare Tunnel and DoH | none | Disabled; Tunnel would violate the WireGuard-only remote-entry policy and DoH has no verified adapter |
+| Updates | Alpine `apk` plus project repository | Automatic route disabled until signed privileged transaction is complete |
 
 The project owns only clearly named configuration files and nftables tables. It
 must not flush or replace unrelated host configuration.
@@ -185,9 +190,11 @@ new configuration.
 ### 5.2 Concurrency and idempotency
 
 - Only one apply transaction may run at a time.
-- Mutating API requests carry an idempotency key.
+- Configuration writes use revision-based optimistic concurrency. General
+  idempotency keys remain planned and must not be claimed as implemented.
 - Updates use optimistic concurrency with a configuration revision/ETag.
-- Repeating a completed request returns its existing result.
+- A client must re-read state after ambiguous transport failure; generic
+  replay caching is not implemented yet.
 - Process crashes leave enough durable state to resume rollback on boot.
 
 ## 6. REST API

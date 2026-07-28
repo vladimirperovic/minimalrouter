@@ -1,6 +1,7 @@
 package services
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -26,6 +27,14 @@ func TestBuiltinBlocklist(t *testing.T) {
 	if len(domains) == 0 {
 		t.Error("builtin blocklist should not be empty")
 	}
+	for _, domain := range domains {
+		if len(domain) > 253 || !blockDomainPattern.MatchString(domain) {
+			t.Fatalf("invalid built-in domain %q", domain)
+		}
+		if strings.HasSuffix(domain, ".example.com") {
+			t.Fatalf("placeholder domain must not ship in built-in list: %q", domain)
+		}
+	}
 }
 
 func TestGenerateAdBlockConf_Disabled(t *testing.T) {
@@ -44,7 +53,7 @@ func TestGenerateAdBlockConf_Disabled(t *testing.T) {
 func TestGenerateAdBlockConf_WithBuiltin(t *testing.T) {
 	cfg := &config.SystemConfig{
 		AdGuard: config.AdGuardConfig{
-			Enabled:      true,
+			Enabled:       true,
 			FilterDevices: []config.FilterDeviceRule{},
 		},
 	}
@@ -61,7 +70,7 @@ func TestGenerateAdBlockConf_WithBuiltin(t *testing.T) {
 	}
 }
 
-func TestGenerateAdBlockConf_WithFilterDevices(t *testing.T) {
+func TestGenerateAdBlockConf_DoesNotPretendPerDeviceRulesArePossible(t *testing.T) {
 	cfg := &config.SystemConfig{
 		AdGuard: config.AdGuardConfig{
 			Enabled: true,
@@ -80,15 +89,19 @@ func TestGenerateAdBlockConf_WithFilterDevices(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should contain per-device rules for youtube/tiktok
-	if !containsSubstring(result, "youtube.com") {
-		t.Error("expected youtube domain in per-device rules")
-	}
-	if !containsSubstring(result, "tiktok.com") {
-		t.Error("expected tiktok domain in per-device rules")
-	}
 	if !containsSubstring(result, "192.168.1.50") {
-		t.Error("expected device IP in per-device rules")
+		// Expected: dnsmasq address directives are global and must never encode
+		// a client IP as if it were a per-device policy selector.
+		return
+	}
+	t.Error("generator emitted a fake per-device DNS rule")
+}
+
+func TestParseHostsFileRejectsInvalidAndNonSinkholeEntries(t *testing.T) {
+	data := []byte("1.2.3.4 legitimate.example\n0.0.0.0 bad/value\n0.0.0.0 valid.example\n")
+	domains := ParseHostsFile(data)
+	if len(domains) != 1 || domains[0] != "valid.example" {
+		t.Fatalf("unexpected parsed domains: %v", domains)
 	}
 }
 
