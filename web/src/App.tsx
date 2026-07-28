@@ -37,6 +37,30 @@ function formatUptime(seconds = 0) {
   return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
 }
 
+async function updateRouterConfig(
+  update: (config: any) => void,
+  failureMessage: string,
+): Promise<{ state?: string; id?: string }> {
+  const currentResponse = await apiFetch("/api/v1/config");
+  if (!currentResponse.ok) {
+    const body = await currentResponse.json().catch(() => ({}));
+    throw new Error(body.error || `${failureMessage}: could not load current configuration`);
+  }
+
+  const config = await currentResponse.json();
+  update(config);
+  const response = await apiFetch("/api/v1/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `${failureMessage} (${response.status})`);
+  }
+  return body;
+}
+
 function TrafficChart({ theme, download, upload }: { theme: Theme; download: number[]; upload: number[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -249,6 +273,13 @@ function Dashboard() {
   const [uploadMbps, setUploadMbps] = useState(0);
   const trafficPrevious = useRef<{ rx: number; tx: number; at: number } | null>(null);
 
+  const finishConfigApply = (result: { state?: string; id?: string }) => {
+    if (result.state === "AwaitingConfirmation" && result.id) {
+      setPendingConfirmationID(result.id);
+    }
+    setOperationError("");
+  };
+
   const applyScale = (scale: number) => {
     setFontScale(scale);
     if (typeof document !== "undefined") {
@@ -401,12 +432,9 @@ function Dashboard() {
     const updated = squidRestrictedIPs.map((item) =>
       item.ip_address === targetIp ? { ...item, enabled: !item.enabled } : item
     );
-    setSquidRestrictedIPs(updated);
 
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           cfg.squid_proxy = {
             ...cfg.squid_proxy,
             enabled: squidEnabled,
@@ -415,23 +443,21 @@ function Dashboard() {
             password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+        }, "Squid restricted-device update failed")
+        .then((result) => {
+          setSquidRestrictedIPs(updated);
+          finishConfigApply(result);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Squid restricted-device update failed"));
+    } else {
+      setSquidRestrictedIPs(updated);
     }
   };
 
   const handleSaveSquidCreds = (e: React.FormEvent) => {
     e.preventDefault();
-    setSquidCredsModalOpen(false);
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           cfg.squid_proxy = {
             ...cfg.squid_proxy,
             enabled: squidEnabled,
@@ -440,13 +466,14 @@ function Dashboard() {
             password: squidPass || "[REDACTED]",
             restricted_ips: squidRestrictedIPs,
           };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+        }, "Squid credentials update failed")
+        .then((result) => {
+          finishConfigApply(result);
+          setSquidCredsModalOpen(false);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Squid credentials update failed"));
+    } else {
+      setSquidCredsModalOpen(false);
     }
   };
 
@@ -457,15 +484,8 @@ function Dashboard() {
       ...squidRestrictedIPs,
       { hostname: newRestrictedHost || "Device", ip_address: newRestrictedIP, enabled: true },
     ];
-    setSquidRestrictedIPs(updated);
-    setNewRestrictedHost("");
-    setNewRestrictedIP("");
-    setAddRestrictedModalOpen(false);
-
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           cfg.squid_proxy = {
             ...cfg.squid_proxy,
             enabled: squidEnabled,
@@ -474,24 +494,28 @@ function Dashboard() {
             password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+        }, "Adding the Squid restricted device failed")
+        .then((result) => {
+          setSquidRestrictedIPs(updated);
+          setNewRestrictedHost("");
+          setNewRestrictedIP("");
+          setAddRestrictedModalOpen(false);
+          finishConfigApply(result);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Adding the Squid restricted device failed"));
+    } else {
+      setSquidRestrictedIPs(updated);
+      setNewRestrictedHost("");
+      setNewRestrictedIP("");
+      setAddRestrictedModalOpen(false);
     }
   };
 
   const handleRemoveRestrictedIP = (ip: string) => {
     const updated = squidRestrictedIPs.filter((item) => item.ip_address !== ip);
-    setSquidRestrictedIPs(updated);
 
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           cfg.squid_proxy = {
             ...cfg.squid_proxy,
             enabled: squidEnabled,
@@ -500,13 +524,14 @@ function Dashboard() {
             password: squidPass || "[REDACTED]",
             restricted_ips: updated,
           };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+        }, "Removing the Squid restricted device failed")
+        .then((result) => {
+          setSquidRestrictedIPs(updated);
+          finishConfigApply(result);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Removing the Squid restricted device failed"));
+    } else {
+      setSquidRestrictedIPs(updated);
     }
   };
 
@@ -634,88 +659,17 @@ function Dashboard() {
     setOperationError("Online blocklist refresh is disabled in this hardened build; the built-in global blocklist remains available.");
   };
 
-  const handleToggleFilterDevice = (id: string) => {
-    const updated = filterDevices.map((item) =>
-      item.id === id ? { ...item, enabled: !item.enabled } : item
-    );
-    setFilterDevices(updated);
-
-    if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.adguard = {
-            ...cfg.adguard,
-            enabled: adguardEnabled,
-            filter_devices: updated,
-          };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
-    }
+  const handleToggleFilterDevice = () => {
+    setOperationError("Per-device DNS filtering is unavailable in this build.");
   };
 
-  const handleRemoveFilterDevice = (id: string) => {
-    const updated = filterDevices.filter((item) => item.id !== id);
-    setFilterDevices(updated);
-
-    if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.adguard = {
-            ...cfg.adguard,
-            enabled: adguardEnabled,
-            filter_devices: updated,
-          };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
-    }
+  const handleRemoveFilterDevice = () => {
+    setOperationError("Per-device DNS filtering is unavailable in this build.");
   };
 
   const handleAddFilterDevice = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newFilterIP) return;
-    const newItem = {
-      id: `f-${Date.now()}`,
-      hostname: newFilterHost || "Device",
-      ip_address: newFilterIP,
-      blocked_services: newFilterServices,
-      enabled: true,
-    };
-    const updated = [...filterDevices, newItem];
-    setFilterDevices(updated);
-    setNewFilterHost("");
-    setNewFilterIP("");
-    setNewFilterServices(["youtube", "tiktok"]);
-    setAddFilterModalOpen(false);
-
-    if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
-          cfg.adguard = {
-            ...cfg.adguard,
-            enabled: adguardEnabled,
-            filter_devices: updated,
-          };
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
-        })
-        .catch(console.error);
-    }
+    setOperationError("Per-device DNS filtering is unavailable in this build.");
   };
 
   const [dnsModalOpen, setDnsModalOpen] = useState(false);
@@ -726,20 +680,18 @@ function Dashboard() {
 
   const handleSaveDnsSettings = (e: React.FormEvent) => {
     e.preventDefault();
-    setDnsModalOpen(false);
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           cfg.dhcp.dns_servers = [dnsPrimary, dnsSecondary];
-          cfg.dhcp.dns_enabled = dohEnabled;
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+          cfg.dhcp.dns_enabled = false;
+        }, "DNS settings update failed")
+        .then((result) => {
+          finishConfigApply(result);
+          setDnsModalOpen(false);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "DNS settings update failed"));
+    } else {
+      setDnsModalOpen(false);
     }
   };
 
@@ -1052,25 +1004,17 @@ function Dashboard() {
     if (!deleteConfirmTarget) return;
     const { type, idOrIndex } = deleteConfirmTarget;
 
+    const updatedPeers = type === "wg" ? wgPeers.filter((peer) => peer.id !== idOrIndex) : wgPeers;
     let updatedLeases = staticLeases;
     let updatedForwards = portForwardRules;
-    if (type === "wg") {
-      const updated = wgPeers.filter((p) => p.id !== idOrIndex);
-      setWgPeers(updated);
-    } else if (type === "lease") {
+    if (type === "lease") {
       updatedLeases = staticLeases.filter((_, idx) => idx !== idOrIndex);
-      setStaticLeases(updatedLeases);
     } else if (type === "pf") {
       updatedForwards = portForwardRules.filter((_, idx) => idx !== idOrIndex);
-      setPortForwardRules(updatedForwards);
     }
 
-    setDeleteConfirmTarget(null);
-
     if (apiConnected) {
-      apiFetch("/api/v1/config")
-        .then((res) => res.json())
-        .then((cfg) => {
+      updateRouterConfig((cfg) => {
           if (type === "wg") {
             cfg.wireguard.peers = (cfg.wireguard?.peers ?? []).filter(
               (peer: { id: string }) => peer.id !== idOrIndex,
@@ -1095,13 +1039,20 @@ function Dashboard() {
               enabled: rule.enabled,
             }));
           }
-          return apiFetch("/api/v1/config", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(cfg),
-          });
+        }, `Deleting ${deleteConfirmTarget.name} failed`)
+        .then((result) => {
+          setWgPeers(updatedPeers);
+          setStaticLeases(updatedLeases);
+          setPortForwardRules(updatedForwards);
+          setDeleteConfirmTarget(null);
+          finishConfigApply(result);
         })
-        .catch(console.error);
+        .catch((error) => setOperationError(error instanceof Error ? error.message : "Delete failed"));
+    } else {
+      setWgPeers(updatedPeers);
+      setStaticLeases(updatedLeases);
+      setPortForwardRules(updatedForwards);
+      setDeleteConfirmTarget(null);
     }
   };
 
@@ -2388,7 +2339,7 @@ function Dashboard() {
                               <input
                                 type="checkbox"
                                 checked={item.enabled}
-                                onChange={() => handleToggleFilterDevice(item.id)}
+                                onChange={handleToggleFilterDevice}
                                 disabled
                                 title="Per-device DNS filtering is unavailable"
                                 style={{ width: "16px", height: "16px", cursor: "not-allowed" }}
@@ -2399,7 +2350,7 @@ function Dashboard() {
                           <td>
                             <button
                               type="button"
-                              onClick={() => handleRemoveFilterDevice(item.id)}
+                              onClick={handleRemoveFilterDevice}
                               disabled
                               style={{
                                 border: "none",
