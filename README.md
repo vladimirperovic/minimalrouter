@@ -1,13 +1,23 @@
 # Minimal Router OS
 
 <p align="center">
-  <img src="web/public/favicon.svg" alt="Minimal Router OS router logo" width="160" />
+  <img src="web/public/favicon.svg" alt="Minimal Router OS router logo" width="150" />
 </p>
 
-[![Status: Early Alpha](https://img.shields.io/badge/status-early%20alpha-orange)](#project-status)
-[![CI](https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg)](https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg)](https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="#project-status"><img alt="Status: Early Alpha" src="https://img.shields.io/badge/status-early%20alpha-orange" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+</p>
+
+<p align="center">
+  <a href="docs/INSTALLATION.md">Installation</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
 
 <a id="project-status"></a>
 
@@ -18,8 +28,9 @@
 > validation matrix.
 
 Minimal Router OS is a small Alpine Linux router appliance with a Go control
-plane and a React dashboard. It uses proven Linux networking components instead
-of implementing a new packet-processing stack:
+plane and a React dashboard. It combines proven Linux networking components with
+a narrow, validated configuration system instead of implementing a new packet
+processing stack.
 
 - `nftables` for firewalling and NAT
 - `pppd` for PPPoE
@@ -28,21 +39,8 @@ of implementing a new packet-processing stack:
 - optional Squid proxy, QoS, Cloudflare DDNS, and Wi-Fi AP support
 
 The goal is a focused home and small-office router that is understandable,
-resource-efficient, secure by default, and pleasant to administer.
-
-## Everyone is welcome
-
-This project was started as a practical homelab development project, not by a
-large networking vendor. It will improve through testing, review, documentation,
-design feedback, and contributions from the community.
-
-You do not need to be an expert systems programmer to participate. Beginners,
-homelab users, network engineers, security reviewers, designers, technical
-writers, testers, and experienced Go or React developers are all welcome.
-Small fixes, reproducible bug reports, documentation improvements, translations,
-accessibility work, and hardware test results are valuable contributions.
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
+resource-efficient, secure by default, recoverable after mistakes, and pleasant
+to administer.
 
 ## Dashboard
 
@@ -60,39 +58,54 @@ personal or production network.
 
 ### Implemented and tested in the development environment
 
-- Split control plane: unprivileged `routerd` and privileged `router-applyd`
-- SQLite canonical configuration store
-- transactional generation, preflight, snapshot, apply, verify, and rollback
-- default-deny WAN firewall and NAT
-- PPPoE WAN configuration
-- DHCP and DNS service
-- global DNS blocklist/sinkhole integrated into the router UI
-- WireGuard server and split-tunnel phone profiles
-- encrypted backup export and configuration snapshots
-- Argon2id authentication, secure sessions, CSRF protection, and optional TOTP
-- live DHCP lease display and redacted audit logs
-- guided first-run wizard
-- Alpine/OpenRC packaging and a clean-install CI smoke test
+- split control plane: unprivileged `routerd` and privileged `router-applyd`;
+- SQLite canonical configuration store;
+- transactional generation, preflight, snapshot, apply, verify, and rollback;
+- default-deny WAN firewall and NAT;
+- PPPoE WAN configuration;
+- DHCP and DNS service;
+- global DNS blocklist/sinkhole integrated into the router UI;
+- WireGuard server and split-tunnel phone profiles;
+- encrypted backup export and configuration snapshots;
+- Argon2id authentication, secure sessions, CSRF protection, and optional TOTP;
+- live DHCP lease display and redacted audit logs;
+- guided first-run wizard;
+- Alpine/OpenRC packaging and a clean-install CI smoke test.
 
 ### Optional and disabled by default
 
-- Cloudflare Dynamic DNS
-- Wi-Fi access point
-- Squid forward proxy
-- traffic shaping/QoS
-- WireGuard remote access
+- Cloudflare Dynamic DNS;
+- Wi-Fi access point;
+- Squid forward proxy;
+- traffic shaping/QoS;
+- WireGuard remote access.
 
 ### Not yet a stable release feature
 
-- production-grade IPv6 parity
-- multi-WAN and high availability
-- VLAN and managed-switch workflows
-- signed recovery images and a complete update rollback channel
-- a broad third-party package ecosystem
-- unattended production support
+- production-grade IPv6 parity;
+- multi-WAN and high availability;
+- VLAN and managed-switch workflows;
+- signed recovery images and a complete update rollback channel;
+- a broad third-party package ecosystem;
+- unattended production support.
 
 Unsupported functionality fails closed or is shown as unavailable rather than
 being simulated.
+
+## Project principles
+
+- **Safe defaults:** WAN is default-deny and management is not exposed directly
+  to WAN.
+- **Least privilege:** the network-facing API runs separately from the privileged
+  apply helper.
+- **Deterministic changes:** configuration is validated and generated from typed
+  models rather than arbitrary shell fragments.
+- **Recoverability:** disruptive changes use snapshots, verification,
+  confirmation, and rollback.
+- **Honest status:** documentation distinguishes implemented behavior, measured
+  evidence, planned work, and unsupported features.
+- **Small scope:** features may be declined when they significantly expand attack
+  surface or long-term maintenance cost.
 
 ## Minimal Router OS and pfSense
 
@@ -116,8 +129,8 @@ security parity.
 | High availability | Not implemented | CARP and established HA workflows |
 | Support | Community best effort | Community plus commercial Netgate support options |
 
-The lower measured memory footprint is mainly a consequence of Minimal Router
-OS having a much narrower feature set. pfSense remains substantially more mature,
+The lower measured memory footprint is mainly a consequence of Minimal Router OS
+having a much narrower feature set. pfSense remains substantially more mature,
 more flexible, more thoroughly deployed, and the safer choice when its advanced
 features or production support are required.
 
@@ -128,7 +141,8 @@ References:
 - pfSense package system and pfBlockerNG: https://docs.netgate.com/pfsense/en/latest/packages/
 
 A more detailed three-way comparison is available in
-[docs/COMPARISON.md](docs/COMPARISON.md).
+[docs/COMPARISON.md](docs/COMPARISON.md). The dated measurement evidence is in
+[docs/RESOURCE_AND_HARDWARE_TEST.md](docs/RESOURCE_AND_HARDWARE_TEST.md).
 
 ## Architecture
 
@@ -168,9 +182,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [SECURITY.md](SECURITY.md).
 
 Requirements:
 
-- Go version declared in `go.mod`
-- Node.js 22
-- pnpm
+- Go version declared in `go.mod`;
+- Node.js 22;
+- pnpm.
 
 ```sh
 git clone https://github.com/vladimirperovic/minimalrouter.git
@@ -191,13 +205,16 @@ pnpm --dir web dev
 ```
 
 The production router does not require Node.js. The dashboard is compiled to
-static assets during the build.
+static assets during the build. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+for the complete workflow.
 
-## Alpine test installation
+## Controlled installation
 
-There is no signed stable ISO yet. For a controlled lab installation, use a
-clean Alpine Linux 3.22 VM with two network interfaces and follow
-[docs/PROXMOX.md](docs/PROXMOX.md).
+There is no signed stable ISO yet. For a controlled lab installation, use a clean
+Alpine Linux 3.22 VM or dedicated test system with two network interfaces.
+
+Start with [docs/INSTALLATION.md](docs/INSTALLATION.md). Proxmox users should also
+read [docs/PROXMOX.md](docs/PROXMOX.md).
 
 Build a self-contained x86-64 archive:
 
@@ -205,42 +222,73 @@ Build a self-contained x86-64 archive:
 make dist-amd64
 ```
 
-The CI workflow also installs the generated archive in a clean privileged Alpine
-container and completes the first-run wizard over HTTPS.
+The CI workflow installs the generated archive in a clean privileged Alpine
+container and completes the first-run wizard over HTTPS. This smoke test does not
+replace physical NIC, real ISP, power-loss, throughput, recovery-media, or
+independent security testing.
 
-## Security
+## Security and privacy
 
-A router is a security boundary. Please read [SECURITY.md](SECURITY.md) before
-running the project or changing privileged code.
+A router is a security boundary. Read [SECURITY.md](SECURITY.md) before running
+the project or changing privileged code. Do not report vulnerabilities in a
+public issue; use the private reporting method described in the security policy.
 
-Do not report vulnerabilities in a public issue. Follow the private reporting
-instructions in the security policy.
+The current project does not intentionally include project-operated analytics,
+advertising, or cloud telemetry. Local data and optional integrations are
+explained in [PRIVACY.md](PRIVACY.md).
 
-Never commit:
+Never commit or publicly attach:
 
-- PPPoE usernames or passwords
-- administrator passwords or hashes
-- WireGuard private or preshared keys
-- Cloudflare tokens
-- exported backups
-- real runtime databases, configuration files, or snapshots
+- PPPoE usernames or passwords;
+- administrator passwords, hashes, sessions, or CSRF values;
+- WireGuard private keys, preshared keys, profiles, or QR codes;
+- Cloudflare or other provider tokens;
+- exported backups;
+- real runtime databases, configuration files, snapshots, packet captures, logs,
+  public addresses, hostnames, MAC addresses, or device inventory.
+
+## Community and governance
+
+Beginners, homelab users, network engineers, security reviewers, designers,
+technical writers, testers, translators, and experienced Go or React developers
+are welcome.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow and definition of done;
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — expected community behavior;
+- [GOVERNANCE.md](GOVERNANCE.md) — decision-making, security review, and release authority;
+- [MAINTAINERS.md](MAINTAINERS.md) — active maintainers and ownership;
+- [SUPPORT.md](SUPPORT.md) — support scope and privacy-safe diagnostics.
 
 ## Documentation
 
+The complete documentation index is [docs/README.md](docs/README.md).
+
+Key documents:
+
 - [Architecture](ARCHITECTURE.md)
+- [Product scope](PROJECT.md)
 - [Security policy and threat model](SECURITY.md)
-- [Contributing](CONTRIBUTING.md)
+- [Privacy](PRIVACY.md)
+- [Installation](docs/INSTALLATION.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Testing guide](docs/TESTING.md)
-- [Proxmox lab guide](docs/PROXMOX.md)
 - [Current security review](docs/SECURITY_REVIEW.md)
-- [Detailed platform comparison](docs/COMPARISON.md)
 - [Roadmap](ROADMAP.md)
+- [Changelog](CHANGELOG.md)
 - [Architecture decisions](docs/adr/README.md)
+
+## Releases
+
+There is no stable signed release yet. Do not treat a development archive or a
+source commit as production-ready firmware. Official releases must follow
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md), publish checksums and known
+limitations, and state the exact supported deployment class.
 
 ## License
 
 Minimal Router OS is available under the [MIT License](LICENSE).
 
 The project name and documentation do not imply endorsement by Netgate, pfSense,
-AdGuard, Cloudflare, or any other referenced project or company.
+OpenWrt, AdGuard, Cloudflare, Alpine Linux, or any other referenced project or
+company.
