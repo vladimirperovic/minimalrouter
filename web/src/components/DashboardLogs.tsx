@@ -98,7 +98,11 @@ export default function DashboardLogs() {
       if (disposed) return;
       const nav = document.querySelector<HTMLElement>(".side-nav");
       const content = document.querySelector<HTMLElement>(".main-panel .content");
-      if (!nav || !content) return;
+      if (!nav || !content) {
+        setNavHost((current) => (current && !current.isConnected ? null : current));
+        setSectionHost((current) => (current && !current.isConnected ? null : current));
+        return;
+      }
 
       let nextNavHost = nav.querySelector<HTMLElement>("[data-dashboard-logs-nav-host]");
       if (!nextNavHost) {
@@ -218,11 +222,12 @@ export default function DashboardLogs() {
 
   const nav = (
     <a
-      data-logs-link
+      data-logs-link="true"
       className={logsActive ? "active" : ""}
       href="#logs"
       onClick={() => {
         setLogsActive(true);
+        document.querySelector<HTMLButtonElement>(".sidebar-close")?.click();
         window.setTimeout(() => void loadLogs(), 0);
       }}
     >
