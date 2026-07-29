@@ -61,13 +61,32 @@ func TestNftablesWANHasOnlyWireGuardNewIngress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rules, `iifname "ppp*" udp dport 51820 accept`) {
-		t.Fatal("WireGuard endpoint is not reachable on the PPPoE WAN")
+
+	for _, expected := range []string{
+		`iifname "eth0" udp dport 51820 accept`,
+		`iifname "ppp*" udp dport 51820 accept`,
+		`meter wg_wan_rate { ip saddr timeout 10s`,
+		`meter wg_ppp_rate { ip saddr timeout 10s`,
+	} {
+		if !strings.Contains(rules, expected) {
+			t.Fatalf("WireGuard WAN rule is missing %q", expected)
+		}
 	}
+
+	for _, line := range strings.Split(rules, "\n") {
+		line = strings.TrimSpace(line)
+		isWANRule := strings.Contains(line, `iifname "eth0"`) || strings.Contains(line, `iifname "ppp*"`)
+		if !isWANRule || !strings.Contains(line, " accept") || !strings.Contains(line, "dport") {
+			continue
+		}
+		if !strings.Contains(line, "udp dport 51820") {
+			t.Fatalf("WAN exposes a non-WireGuard service: %s", line)
+		}
+	}
+
 	for _, forbidden := range []string{
 		`iifname "eth0" tcp dport`,
 		`iifname "ppp*" tcp dport`,
-		`iifname "eth0" udp dport 51820`,
 		"dnat to",
 	} {
 		if strings.Contains(rules, forbidden) {
