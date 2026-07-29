@@ -41,20 +41,28 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	if cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # LAN source anti-spoofing (0.0.0.0 is needed for DHCP discovery)\n    iifname \"%s\" ip saddr != { 0.0.0.0, %s } drop\n\n", cfg.LAN.Interface, cfg.LAN.CIDR))
 	}
+
+	// Invalid packets must be rejected before any service-specific accept rule.
+	buf.WriteString("    # Reject invalid packets before service accepts\n")
+	buf.WriteString("    ct state invalid drop\n")
+	buf.WriteString("    # Allow established and related connections\n")
+	buf.WriteString("    ct state established,related accept\n\n")
+
 	if cfg.WireGuard.Enabled {
 		_, wgNetwork, _ := net.ParseCIDR(cfg.WireGuard.Address)
-		buf.WriteString("    # WireGuard endpoint and authenticated tunnel services\n")
-		buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" udp dport %d ct state new limit rate over 100/second burst 200 packets drop\n", cfg.WireGuard.ListenPort))
+		buf.WriteString("    # WireGuard endpoint with a per-source flood guard\n")
+		if cfg.WAN.Interface != "" {
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" udp dport %d ct state new meter wg_wan_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop\n", cfg.WAN.Interface, cfg.WireGuard.ListenPort))
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" udp dport %d accept\n", cfg.WAN.Interface, cfg.WireGuard.ListenPort))
+		}
+		buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" udp dport %d ct state new meter wg_ppp_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop\n", cfg.WireGuard.ListenPort))
 		buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" udp dport %d accept\n", cfg.WireGuard.ListenPort))
+		buf.WriteString("    # Authenticated tunnel services\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", cfg.WireGuard.Interface, wgNetwork.String()))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport %d accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" udp dport 53 accept\n", cfg.WireGuard.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n\n", cfg.WireGuard.Interface))
 	}
-
-	buf.WriteString("    # Allow established and related connections\n")
-	buf.WriteString("    ct state established,related accept\n")
-	buf.WriteString("    ct state invalid drop\n\n")
 
 	// Allow Squid Proxy if enabled (LAN input only)
 	if cfg.SquidProxy.Enabled {
@@ -129,11 +137,12 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	if cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.LAN.Interface, cfg.LAN.CIDR))
 	}
+	buf.WriteString("    # Reject invalid before established state\n")
+	buf.WriteString("    ct state invalid drop\n")
 	buf.WriteString("    # Allow established/related\n")
-	buf.WriteString("    ct state established,related accept\n")
-	buf.WriteString("    ct state invalid drop\n\n")
+	buf.WriteString("    ct state established,related accept\n\n")
 
-	buf.WriteString("    # pfSense Hardening: TCP MSS Clamping (MSS set to PMTU to prevent PPPoE fragmentation issues)\n")
+	buf.WriteString("    # TCP MSS clamping prevents PPPoE fragmentation stalls\n")
 	buf.WriteString("    tcp flags syn tcp option maxseg size set rt mtu\n\n")
 
 	// Block direct WAN access for Restricted IP Alias (Forced through Squid Proxy)
@@ -148,8 +157,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n")
 	}
 
-	// Custom rules can only govern traffic originating on the LAN. They can
-	// never be used to expose the router management plane from WAN.
+	// Custom rules can only govern traffic originating on the LAN.
 	for _, rule := range cfg.Firewall.CustomRules {
 		if !rule.Enabled || rule.Direction != "forward" {
 			continue
@@ -158,8 +166,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		if rule.Action == "allow" {
 			action = "accept"
 		}
-		var match []string
-		match = append(match, fmt.Sprintf("iifname \"%s\"", cfg.LAN.Interface))
+		match := []string{fmt.Sprintf("iifname \"%s\"", cfg.LAN.Interface)}
 		if rule.SrcIP != "" {
 			match = append(match, "ip saddr "+rule.SrcIP)
 		}
@@ -173,15 +180,13 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), action))
 	}
 
-	// LAN -> WAN forwarding is explicit and does not grant LAN traffic access
-	// to arbitrary local or non-WAN interfaces.
 	if cfg.WAN.Enabled && cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow LAN (%s) out to WAN\n", cfg.LAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", cfg.LAN.Interface, cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"ppp*\" accept\n\n", cfg.LAN.Interface))
 	}
 	if cfg.WireGuard.Enabled {
-		buf.WriteString("    # Authenticated WireGuard clients may reach LAN and, when WAN is enabled, the Internet\n")
+		buf.WriteString("    # Authenticated WireGuard clients may reach LAN and optional full-tunnel WAN\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", cfg.WireGuard.Interface, cfg.LAN.Interface))
 		if cfg.WAN.Enabled {
 			buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", cfg.WireGuard.Interface, cfg.WAN.Interface))
@@ -189,9 +194,6 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		}
 		buf.WriteString("\n")
 	}
-
-	// No WAN-originated forward accepts are generated. WireGuard terminates on
-	// the input chain and is the sole external entry point.
 
 	buf.WriteString("  }\n\n")
 
@@ -223,6 +225,11 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	}
 	buf.WriteString("    udp dport 123 accept\n")
 	buf.WriteString("    ip protocol icmp accept\n\n")
+	if cfg.Cloudflare.DDNSEnabled {
+		buf.WriteString("    # Cloudflare DDNS needs HTTPS for the root-run verification and inadyn daemon\n")
+		buf.WriteString("    meta skuid root tcp dport 443 accept\n")
+		buf.WriteString("    meta skuid inadyn tcp dport 443 accept\n")
+	}
 	if cfg.SquidProxy.Enabled {
 		buf.WriteString("    # Only the unprivileged Squid account may open web connections\n")
 		buf.WriteString("    meta skuid squid tcp dport { 80, 443 } accept\n")
