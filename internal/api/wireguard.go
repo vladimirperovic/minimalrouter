@@ -79,6 +79,17 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		return
 	}
 	clientCIDR := clientIP.String() + "/32"
+	for _, existing := range candidate.WireGuard.Peers {
+		if !existing.Enabled {
+			continue
+		}
+		for _, allowed := range existing.AllowedIPs {
+			if allowed == clientCIDR {
+				http.Error(w, "client_ip_address is already assigned to another WireGuard peer", http.StatusConflict)
+				return
+			}
+		}
+	}
 
 	clientPrivate, clientPublic, err := services.GenerateWireGuardKeypair()
 	if err != nil {
@@ -141,6 +152,7 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		req.ServerEndpoint,
 		presharedKey,
 		strings.Join(candidate.DHCP.DNSServers, ", "),
+		candidate.LAN.CIDR,
 	)
 	if err != nil {
 		// The peer is already active. Do not pretend provisioning completed
