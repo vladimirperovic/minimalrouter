@@ -12,12 +12,16 @@ commits.
 ### Added
 
 - Professional public-project README and evidence-based platform comparison.
+- Minimal Router SVG identity used by the dashboard and README.
 - Authentic dashboard screenshot produced from the current React build with
   synthetic documentation data only.
-- Community contribution, support, conduct, documentation-index, and maintainer
-  release-process documentation.
-- GitHub issue and pull-request templates, CODEOWNERS, Dependabot, CodeQL, and
-  secret-scanning workflows.
+- Project governance, maintainership, privacy, contribution, support, conduct,
+  documentation-index, and maintainer release-process documentation.
+- Controlled Alpine lab installation and safe troubleshooting guides.
+- GitHub issue templates for bugs, focused features, and privacy-safe hardware
+  validation reports.
+- Pull-request template, CODEOWNERS, Dependabot, CodeQL, secret scanning, and
+  generated release-note configuration.
 - Repository-hygiene CI that rejects runtime data, credentials, databases,
   private keys, backups, packet captures, and generated appliance images.
 - Local-only `prepare-public-root.sh` workflow for creating and full-history
@@ -30,6 +34,10 @@ commits.
 
 ### Changed
 
+- README navigation now links directly to installation, documentation, security,
+  contribution, roadmap, governance, privacy, support, and release information.
+- Contribution requirements now explicitly cover licensing rights, privacy,
+  isolated network testing, hardware evidence, OpenAPI changes, and migrations.
 - Cloudflare integrations and Wi-Fi remain disabled by default and are
   explicitly disabled during first-run setup.
 - The installer immediately loads required kernel modules and enables IPv4
@@ -60,9 +68,9 @@ commits.
 - The original development repository must remain private because old commits,
   pull requests, issues, workflow logs, and artifacts are outside the reviewed
   public boundary.
-- Public release remains blocked until a brand-new private repository receives
-  the verified one-commit candidate, passes full-history secret scanning, and is
-  explicitly approved by the owner for a separate visibility change.
+- Public release remains blocked until the exact candidate passes current-tree
+  and full-history secret scanning, repository checks, and owner review before a
+  separate visibility change.
 
 ### Known limitations
 
@@ -71,6 +79,7 @@ commits.
   are not stable release features.
 - Physical dual-NIC, real ISP PPPoE, external WAN scanning, signed recovery-media
   boot, and independent penetration testing remain release evidence gaps.
+- Project maintenance currently has a bus factor of one and no response-time SLA.
 
 ## Release policy
 
