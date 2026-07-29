@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net"
+	"strings"
 
 	"golang.org/x/crypto/curve25519"
 	"rsc.io/qr"
@@ -16,7 +18,10 @@ type ClientConfigBundle struct {
 	QRCodeData string `json:"qr_code_data,omitempty"`
 }
 
-// GenerateClientConfig renders a ready-to-import WireGuard client config for mobile/desktop.
+// GenerateClientConfig renders a ready-to-import split-tunnel WireGuard client
+// configuration. Only the WireGuard subnet and the router's local LAN subnet
+// are routed through the tunnel; ordinary client Internet traffic stays on the
+// client's current connection.
 func GenerateClientConfig(
 	clientPrivateKey string,
 	clientIP string,
@@ -24,6 +29,7 @@ func GenerateClientConfig(
 	serverEndpoint string,
 	presharedKey string,
 	dnsServers string,
+	lanCIDR ...string,
 ) (ClientConfigBundle, error) {
 	var buf bytes.Buffer
 
@@ -47,7 +53,24 @@ func GenerateClientConfig(
 		buf.WriteString(fmt.Sprintf("Endpoint = %s\n", serverEndpoint))
 	}
 
-	buf.WriteString("AllowedIPs = 0.0.0.0/0\n")
+	allowed := make([]string, 0, 2)
+	if ip, network, err := net.ParseCIDR(clientIP); err == nil && ip.To4() != nil {
+		// The client address identifies the WireGuard subnet. Preserve the subnet
+		// prefix while normalizing the network address.
+		allowed = append(allowed, network.String())
+	}
+	if len(lanCIDR) > 0 {
+		if ip, network, err := net.ParseCIDR(strings.TrimSpace(lanCIDR[0])); err == nil && ip.To4() != nil {
+			lanNetwork := network.String()
+			if len(allowed) == 0 || allowed[0] != lanNetwork {
+				allowed = append(allowed, lanNetwork)
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return ClientConfigBundle{}, fmt.Errorf("client or LAN CIDR is invalid")
+	}
+	buf.WriteString("AllowedIPs = " + strings.Join(allowed, ", ") + "\n")
 	buf.WriteString("PersistentKeepalive = 25\n")
 
 	confText := buf.String()
