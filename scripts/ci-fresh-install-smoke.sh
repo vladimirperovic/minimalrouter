@@ -12,6 +12,7 @@ ARTIFACT_NAME="$(basename "$ARTIFACT")"
 
 docker run --rm --privileged \
     -v "$BUILD_DIR:/artifacts:ro" \
+    -v /lib/modules:/lib/modules:ro \
     -e "ARTIFACT_NAME=$ARTIFACT_NAME" \
     alpine:3.22 sh -euxs <<'SMOKE'
 apk add --no-cache curl jq iproute2
@@ -33,6 +34,7 @@ test -x /etc/init.d/pppoe-wan
 test -f /usr/share/minimalrouter/web/index.html
 test "$(stat -c %a /var/lib/minimalrouter)" = "700"
 test "$(stat -c %a /var/lib/minimalrouter-applyd)" = "700"
+test "$(sysctl -n net.ipv4.ip_forward)" = "1"
 
 if ! ip link show eth1 >/dev/null 2>&1; then
     ip link add eth1 type dummy
@@ -121,7 +123,8 @@ grep -q 'policy drop' /tmp/nftables.txt
 grep -q 'iifname "eth1" udp dport { 53, 67 } accept' /tmp/nftables.txt
 ! grep -q 'udp dport 51820 accept' /tmp/nftables.txt
 
-test -f /run/minimalrouter/dnsmasq.leases
+test "$(sysctl -n net.ipv4.ip_forward)" = "1"
+dnsmasq --test --conf-file=/etc/dnsmasq.d/minimalrouter.conf
 rc-service dnsmasq status >/dev/null
 
 trap - EXIT INT TERM
