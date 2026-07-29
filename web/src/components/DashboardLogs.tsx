@@ -13,7 +13,6 @@ type AuditEvent = {
 type RouterSystem = {
   status?: string;
   version?: string;
-  wan_enabled?: boolean;
   runtime?: {
     available?: boolean;
     wan_connected?: boolean;
@@ -162,10 +161,11 @@ export default function DashboardLogs() {
   }, []);
 
   useEffect(() => {
+    if (!sectionHost) return;
     void loadLogs();
     const timer = window.setInterval(() => void loadLogs(), 30000);
     return () => window.clearInterval(timer);
-  }, [loadLogs]);
+  }, [loadLogs, sectionHost]);
 
   useEffect(() => {
     if (!sectionHost) return;
@@ -260,7 +260,7 @@ export default function DashboardLogs() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "14px", marginBottom: "24px" }}>
         <StatusCard
           label="Router API"
-          enabled={system.runtime?.available !== false}
+          enabled={lastUpdated !== null && system.runtime?.available !== false}
           detail={`${system.version ?? "Minimal Router"} · uptime ${formatUptime(system.runtime?.uptime_seconds)}`}
         />
         <StatusCard
