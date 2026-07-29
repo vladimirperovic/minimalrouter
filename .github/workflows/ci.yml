@@ -91,3 +91,14 @@ jobs:
         run: sh -n scripts/ci-fresh-install-smoke.sh
       - name: Install on clean Alpine and complete wizard
         run: sh scripts/ci-fresh-install-smoke.sh
+      - name: Generate SHA-256 checksum
+        run: sha256sum build/minimalrouter-linux-amd64.tar.gz > build/minimalrouter-linux-amd64.tar.gz.sha256
+      - name: Upload verified Alpine package
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimalrouter-linux-amd64-${{ github.sha }}
+          path: |
+            build/minimalrouter-linux-amd64.tar.gz
+            build/minimalrouter-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
