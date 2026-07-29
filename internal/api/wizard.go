@@ -90,6 +90,13 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 
 	cfg := config.DefaultConfig()
 
+	// Optional external and wireless integrations are always opt-in. Keep them
+	// explicitly disabled during first-run setup even if another default changes
+	// in a future release.
+	cfg.Cloudflare.DDNSEnabled = false
+	cfg.Cloudflare.TunnelEnabled = false
+	cfg.WiFi.Enabled = false
+
 	if req.WANInterface != "" {
 		cfg.WAN.Interface = req.WANInterface
 	}
