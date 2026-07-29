@@ -1,5 +1,9 @@
 # Minimal Router OS
 
+<p align="center">
+  <img src="web/public/favicon.svg" alt="Minimal Router OS router logo" width="160" />
+</p>
+
 [![Status: Early Alpha](https://img.shields.io/badge/status-early%20alpha-orange)](#project-status)
 [![CI](https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg)](https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg)](https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml)
