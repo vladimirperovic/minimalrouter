@@ -1,0 +1,49 @@
+# Build output
+/bin/
+/dist/
+/web/dist/
+/coverage/
+/.pnpm-store/
+/build/
+
+# Local development
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Runtime state and secrets
+/data/
+/state/
+/snapshots/
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.p12
+*.pfx
+*.age
+*.backup
+*.sqlite
+*.sqlite3
+
+# Generated appliance and VM files
+*.iso
+*.img
+*.qcow2
+*.vmdk
+/tools/macos-vm/minimalrouter-alpine-vm
+
+# Test and diagnostic output
+*.pcap
+*.pcapng
+*.prof
+*.trace
+*.out

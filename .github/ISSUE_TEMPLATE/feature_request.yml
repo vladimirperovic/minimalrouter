@@ -1,0 +1,61 @@
+name: Feature request
+description: Propose a focused feature that fits the project's narrow scope.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Minimal Router OS intentionally supports fewer features than general-purpose firewall platforms.
+        Explain the user problem first and why the feature belongs in a small home-router appliance.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the real user or operator problem without assuming a specific implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing Linux tools, external services, pfSense/OpenWrt workflows, or reasons to keep this outside the project.
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and failure impact
+      description: What new listener, privilege, package, secret, network path, or lockout risk would this introduce?
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: How could the project test normal use, invalid input, rollback, and recovery?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope acknowledgement
+      options:
+        - label: I understand that a useful feature may still be declined to preserve a small attack surface and maintenance scope.
+          required: true
+        - label: I have not included credentials or private network information.
+          required: true

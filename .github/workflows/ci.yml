@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Validate release and smoke-test shell syntax
+        run: |
+          sh -n scripts/prepare-public-root.sh
+          sh -n scripts/ci-fresh-install-smoke.sh
+          sh -n quick-test.sh
+      - name: Reject private and runtime files
+        run: |
+          set -eu
+
+          for forbidden in \
+            AI_HANDOFF.md \
+            SESSION6_SUMMARY.md \
+            implementation_plan.md \
+            data/current_config.json
+          do
+            if git ls-files --error-unmatch "$forbidden" >/dev/null 2>&1; then
+              echo "Forbidden tracked path: $forbidden" >&2
+              exit 1
+            fi
+          done
+
+          if [ -n "$(git ls-files 'data/**')" ]; then
+            echo "Runtime data directory must not be tracked:" >&2
+            git ls-files 'data/**' >&2
+            exit 1
+          fi
+
+          suspicious="$(git ls-files | grep -E '(^|/)(\.env(\..*)?|[^/]+\.(db|db-shm|db-wal|sqlite|sqlite3|pem|key|p12|pfx|age|backup|pcap|pcapng|iso|img|qcow2|vmdk))$' | grep -vE '(^|/)\.env\.example$' || true)"
+          if [ -n "$suspicious" ]; then
+            echo "Suspicious secret/runtime files are tracked:" >&2
+            printf '%s\n' "$suspicious" >&2
+            exit 1
+          fi
+      - name: Verify public documentation assets
+        run: |
+          test -s docs/images/dashboard-overview.png
+          test -s README.md
+          test -s SECURITY.md
+          test -s CONTRIBUTING.md
+          test -s docs/RELEASE_PROCESS.md
+
+  public-root:
+    name: One-commit public candidate
+    needs:
+      - hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Create and full-history scan clean root
+        run: |
+          git config user.name "Minimal Router Release CI"
+          git config user.email "release-ci@users.noreply.github.com"
+          sh scripts/prepare-public-root.sh HEAD /tmp/minimalrouter-public-root
+      - name: Verify candidate boundary
+        run: |
+          test "$(git -C /tmp/minimalrouter-public-root rev-list --all --count)" = "1"
+          test -z "$(git -C /tmp/minimalrouter-public-root remote)"
+          test -z "$(git -C /tmp/minimalrouter-public-root tag -l)"
+          test ! -e /tmp/minimalrouter-public-root/PUBLIC_RELEASE_CHECKLIST.md
+          test -z "$(git -C /tmp/minimalrouter-public-root status --short)"
+
+  go:
+    name: Go format, tests, vulnerabilities and vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify Go formatting
+        run: make fmt-check
+      - name: Verify downloaded modules
+        run: go mod verify
+      - name: Run Go tests with race detector
+        run: go test -race ./...
+      - name: Run Go vet
+        run: go vet ./...
+      - name: Install pinned govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - name: Scan reachable Go vulnerabilities
+        run: govulncheck ./...
+
+  dashboard:
+    name: Dashboard lint, audit and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dashboard dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit high-severity dependencies
+        run: pnpm audit --audit-level high
+      - name: Lint dashboard
+        run: pnpm lint
+      - name: Type-check and build dashboard
+        run: pnpm build
+
+  fresh-install:
+    name: Clean Alpine install and wizard
+    needs:
+      - public-root
+      - go
+      - dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dashboard dependencies
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Build clean AMD64 distribution
+        run: make dist-amd64
+      - name: Validate smoke-test shell syntax
+        run: sh -n scripts/ci-fresh-install-smoke.sh
+      - name: Install on clean Alpine and complete wizard
+        run: sh scripts/ci-fresh-install-smoke.sh
+      - name: Generate SHA-256 checksum
+        run: sha256sum build/minimalrouter-linux-amd64.tar.gz > build/minimalrouter-linux-amd64.tar.gz.sha256
+      - name: Upload verified Alpine package
+        uses: actions/upload-artifact@v4
+        with:
+          name: minimalrouter-linux-amd64-${{ github.sha }}
+          path: |
+            build/minimalrouter-linux-amd64.tar.gz
+            build/minimalrouter-linux-amd64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,21 @@
+#!/sbin/openrc-run
+
+name="pppoe-wan"
+description="Minimal Router OS PPPoE WAN session"
+command="/usr/sbin/pppd"
+command_args="call wan nodetach"
+command_background="yes"
+pidfile="/run/pppoe-wan.pid"
+command_user="root:root"
+umask="0077"
+rc_ulimit="-c 0 -n 256"
+
+depend() {
+    need net
+    use logger
+}
+
+start_pre() {
+    checkpath --file --owner root:root --mode 0600 /etc/ppp/peers/wan
+    checkpath --file --owner root:root --mode 0600 /etc/ppp/chap-secrets
+}

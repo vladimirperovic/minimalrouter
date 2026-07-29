@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+# OpenRC service script for Minimal Router OS routerd (management plane)
+
+name="routerd"
+description="Minimal Router OS unprivileged management service"
+daemon="/usr/bin/routerd"
+daemon_user="routerd:routerd"
+pidfile="/run/routerd.pid"
+output_log="/var/log/routerd.log"
+error_log="/var/log/routerd.err"
+
+depend() {
+    need net
+    need router-applyd
+    use logger
+}
+
+start_pre() {
+    checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
+}
+
+command="/usr/bin/routerd"
+command_background="yes"
+command_user="routerd:routerd"
+umask="0077"
+rc_ulimit="-c 0 -n 4096"
+
+export MINIMALROUTER_DATA_DIR="/var/lib/minimalrouter"
+export MINIMALROUTER_WEB_DIR="/usr/share/minimalrouter/web"
