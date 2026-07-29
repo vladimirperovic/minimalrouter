@@ -152,6 +152,7 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		req.ServerEndpoint,
 		presharedKey,
 		strings.Join(candidate.DHCP.DNSServers, ", "),
+		candidate.WireGuard.Address,
 		candidate.LAN.CIDR,
 	)
 	if err != nil {
