@@ -92,10 +92,14 @@ private until the final visibility step.
 9. Review the rendered README, screenshot, license, security policy, privacy
    policy, support policy, comparison text, installation warnings, governance,
    and changelog directly on GitHub.
-10. Complete the repository settings checklist below.
+10. Complete the repository settings checklist below and record the intended
+    branch/push ruleset configuration.
 11. Change visibility to public only after the owner gives an explicit final
     approval.
-12. Re-run CodeQL after publication so its SARIF results upload to GitHub Code
+12. GitHub disables push rulesets during a private-to-public visibility change.
+    Immediately re-enable and verify every required branch/push ruleset before
+    accepting further changes.
+13. Re-run CodeQL after publication so its SARIF results upload to GitHub Code
     Scanning, then confirm the Security tab and all status badges are healthy.
 
 Reusing the old repository name disables GitHub's automatic redirect from the
@@ -112,8 +116,10 @@ Before visibility changes, configure or review:
 - **Default branch:** `main`.
 - **Merge policy:** prefer squash merge for ordinary pull requests; disable
   unused merge methods when the team agrees.
-- **Branch ruleset:** require pull requests, CI, CodeQL/required security checks,
-  resolved conversations, and no force pushes or branch deletion.
+- **Branch/push ruleset:** record the intended rules requiring pull requests, CI,
+  CodeQL/required security checks, resolved conversations, and no force pushes or
+  branch deletion. GitHub disables push rulesets when a private repository becomes
+  public, so re-enable and verify them immediately after the visibility change.
 - **Actions:** default workflow token permission should be read-only; grant write
   permissions only per workflow when required.
 - **Security:** enable dependency graph, Dependabot alerts and security updates,
@@ -143,6 +149,7 @@ account:
 - `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
   `GOVERNANCE.md`, `PRIVACY.md`, and `SUPPORT.md` are discoverable;
 - issue templates load and the vulnerability-reporting path is private;
+- required branch/push rulesets are active again after the visibility change;
 - Actions, CodeQL, Dependabot, and secret-scanning status are healthy;
 - clone and build instructions work from a fresh directory;
 - no releases, packages, artifacts, branches, tags, issues, or discussions expose
