@@ -56,11 +56,29 @@ jobs:
           fi
       - name: Verify public documentation assets
         run: |
-          test -s docs/images/dashboard-overview.png
-          test -s README.md
-          test -s SECURITY.md
-          test -s CONTRIBUTING.md
-          test -s docs/RELEASE_PROCESS.md
+          for required in \
+            README.md \
+            LICENSE \
+            CHANGELOG.md \
+            CODE_OF_CONDUCT.md \
+            CONTRIBUTING.md \
+            GOVERNANCE.md \
+            MAINTAINERS.md \
+            PRIVACY.md \
+            SECURITY.md \
+            SUPPORT.md \
+            docs/README.md \
+            docs/INSTALLATION.md \
+            docs/TROUBLESHOOTING.md \
+            docs/RELEASE_PROCESS.md \
+            docs/images/dashboard-overview.png \
+            web/public/favicon.svg
+          do
+            test -s "$required" || {
+              echo "Required public file is missing or empty: $required" >&2
+              exit 1
+            }
+          done
 
   public-root:
     name: One-commit public candidate
