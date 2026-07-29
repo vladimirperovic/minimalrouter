@@ -19,9 +19,9 @@ type ClientConfigBundle struct {
 }
 
 // GenerateClientConfig renders a ready-to-import split-tunnel WireGuard client
-// configuration. Only the WireGuard subnet and the router's local LAN subnet
-// are routed through the tunnel; ordinary client Internet traffic stays on the
-// client's current connection.
+// configuration. Only explicitly supplied private subnets are routed through
+// the tunnel; ordinary client Internet traffic stays on the client's current
+// connection.
 func GenerateClientConfig(
 	clientPrivateKey string,
 	clientIP string,
@@ -29,7 +29,7 @@ func GenerateClientConfig(
 	serverEndpoint string,
 	presharedKey string,
 	dnsServers string,
-	lanCIDR ...string,
+	routedCIDRs ...string,
 ) (ClientConfigBundle, error) {
 	var buf bytes.Buffer
 
@@ -53,22 +53,28 @@ func GenerateClientConfig(
 		buf.WriteString(fmt.Sprintf("Endpoint = %s\n", serverEndpoint))
 	}
 
-	allowed := make([]string, 0, 2)
-	if ip, network, err := net.ParseCIDR(clientIP); err == nil && ip.To4() != nil {
-		// The client address identifies the WireGuard subnet. Preserve the subnet
-		// prefix while normalizing the network address.
-		allowed = append(allowed, network.String())
-	}
-	if len(lanCIDR) > 0 {
-		if ip, network, err := net.ParseCIDR(strings.TrimSpace(lanCIDR[0])); err == nil && ip.To4() != nil {
-			lanNetwork := network.String()
-			if len(allowed) == 0 || allowed[0] != lanNetwork {
-				allowed = append(allowed, lanNetwork)
-			}
+	allowed := make([]string, 0, len(routedCIDRs))
+	seen := make(map[string]struct{})
+	for _, raw := range routedCIDRs {
+		ip, network, err := net.ParseCIDR(strings.TrimSpace(raw))
+		if err != nil || ip.To4() == nil {
+			return ClientConfigBundle{}, fmt.Errorf("invalid routed IPv4 CIDR %q", raw)
 		}
+		normalized := network.String()
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		allowed = append(allowed, normalized)
 	}
 	if len(allowed) == 0 {
-		return ClientConfigBundle{}, fmt.Errorf("client or LAN CIDR is invalid")
+		// Compatibility fallback for callers that have not supplied explicit
+		// routes. This remains split-tunnel and never defaults to 0.0.0.0/0.
+		ip, network, err := net.ParseCIDR(clientIP)
+		if err != nil || ip.To4() == nil {
+			return ClientConfigBundle{}, fmt.Errorf("client CIDR is invalid")
+		}
+		allowed = append(allowed, network.String())
 	}
 	buf.WriteString("AllowedIPs = " + strings.Join(allowed, ", ") + "\n")
 	buf.WriteString("PersistentKeepalive = 25\n")
