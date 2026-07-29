@@ -57,3 +57,37 @@ jobs:
         run: pnpm lint
       - name: Type-check and build dashboard
         run: pnpm build
+
+  fresh-install:
+    name: Clean Alpine install and wizard
+    needs:
+      - go
+      - dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dashboard dependencies
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Build clean AMD64 distribution
+        run: make dist-amd64
+      - name: Validate smoke-test shell syntax
+        run: sh -n scripts/ci-fresh-install-smoke.sh
+      - name: Install on clean Alpine and complete wizard
+        run: sh scripts/ci-fresh-install-smoke.sh
