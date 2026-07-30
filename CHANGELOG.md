@@ -1,118 +1,100 @@
 # Changelog
 
-All notable user-visible changes will be documented in this file.
-
-The project follows the principles of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
-and intends to adopt semantic versioning when the first stable release is
-published. During early-alpha development, compatibility may change between
-commits.
+All notable user-visible changes are documented here. The project intends to use
+semantic versioning when the first stable release is published. During early
+alpha, compatibility may change between commits.
 
 ## [Unreleased]
 
 ### Added
 
-- Professional public-project README and evidence-based platform comparison.
-- Minimal Router SVG identity used by the dashboard and README.
-- Authentic dashboard screenshot produced from the React build with synthetic
-  documentation data only.
-- Project governance, maintainership, privacy, contribution, support, conduct,
-  documentation-index, and maintainer release-process documentation.
-- Controlled Alpine lab installation and safe troubleshooting guides.
-- GitHub issue templates for bugs, focused features, and privacy-safe hardware
-  validation reports.
-- Pull-request template, CODEOWNERS, Dependabot, CodeQL, secret scanning, and
-  generated release-note configuration.
-- Repository-hygiene CI that rejects runtime data, credentials, databases,
-  private keys, backups, packet captures, and generated appliance images.
-- Local-only `prepare-public-root.sh` workflow for creating and full-history
-  scanning a one-commit public candidate without adding a remote or publishing.
-- Authenticated dashboard logs section with redacted audit events.
-- Split-tunnel WireGuard client profiles and unique IPv4 `/32` peer validation.
-- Regression coverage for authenticated TOTP disable behavior.
-- Deterministic WAN/LAN interface discovery using physical-device, carrier,
-  link-state, and default-route signals with mandatory operator confirmation.
-- Local `router-recovery` console for password/TOTP reset, session revocation,
-  LAN repair, snapshot restore, and factory reset with undo snapshots.
-- DNS Filter device profiles backed by dnsmasq-populated nftables destination
-  sets and validated weekday/weekend schedules.
-- Default Kids profile workflow for YouTube, Steam, and Wikipedia after `19:00`
-  on weekdays and all day on weekends.
-- Frontend unit tests and Playwright E2E coverage for critical profile and setup
-  flows.
-- Ed25519 release-manifest signing, SHA-256 checksums, SPDX SBOM generation,
-  GitHub artifact provenance, and explicit A/B update activation/rollback.
+- Durable update-operation journal for crash-safe A/B activation and rollback.
+- Recovery-safe bootstrap executables independent of the candidate firmware slot.
+- Failure-injection coverage for interrupted activation, rollback, corrupt
+  journals, state-write failures, and concurrent update operations.
+- Fuzz targets for malformed unauthenticated API requests and update journals.
+- Isolated WAN-router-LAN network namespace laboratory covering DHCP, DNS, NAT,
+  firewall, TCP, UDP, parallel flows, packet loss, latency, and WAN port checks.
+- API and update-state performance workflows with `ns/op`, `B/op`, and
+  `allocs/op` artifacts.
+- ARM64 QEMU smoke testing for recovery-safe commands.
+- High-confidence `gosec`, `shellcheck`, `actionlint`, Linux binary inspection,
+  and executable-stack rejection.
+- Current validation document separating automated evidence from target-host
+  Proxmox and hardware gates.
+- Expanded Proxmox pilot, testing, recovery, and evidence documentation.
+- Professional project README, documentation index, governance, privacy,
+  contribution, support, release, and community documentation.
+- Dashboard screenshot and synthetic documentation data.
+- Local recovery console for credential reset, LAN repair, snapshot restore, and
+  factory reset with session revocation and undo snapshots.
+- DNS Filter device profiles and scheduled Kids profile workflow.
+- Frontend unit and Playwright E2E coverage.
+- Ed25519 release manifests, SHA-256 checksums, SPDX SBOMs, provenance, and
+  explicit A/B staging/activation/rollback.
 
 ### Changed
 
-- README navigation now links directly to installation, recovery, DNS Filter,
-  release security, contribution, roadmap, governance, privacy, and support.
-- Contribution requirements explicitly cover licensing rights, privacy,
-  isolated network testing, hardware evidence, OpenAPI changes, and migrations.
-- The user-facing `AdGuard Filter` label is renamed to `DNS Filter`; the historic
-  `adguard` JSON key remains for compatibility only.
-- The first-run wizard now uses discovered interface choices and external CSS
-  instead of a large inline-style implementation.
-- Content Security Policy separates stylesheet sources from legacy style
-  attributes, blocks script attributes, and narrows font/worker sources.
-- `router-applyd` starts with no-new-privileges, disabled dumpability, fixed
-  resource limits, a fixed executable path, and sanitized loader environment.
-- Cloudflare integrations and Wi-Fi remain disabled by default and are
-  explicitly disabled during first-run setup.
-- The installer immediately loads required kernel modules and enables IPv4
-  forwarding instead of waiting for reboot.
-- WAN WireGuard rate limiting is applied per source rather than globally.
-- The quick VM harness uses a generated one-time administrator password, stores
-  it with mode `0600` only when needed, and suppresses password/CSRF values from
-  serial logs.
-- CodeQL analyzes private preparation branches without attempting an unavailable
-  private-repository SARIF upload; upload enables automatically after the clean
-  repository is public.
+- Core GitHub CI actions and artifact upload use v7.
+- Dashboard development uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
+- TypeScript 6 CSS side-effect import checks are satisfied with the Vite client
+  declaration rather than disabling the stricter compiler behavior.
+- Active A/B slots now supply `routerd`, `router-applyd`, and dashboard assets
+  through stable dispatchers.
+- Update and recovery commands always execute from an independent bootstrap
+  payload, preventing a candidate slot from replacing rollback tooling.
+- Update staging now re-verifies copied files against the signed manifest and
+  performs atomic, synchronized filesystem operations.
+- Recovery authentication reset, LAN change, snapshot restore, and factory reset
+  use transactional SQLite operations.
+- CLI help and read-only status commands avoid privileged side effects.
+- The release signer safely handles raw Ed25519 keys and can emit the public trust
+  anchor covered by the signed manifest.
+- Documentation now treats dated resource/security reports as historical evidence
+  and uses `docs/CURRENT_VALIDATION.md` for current repository status.
+- Proxmox guidance explicitly requires read-only VM discovery, isolated LAN,
+  test/NAT WAN, graceful lifecycle handling, and pfSense rollback.
+- The first-run wizard uses discovered interface choices and external CSS.
+- `router-applyd` starts with no-new-privileges, disabled dumpability, bounded
+  resources, fixed executable path, and sanitized loader environment.
+- Node.js remains build-time only; the router runtime is Bash-free.
 
 ### Fixed
 
-- TOTP disable decodes the request body before verifying the current
-  administrator password, then verifies the TOTP code and revokes sessions.
-- The clean-install wizard readiness test models installer-reconciled Linux
-  interface names instead of attempting an unsupported live LAN role change.
-- Distribution builds create all staging subdirectories before copying binaries
-  and dashboard assets.
+- A crash between update pointer changes can no longer silently lose the intended
+  activation/rollback transition; journal reconciliation restores consistency.
+- Corrupt state no longer leaves a blocking partially staged version.
+- State-save failures remove incomplete final slots.
+- Unsafe, broken, absolute, or traversal update pointers are rejected.
+- Recovery session-deletion failures roll back the entire credential/configuration
+  transaction.
+- Raw 64-byte signing keys no longer risk scanner-reported ignored close errors.
+- Dashboard TypeScript 6 builds accept reviewed CSS module side effects.
+- Clean Alpine CI exercises the signed update, active slot, dashboard marker, and
+  rollback path.
+- TOTP disable validates the request, current password, code, and session
+  revocation in the correct order.
+- Distribution builds create staging directories before copying binaries and
+  dashboard assets.
 
 ### Security
 
-- Removed tracked runtime configuration, snapshots, and private development
-  handoff/session files from the reviewed public tree.
-- Expanded ignore rules and CI enforcement for credentials, databases, backups,
-  packet captures, VM disks, and generated appliance images.
-- Recovery credential changes revoke all sessions and never expose a network
-  password-reset endpoint.
-- Signed update staging rejects untrusted keys, unsafe paths, symlinks,
-  non-regular files, hash mismatches, duplicate versions, and package-supplied
-  executable hooks.
-- Device-profile rules run before established-connection acceptance so expired
-  streams are not grandfathered after a schedule closes.
-- The original development repository must remain private because old commits,
-  pull requests, issues, workflow logs, and artifacts are outside the reviewed
-  public boundary.
+- Signed staging rejects untrusted keys, unsafe paths, symlinks, non-regular
+  files, hash mismatches, duplicate versions, and package-supplied hooks.
+- The verify-to-copy window is closed by re-verification of staged files.
+- Update/recovery dispatchers use a fixed PATH and remove loader/environment hooks.
+- Runtime data, credentials, private keys, backups, packet captures, databases,
+  VM images, and private network inventory are rejected by repository hygiene.
+- Recovery has no network endpoint and credential changes revoke sessions.
+- Device-profile rules are evaluated before established-connection acceptance so
+  expired policy flows are not grandfathered.
 
 ### Known limitations
 
 - Early alpha; not supported as an unattended production firewall.
-- IPv6, VLAN, multi-WAN, high availability, and signed bootable recovery media
-  are not stable release features.
-- DNS-derived service classification can be bypassed by VPNs, proxies, private
-  relays, tethering, or protocols that avoid the router resolver.
-- Physical dual-NIC, real ISP PPPoE, external WAN scanning, signed recovery-media
-  boot, and independent penetration testing remain release evidence gaps.
-- Project maintenance currently has a bus factor of one and no response-time SLA.
-
-## Release policy
-
-A release entry must include:
-
-- supported installation targets;
-- upgrade and rollback instructions;
-- known security limitations;
-- exact validation evidence;
-- Ed25519 manifests, SHA-256 checksums, SPDX SBOMs, and provenance for
-  distributed artifacts;
-- compatibility-breaking changes.
+- No stable signed ISO or owner-qualified recovery media.
+- Real target Proxmox, NIC, PPPoE, external scan, long-duration, and destructive
+  recovery evidence is still required.
+- IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
+  ecosystem are not current stable features.
+- Same-kernel namespace throughput is not a physical or VirtIO performance claim.
