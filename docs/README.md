@@ -9,6 +9,8 @@ path.
 - [`../README.md`](../README.md) — project overview and current status.
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest automated validation,
   benchmark ranges, and remaining manual gates.
+- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — power, process, storage, IPC,
+  network, update, backup, and recovery failure contract.
 - [`INSTALLATION.md`](INSTALLATION.md) — controlled Alpine installation.
 - [`PROXMOX.md`](PROXMOX.md) — Proxmox VM preparation, safe boot, and pilot rules.
 - [`../SECURITY.md`](../SECURITY.md) — threat model, reporting, and secure defaults.
@@ -29,6 +31,7 @@ path.
 - [`INSTALLATION.md`](INSTALLATION.md)
 - [`PROXMOX.md`](PROXMOX.md)
 - [`RECOVERY.md`](RECOVERY.md)
+- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
 - [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md)
 - [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md)
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
@@ -43,6 +46,8 @@ rollback and begin on an isolated LAN plus a test/NAT WAN.
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) — Go and dashboard workflow.
 - [`TESTING.md`](TESTING.md) — test layers, failure injection, security, performance,
   and manual Proxmox gates.
+- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — expected outcomes and evidence
+  status for disruptive scenarios.
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest CI/deep-validation
   result and control-plane benchmark ranges.
 - [`../api/openapi.yaml`](../api/openapi.yaml) — REST API contract.

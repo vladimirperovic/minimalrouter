@@ -51,13 +51,14 @@ type ApplyRequest struct {
 
 // ApplyResponse represents the structured execution output from router-applyd.
 type ApplyResponse struct {
-	ID         string `json:"id"`
-	Success    bool   `json:"success"`
-	Error      string `json:"error,omitempty"`
-	Logs       string `json:"logs,omitempty"`
-	Verified   bool   `json:"verified"`
-	RolledBack bool   `json:"rolled_back,omitempty"`
-	Timestamp  int64  `json:"timestamp"`
+	ID               string `json:"id"`
+	Success          bool   `json:"success"`
+	Error            string `json:"error,omitempty"`
+	Logs             string `json:"logs,omitempty"`
+	Verified         bool   `json:"verified"`
+	RolledBack       bool   `json:"rolled_back,omitempty"`
+	RecoveryRequired bool   `json:"recovery_required,omitempty"`
+	Timestamp        int64  `json:"timestamp"`
 }
 
 // Client is the only interface the unprivileged control plane uses to request

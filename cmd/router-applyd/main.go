@@ -242,27 +242,15 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
 	previousConfig, _ := loadLastGood()
-	if req.RequireConfirmation {
-		lanChanged := previousConfig != nil &&
-			(previousConfig.LAN.IPAddress != req.Config.LAN.IPAddress ||
-				previousConfig.LAN.CIDR != req.Config.LAN.CIDR)
-		managementChanged := previousConfig != nil &&
-			previousConfig.System.ManagementAccess != req.Config.System.ManagementAccess
-		topologyChanged := previousConfig != nil &&
-			(previousConfig.WiFi.Enabled != req.Config.WiFi.Enabled ||
-				previousConfig.WiFi.Interface != req.Config.WiFi.Interface)
-		if previousConfig == nil ||
-			previousConfig.LAN.Interface != req.Config.LAN.Interface ||
-			(!lanChanged && !managementChanged && !topologyChanged) {
-			return failure(req.ID, "confirmation mode is invalid for this change", false)
-		}
+	if req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
+		return failure(req.ID, "confirmation mode is invalid for this change", false)
 	}
 
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {
 		rollbackErr := rollback(previousConfig, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q activation failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
-			return failure(req.ID, "apply failed and rollback could not be verified", true)
+			return recoveryFailure(req.ID, "apply failed and rollback could not be verified")
 		}
 		log.Printf("apply transaction %q activation failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
@@ -271,7 +259,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		rollbackErr := rollback(previousConfig, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
-			return failure(req.ID, "verification failed and rollback could not be verified", true)
+			return recoveryFailure(req.ID, "verification failed and rollback could not be verified")
 		}
 		log.Printf("apply transaction %q verification failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "verification failed; previous configuration restored: "+safeError(err), true)
@@ -285,7 +273,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		if hashErr != nil || pendingErr != nil {
 			rollbackErr := rollback(previousConfig, previous)
 			if rollbackErr != nil {
-				return failure(req.ID, "could not persist pending state and rollback failed", true)
+				return recoveryFailure(req.ID, "could not persist pending state and rollback failed")
 			}
 			return failure(req.ID, "could not persist pending confirmation state", true)
 		}
@@ -293,7 +281,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		if err := saveLastGood(req.Config); err != nil {
 			rollbackErr := rollback(previousConfig, previous)
 			if rollbackErr != nil {
-				return failure(req.ID, "could not persist last-good state and rollback failed", true)
+				return recoveryFailure(req.ID, "could not persist last-good state and rollback failed")
 			}
 			return failure(req.ID, "could not persist last-good state; previous configuration restored", true)
 		}

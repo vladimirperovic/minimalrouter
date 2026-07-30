@@ -1,123 +1,114 @@
 # Failure scenario matrix
 
-This document records logical failure scenarios derived from the current runtime code. It distinguishes automated guarantees from tests that still require an owner Proxmox VM or physical networking.
+This document records the expected behavior when configuration, networking,
+storage, power, or process failures interrupt the router. It is a design and test
+contract, not a claim that every physical failure has already been reproduced.
 
-The expected invariant is always one of these outcomes:
+Status values:
 
-1. the new configuration is fully active and verified;
-2. the previous confirmed configuration is fully restored; or
-3. the appliance fails closed with forwarding disabled and requires local console recovery.
+- **Automated** — covered by deterministic unit/integration/CI tests.
+- **Guarded by code** — the code has an explicit fail-closed or rollback path,
+  but target-host evidence is still required.
+- **Proxmox required** — must be reproduced on the owner test VM or real network.
 
-A mixed, silently accepted state is never an acceptable outcome.
+## Transaction and IPC failures
 
-## Power loss and process restart
-
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| Power loss while no change is active | Restore confirmed LAN, firewall, DNS, WireGuard and optional local services from `last-good.json` | Automated startup reconciliation |
-| Power loss after `/run` is cleared | Regenerate nftables and WireGuard runtime files; recreate kernel interfaces | Automated startup reconciliation |
-| Power loss during an unconfirmed LAN/topology change | Reapply the previous confirmed configuration, then clear the pending marker | Automated decision tests; Proxmox destructive test remains |
-| Pending marker exists but `last-good.json` is absent | Disable forwarding, stop routing services, refuse startup and do not guess a configuration | Automated decision test and fail-closed startup path |
-| `last-good.json` is corrupt, invalid or unexpectedly empty | Disable forwarding, stop routing services and refuse to expose the apply socket | Automated decision tests and fail-closed startup path |
-| Runtime restore fails halfway | Disable IPv4 forwarding, remove WireGuard, stop routing-related services and exit | Code path; Proxmox fault injection remains |
-| ISP is unavailable during boot | Restore LAN/firewall/management and start PPPoE asynchronously; do not require a live PPP session for local recovery | Startup code and VM test required |
-| DDNS provider is unavailable during boot | Start `inadyn` for retry without blocking local router recovery on a forced external update | Startup code and VM test required |
-| Repeated reboot | Reconciliation remains idempotent and leaves one instance of each interface/rule | Proxmox repeated-reboot test required |
+| Request fails before `router-applyd` receives it | Retry the identical request and transaction ID; do not advance canonical configuration without a verified response. | Automated |
+| Helper completes apply but IPC response is lost | Retry the identical ID so the helper returns its persisted idempotent result. | Automated |
+| Confirmation completes but its response is lost | Retry the same confirmation ID; commit only after a verified response. | Automated |
+| Both privileged attempts have an unknown outcome | Report `RecoveryRequired`, keep the old SQLite configuration canonical, and rely on console recovery or boot reconciliation. Never report `RolledBack`. | Automated |
+| Helper returns success without verification | Reject the transaction, report `RecoveryRequired`, and do not update canonical state. | Automated |
+| Helper explicitly reports rollback could not be verified | Propagate `RecoveryRequired`; do not present a successful rollback. | Automated |
+| New request arrives while commit-confirm or rollback recovery is pending | Reject the new transaction to prevent overlapping network states. | Automated |
+| Duplicate request has the same ID and same payload | Return the persisted helper result without reapplying side effects. | Existing automated coverage |
+| Duplicate request ID has different payload | Reject as transaction-ID reuse. | Existing automated coverage |
+| Trailing or oversized IPC JSON is received | Reject before privileged execution. | Existing automated coverage |
 
-## WireGuard
+## Commit-confirm and administrator reachability
 
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| Invalid WireGuard configuration | Temporary validation interface is deleted; active interface is untouched | Existing preflight cleanup |
-| Failure creating `wg0` | Apply fails and previous configuration is restored | Existing apply rollback plus VM fault injection |
-| Failure during `wg setconf` | Candidate interface is deleted | Existing deferred cleanup |
-| Failure assigning address | Candidate interface is deleted | Existing deferred cleanup |
-| Failure setting MTU or link up | Candidate interface is deleted | Existing deferred cleanup |
-| Failure installing one peer route | Candidate interface and its routes are deleted | Existing deferred cleanup |
-| WireGuard disabled while stale interface exists | Stale interface is removed and verified absent | Existing activation logic |
-| Power loss with WireGuard enabled | Recreate interface, configuration, address, MTU and routes from confirmed state | Startup reconciliation |
-| Power loss while WireGuard enable is unconfirmed | Restore the prior confirmed enabled/disabled state | Startup decision logic |
-| WAN MTU is too large or too small | Clamp WireGuard MTU to 576–1420; PPPoE 1492 yields 1412 | Automated unit test |
-| Peer has duplicate/conflicting routes | Reject in canonical validation before activation | Existing validation; expand when route policy changes |
-| External client cannot handshake after reboot | Local interface remains available; record as degraded WAN test, not silent success | Proxmox/external-network test required |
+| LAN address or CIDR changes | Apply provisionally, require explicit confirmation, and restore the old LAN after timeout. | Automated |
+| Wi-Fi bridge topology changes | Require confirmation because the management path can move between physical LAN and bridge. | Automated |
+| Management changes to `wireguard_only` before WireGuard is already enabled | Reject; WireGuard must be enabled and verified in a separate transaction first. | Automated |
+| WireGuard private key changes while management is WireGuard-only | Apply provisionally and require confirmation through the new working tunnel. | Automated |
+| WireGuard listen port changes while management is WireGuard-only | Apply provisionally and require confirmation. | Automated |
+| WireGuard tunnel address, peer, or allowed route changes while management is WireGuard-only | Apply provisionally and require confirmation. | Automated |
+| Ordinary WireGuard maintenance while LAN management remains available | Do not add an unnecessary confirmation gate. | Automated |
+| Confirmation deadline expires and rollback succeeds | Mark `RolledBack`, retain old canonical state, and clear pending state. | Automated |
+| First automatic rollback attempt fails | Keep candidate access and pending state, reject new changes, schedule another rollback, and use a fresh rollback ID. | Automated |
+| Repeated rollback failure | Continue reporting the pending recovery condition; never silently clear it or claim rollback. | Guarded by code; Proxmox service-failure exercise required |
+| Power fails while a change is awaiting confirmation | Unconfirmed state must not enter SQLite; boot reconciliation must reapply the previous canonical configuration before management starts. | Automated model; Proxmox power-cut required |
 
-## Firewall and forwarding
+## Persistence and boot failures
 
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| Candidate nftables syntax is invalid | Preflight fails before active table replacement | Existing preflight |
-| Active table replacement fails | Netlink batch is atomic; rollback restores confirmed table | Existing apply/rollback and namespace test |
-| Crash before nftables activation | Confirmed table is regenerated on startup | Startup reconciliation |
-| Crash after nftables activation but before persistence | `last-good` wins on reboot; unconfirmed candidate is discarded | Startup decision logic; VM destructive test remains |
-| Startup reconciliation cannot verify forwarding or local firewall | Disable forwarding and exit | Fail-closed startup path |
-| Firewall table disappears while process remains running | Current code detects it only on apply/verification; runtime watchdog is not yet implemented | Open follow-up |
-| Kernel forwarding unexpectedly turns off | Current traffic stops safely; runtime watchdog is not yet implemented | Open follow-up |
+| SQLite commit fails after helper verification | Attempt a privileged rollback; report `RolledBack` only if the rollback response is successful and verified, otherwise `RecoveryRequired`. | Automated |
+| Power fails after helper apply but before SQLite commit | On boot, `routerd` loads the old durable revision and reconciles it before exposing management. | Guarded by code; Proxmox power-cut required |
+| Power fails after SQLite commit | The committed revision is canonical and boot reconciliation must reproduce it. | Guarded by code; Proxmox power-cut required |
+| SQLite WAL recovery after abrupt host stop | Database integrity check must pass or router startup must fail closed. | Existing VM evidence; repeat on target Proxmox |
+| SQLite file is corrupt | Refuse normal startup rather than initialize a fresh default router over damaged state. | Guarded by code; fault injection required |
+| Disk becomes full or filesystem becomes read-only during snapshot/commit | Abort before canonical advancement; preserve console access and record the exact failed stage. | Proxmox required |
+| `routerd` crashes while helper continues | Canonical state remains the authority; restart must reconcile before management is exposed. | Guarded by code; process-kill test required |
+| `router-applyd` crashes during apply | `routerd` must not commit without a verified response; restart/reboot reconciliation restores canonical state. | Guarded by code; process-kill test required |
 
-## PPPoE and WAN
+## Firewall, DHCP, DNS, PPPoE, and WireGuard runtime
 
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| Invalid peer configuration | `pppd dryrun` fails before installation | Existing preflight |
-| Wrong ISP credentials during a normal apply | Verification times out and restores previous confirmed configuration | Existing verification/rollback; real ISP test required |
-| ISP outage during boot | Local management boots; PPPoE service retries without blocking applyd | Startup policy; VM test required |
-| PPPoE drops after successful boot | OpenRC/pppd should reconnect; bounded reconnect/watchdog evidence is still required | Open follow-up/Proxmox test |
-| `ppp0` comes up without address/default route during apply | Verification fails and rolls back | Existing verification |
-| MTU mismatch causes black-hole traffic | WireGuard MTU is derived; real path-MTU and MSS evidence remains required | Partial automated, real ISP test required |
+| nftables candidate is invalid | Preflight rejects it before replacing the active ruleset. | Existing automated coverage |
+| nftables load fails after files are written | Restore the saved runtime snapshot; WAN remains default-deny. | Guarded by code; namespace fault injection required |
+| dnsmasq syntax is invalid | Reject during preflight. | Existing automated coverage |
+| dnsmasq restart or verification fails | Restore previous files and service state; do not commit candidate configuration. | Guarded by code; service-failure injection required |
+| DHCP range no longer belongs to LAN subnet | Reject during typed validation. | Existing automated coverage |
+| PPPoE credentials/configuration are invalid | Do not commit unless the expected PPP interface, address, and default route are verified. | Guarded by code; real ISP/test concentrator required |
+| WAN cable or upstream disappears after an already committed PPPoE setup | Keep configuration durable, allow service reconnect, and keep LAN management available. | Proxmox/physical network required |
+| WireGuard activation deletes/replaces an existing interface and later fails | Clean the failed interface and restore the previous runtime snapshot; report recovery if restoration is not verified. | Guarded by code; namespace fault injection required |
+| WireGuard is committed, then power fails | Boot reconciliation must recreate interface, address, peers, routes, and firewall policy from canonical state. | Proxmox required |
+| WireGuard peer is remote during reboot | Remote client must reconnect without exposing web management on WAN. | External-network Proxmox test required |
+| DNS upstream becomes unavailable | Local management and DHCP must remain reachable; DNS failure must not broaden firewall policy. | Proxmox required |
 
-## DHCP and DNS
+## Update and recovery lifecycle
 
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| Invalid dnsmasq candidate | `dnsmasq --test` rejects it before replacement | Existing preflight |
-| dnsmasq restart fails after files are installed | Rollback restores previous files and service state | Existing apply rollback; VM injection required |
-| Power loss after config write before restart | Startup regenerates confirmed files and restarts dnsmasq | Startup reconciliation |
-| dnsmasq is stopped after healthy boot | No continuous watchdog currently restarts it | Open follow-up |
-| Full disk prevents atomic file replacement | Apply fails; previous file survives rename protocol | Existing atomic write behavior; disk-full VM test required |
-| DNS upstream unavailable | DHCP/local management should remain; external resolution degrades | Proxmox/network test required |
+| Power fails before update pointer switch | Durable operation journal restores or retains the old slot. | Automated |
+| Power fails after pointer switch but before journal cleanup | Recovery completes the new slot consistently. | Automated |
+| Rollback is interrupted | Journal recovery selects a consistent old or new slot from the runtime pointer. | Automated |
+| Update package is unsigned, altered, oversized, contains unsafe paths, symlinks, or hooks | Reject before staging/activation. | Existing automated coverage |
+| Candidate slot starts but router health is bad | Operator or recovery path must restore the previous verified slot. | Clean-Alpine automated; Proxmox reboot rehearsal required |
+| Both update state and active pointer are corrupt | Fail closed and require local recovery; never guess a slot. | Automated state validation; recovery-media rehearsal required |
 
-## LAN, Wi-Fi and management lockout
+## Backup and restore
 
-| Scenario | Required result | Coverage |
+| Scenario | Required outcome | Status |
 |---|---|---|
-| LAN address/topology change is not confirmed | Preserve old address during confirmation and restore old config on timeout/reboot | Existing commit-confirm plus startup recovery |
-| Power loss during provisional LAN change | `last-good` is restored before routerd starts | Startup reconciliation and OpenRC socket readiness gate |
-| Wrong LAN interface selected | Provisional interface changes are rejected; local recovery console remains | Existing policy/recovery |
-| Wi-Fi bridge creation fails halfway | Apply rolls back; startup failure disables forwarding | Existing rollback plus fail-closed boot |
-| hostapd fails to start | Verification/apply fails and restores previous topology | Existing rollback |
-| Management listener would bind to WAN | Host/destination checks reject it; external scan still required | Existing API policy and manual scan |
+| Encrypted backup export is interrupted | No router configuration changes; incomplete export is discarded by the caller. | Guarded by code; client interruption test required |
+| Backup password or authentication is wrong | Reject without exposing plaintext or changing canonical state. | Existing automated/API coverage |
+| Backup JSON, checksum, schema, or encrypted envelope is corrupt | Reject before restore/apply. | Existing validation coverage; expand corpus over time |
+| Restore applies a configuration that breaks management | Use the same validation, snapshot, apply, verify, commit-confirm, and rollback path as an ordinary change. | Guarded by architecture; fresh-VM restore rehearsal required |
+| Power fails during restore | Old durable configuration must remain canonical unless the restored revision was fully committed; boot reconciliation follows canonical state. | Proxmox required |
+| Backup is restored into a fresh VM | Credentials, configuration, snapshots, and runtime services must be verified without importing transient sessions or unsafe host identity. | Proxmox required |
 
-## Update, persistence and recovery
+## Mandatory target-Proxmox sequence
 
-| Scenario | Required result | Coverage |
-|---|---|---|
-| Power loss during A/B activation or rollback | Durable operation journal deterministically completes old or new slot | Automated interruption tests |
-| Corrupt update journal | Fail closed and reject unsafe state | Automated corruption/fuzz tests |
-| Concurrent update operations | Serialize with operation lock | Automated tests |
-| Last transaction response cannot be persisted | Return failure rather than silently claim durable success | Existing apply behavior |
-| `last-good.json` cannot be persisted after apply | Restore previous configuration | Existing rollback path |
-| Pending marker cannot be persisted | Restore previous configuration | Existing rollback path |
-| Pending marker cannot be removed after confirmation | Return failure; next boot restores confirmed state | Existing behavior plus startup recovery |
-| Recovery DB mutation fails midway | SQLite transaction rolls back and sessions/config remain consistent | Existing failure-injection tests |
-| Backup is truncated, wrong-password or incompatible | Reject before replacing canonical state | Existing restore validation; fresh-VM rehearsal required |
+The owner VM must still execute these tests in order, with pfSense available as
+rollback:
 
-## Resource and long-duration failures
+1. Record VMID, exact commit, bridge/NIC mapping, snapshot, and backup.
+2. Reboot guest and Proxmox repeatedly; verify stable WAN/LAN identity.
+3. Kill `routerd`, kill `router-applyd`, and interrupt a commit-confirm change.
+4. Disconnect WAN during PPPoE establishment and after a stable session.
+5. Test WireGuard from an unrelated external network, including reboot recovery.
+6. Inject read-only filesystem and low-disk conditions on disposable storage.
+7. Force-stop the VM during apply, confirmation, update activation, rollback, and restore.
+8. Run external IPv4/IPv6 scans and sustained throughput/latency tests.
+9. Restore an encrypted backup into a new VM.
+10. Run at least seven days while recording memory, disk, logs, reconnects, and errors.
 
-| Scenario | Required result | Coverage |
-|---|---|---|
-| Disk becomes full | Atomic writes fail without replacing confirmed file; router must remain manageable or fail closed | Proxmox test required |
-| Filesystem becomes read-only | Apply fails and confirmed runtime remains; reboot path must fail closed if regeneration is impossible | Proxmox test required |
-| `router-applyd` is killed | OpenRC restart policy and startup reconciliation must restore confirmed state | Proxmox test required |
-| `routerd` is killed | Packet forwarding continues; management returns after service restart | Proxmox test required |
-| Memory pressure/OOM | No partial configuration should be accepted; service restart evidence required | Proxmox stress test required |
-| Logs fill the disk | Log rotation and bounded-growth evidence are still required | Open release gate |
-| Seven-day operation | No unbounded memory, file, connection, lease or log growth | Proxmox soak test required |
-
-## Remaining highest-priority follow-ups
-
-1. Add a lightweight local runtime watchdog for nftables, dnsmasq, WireGuard and forwarding drift after a healthy boot.
-2. Add Proxmox fault injection for process kill, reboot, forced power-off, full disk and read-only filesystem.
-3. Test PPPoE reconnect and path MTU with the real ISP.
-4. Test WireGuard recovery from an unrelated external network.
-5. Restore an encrypted backup into a fresh VM and verify all services.
-6. Run an external WAN scan after every firewall/topology change.
-7. Record seven-day CPU, RAM, disk, logs, packet loss and reconnect behavior.
+Record results in a private dated report. A scenario is not considered physically
+qualified until the report includes the exact command, expected result, observed
+result, and recovery action.
