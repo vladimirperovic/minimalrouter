@@ -1,0 +1,63 @@
+name: Patch confirmation boundary
+
+on:
+  push:
+    branches:
+      - agent/failure-scenario-hardening
+    paths:
+      - .github/workflows/patch-confirmation-boundary.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/failure-scenario-hardening
+      - name: Patch reviewed confirmation block
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("cmd/router-applyd/main.go")
+          text = path.read_text()
+          old = '''\tpreviousConfig, _ := loadLastGood()
+          \tif req.RequireConfirmation {
+          \t\tlanChanged := previousConfig != nil &&
+          \t\t\t(previousConfig.LAN.IPAddress != req.Config.LAN.IPAddress ||
+          \t\t\t\tpreviousConfig.LAN.CIDR != req.Config.LAN.CIDR)
+          \t\tmanagementChanged := previousConfig != nil &&
+          \t\t\tpreviousConfig.System.ManagementAccess != req.Config.System.ManagementAccess
+          \t\ttopologyChanged := previousConfig != nil &&
+          \t\t\t(previousConfig.WiFi.Enabled != req.Config.WiFi.Enabled ||
+          \t\t\t\tpreviousConfig.WiFi.Interface != req.Config.WiFi.Interface)
+          \t\tif previousConfig == nil ||
+          \t\t\tpreviousConfig.LAN.Interface != req.Config.LAN.Interface ||
+          \t\t\t(!lanChanged && !managementChanged && !topologyChanged) {
+          \t\t\treturn failure(req.ID, "confirmation mode is invalid for this change", false)
+          \t\t}
+          \t}
+          '''
+          new = '''\tpreviousConfig, _ := loadLastGood()
+          \tif req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
+          \t\treturn failure(req.ID, "confirmation mode is invalid for this change", false)
+          \t}
+          '''
+          if old not in text:
+              raise SystemExit("reviewed confirmation block not found exactly")
+          path.write_text(text.replace(old, new, 1))
+      - name: Format changed Go files
+        run: gofmt -w cmd/router-applyd/main.go cmd/router-applyd/confirmation.go cmd/router-applyd/confirmation_test.go
+      - name: Commit reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/router-applyd/main.go cmd/router-applyd/confirmation.go cmd/router-applyd/confirmation_test.go
+          git commit -m "fix: align privileged confirmation boundary"
+          git push
