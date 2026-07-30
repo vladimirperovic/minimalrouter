@@ -83,7 +83,10 @@ jobs:
       - name: Validate network laboratory syntax
         run: bash -n scripts/ci-network-namespace-lab.sh
       - name: Run isolated router network laboratory
-        run: sudo bash scripts/ci-network-namespace-lab.sh build/deep-test/network
+        run: |
+          sudo bash scripts/ci-network-namespace-lab.sh build/deep-test/network
+          sudo chown -R "$USER":"$USER" build/deep-test/network
+          chmod -R a+rX build/deep-test/network
       - name: Upload network measurements
         if: always()
         uses: actions/upload-artifact@v4
