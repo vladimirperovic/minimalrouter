@@ -64,26 +64,10 @@ jobs:
           pnpm --dir web test
           pnpm --dir web build
 
-      - name: Remove one-shot integration helpers
-        shell: python
+      - name: Prepare non-workflow commit
         run: |
-          from pathlib import Path
-          import re
-
-          workflow = Path('.github/workflows/ci.yml')
-          text = workflow.read_text()
-          updated, count = re.subn(
-              r'\n  # BEGIN AGENT INTEGRATION\n.*?\n  # END AGENT INTEGRATION\n',
-              '\n',
-              text,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise SystemExit('could not remove one-shot integration job')
-          workflow.write_text(updated)
-          Path('scripts/integrate-agent-branch.py').unlink(missing_ok=True)
-          Path('.github/workflows/agent-integration.yml').unlink(missing_ok=True)
+          git checkout -- .github/workflows/ci.yml .github/workflows/agent-integration.yml
+          rm -f scripts/integrate-agent-branch.py
 
       - name: Commit integrated tree
         shell: bash
