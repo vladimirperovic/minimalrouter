@@ -103,15 +103,18 @@ jobs:
 
           tests = Path("internal/apply/failure_scenarios_test.go")
           text = tests.read_text()
+          marker = "func TestUnverifiedPrivilegedResponseNeverCommits"
+          marker_index = text.index(marker)
+          prefix, target = text[:marker_index], text[marker_index:]
           old = '''\tif tx.CurrentState != StateRolledBack {
           \t\tt.Fatalf("expected rolled back state, got %s", tx.CurrentState)
           \t}'''
           new = '''\tif tx.CurrentState != StateRecoveryRequired {
           \t\tt.Fatalf("expected recovery-required state, got %s", tx.CurrentState)
           \t}'''
-          if text.count(old) != 1:
-              raise SystemExit("expected exactly one unverified-response assertion")
-          tests.write_text(text.replace(old, new, 1))
+          if target.count(old) != 1:
+              raise SystemExit("unverified-response assertion was not uniquely identified")
+          tests.write_text(prefix + target.replace(old, new, 1))
       - name: Format changed Go files
         run: gofmt -w cmd/router-applyd/main.go cmd/router-applyd/outcome.go internal/apply/statemachine.go internal/apply/failure_scenarios_test.go internal/apply/recovery_required_test.go
       - name: Commit reviewed patch
