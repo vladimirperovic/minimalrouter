@@ -194,6 +194,20 @@ validation_path.write_text(validation)
 
 persistence_path = Path("cmd/router-applyd/persistence_outcome_test.go")
 persistence = persistence_path.read_text()
+if "StartedAt: time.Now().Add(-time.Second)" not in persistence:
+    persistence = replace_once(
+        persistence,
+        '''\tstored := &transactionRecord{
+\t\tID: "tx-existing", ConfigHash: "same",
+\t\tResponse: apply.ApplyResponse{ID: "tx-existing", Success: true, Verified: true},
+\t}''',
+        '''\tstored := &transactionRecord{
+\t\tID: "tx-existing", ConfigHash: "same",
+\t\tResponse: apply.ApplyResponse{ID: "tx-existing", Success: true, Verified: true},
+\t\tStartedAt: time.Now().Add(-time.Second), CompletedAt: time.Now(),
+\t}''',
+        "persisted replay fixture",
+    )
 if "TestReplayIncompleteIntentRequiresRecoveryWithoutReapply" not in persistence:
     persistence = replace_once(persistence, '\t"testing"', '\t"testing"\n\t"time"', "time import")
     persistence += '''
