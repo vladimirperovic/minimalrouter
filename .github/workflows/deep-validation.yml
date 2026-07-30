@@ -160,7 +160,7 @@ jobs:
       - name: Install ARM64 emulator
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends file qemu-user-static
+          sudo apt-get install -y --no-install-recommends file jq qemu-user-static
       - name: Build ARM64 binaries
         run: make build-linux-arm64
       - name: Execute recovery-safe ARM64 commands
@@ -168,7 +168,7 @@ jobs:
           file bin/*-linux-arm64
           qemu-aarch64-static bin/router-update-linux-arm64 --help | grep -q 'Usage: router-update'
           qemu-aarch64-static bin/router-recovery-linux-arm64 --help | grep -q 'Usage: router-recovery'
-          root="$(mktemp -d)"
-          qemu-aarch64-static bin/router-update-linux-arm64 --root "$root" status >status.json
+          root="$(mktemp -u)"
+          MINIMALROUTER_UPDATE_ROOT="$root" qemu-aarch64-static bin/router-update-linux-arm64 status >status.json
           jq -e '.current == "" and .previous == "" and .pending == ""' status.json
           test ! -e "$root"
