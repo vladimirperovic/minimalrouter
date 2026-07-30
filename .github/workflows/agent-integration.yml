@@ -1,0 +1,188 @@
+name: Agent integration patch
+
+on:
+  push:
+    branches:
+      - agent/recovery-parental-release-hardening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/recovery-parental-release-hardening
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Integrate feature modules
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"pattern missing in {path}: {old[:80]!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          def regex_once(path, pattern, replacement):
+              file = Path(path)
+              text = file.read_text()
+              updated, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count == 0:
+                  if replacement.strip() in text:
+                      return
+                  raise SystemExit(f"regex missing in {path}: {pattern[:100]!r}")
+              file.write_text(updated)
+
+          # Canonical validation must include profile schedules and reject legacy rules.
+          regex_once(
+              "internal/config/validation.go",
+              r"\n\tfor i, fd := range c\.AdGuard\.FilterDevices \{.*?\n\tif c\.AdGuard\.BlocklistURL != \"\" \{",
+              "\n\terrs = append(errs, c.validateDeviceProfiles(lanNetwork)...)\n\tif c.AdGuard.BlocklistURL != \"\" {",
+          )
+
+          # Create DNS-derived nftables sets and enforce profiles before established flows.
+          replace_once(
+              "internal/services/nftables.go",
+              "\tbuf.WriteString(\"table inet minimalrouter {\\n\")\n\n\t// Input Chain",
+              "\tbuf.WriteString(\"table inet minimalrouter {\\n\")\n\twriteDeviceProfileObjects(&buf, cfg)\n\n\t// Input Chain",
+          )
+          replace_once(
+              "internal/services/nftables.go",
+              "\tbuf.WriteString(\"    # Reject invalid before established state\\n\")\n\tbuf.WriteString(\"    ct state invalid drop\\n\")\n\tbuf.WriteString(\"    # Allow established/related\\n\")",
+              "\tbuf.WriteString(\"    # Reject invalid before established state\\n\")\n\tbuf.WriteString(\"    ct state invalid drop\\n\")\n\tif len(activeManagedServices(cfg)) > 0 {\n\t\tbuf.WriteString(\"    # Device schedules run before established acceptance so expired streams are cut\\n\")\n\t\tbuf.WriteString(\"    jump device_profiles\\n\")\n\t}\n\tbuf.WriteString(\"    # Allow established/related\\n\")",
+          )
+
+          # Guarded first-run discovery plus authenticated runtime discovery.
+          replace_once(
+              "internal/api/server.go",
+              "\tmux.HandleFunc(\"GET /api/v1/setup/status\", sh(s.handleSetupStatus))",
+              "\tmux.HandleFunc(\"GET /api/v1/setup/status\", sh(s.handleSetupStatus))\n\tmux.HandleFunc(\"GET /api/v1/setup/interfaces\", sh(s.handleDiscoverSetupInterfaces))",
+          )
+          replace_once(
+              "internal/api/server.go",
+              "\tmux.HandleFunc(\"GET /api/v1/system\", sh(s.authMiddleware(s.handleGetSystem)))",
+              "\tmux.HandleFunc(\"GET /api/v1/system\", sh(s.authMiddleware(s.handleGetSystem)))\n\tmux.HandleFunc(\"GET /api/v1/system/interfaces\", sh(s.authMiddleware(s.handleDiscoverInterfaces)))",
+          )
+
+          # Privileged process hardening before the socket is created.
+          replace_once(
+              "cmd/router-applyd/main.go",
+              "\tdebug.SetMemoryLimit(64 << 20)\n\n\tlog.Println",
+              "\tdebug.SetMemoryLimit(64 << 20)\n\tif err := hardenProcess(); err != nil {\n\t\tlog.Fatalf(\"applyd process hardening failed: %v\", err)\n\t}\n\n\tlog.Println",
+          )
+
+          # Split CSS source and style attributes in CSP; no inline style blocks or scripts.
+          replace_once(
+              "cmd/routerd/main.go",
+              "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+              "style-src 'self'; style-src-attr 'unsafe-inline'; script-src-attr 'none'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+          )
+
+          # Replace the legacy fake per-device table with the real profile component.
+          replace_once(
+              "web/src/App.tsx",
+              'import { apiFetch } from "./lib/api";',
+              'import { apiFetch } from "./lib/api";\nimport DNSFilterPanel from "./components/DNSFilterPanel";\nimport "./components/DNSFilterPanel.css";',
+          )
+          replace_once("web/src/App.tsx", '["08", "AdGuard Filter", "adguard"]', '["08", "DNS Filter", "adguard"]')
+          regex_once(
+              "web/src/App.tsx",
+              r"\n  const \[adguardEnabled, setAdguardEnabled\] = useState\(false\);.*?\n  const \[dnsModalOpen, setDnsModalOpen\] = useState\(false\);",
+              "\n  const [dnsModalOpen, setDnsModalOpen] = useState(false);",
+          )
+          regex_once(
+              "web/src/App.tsx",
+              r"\n          <section className=\"section-block\" id=\"adguard\">.*?\n          <section className=\"section-block\" id=\"wifi\">",
+              "\n          <DNSFilterPanel apiConnected={apiConnected} onError={setOperationError} />\n\n          <section className=\"section-block\" id=\"wifi\">",
+          )
+
+          # Build and distribute local recovery/update utilities with the appliance.
+          replace_once(
+              "Makefile",
+              "\tgo build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd ./cmd/router-applyd",
+              "\tgo build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd ./cmd/router-applyd\n\tgo build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-recovery ./cmd/router-recovery\n\tgo build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-update ./cmd/router-update\n\tgo build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/firmware-sign ./cmd/firmware-sign",
+          )
+          replace_once(
+              "Makefile",
+              "\tCGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd",
+              "\tCGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd\n\tCGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery\n\tCGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-update-linux-amd64 ./cmd/router-update",
+          )
+          replace_once(
+              "Makefile",
+              "\tCGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd",
+              "\tCGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd\n\tCGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery\n\tCGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags=\"$(GO_LDFLAGS)\" -o bin/router-update-linux-arm64 ./cmd/router-update",
+          )
+          replace_once(
+              "Makefile",
+              "\t@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64",
+              "\t@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64\n\t@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64\n\t@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64",
+          )
+          replace_once(
+              "Makefile",
+              "\t@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64",
+              "\t@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64\n\t@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64\n\t@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64",
+          )
+          replace_once(
+              "packaging/alpine/install-dist.sh",
+              '    "bin/router-applyd-${BIN_ARCH}" \\\n    "web/dist/index.html"',
+              '    "bin/router-applyd-${BIN_ARCH}" \\\n    "bin/router-recovery-${BIN_ARCH}" \\\n    "bin/router-update-${BIN_ARCH}" \\\n    "web/dist/index.html"',
+          )
+          replace_once(
+              "packaging/alpine/install-dist.sh",
+              'install -m 0755 "bin/router-applyd-${BIN_ARCH}" /usr/sbin/router-applyd',
+              'install -m 0755 "bin/router-applyd-${BIN_ARCH}" /usr/sbin/router-applyd\ninstall -m 0750 "bin/router-recovery-${BIN_ARCH}" /usr/sbin/router-recovery\ninstall -m 0750 "bin/router-update-${BIN_ARCH}" /usr/sbin/router-update',
+          )
+
+          # CI executes real unit and browser tests.
+          replace_once(
+              ".github/workflows/ci.yml",
+              "      - name: Type-check and build dashboard\n        run: pnpm build",
+              "      - name: Run dashboard unit tests\n        run: pnpm test\n      - name: Type-check and build dashboard\n        run: pnpm build\n      - name: Install Playwright Chromium\n        run: pnpm exec playwright install --with-deps chromium\n      - name: Run dashboard E2E tests\n        run: pnpm test:e2e",
+          )
+      - name: Refresh lockfile and format
+        run: |
+          pnpm --dir web install --lockfile-only
+          gofmt -w cmd internal
+      - name: Validate integrated tree
+        run: |
+          go test ./...
+          go vet ./...
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web lint
+          pnpm --dir web test
+          pnpm --dir web build
+      - name: Commit integration
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name "Minimal Router Integration Bot"
+          git config user.email "integration-bot@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: integrate recovery and device profiles"
+          git push origin HEAD:agent/recovery-parental-release-hardening
