@@ -185,7 +185,7 @@ func handleConnection(conn net.Conn) {
 	if err := saveLastTransaction(transactionRecord{
 		ID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
 	}); err != nil {
-		resp = failure(req.ID, "transaction result could not be persisted", resp.RolledBack)
+		resp = journalPersistenceFailure(req.ID, resp)
 	}
 	writeResponse(conn, resp)
 }

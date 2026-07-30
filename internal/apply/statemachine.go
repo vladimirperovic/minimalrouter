@@ -56,12 +56,14 @@ type pendingChange struct {
 
 // Engine manages execution of configuration transactions.
 type Engine struct {
-	mu            sync.Mutex
-	activeTx      *Transaction
-	currentConfig config.SystemConfig
-	store         *config.FileStore
-	client        Client
-	pending       *pendingChange
+	mu               sync.Mutex
+	activeTx         *Transaction
+	currentConfig    config.SystemConfig
+	store            *config.FileStore
+	client           Client
+	pending          *pendingChange
+	recoveryRequired bool
+	recoveryReason   string
 }
 
 // NewEngine initializes transaction engine with base configuration and store.
@@ -95,11 +97,19 @@ func (e *Engine) applyPrivileged(ctx context.Context, req ApplyRequest) (*ApplyR
 				lastErr = fmt.Errorf("router-applyd returned an empty response")
 				continue
 			}
+			if validationErr := resp.Validate(); validationErr != nil {
+				return nil, fmt.Errorf("router-applyd returned an invalid outcome: %w", validationErr)
+			}
 			return resp, nil
 		}
 		lastErr = err
 	}
 	return nil, lastErr
+}
+
+func (e *Engine) requireRecovery(reason string) {
+	e.recoveryRequired = true
+	e.recoveryReason = reason
 }
 
 // ProcessTransaction executes the full state machine pipeline with snapshot and rollback.
@@ -114,6 +124,14 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		CreatedAt:    time.Now(),
 	}
 	e.activeTx = tx
+	if e.recoveryRequired {
+		tx.CurrentState = StateRecoveryRequired
+		tx.Error = "configuration changes are blocked until canonical reconciliation succeeds"
+		if e.recoveryReason != "" {
+			tx.Error += ": " + e.recoveryReason
+		}
+		return tx, fmt.Errorf("%s", tx.Error)
+	}
 	if e.pending != nil {
 		tx.CurrentState = StateRejected
 		tx.Error = "another configuration is awaiting confirmation"
@@ -212,21 +230,29 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	if err != nil {
 		tx.CurrentState = StateRecoveryRequired
 		tx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
+		e.requireRecovery(tx.Error)
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 	if !resp.Success {
-		if resp.RecoveryRequired {
+		switch {
+		case resp.RecoveryRequired:
 			tx.CurrentState = StateRecoveryRequired
-		} else {
+		case resp.RolledBack:
 			tx.CurrentState = StateRolledBack
+		default:
+			tx.CurrentState = StateRejected
 		}
 		tx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
+		if tx.CurrentState == StateRecoveryRequired {
+			e.requireRecovery(tx.Error)
+		}
 		return tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
 	}
 	tx.CurrentState = StateApplied
 	if !resp.Verified {
 		tx.CurrentState = StateRecoveryRequired
 		tx.Error = "router-applyd did not verify the active configuration; recovery is required"
+		e.requireRecovery(tx.Error)
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 	tx.CurrentState = StateVerified
@@ -258,6 +284,9 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 				}
 			} else {
 				tx.Error += "; rollback request could not be generated and recovery is required"
+			}
+			if tx.CurrentState == StateRecoveryRequired {
+				e.requireRecovery(tx.Error)
 			}
 			return tx, err
 		}
@@ -305,6 +334,8 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	}
 	if e.store != nil {
 		if err := e.store.SaveConfig(pending.tx.Config); err != nil {
+			pending.tx.CurrentState = StateRecoveryRequired
+			pending.tx.Error = "privileged confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
 			return pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
 		}
 	}
@@ -341,8 +372,10 @@ func (e *Engine) rollbackExpired(txID string) {
 			e.pending = nil
 			return
 		}
+		pending.tx.CurrentState = StateRecoveryRequired
 		pending.tx.Error = "confirmation deadline expired and privileged rollback failed; retry scheduled while candidate access remains available"
 	} else {
+		pending.tx.CurrentState = StateRecoveryRequired
 		pending.tx.Error = "confirmation deadline expired and rollback generation failed; retry scheduled while candidate access remains available"
 	}
 	pending.timer = time.AfterFunc(rollbackRetryDelay, func() { e.rollbackExpired(txID) })
@@ -386,6 +419,8 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	if !resp.Success || !resp.Verified {
 		return fmt.Errorf("boot reconciliation was not verified: %s", resp.Error)
 	}
+	e.recoveryRequired = false
+	e.recoveryReason = ""
 	return nil
 }
 
