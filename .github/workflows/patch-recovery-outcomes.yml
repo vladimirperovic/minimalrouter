@@ -1,0 +1,125 @@
+name: Patch recovery outcomes
+
+on:
+  push:
+    branches:
+      - agent/failure-scenario-hardening
+    paths:
+      - .github/workflows/patch-recovery-outcomes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/failure-scenario-hardening
+      - name: Apply reviewed recovery outcome changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          helper = Path("cmd/router-applyd/main.go")
+          text = helper.read_text()
+          replacements = {
+              'return failure(req.ID, "apply failed and rollback could not be verified", true)':
+                  'return recoveryFailure(req.ID, "apply failed and rollback could not be verified")',
+              'return failure(req.ID, "verification failed and rollback could not be verified", true)':
+                  'return recoveryFailure(req.ID, "verification failed and rollback could not be verified")',
+              'return failure(req.ID, "could not persist pending state and rollback failed", true)':
+                  'return recoveryFailure(req.ID, "could not persist pending state and rollback failed")',
+              'return failure(req.ID, "could not persist last-good state and rollback failed", true)':
+                  'return recoveryFailure(req.ID, "could not persist last-good state and rollback failed")',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one helper occurrence: {old}")
+              text = text.replace(old, new, 1)
+          helper.write_text(text)
+
+          state = Path("internal/apply/statemachine.go")
+          text = state.read_text()
+          replacements = {
+              '\tStateRolledBack           State = "RolledBack"\n\tStateRejected             State = "Rejected"':
+                  '\tStateRolledBack           State = "RolledBack"\n\tStateRecoveryRequired     State = "RecoveryRequired"\n\tStateRejected             State = "Rejected"',
+              '\t\ttx.CurrentState = StateRolledBack\n\t\ttx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; reboot reconciliation will restore the canonical configuration: %v", err)':
+                  '\t\ttx.CurrentState = StateRecoveryRequired\n\t\ttx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)',
+              '''\tif !resp.Success {
+          \t\ttx.CurrentState = StateRolledBack
+          \t\ttx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
+          \t\treturn tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
+          \t}''':
+                  '''\tif !resp.Success {
+          \t\tif resp.RecoveryRequired {
+          \t\t\ttx.CurrentState = StateRecoveryRequired
+          \t\t} else {
+          \t\t\ttx.CurrentState = StateRolledBack
+          \t\t}
+          \t\ttx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
+          \t\treturn tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
+          \t}''',
+              '\t\ttx.CurrentState = StateRolledBack\n\t\ttx.Error = "router-applyd did not verify the active configuration"':
+                  '\t\ttx.CurrentState = StateRecoveryRequired\n\t\ttx.Error = "router-applyd did not verify the active configuration; recovery is required"',
+              '''\t\tif err := e.store.SaveConfig(newCfg); err != nil {
+          \t\t\ttx.CurrentState = StateRolledBack
+          \t\t\ttx.Error = fmt.Sprintf("Failed to commit config store: %v", err)
+          \t\t\trollbackReq, buildErr := buildApplyRequest(txID+"-rollback", e.currentConfig)
+          \t\t\tif buildErr == nil {
+          \t\t\t\trollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+          \t\t\t\t_, _ = e.applyPrivileged(rollbackCtx, rollbackReq)
+          \t\t\t\trollbackCancel()
+          \t\t\t}
+          \t\t\treturn tx, err
+          \t\t}''':
+                  '''\t\tif err := e.store.SaveConfig(newCfg); err != nil {
+          \t\t\ttx.Error = fmt.Sprintf("failed to commit config store: %v", err)
+          \t\t\ttx.CurrentState = StateRecoveryRequired
+          \t\t\trollbackReq, buildErr := buildApplyRequest(txID+"-rollback", e.currentConfig)
+          \t\t\tif buildErr == nil {
+          \t\t\t\trollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+          \t\t\t\trollbackResp, rollbackErr := e.applyPrivileged(rollbackCtx, rollbackReq)
+          \t\t\t\trollbackCancel()
+          \t\t\t\tif rollbackErr == nil && rollbackResp.Success && rollbackResp.Verified && !rollbackResp.RecoveryRequired {
+          \t\t\t\t\ttx.CurrentState = StateRolledBack
+          \t\t\t\t\ttx.Error += "; previous configuration was verified restored"
+          \t\t\t\t} else {
+          \t\t\t\t\ttx.Error += "; rollback could not be verified and recovery is required"
+          \t\t\t\t}
+          \t\t\t} else {
+          \t\t\t\ttx.Error += "; rollback request could not be generated and recovery is required"
+          \t\t\t}
+          \t\t\treturn tx, err
+          \t\t}''',
+          }
+          for old, new in replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one state-machine occurrence: {old[:80]}")
+              text = text.replace(old, new, 1)
+          state.write_text(text)
+
+          tests = Path("internal/apply/failure_scenarios_test.go")
+          text = tests.read_text()
+          old = '''\tif tx.CurrentState != StateRolledBack {
+          \t\tt.Fatalf("expected rolled back state, got %s", tx.CurrentState)
+          \t}'''
+          new = '''\tif tx.CurrentState != StateRecoveryRequired {
+          \t\tt.Fatalf("expected recovery-required state, got %s", tx.CurrentState)
+          \t}'''
+          if text.count(old) != 1:
+              raise SystemExit("expected exactly one unverified-response assertion")
+          tests.write_text(text.replace(old, new, 1))
+      - name: Format changed Go files
+        run: gofmt -w cmd/router-applyd/main.go cmd/router-applyd/outcome.go internal/apply/statemachine.go internal/apply/failure_scenarios_test.go internal/apply/recovery_required_test.go
+      - name: Commit reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/router-applyd/main.go cmd/router-applyd/outcome.go internal/apply/statemachine.go internal/apply/failure_scenarios_test.go internal/apply/recovery_required_test.go
+          git commit -m "fix: report unverified rollback outcomes"
+          git push
