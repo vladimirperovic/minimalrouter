@@ -45,13 +45,21 @@ test_path = Path("internal/apply/two_phase_confirmation_test.go")
 test = test_path.read_text()
 test = replace_once(
     test,
-    '''\tfor i, op := range want {
+    '''\twant := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed}
+\tif len(client.requests) != len(want) {
+\t\tt.Fatalf("request count=%d, want %d", len(client.requests), len(want))
+\t}
+\tfor i, op := range want {
 \t\tif client.requests[i].Op != op {
 \t\t\tt.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 \t\t}
 \t}
 }''',
-    '''\tfor i, op := range want {
+    '''\twant := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed}
+\tif len(client.requests) != len(want) {
+\t\tt.Fatalf("request count=%d, want %d", len(client.requests), len(want))
+\t}
+\tfor i, op := range want {
 \t\tif client.requests[i].Op != op {
 \t\t\tt.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 \t\t}
@@ -64,13 +72,21 @@ test = replace_once(
 )
 test = replace_once(
     test,
-    '''\tfor i, op := range want {
+    '''\twant := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed, OpCommitConfirmed}
+\tif len(client.requests) != len(want) {
+\t\tt.Fatalf("request count=%d, want %d", len(client.requests), len(want))
+\t}
+\tfor i, op := range want {
 \t\tif client.requests[i].Op != op {
 \t\t\tt.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 \t\t}
 \t}
 }''',
-    '''\tfor i, op := range want {
+    '''\twant := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed, OpCommitConfirmed}
+\tif len(client.requests) != len(want) {
+\t\tt.Fatalf("request count=%d, want %d", len(client.requests), len(want))
+\t}
+\tfor i, op := range want {
 \t\tif client.requests[i].Op != op {
 \t\t\tt.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 \t\t}
