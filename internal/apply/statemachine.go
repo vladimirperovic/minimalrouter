@@ -52,6 +52,7 @@ type pendingChange struct {
 	previous           config.SystemConfig
 	timer              *time.Timer
 	rollbackAttempts   int
+	commitAttempts     int
 	canonicalCommitted bool
 }
 
@@ -357,7 +358,9 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 		}
 	}
 
-	commitReq := ApplyRequest{ID: txID + "-commit-confirmed", Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+	pending.commitAttempts++
+	commitID := fmt.Sprintf("%s-commit-confirmed-%d", txID, pending.commitAttempts)
+	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	commitResp, commitErr := e.applyPrivileged(commitCtx, commitReq)
 	commitCancel()

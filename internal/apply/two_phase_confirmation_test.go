@@ -64,6 +64,9 @@ func TestConfirmationCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 		}
 	}
+	if client.requests[2].ID != tx.ID+"-commit-confirmed-1" {
+		t.Fatalf("first confirmed commit ID=%q", client.requests[2].ID)
+	}
 }
 
 func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *testing.T) {
@@ -105,5 +108,11 @@ func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *
 		if client.requests[i].Op != op {
 			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 		}
+	}
+	if client.requests[2].ID == client.requests[3].ID {
+		t.Fatalf("explicit confirmed-commit retry reused cached transaction ID %q", client.requests[2].ID)
+	}
+	if client.requests[2].ID != tx.ID+"-commit-confirmed-1" || client.requests[3].ID != tx.ID+"-commit-confirmed-2" {
+		t.Fatalf("unexpected confirmed-commit retry IDs: %q, %q", client.requests[2].ID, client.requests[3].ID)
 	}
 }
