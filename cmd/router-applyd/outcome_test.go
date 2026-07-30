@@ -6,22 +6,20 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 )
 
-func TestJournalPersistenceFailureNeverClaimsUnknownRuntimeRolledBack(t *testing.T) {
+func TestJournalPersistenceFailureAlwaysRequiresRecovery(t *testing.T) {
 	tests := []struct {
-		name           string
-		previous       apply.ApplyResponse
-		wantRolledBack bool
-		wantRecovery   bool
+		name     string
+		previous apply.ApplyResponse
 	}{
-		{name: "successful apply", previous: apply.ApplyResponse{Success: true, Verified: true}, wantRecovery: true},
-		{name: "side-effect-free rejection", previous: apply.ApplyResponse{Success: false}, wantRecovery: true},
-		{name: "verified rollback", previous: apply.ApplyResponse{Success: false, RolledBack: true}, wantRolledBack: true},
-		{name: "already recovery required", previous: apply.ApplyResponse{Success: false, RecoveryRequired: true}, wantRecovery: true},
+		{name: "successful apply", previous: apply.ApplyResponse{Success: true, Verified: true}},
+		{name: "side-effect-free rejection", previous: apply.ApplyResponse{Success: false}},
+		{name: "verified rollback", previous: apply.ApplyResponse{Success: false, RolledBack: true}},
+		{name: "already recovery required", previous: apply.ApplyResponse{Success: false, RecoveryRequired: true}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := journalPersistenceFailure("tx-journal", test.previous)
-			if got.RolledBack != test.wantRolledBack || got.RecoveryRequired != test.wantRecovery {
+			if got.RolledBack || !got.RecoveryRequired {
 				t.Fatalf("outcome rolled_back=%v recovery_required=%v", got.RolledBack, got.RecoveryRequired)
 			}
 			if got.Success || got.Verified {
