@@ -91,12 +91,13 @@ type AccessWindow struct {
 	End   string `json:"end"`   // HH:MM
 }
 
-// WeeklyAccessSchedule controls managed services on Monday-Friday and on the
-// weekend. WeekendMode is all_day, blocked, same_as_weekdays, or custom.
+// WeeklyAccessSchedule controls managed services independently for each day.
+// The legacy weekday/weekend fields remain readable for old backups.
 type WeeklyAccessSchedule struct {
-	WeekdayWindows []AccessWindow `json:"weekday_windows"`
-	WeekendMode    string         `json:"weekend_mode"`
-	WeekendWindows []AccessWindow `json:"weekend_windows,omitempty"`
+	DayWindows      map[string][]AccessWindow `json:"day_windows,omitempty"`
+	WeekdayWindows  []AccessWindow            `json:"weekday_windows,omitempty"`
+	WeekendMode     string                    `json:"weekend_mode,omitempty"`
+	WeekendWindows  []AccessWindow            `json:"weekend_windows,omitempty"`
 }
 
 // DeviceProfile applies a service schedule to one or more static LAN addresses.
