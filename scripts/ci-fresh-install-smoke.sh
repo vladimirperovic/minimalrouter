@@ -27,6 +27,24 @@ prepare_release() {
     manifest="$SMOKE_ROOT/release-$version.manifest.json"
     cp -R build/dist/minimalrouter-linux-amd64 "$destination"
     printf '%s\n' "$marker" > "$destination/web/dist/update-marker.txt"
+
+    # A broken updater or recovery binary in the candidate slot must never be
+    # able to disable local rollback/recovery. The stable dispatcher must keep
+    # these two commands on the independently installed bootstrap payload.
+    cat > "$destination/bin/router-update-amd64" <<'BROKEN_UPDATE'
+#!/bin/sh
+echo "ERROR: active-slot router-update was executed" >&2
+exit 99
+BROKEN_UPDATE
+    cat > "$destination/bin/router-recovery-amd64" <<'BROKEN_RECOVERY'
+#!/bin/sh
+echo "ERROR: active-slot router-recovery was executed" >&2
+exit 98
+BROKEN_RECOVERY
+    chmod 0755 \
+        "$destination/bin/router-update-amd64" \
+        "$destination/bin/router-recovery-amd64"
+
     go run ./cmd/firmware-sign \
         --dir "$destination" \
         --key "$PRIVATE_KEY" \
@@ -204,6 +222,8 @@ stop_router
 /usr/sbin/router-update activate --version 9.9.8 --confirm ACTIVATE-UPDATE
 test "$(readlink /var/lib/minimalrouter-update/current)" = "slots/9.9.8"
 su routerd -s /bin/sh -c 'test -x /var/lib/minimalrouter-update/current/bin/routerd-amd64'
+/usr/sbin/router-update status | jq -e '.current == "9.9.8" and .pending == ""'
+/usr/sbin/router-recovery --help | grep -q 'Usage: router-recovery'
 start_router
 wait_router
 curl -kfsS https://192.168.1.1:8443/update-marker.txt | grep -qx 'slot-one'
@@ -214,6 +234,7 @@ stop_router
     --manifest /artifacts/update-smoke/release-9.9.9.manifest.json
 /usr/sbin/router-update activate --version 9.9.9 --confirm ACTIVATE-UPDATE
 /usr/sbin/router-update status | jq -e '.current == "9.9.9" and .previous == "9.9.8" and .pending == ""'
+/usr/sbin/router-recovery --help | grep -q 'Usage: router-recovery'
 start_router
 wait_router
 curl -kfsS https://192.168.1.1:8443/update-marker.txt | grep -qx 'slot-two'

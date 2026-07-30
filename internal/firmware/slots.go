@@ -41,7 +41,7 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			return ErrInvalidPublicKey
 		}
 		if err := VerifyFirmware(sourceDir, manifest, m.TrustedKey); err != nil {
-			return fmt.Errorf("verify staged release: %w", err)
+			return fmt.Errorf("verify release source: %w", err)
 		}
 
 		// Validate existing state before committing a final slot. A corrupt state
@@ -72,6 +72,12 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			if err := copyRegularFile(source, destination); err != nil {
 				return err
 			}
+		}
+
+		// Re-verify the private copy that will become executable. This closes the
+		// source-directory mutation window between initial verification and copy.
+		if err := VerifyFirmware(tempDir, manifest, m.TrustedKey); err != nil {
+			return fmt.Errorf("verify copied release slot: %w", err)
 		}
 		if err := syncDir(tempDir); err != nil {
 			return fmt.Errorf("sync staged slot: %w", err)
@@ -117,25 +123,28 @@ func (m SlotManager) Activate(version string) error {
 		}
 
 		old := state
-		state.Previous = old.Current
-		state.Current = version
-		state.Pending = ""
-		if err := m.saveState(state); err != nil {
-			return err
-		}
+		next := state
+		next.Previous = old.Current
+		next.Current = version
+		next.Pending = ""
+
+		// Runtime pointers are authoritative. Move them first and persist metadata
+		// last. After a sudden power loss State reconstructs current/previous from
+		// the symlinks instead of claiming a version that is not actually active.
 		if old.Current != "" {
 			if err := m.swapLink("previous", old.Current); err != nil {
-				_ = m.saveState(old)
 				return fmt.Errorf("prepare previous slot pointer: %w", err)
 			}
 		} else if err := m.removeLink("previous"); err != nil {
-			_ = m.saveState(old)
 			return err
 		}
 		if err := m.swapLink("current", version); err != nil {
 			restoreErr := m.restoreLinks(old)
-			_ = m.saveState(old)
 			return errors.Join(fmt.Errorf("activate slot pointer: %w", err), restoreErr)
+		}
+		if err := m.saveState(next); err != nil {
+			restoreErr := m.restoreLinks(old)
+			return errors.Join(fmt.Errorf("persist activated slot state: %w", err), restoreErr)
 		}
 		return nil
 	})
@@ -155,25 +164,25 @@ func (m SlotManager) Rollback() error {
 		}
 
 		old := state
-		state.Current, state.Previous = old.Previous, old.Current
-		state.Pending = ""
-		if err := m.saveState(state); err != nil {
-			return err
-		}
-		if err := m.swapLink("current", state.Current); err != nil {
-			_ = m.saveState(old)
+		next := state
+		next.Current, next.Previous = old.Previous, old.Current
+		next.Pending = ""
+
+		if err := m.swapLink("current", next.Current); err != nil {
 			return fmt.Errorf("restore current slot pointer: %w", err)
 		}
-		if state.Previous != "" {
-			if err := m.swapLink("previous", state.Previous); err != nil {
+		if next.Previous != "" {
+			if err := m.swapLink("previous", next.Previous); err != nil {
 				restoreErr := m.restoreLinks(old)
-				_ = m.saveState(old)
 				return errors.Join(fmt.Errorf("preserve rollback slot pointer: %w", err), restoreErr)
 			}
 		} else if err := m.removeLink("previous"); err != nil {
 			restoreErr := m.restoreLinks(old)
-			_ = m.saveState(old)
 			return errors.Join(err, restoreErr)
+		}
+		if err := m.saveState(next); err != nil {
+			restoreErr := m.restoreLinks(old)
+			return errors.Join(fmt.Errorf("persist rollback state: %w", err), restoreErr)
 		}
 		return nil
 	})
@@ -194,6 +203,9 @@ func (m SlotManager) State() (SlotState, error) {
 		return SlotState{}, err
 	} else if exists {
 		state.Current = current
+		if state.Pending == current {
+			state.Pending = ""
+		}
 	}
 	if previous, exists, err := m.linkVersion("previous"); err != nil {
 		return SlotState{}, err
@@ -247,7 +259,7 @@ func (m SlotManager) saveState(state SlotState) error {
 	}
 	name := temp.Name()
 	defer os.Remove(name)
-	if err := temp.Chmod(0o600); err != nil {
+	if err := temp.Chmod(0o644); err != nil {
 		temp.Close()
 		return err
 	}
@@ -333,6 +345,9 @@ func (m SlotManager) linkVersion(name string) (string, bool, error) {
 	version := filepath.Base(clean)
 	if !releaseVersionPattern.MatchString(version) {
 		return "", false, fmt.Errorf("invalid %s slot pointer", name)
+	}
+	if err := m.requireSlot(version); err != nil {
+		return "", false, fmt.Errorf("%s slot pointer is broken: %w", name, err)
 	}
 	return version, true, nil
 }
