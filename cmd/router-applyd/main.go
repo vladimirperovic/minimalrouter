@@ -72,6 +72,9 @@ func main() {
 	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 64 MB.
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(64 << 20)
+	if err := hardenProcess(); err != nil {
+		log.Fatalf("applyd process hardening failed: %v", err)
+	}
 
 	log.Println("Starting Minimal Router OS router-applyd (privileged execution helper)")
 

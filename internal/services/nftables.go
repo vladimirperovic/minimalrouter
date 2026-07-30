@@ -22,6 +22,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// router-applyd wraps this owned table in an atomic delete-and-create batch.
 	buf.WriteString("table inet minimalrouter {\n")
+	writeDeviceProfileObjects(&buf, cfg)
 
 	// Input Chain
 	buf.WriteString("  chain input {\n")
@@ -139,6 +140,10 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	}
 	buf.WriteString("    # Reject invalid before established state\n")
 	buf.WriteString("    ct state invalid drop\n")
+	if len(activeManagedServices(cfg)) > 0 {
+		buf.WriteString("    # Device schedules run before established acceptance so expired streams are cut\n")
+		buf.WriteString("    jump device_profiles\n")
+	}
 	buf.WriteString("    # Allow established/related\n")
 	buf.WriteString("    ct state established,related accept\n\n")
 

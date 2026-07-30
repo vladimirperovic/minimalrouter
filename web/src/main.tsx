@@ -1,12 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
-import DashboardLogs from "./components/DashboardLogs";
+import DashboardApp from "./DashboardApp";
 import "./index.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
-    <DashboardLogs />
+    <DashboardApp />
   </StrictMode>,
 );
