@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { createKidsProfile, describeSchedule } from "./deviceProfiles";
+import {
+  createDefaultKidsGrid,
+  createKidsProfile,
+  describeSchedule,
+  gridToDayWindows,
+  slotsToWindows,
+} from "./deviceProfiles";
 
 describe("device profiles", () => {
-  it("creates the default Kids profile with access after 19:00 and an all-day weekend", () => {
+  it("creates the default Kids profile with evening weekdays and a full weekend", () => {
     vi.stubGlobal("crypto", { randomUUID: () => "profile-id" });
     const profile = createKidsProfile({
       addresses: ["192.168.1.50"],
       services: ["youtube", "steam", "wiki"],
-      weekdayStart: "19:00",
-      weekdayEnd: "23:59",
-      weekendAllDay: true,
+      dayWindows: gridToDayWindows(createDefaultKidsGrid()),
     });
     expect(profile).toMatchObject({
       id: "kids-profile-id",
@@ -17,20 +21,30 @@ describe("device profiles", () => {
       ip_addresses: ["192.168.1.50"],
       services: ["youtube", "steam", "wiki"],
       schedule: {
-        weekday_windows: [{ start: "19:00", end: "23:59" }],
-        weekend_mode: "all_day",
+        day_windows: {
+          monday: [{ start: "19:00", end: "23:59" }],
+          saturday: [{ start: "00:00", end: "23:59" }],
+        },
       },
     });
-    expect(describeSchedule(profile)).toBe("Pon–pet 19:00–23:59; vikend cijeli dan");
+    expect(describeSchedule(profile)).toBe("Pon–Pet 19:00–23:59; Sub–Ned cijeli dan");
     vi.unstubAllGlobals();
   });
 
-  it("rejects an empty device list and invalid time order", () => {
+  it("compresses selected hour cells into access windows", () => {
+    const slots = Array(24).fill(false);
+    slots[8] = true;
+    slots[9] = true;
+    slots[18] = true;
+    expect(slotsToWindows(slots)).toEqual([
+      { start: "08:00", end: "10:00" },
+      { start: "18:00", end: "19:00" },
+    ]);
+  });
+
+  it("rejects an empty device list", () => {
     expect(() => createKidsProfile({
-      addresses: [], services: ["youtube"], weekdayStart: "19:00", weekdayEnd: "23:59", weekendAllDay: true,
+      addresses: [], services: ["youtube"], dayWindows: gridToDayWindows(createDefaultKidsGrid()),
     })).toThrow(/IP adresu/);
-    expect(() => createKidsProfile({
-      addresses: ["192.168.1.50"], services: ["youtube"], weekdayStart: "22:00", weekdayEnd: "20:00", weekendAllDay: true,
-    })).toThrow(/Kraj radnog dana/);
   });
 });
