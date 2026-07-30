@@ -242,20 +242,8 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
 	previousConfig, _ := loadLastGood()
-	if req.RequireConfirmation {
-		lanChanged := previousConfig != nil &&
-			(previousConfig.LAN.IPAddress != req.Config.LAN.IPAddress ||
-				previousConfig.LAN.CIDR != req.Config.LAN.CIDR)
-		managementChanged := previousConfig != nil &&
-			previousConfig.System.ManagementAccess != req.Config.System.ManagementAccess
-		topologyChanged := previousConfig != nil &&
-			(previousConfig.WiFi.Enabled != req.Config.WiFi.Enabled ||
-				previousConfig.WiFi.Interface != req.Config.WiFi.Interface)
-		if previousConfig == nil ||
-			previousConfig.LAN.Interface != req.Config.LAN.Interface ||
-			(!lanChanged && !managementChanged && !topologyChanged) {
-			return failure(req.ID, "confirmation mode is invalid for this change", false)
-		}
+	if req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
+		return failure(req.ID, "confirmation mode is invalid for this change", false)
 	}
 
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {

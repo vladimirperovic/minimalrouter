@@ -20,6 +20,6 @@ func confirmationModeAllowed(previous *config.SystemConfig, candidate config.Sys
 		previous.WiFi.Interface != candidate.WiFi.Interface
 	wireGuardManagementChanged :=
 		(previous.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
-		!reflect.DeepEqual(previous.WireGuard, candidate.WireGuard)
+			!reflect.DeepEqual(previous.WireGuard, candidate.WireGuard)
 	return lanChanged || managementChanged || topologyChanged || wireGuardManagementChanged
 }
