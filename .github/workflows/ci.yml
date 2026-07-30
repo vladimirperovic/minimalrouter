@@ -14,73 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # BEGIN AGENT INTEGRATION
-  integrate-agent:
-    name: Integrate recovery and device profiles
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/recovery-parental-release-hardening'
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Check out feature branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.9.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Integrate feature modules
-        run: python3 scripts/integrate-agent-branch.py
-
-      - name: Refresh lockfile and format
-        run: |
-          pnpm --dir web install --lockfile-only
-          gofmt -w cmd internal
-
-      - name: Validate integrated tree
-        run: |
-          go test ./...
-          go vet ./...
-          pnpm --dir web install --frozen-lockfile
-          pnpm --dir web lint
-          pnpm --dir web test
-          pnpm --dir web build
-
-      - name: Prepare non-workflow commit
-        run: |
-          git checkout -- .github/workflows/ci.yml .github/workflows/agent-integration.yml
-          rm -f scripts/integrate-agent-branch.py
-
-      - name: Commit integrated tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "Minimal Router Integration Bot"
-          git config user.email "integration-bot@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet && exit 0
-          git commit -m "feat: integrate recovery and device profiles"
-          git push origin HEAD:${{ github.head_ref }}
-  # END AGENT INTEGRATION
-
   hygiene:
     name: Repository hygiene
     runs-on: ubuntu-latest
@@ -93,6 +26,7 @@ jobs:
           sh -n scripts/prepare-public-root.sh
           sh -n scripts/ci-fresh-install-smoke.sh
           sh -n quick-test.sh
+          sh -n packaging/alpine/install-dist.sh
       - name: Reject private and runtime files
         run: |
           set -eu
@@ -121,6 +55,17 @@ jobs:
             printf '%s\n' "$suspicious" >&2
             exit 1
           fi
+      - name: Reject runtime inline styles and scripts
+        run: |
+          set -eu
+          if grep -R -n -F 'style={{' web/src; then
+            echo "Runtime React source must use external CSS instead of inline style objects" >&2
+            exit 1
+          fi
+          if grep -R -n -E '<(script|style)([[:space:]>])' web/src web/index.html; then
+            echo "Inline script/style blocks are forbidden in dashboard source" >&2
+            exit 1
+          fi
       - name: Verify public documentation assets
         run: |
           for required in \
@@ -137,7 +82,10 @@ jobs:
             docs/README.md \
             docs/INSTALLATION.md \
             docs/TROUBLESHOOTING.md \
+            docs/RECOVERY.md \
+            docs/DEVICE_PROFILES.md \
             docs/RELEASE_PROCESS.md \
+            docs/RELEASE_SECURITY.md \
             docs/images/dashboard-overview.png \
             web/public/favicon.svg
           do
@@ -195,9 +143,9 @@ jobs:
         run: govulncheck ./...
 
   dashboard:
-    name: Dashboard lint, audit and build
+    name: Dashboard lint, unit, E2E, audit and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: web
@@ -220,8 +168,14 @@ jobs:
         run: pnpm audit --audit-level high
       - name: Lint dashboard
         run: pnpm lint
+      - name: Run dashboard unit tests
+        run: pnpm test
       - name: Type-check and build dashboard
         run: pnpm build
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run dashboard E2E tests
+        run: pnpm test:e2e
 
   fresh-install:
     name: Clean Alpine install and wizard
@@ -230,7 +184,7 @@ jobs:
       - go
       - dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
