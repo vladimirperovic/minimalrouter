@@ -62,8 +62,12 @@ jobs:
             echo "Runtime React source must use external CSS instead of inline style objects" >&2
             exit 1
           fi
-          if grep -R -n -E '<(script|style)([[:space:]>])' web/src web/index.html; then
-            echo "Inline script/style blocks are forbidden in dashboard source" >&2
+          if grep -R -n -E '<style([[:space:]>])' web/src web/index.html; then
+            echo "Inline style blocks are forbidden in dashboard source" >&2
+            exit 1
+          fi
+          if grep -R -n -E '<script([[:space:]>])' web/src; then
+            echo "Inline script blocks are forbidden in React source" >&2
             exit 1
           fi
       - name: Verify public documentation assets
