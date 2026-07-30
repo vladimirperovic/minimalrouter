@@ -145,8 +145,11 @@ The MCP bridge:
 |---|---|---|
 | Firewall and NAT | nftables | Generate one project-owned table and load it atomically |
 | PPPoE | pppd | Generate the WAN peer and secret file with fixed paths and permissions |
-| DHCP and DNS | dnsmasq | Bind to the selected LAN interface and preflight syntax |
+| DHCP and DNS | dnsmasq | Bind to the selected LAN and optional IoT interfaces; use tagged DHCP pools and preflight syntax |
 | Global DNS blocklist | dnsmasq | Generate a bounded global sinkhole list; not a full AdGuard Home replacement |
+| Device service groups | dnsmasq + nftables sets | Populate bounded project-owned IPv4 sets for enabled YouTube/Steam schedule profiles |
+| IoT isolation | Linux interface/VLAN + nftables | Create one optional routed IPv4 zone, block LAN↔IoT forwarding, and expose no management listener there |
+| Device schedules | nftables time/day expressions | Match a fixed reserved source IPv4 address before established-state and generic forwarding accepts |
 | VPN | WireGuard | Generate server config and unique peer `/32` routes; phone profiles default to split tunnel |
 | QoS | `tc` | Apply a bounded CAKE or fq_codel configuration and verify qdisc state |
 | Forward proxy | Squid | Optional non-caching proxy with a restricted configuration surface |
@@ -201,9 +204,7 @@ must not produce partially mixed configurations.
 
 ## Lockout-prone changes
 
-Changes to LAN address, management access, firewall input, interface roles,
-Wi-Fi bridging, or other connectivity-critical settings use commit-confirmed
-behavior.
+Changes to LAN address, management access, firewall input, interface roles, Wi-Fi bridging, IoT interface/VLAN topology, or other connectivity-critical settings use commit-confirmed behavior. Policy-only schedule edits remain transactional but do not require a topology confirmation.
 
 During a candidate LAN address transition, the implementation may provision old
 and new management addresses temporarily. The candidate is committed only after
@@ -218,12 +219,34 @@ The secure appliance profile follows these defaults:
 - WireGuard is the only accepted new WAN service when enabled.
 - WAN port forwarding is rejected in the current profile.
 - LAN-to-WAN forwarding is explicitly generated.
-- DNS and DHCP listen only on selected LAN paths.
+- DNS and DHCP listen only on selected LAN and optional IoT paths.
+- IoT forwarding to and from the main LAN is denied before connection-state acceptance.
+- Scheduled devices are matched by a validated static reservation and denied before the generic LAN-to-WAN accept outside configured windows.
 - invalid traffic is dropped before service-specific accepts;
 - established and related traffic is explicit;
 - anti-spoofing is applied at trust boundaries;
 - unsupported IPv6 is disabled and blocked rather than allowed around IPv4
   policy.
+
+## IoT and schedule boundary
+
+The IoT feature creates a separate routed IPv4 zone on either a dedicated
+physical interface or the fixed project-owned `mr-iot` VLAN interface. The VLAN
+parent and VLAN ID are typed inputs; arbitrary interface commands are not
+accepted. `router-applyd` creates or removes only `mr-iot`, applies its gateway
+address, enables reverse-path filtering, and verifies the address before commit.
+
+A scheduled device must have a matching static DHCP reservation in the selected
+zone. `dnsmasq` tags the LAN and IoT pools and can populate project-owned dynamic
+IPv4 sets for enabled service groups. Generated device rules appear before the
+generic established/related and zone-to-WAN accepts, so a schedule cutoff also
+stops existing client-originated flows. The appliance timezone is validated and
+applied atomically before the rules become active.
+
+This boundary has deliberate limits: service groups are DNS/IP classification,
+not content inspection; hard-coded, shared, or cached addresses can affect
+classification; and same-segment Layer-2 client isolation requires switch or
+access-point support.
 
 ## Authentication and browser boundary
 
@@ -299,6 +322,7 @@ internal/               Private Go packages
   firmware/
   services/
   telemetry/
+  services/device_policy.go
   tlsutil/
 web/                    React/Vite dashboard
 api/openapi.yaml        Versioned API contract
@@ -313,8 +337,7 @@ docs/                   Guides, evidence, and ADRs
 
 The current design does not attempt to provide pfSense feature parity, a general
 package platform, arbitrary shell customization, containers on the router,
-IDS/IPS, captive portal, BGP, OSPF, IPsec, OpenVPN, multi-WAN, or high
-availability.
+IDS/IPS, captive portal, BGP, OSPF, IPsec, OpenVPN, multi-WAN, high availability, or a general VLAN/switch policy platform.
 
 Adding one of these features requires a product decision and threat review, not
 only an implementation pull request.

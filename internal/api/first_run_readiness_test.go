@@ -42,6 +42,7 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 		"admin_password": "placeholder-admin-password-123!",
 		"lan_interface":  "enp2s0",
 		"lan_ip_address": "192.168.1.1",
+		"timezone":       "Europe/Belgrade",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -64,6 +65,9 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 	}
 	if cfg.LAN.Interface != "enp2s0" || cfg.LAN.IPAddress != "192.168.1.1" || cfg.LAN.CIDR != "192.168.1.1/24" {
 		t.Fatalf("wizard did not preserve the configured LAN: %+v", cfg.LAN)
+	}
+	if cfg.System.Timezone != "Europe/Belgrade" {
+		t.Fatalf("wizard did not preserve the selected timezone: %q", cfg.System.Timezone)
 	}
 	if !cfg.DHCP.Enabled || cfg.DHCP.RangeStart != "192.168.1.100" || cfg.DHCP.RangeEnd != "192.168.1.200" {
 		t.Fatalf("fresh LAN is missing the default DHCP pool: %+v", cfg.DHCP)
@@ -103,9 +107,9 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 	for _, expected := range []string{
 		"interface=enp2s0",
 		"listen-address=127.0.0.1,192.168.1.1",
-		"dhcp-range=192.168.1.100,192.168.1.200,255.255.255.0,12h",
-		"dhcp-option=option:router,192.168.1.1",
-		"dhcp-option=option:dns-server,192.168.1.1",
+		"dhcp-range=set:lan,192.168.1.100,192.168.1.200,255.255.255.0,12h",
+		"dhcp-option=tag:lan,option:router,192.168.1.1",
+		"dhcp-option=tag:lan,option:dns-server,192.168.1.1",
 		"server=1.1.1.1",
 		"server=1.0.0.1",
 	} {

@@ -23,6 +23,9 @@ Implemented in the current tree:
 - [x] Argon2id authentication, sessions, CSRF, rate limiting, and optional TOTP
 - [x] default-deny WAN policy and WireGuard-only remote-entry profile
 - [x] DHCP/DNS and integrated global DNS blocklist
+- [x] operator-facing NIC inventory and timezone-aware setup
+- [x] optional dedicated-port or single-VLAN IoT isolation model
+- [x] fixed-reservation device schedules with YouTube/Steam service groups
 - [x] WireGuard split-tunnel client profiles
 - [x] encrypted backup export and restore validation
 - [x] redacted audit events and dashboard log view
@@ -47,17 +50,15 @@ private development history, credentials, or historical repository metadata.
 - [x] fix and test the TOTP-disable request-order regression
 - [x] capture a real sanitized dashboard screenshot from the current clean build
 - [x] add a local-only script for creating and scanning a one-commit candidate
-- [ ] create the one-commit candidate locally and pass full-history Gitleaks
+- [x] create the initial one-commit candidate locally and pass full-history Gitleaks
 - [ ] rotate any credential that appeared in previous private history
-- [ ] create a brand-new private repository with one branch, one commit, no tags,
-      and no inherited pull requests, issues, workflow logs, or artifacts
-- [ ] pass CI, private CodeQL analysis, and both secret scans in the new repository
-- [ ] review repository settings and rendered documentation
-- [ ] change visibility only as the final explicit owner action
-- [ ] rerun CodeQL after publication and confirm GitHub Code Scanning upload
+- [x] create a brand-new repository from the reviewed root without inherited private metadata
+- [x] pass CI, CodeQL analysis, and both secret scans in the clean repository
+- [x] review repository settings and rendered documentation
+- [x] change visibility only as the final explicit owner action
+- [x] rerun CodeQL after publication and confirm GitHub Code Scanning upload
 
-Exit criterion: the public repository contains only the reviewed one-commit
-history, passes all checks, and accurately labels the project early alpha.
+Exit criterion: the public repository starts from the reviewed clean root, contains only reviewed public history, passes all checks, and accurately labels the project early alpha.
 
 ## Alpha 1 — reliable clean installation
 
@@ -70,20 +71,40 @@ complete the wizard without manual source-code changes.
 - [x] clean Alpine CI install
 - [x] first-run HTTPS wizard smoke test
 - [ ] validate aarch64 distribution in equivalent CI or hardware
-- [ ] make interface selection robust across common predictable Linux names
+- [x] expose interface name, MAC, carrier, speed, driver, and bus path during setup
 - [ ] document recovery when the selected WAN/LAN interface is wrong
 - [ ] publish checksummed alpha artifacts from tagged commits
 
 Exit criterion: x86-64 and aarch64 clean-install evidence is reproducible and
 new users have a documented rollback path.
 
+## Alpha 1.1 — isolation and household schedules
+
+Goal: add a small, explicit IoT boundary and understandable per-device time
+policies without turning the appliance into a general policy platform.
+
+- [x] typed IoT configuration for a dedicated port or one 802.1Q VLAN
+- [x] separate IoT DHCP pool and static reservations
+- [x] default block between main LAN and IoT forwarding
+- [x] prevent dashboard access from the IoT zone
+- [x] require fixed DHCP reservations for scheduled devices
+- [x] timezone-aware weekday/weekend access windows in generated `nftables`
+- [x] optional YouTube and Steam DNS/IP destination groups
+- [x] dashboard workflow and zero-dependency frontend policy unit tests
+- [ ] validate a managed-switch trunk and dedicated physical IoT port on reference hardware
+- [ ] validate daylight-saving transitions, DNS cache behavior, and provider-domain drift
+- [ ] independently review generated time and isolation rules
+
+Exit criterion: the documented example survives reboot and rollback, IoT cannot
+reach the main LAN, and schedule claims are backed by real-client packet tests.
+
 ## Alpha 2 — real home-router pilot
 
 Goal: prove the minimum router workflow on real or dedicated test hardware.
 
-- [ ] stable physical WAN/LAN NIC identification
+- [ ] stable physical WAN/LAN/IoT NIC identification across reboot
 - [ ] real ISP PPPoE connection and reconnect testing
-- [ ] DHCP, DNS, NAT, and MTU validation with multiple client types
+- [ ] DHCP, DNS, NAT, IoT isolation, schedules, and MTU validation with multiple client types
 - [ ] reboot reconciliation after clean and failed shutdowns
 - [ ] power-loss testing during idle, configuration apply, snapshot, and backup
 - [ ] WireGuard provisioning and recovery from an unrelated external network

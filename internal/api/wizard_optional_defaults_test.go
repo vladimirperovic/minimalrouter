@@ -40,4 +40,7 @@ func TestFirstRunKeepsCloudflareAndWiFiDisabled(t *testing.T) {
 	if cfg.WiFi.Enabled {
 		t.Fatal("first-run setup enabled the Wi-Fi access point")
 	}
+	if cfg.IoT.Enabled || cfg.Policies.Enabled {
+		t.Fatal("first-run setup enabled IoT isolation or device schedules without explicit opt-in")
+	}
 }

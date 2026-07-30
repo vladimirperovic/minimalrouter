@@ -55,7 +55,7 @@ fi
 echo "[1/7] Installing dependencies..."
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc tzdata chrony
 
 # 3. Routerd user
 echo "[2/7] Creating user..."
@@ -114,6 +114,7 @@ for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done
+rc-update add chronyd default
 rc-update add router-applyd default
 rc-update add routerd default
 

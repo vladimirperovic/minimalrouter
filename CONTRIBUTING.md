@@ -60,6 +60,7 @@ The standard checks are:
 go test -race ./...
 go vet ./...
 pnpm --dir web install --frozen-lockfile
+pnpm --dir web test
 pnpm --dir web lint
 pnpm --dir web build
 ```

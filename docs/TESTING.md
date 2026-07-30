@@ -162,6 +162,26 @@ MINIMALROUTER_WIREGUARD_INTEGRATION=1 \
 
 Run the resulting binary only inside a disposable root VM/network namespace.
 
+## 4.2 IoT and device-schedule validation
+
+Unit and generator tests must cover:
+
+- dedicated and VLAN IoT model validation, non-overlapping subnets, interface
+  ownership, VLAN ID bounds, and cross-zone MAC reservation conflicts;
+- separate tagged LAN/IoT dnsmasq pools and static reservations;
+- LAN↔IoT drops before `ct state established,related accept`;
+- management absence on the IoT input path and IoT-to-WAN-only forwarding;
+- exact weekday/weekend and time expressions before generic forwarding accepts;
+- paused policies producing no active DNS sets or device rules;
+- frontend construction of the weekday 19:00 YouTube/Steam and weekend all-day
+  template.
+
+An isolated hardware or namespace test must additionally verify real DHCP
+renewal, a schedule transition with an existing connection, DNS-cache behavior,
+reboot/rollback, a dedicated NIC, a managed-switch VLAN trunk, and the selected
+timezone across a daylight-saving transition. Capture only synthetic addresses
+and redacted evidence.
+
 ## 5. Performance tests
 
 Record the exact hardware, NICs, hypervisor, vCPU count, RAM, Alpine/kernel

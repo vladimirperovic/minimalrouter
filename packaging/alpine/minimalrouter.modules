@@ -5,3 +5,4 @@ wireguard
 bridge
 sch_cake
 sch_fq_codel
+8021q

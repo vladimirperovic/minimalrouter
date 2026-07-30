@@ -6,7 +6,9 @@ import (
 	"bufio"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,6 +22,57 @@ func readUint(path string) uint64 {
 	}
 	value, _ := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 	return value
+}
+
+func readText(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func interfaceInventoryAt(root string) []NetworkInterfaceStatus {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+	result := make([]NetworkInterfaceStatus, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		base := filepath.Join(root, name)
+		kind := "ethernet"
+		loopback := name == "lo" || readText(filepath.Join(base, "type")) == "772"
+		if loopback {
+			kind = "loopback"
+		} else if _, err := os.Stat(filepath.Join(base, "wireless")); err == nil {
+			kind = "wifi"
+		} else if _, err := os.Stat(filepath.Join(base, "device")); err != nil {
+			kind = "virtual"
+		}
+		speed, _ := strconv.Atoi(readText(filepath.Join(base, "speed")))
+		carrier := readText(filepath.Join(base, "carrier")) == "1"
+		driver := ""
+		if link, err := filepath.EvalSymlinks(filepath.Join(base, "device", "driver")); err == nil {
+			driver = filepath.Base(link)
+		}
+		busPath := ""
+		if link, err := filepath.EvalSymlinks(filepath.Join(base, "device")); err == nil {
+			busPath = filepath.Base(link)
+		}
+		result = append(result, NetworkInterfaceStatus{
+			Name: name, MAC: readText(filepath.Join(base, "address")),
+			State: readText(filepath.Join(base, "operstate")), Carrier: carrier,
+			SpeedMbps: speed, Driver: driver, BusPath: busPath,
+			Kind: kind, Loopback: loopback,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
+}
+
+func InterfaceInventory() []NetworkInterfaceStatus {
+	return interfaceInventoryAt("/sys/class/net")
 }
 
 func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
@@ -101,5 +154,6 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 		status.TemperatureC = float64(raw) / 1000
 	}
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
+	status.Interfaces = InterfaceInventory()
 	return status
 }

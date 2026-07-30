@@ -95,10 +95,16 @@ The intended focused workflow includes:
 - live lease/status information;
 - encrypted backup export and configuration snapshots;
 - commit-confirmed protection for lockout-prone changes;
-- optional Wi-Fi AP only on verified compatible hardware.
+- optional Wi-Fi AP only on verified compatible hardware;
+- one optional routed IoT zone on a dedicated port or an explicitly configured
+  802.1Q VLAN;
+- fixed-reservation device schedules with bounded weekday/weekend windows and a
+  small reviewed set of service groups.
 
-WAN web management and arbitrary WAN port forwarding are intentionally outside
-the current secure appliance profile.
+The IoT and schedule workflow remains deliberately narrow: it is not a general
+VLAN manager, cloud parental-control service, TLS interception proxy, or arbitrary
+application-classification platform. WAN web management and arbitrary WAN port
+forwarding are intentionally outside the current secure appliance profile.
 
 ## User interface direction
 

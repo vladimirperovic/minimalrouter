@@ -49,6 +49,23 @@ func compareIPv4(a, b net.IP) int {
 	}
 }
 
+func ipv4NetworkAndBroadcast(network *net.IPNet) (net.IP, net.IP) {
+	if network == nil || network.IP.To4() == nil || len(network.Mask) != net.IPv4len {
+		return nil, nil
+	}
+	networkIP := network.IP.To4()
+	broadcast := make(net.IP, net.IPv4len)
+	for i := range networkIP {
+		broadcast[i] = networkIP[i] | ^network.Mask[i]
+	}
+	return networkIP, broadcast
+}
+
+func isIPv4NetworkOrBroadcast(ip net.IP, network *net.IPNet) bool {
+	networkIP, broadcast := ipv4NetworkAndBroadcast(network)
+	return ip != nil && ((networkIP != nil && ip.Equal(networkIP)) || (broadcast != nil && ip.Equal(broadcast)))
+}
+
 func appendFieldError(errs *ValidationErrors, field, message string) {
 	*errs = append(*errs, ValidationError{Field: field, Message: message})
 }
@@ -212,30 +229,6 @@ func (c *SystemConfig) Validate() error {
 		for i, dns := range c.DHCP.DNSServers {
 			if parseIPv4(dns) == nil {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.dns_servers[%d]", i), "must be a valid IPv4 address")
-			}
-		}
-		seenMAC := make(map[string]struct{})
-		seenLeaseIP := make(map[string]struct{})
-		for i, lease := range c.DHCP.StaticLeases {
-			mac, err := net.ParseMAC(lease.MAC)
-			if err != nil || len(mac) != 6 {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].mac", i), "must be a valid 48-bit MAC address")
-			}
-			macKey := strings.ToLower(lease.MAC)
-			if _, exists := seenMAC[macKey]; exists {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].mac", i), "duplicates another static lease")
-			}
-			seenMAC[macKey] = struct{}{}
-			ip := parseIPv4(lease.IPAddress)
-			if ip == nil || (lanNetwork != nil && !lanNetwork.Contains(ip)) {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must be a valid address in the LAN subnet")
-			}
-			if _, exists := seenLeaseIP[lease.IPAddress]; exists {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "duplicates another static lease")
-			}
-			seenLeaseIP[lease.IPAddress] = struct{}{}
-			if lease.Hostname != "" && !hostnamePattern.MatchString(lease.Hostname) {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].hostname", i), "must be a valid hostname")
 			}
 		}
 	}
@@ -491,6 +484,8 @@ func (c *SystemConfig) Validate() error {
 			appendFieldError(&errs, "wifi.channel", "must be 36, 40, 44, or 48 for the portable 5 GHz profile")
 		}
 	}
+
+	validateIoTAndPolicies(c, &errs)
 
 	if len(errs) > 0 {
 		return errs

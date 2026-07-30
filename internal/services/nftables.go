@@ -22,6 +22,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// router-applyd wraps this owned table in an atomic delete-and-create batch.
 	buf.WriteString("table inet minimalrouter {\n")
+	writePolicySets(&buf, cfg)
 
 	// Input Chain
 	buf.WriteString("  chain input {\n")
@@ -40,6 +41,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	}
 	if cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # LAN source anti-spoofing (0.0.0.0 is needed for DHCP discovery)\n    iifname \"%s\" ip saddr != { 0.0.0.0, %s } drop\n\n", cfg.LAN.Interface, cfg.LAN.CIDR))
+	}
+	if cfg.IoT.Enabled {
+		buf.WriteString(fmt.Sprintf("    # IoT source anti-spoofing (0.0.0.0 is needed for DHCP discovery)\n    iifname \"%s\" ip saddr != { 0.0.0.0, %s } drop\n\n", cfg.RuntimeIoTInterface(), cfg.IoT.CIDR))
 	}
 
 	// Invalid packets must be rejected before any service-specific accept rule.
@@ -89,6 +93,13 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n", cfg.LAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n\n", cfg.LAN.Interface))
 	}
+	if cfg.IoT.Enabled {
+		iotInterface := cfg.RuntimeIoTInterface()
+		buf.WriteString(fmt.Sprintf("    # IoT clients may use only DHCP, DNS, and ICMP on the router (%s)\n", iotInterface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" udp dport { 53, 67 } accept\n", iotInterface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n", iotInterface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n\n", iotInterface))
+	}
 	if cfg.WireGuard.Enabled {
 		_, wgNetwork, _ := net.ParseCIDR(cfg.WireGuard.Address)
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.WireGuard.Interface, wgNetwork.String()))
@@ -137,9 +148,18 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	if cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.LAN.Interface, cfg.LAN.CIDR))
 	}
-	buf.WriteString("    # Reject invalid before established state\n")
+	if cfg.IoT.Enabled {
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.RuntimeIoTInterface(), cfg.IoT.CIDR))
+	}
+	buf.WriteString("    # Reject invalid before policy and established-state handling\n")
 	buf.WriteString("    ct state invalid drop\n")
-	buf.WriteString("    # Allow established/related\n")
+	if cfg.IoT.Enabled {
+		buf.WriteString("    # IoT is a routed isolation zone: block lateral access in both directions\n")
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" drop\n", cfg.RuntimeIoTInterface(), cfg.LAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" drop\n\n", cfg.LAN.Interface, cfg.RuntimeIoTInterface()))
+	}
+	writeDevicePolicyRules(&buf, cfg)
+	buf.WriteString("    # Allow established/related traffic not rejected by zone or device policy\n")
 	buf.WriteString("    ct state established,related accept\n\n")
 
 	buf.WriteString("    # TCP MSS clamping prevents PPPoE fragmentation stalls\n")
@@ -185,6 +205,12 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", cfg.LAN.Interface, cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"ppp*\" accept\n\n", cfg.LAN.Interface))
 	}
+	if cfg.WAN.Enabled && cfg.IoT.Enabled {
+		iotInterface := cfg.RuntimeIoTInterface()
+		buf.WriteString(fmt.Sprintf("    # Allow isolated IoT zone (%s) to WAN only\n", iotInterface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", iotInterface, cfg.WAN.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"ppp*\" accept\n\n", iotInterface))
+	}
 	if cfg.WireGuard.Enabled {
 		buf.WriteString("    # Authenticated WireGuard clients may reach LAN and optional full-tunnel WAN\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", cfg.WireGuard.Interface, cfg.LAN.Interface))
@@ -210,6 +236,10 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    ct state invalid drop\n")
 	buf.WriteString("    ct state established,related accept\n")
 	buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, 67 } accept\n", cfg.LAN.Interface))
+	if cfg.IoT.Enabled {
+		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, 67 } accept\n", cfg.RuntimeIoTInterface()))
+		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport 53 accept\n", cfg.RuntimeIoTInterface()))
+	}
 	if cfg.System.ManagementAccess == "wireguard_only" {
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport 53 accept\n", cfg.LAN.Interface))
 	} else {

@@ -1,5 +1,11 @@
 # Security Review — 2026-07-28
 
+> **Scope note:** this dated review predates the optional IoT zone and
+> fixed-device scheduler added after 2026-07-28. Their unit/generator/CI evidence
+> is documented separately; dedicated-port, managed-switch VLAN, daylight-saving,
+> and real-client schedule tests remain required before the next security-review
+> verdict.
+
 ## Verdict
 
 The current tree is materially safer and suitable for a controlled,

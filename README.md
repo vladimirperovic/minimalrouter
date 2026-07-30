@@ -34,9 +34,9 @@ processing stack.
 
 - `nftables` for firewalling and NAT
 - `pppd` for PPPoE
-- `dnsmasq` for DHCP, DNS, and the integrated global DNS blocklist
+- `dnsmasq` for DHCP, DNS, the integrated global DNS blocklist, and service-address sets
 - WireGuard for remote access
-- optional Squid proxy, QoS, Cloudflare DDNS, and Wi-Fi AP support
+- optional Squid proxy, QoS, Cloudflare DDNS, Wi-Fi AP, isolated IoT zone, and device schedules
 
 The goal is a focused home and small-office router that is understandable,
 resource-efficient, secure by default, recoverable after mistakes, and pleasant
@@ -69,7 +69,11 @@ personal or production network.
 - encrypted backup export and configuration snapshots;
 - Argon2id authentication, secure sessions, CSRF protection, and optional TOTP;
 - live DHCP lease display and redacted audit logs;
-- guided first-run wizard;
+- guided first-run wizard with operator-facing NIC inventory and timezone selection;
+- optional routed IoT zone on a dedicated interface or one explicitly configured
+  802.1Q VLAN;
+- fixed-reservation device schedules enforced in `nftables`, including an evening
+  YouTube/Steam template;
 - Alpine/OpenRC packaging and a clean-install CI smoke test.
 
 ### Optional and disabled by default
@@ -78,19 +82,40 @@ personal or production network.
 - Wi-Fi access point;
 - Squid forward proxy;
 - traffic shaping/QoS;
-- WireGuard remote access.
+- WireGuard remote access;
+- IoT isolation and device schedules.
 
 ### Not yet a stable release feature
 
 - production-grade IPv6 parity;
 - multi-WAN and high availability;
-- VLAN and managed-switch workflows;
+- general-purpose VLAN, managed-switch, and multi-zone automation beyond the single IoT zone;
 - signed recovery images and a complete update rollback channel;
 - a broad third-party package ecosystem;
 - unattended production support.
 
 Unsupported functionality fails closed or is shown as unavailable rather than
 being simulated.
+
+## IoT isolation and device schedules
+
+The optional IoT zone is a separate routed IPv4 network. It can use either a
+dedicated physical NIC or one explicitly configured 802.1Q VLAN. Generated
+firewall policy permits IoT clients to use DHCP, DNS, ICMP, and the Internet,
+while blocking forwarding between the IoT zone and the main LAN in both
+directions. The management dashboard is not exposed on the IoT interface.
+
+Device schedules require a fixed DHCP reservation and are evaluated in the
+appliance timezone. A built-in household template can block a child device on
+weekdays until 19:00, permit only YouTube and Steam until 23:59, and permit the
+same services all day on Saturday and Sunday. The rules are enforced in
+`nftables`, not only hidden in the dashboard.
+
+Service-only access is best-effort DNS/IP classification. It is not HTTPS
+content inspection: providers can change domains, share CDN addresses, or use
+previously cached addresses. IoT client-to-client traffic on the same Layer-2
+segment also does not cross the router; wireless client isolation or switch-port
+isolation remains the responsibility of the access point or switch.
 
 ## Project principles
 
@@ -124,6 +149,7 @@ security parity.
 | Firewall/NAT | Focused generated `nftables` policy; WAN port forwards intentionally unsupported in the secure profile | Extensive firewall, NAT, policy routing, aliases, schedules, and advanced features |
 | Remote administration | WireGuard-first; no WAN web management | Multiple mature VPN and administration options |
 | DNS ad/domain blocking | Basic global DNS blocklist is built directly into the Minimal Router configuration and dashboard | DNS blocking is commonly added with the optional `pfBlockerNG` package or a separate DNS filtering service |
+| IoT and schedules | One optional isolated IPv4 zone plus fixed-device time windows and small DNS/IP service groups | Mature VLAN, alias, schedule, captive-portal, and package-based policy options |
 | Packages | No general package ecosystem | Large optional package system |
 | IPv6 | Disabled/fail-closed until policy parity is complete | Mature IPv6 support |
 | High availability | Not implemented | CARP and established HA workflows |
@@ -155,6 +181,7 @@ flowchart LR
     Applyd[router-applyd — privileged helper]
     Linux[Linux networking services]
     LAN[LAN clients]
+    IoT[Isolated IoT clients]
     WAN[Internet]
 
     Browser --> UI
@@ -163,6 +190,7 @@ flowchart LR
     Routerd -->|typed local IPC| Applyd
     Applyd --> Linux
     LAN <--> Linux
+    IoT <--> Linux
     Linux <--> WAN
 ```
 
@@ -194,6 +222,7 @@ go test -race ./...
 go vet ./...
 
 pnpm --dir web install --frozen-lockfile
+pnpm --dir web test
 pnpm --dir web lint
 pnpm --dir web build
 ```
@@ -211,7 +240,7 @@ for the complete workflow.
 ## Controlled installation
 
 There is no signed stable ISO yet. For a controlled lab installation, use a clean
-Alpine Linux 3.22 VM or dedicated test system with two network interfaces.
+Alpine Linux 3.22 VM or dedicated test system with two network interfaces. The optional dedicated-port IoT mode needs a third interface; VLAN mode needs a correctly configured test trunk.
 
 Start with [docs/INSTALLATION.md](docs/INSTALLATION.md). Proxmox users should also
 read [docs/PROXMOX.md](docs/PROXMOX.md).

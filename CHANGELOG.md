@@ -31,6 +31,12 @@ commits.
 - Authenticated dashboard logs section with redacted audit events.
 - Split-tunnel WireGuard client profiles and unique IPv4 `/32` peer validation.
 - Regression coverage for authenticated TOTP disable behavior.
+- Operator-facing NIC inventory and timezone selection in first-run setup.
+- Optional isolated IoT IPv4 zone on a dedicated port or one explicit 802.1Q VLAN.
+- Separate tagged IoT DHCP pool, static reservations, and LAN↔IoT firewall isolation.
+- Timezone-aware fixed-device schedules enforced in nftables before generic state/forward accepts.
+- Built-in YouTube and Steam DNS/IP service groups plus a weekday-evening/weekend dashboard template.
+- Zero-dependency frontend unit tests for schedule construction and network input helpers.
 
 ### Changed
 
@@ -46,9 +52,9 @@ commits.
 - The quick VM harness uses a generated one-time administrator password, stores
   it with mode `0600` only when needed, and suppresses password/CSRF values from
   serial logs.
-- CodeQL analyzes private preparation branches without attempting an unavailable
-  private-repository SARIF upload; upload enables automatically after the clean
-  repository is public.
+- CodeQL analyzes private preparation branches without attempting an unavailable private-repository SARIF upload; upload enables automatically after the clean repository is public.
+- The installer adds timezone data, enables chronyd, and loads the 802.1Q kernel module for deterministic schedule and VLAN operation.
+- The legacy dashboard label “AdGuard Filter” is now the accurate “DNS Filter”; legacy per-device AdGuard placeholders remain rejected.
 
 ### Fixed
 
@@ -68,15 +74,13 @@ commits.
 - The original development repository must remain private because old commits,
   pull requests, issues, workflow logs, and artifacts are outside the reviewed
   public boundary.
-- Public release remains blocked until the exact candidate passes current-tree
-  and full-history secret scanning, repository checks, and owner review before a
-  separate visibility change.
+- The public repository was launched from the reviewed clean root; the original development history remains private.
 
 ### Known limitations
 
 - Early alpha; not supported as an unattended production firewall.
-- IPv6, VLAN, multi-WAN, high availability, and signed recovery/update workflows
-  are not stable release features.
+- IPv6, general VLAN/switch automation, multi-WAN, high availability, and signed recovery/update workflows are not stable release features.
+- IoT VLAN mode still requires a correctly configured external trunk and real-hardware validation. YouTube/Steam rules are best-effort DNS/IP classification rather than content inspection.
 - Physical dual-NIC, real ISP PPPoE, external WAN scanning, signed recovery-media
   boot, and independent penetration testing remain release evidence gaps.
 - Project maintenance currently has a bus factor of one and no response-time SLA.

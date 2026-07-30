@@ -15,7 +15,7 @@ The currently documented test target is:
 - Alpine Linux 3.22;
 - x86-64 (`amd64`) or ARM64 where the required networking packages and drivers
   are available;
-- one WAN and one LAN interface;
+- one WAN and one LAN interface; optional dedicated-port IoT mode needs a third interface;
 - a VM or dedicated test machine with local console access;
 - an isolated LAN that is not bridged to the normal household or office LAN.
 
@@ -30,7 +30,7 @@ Before installation:
 - connect the candidate WAN to a test/NAT network, not directly to the ISP;
 - connect the candidate LAN to an isolated bridge or switch;
 - do not reuse production PPPoE, Cloudflare, Wi-Fi, proxy, or WireGuard secrets;
-- record which virtual or physical interface is WAN and which is LAN;
+- record interface name, MAC, driver/bus path, and intended WAN/LAN/IoT role;
 - take a VM snapshot only when the guest filesystem is in a consistent state;
 - never pipe a mutable download directly into a root shell.
 
@@ -167,6 +167,20 @@ Do not move the appliance into the production network merely because these check
 pass. Physical NIC behavior, real PPPoE, sustained throughput, power-loss
 recovery, external scanning, signed recovery media, and independent security
 review remain release gates.
+
+## Optional IoT test topology
+
+Enable IoT isolation only after the base LAN is working and an encrypted backup
+or VM rollback exists. Dedicated mode uses a third physical/virtual interface
+connected only to the IoT test segment. VLAN mode uses the selected parent as an
+802.1Q trunk and requires the external managed switch or access point to tag the
+same VLAN ID.
+
+Do not connect an untagged production LAN to a port expected to be an IoT trunk.
+After applying, verify that IoT clients receive the separate subnet, can reach the
+Internet, cannot reach main-LAN clients or dashboard HTTPS, and that an
+unconfirmed topology change rolls back. Same-segment client isolation must be
+configured on the switch or access point.
 
 ## Upgrade and removal
 

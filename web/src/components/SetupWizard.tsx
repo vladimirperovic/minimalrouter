@@ -5,6 +5,18 @@ interface SetupWizardProps {
   onClose?: () => void;
 }
 
+type SetupInterface = {
+  name: string;
+  mac?: string;
+  state?: string;
+  carrier?: boolean;
+  speed_mbps?: number;
+  driver?: string;
+  bus_path?: string;
+  kind?: string;
+  loopback?: boolean;
+};
+
 export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [step, setStep] = useState(1);
   const [wanIf, setWanIf] = useState("eth0");
@@ -13,6 +25,8 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [pppoePass, setPppoePass] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [adminPassConfirm, setAdminPassConfirm] = useState("");
+  const [interfaces, setInterfaces] = useState<SetupInterface[]>([]);
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const lanIP = "192.168.1.1";
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -25,6 +39,10 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       .then((status) => {
         if (typeof status.wan_interface === "string") setWanIf(status.wan_interface);
         if (typeof status.lan_interface === "string") setLanIf(status.lan_interface);
+        if (typeof status.timezone === "string" && status.timezone) setTimezone(status.timezone);
+        if (Array.isArray(status.interfaces)) {
+          setInterfaces(status.interfaces.filter((item: SetupInterface) => !item.loopback));
+        }
       })
       .catch(() => {
         // Defaults remain editable when status cannot be read.
@@ -36,6 +54,16 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
 
   const handleNext = () => {
     setErrorMsg("");
+    if (step === 2) {
+      if (!wanIf || !lanIf) {
+        setErrorMsg("Izaberite i WAN i LAN interfejs.");
+        return;
+      }
+      if (wanIf === lanIf) {
+        setErrorMsg("WAN i LAN ne mogu koristiti isti interfejs.");
+        return;
+      }
+    }
     if (step === 3 && ((pppoeUser && !pppoePass) || (!pppoeUser && pppoePass))) {
       setErrorMsg("Unesite oba PPPoE podatka ili ostavite oba polja prazna.");
       return;
@@ -77,6 +105,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           pppoe_password: pppoePass,
           admin_password: adminPass,
           lan_ip_address: lanIP,
+          timezone,
         }),
       });
 
@@ -93,6 +122,20 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       setSubmitting(false);
     }
   };
+
+  const interfaceLabel = (item: SetupInterface) => {
+    const details = [
+      item.carrier ? "link up" : item.state || "link unknown",
+      item.speed_mbps ? `${item.speed_mbps} Mbps` : "",
+      item.driver || "",
+      item.bus_path || "",
+      item.mac || "",
+    ].filter(Boolean);
+    return `${item.name}${details.length ? ` — ${details.join(" · ")}` : ""}`;
+  };
+
+  const selectedWAN = interfaces.find((item) => item.name === wanIf);
+  const selectedLAN = interfaces.find((item) => item.name === lanIf);
 
   return (
     <div
@@ -274,21 +317,19 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                   </label>
                   <span style={{ fontSize: "11px", color: "#86868B" }}>Podrazumijevano: eth0</span>
                 </div>
-                <input
-                  type="text"
-                  value={wanIf}
-                  onChange={(e) => setWanIf(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
+                {interfaces.length > 0 ? (
+                  <select
+                    value={wanIf}
+                    onChange={(e) => setWanIf(e.target.value)}
+                    style={{ width: "100%", padding: "14px 16px", borderRadius: "14px", border: "1px solid #D2D2D7", background: "#FFFFFF", fontSize: "14px", color: "#1D1D1F", outline: "none" }}
+                  >
+                    <option value="">Izaberite WAN interfejs</option>
+                    {interfaces.map((item) => <option key={item.name} value={item.name}>{interfaceLabel(item)}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={wanIf} onChange={(e) => setWanIf(e.target.value)} style={{ width: "100%", padding: "14px 16px", borderRadius: "14px", border: "1px solid #D2D2D7", background: "#FFFFFF", fontSize: "15px", color: "#1D1D1F", outline: "none" }} />
+                )}
+                {selectedWAN && <p style={{ margin: "8px 0 0", fontSize: "11px", color: "#6E6E73" }}>MAC {selectedWAN.mac || "unknown"} · driver {selectedWAN.driver || "unknown"} · {selectedWAN.carrier ? "cable connected" : "no carrier detected"}</p>}
               </div>
 
               <div>
@@ -300,21 +341,19 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                     Automatski dodijeljen (192.168.1.1)
                   </span>
                 </div>
-                <input
-                  type="text"
-                  value={lanIf}
-                  onChange={(e) => setLanIf(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
+                {interfaces.length > 0 ? (
+                  <select
+                    value={lanIf}
+                    onChange={(e) => setLanIf(e.target.value)}
+                    style={{ width: "100%", padding: "14px 16px", borderRadius: "14px", border: "1px solid #D2D2D7", background: "#FFFFFF", fontSize: "14px", color: "#1D1D1F", outline: "none" }}
+                  >
+                    <option value="">Izaberite LAN interfejs</option>
+                    {interfaces.map((item) => <option key={item.name} value={item.name} disabled={item.name === wanIf}>{interfaceLabel(item)}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={lanIf} onChange={(e) => setLanIf(e.target.value)} style={{ width: "100%", padding: "14px 16px", borderRadius: "14px", border: "1px solid #D2D2D7", background: "#FFFFFF", fontSize: "15px", color: "#1D1D1F", outline: "none" }} />
+                )}
+                {selectedLAN && <p style={{ margin: "8px 0 0", fontSize: "11px", color: "#6E6E73" }}>MAC {selectedLAN.mac || "unknown"} · driver {selectedLAN.driver || "unknown"} · {selectedLAN.carrier ? "cable connected" : "no carrier detected"}</p>}
               </div>
             </div>
 
@@ -589,6 +628,12 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                   DHCP Opseg
                 </span>
                 <code style={{ fontSize: "15px", color: "#1D1D1F" }}>192.168.1.100–200</code>
+              </div>
+              <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: "14px", gridColumn: "1 / -1" }}>
+                <span style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
+                  Vremenska zona za rasporede
+                </span>
+                <input value={timezone} onChange={(e) => setTimezone(e.target.value)} style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #D2D2D7" }} />
               </div>
             </div>
 

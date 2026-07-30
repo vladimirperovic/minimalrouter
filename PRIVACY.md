@@ -10,9 +10,10 @@ Depending on enabled features, the appliance may store:
 
 - router configuration and encrypted or hashed credentials;
 - administrator sessions and authentication metadata;
-- DHCP lease information;
+- DHCP lease information, static reservations, interface inventory, and device-policy assignments;
 - WireGuard peer metadata and private key material;
 - audit events and bounded operational logs;
+- local timezone, IoT subnet, and weekday/weekend access windows;
 - configuration snapshots and encrypted backup exports;
 - optional integration settings for services such as Cloudflare Dynamic DNS.
 
@@ -29,6 +30,12 @@ Traffic may leave the appliance when required for normal routing, DNS resolution
 software-package access during installation, or an optional integration that the
 administrator explicitly enables. Each external provider has its own privacy and
 retention practices.
+
+Service-only device schedules use DNS answers to populate volatile nftables
+destination sets. The current implementation does not intentionally persist a
+per-device browsing history or packet contents, but DHCP reservations, device
+names, MAC addresses, assigned profiles, and audit metadata remain sensitive
+local network inventory.
 
 ## Diagnostics and support
 

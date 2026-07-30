@@ -4,6 +4,10 @@ package telemetry
 
 import "runtime"
 
+func InterfaceInventory() []NetworkInterfaceStatus {
+	return nil
+}
+
 func RuntimeSnapshot(_, _ string) RuntimeStatus {
 	return RuntimeStatus{
 		Available:    false,

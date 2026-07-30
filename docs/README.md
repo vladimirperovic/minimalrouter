@@ -24,8 +24,7 @@ notes before installation, development, or hardware testing.
 - [`../DESIGN.md`](../DESIGN.md) — dashboard design system and interaction rules.
 - [`../ROADMAP.md`](../ROADMAP.md) — current development priorities and release
   gates.
-- [`adr/README.md`](adr/README.md) — architecture decision records, including
-  superseded decisions preserved for context.
+- [`adr/README.md`](adr/README.md) — architecture decision records, including the isolated IoT zone and fixed-device schedule boundary.
 
 ## Installation, operation, and support
 

@@ -9,19 +9,21 @@ type Revision uint64
 
 // SystemConfig represents the complete canonical configuration model.
 type SystemConfig struct {
-	Revision   Revision         `json:"revision"`
-	UpdatedAt  time.Time        `json:"updated_at"`
-	System     SystemSettings   `json:"system"`
-	WAN        WANSettings      `json:"wan"`
-	LAN        LANSettings      `json:"lan"`
-	DHCP       DHCPSettings     `json:"dhcp"`
-	Firewall   FirewallConfig   `json:"firewall"`
-	WireGuard  WireGuardConfig  `json:"wireguard"`
-	Cloudflare CloudflareConfig `json:"cloudflare"`
-	SquidProxy SquidProxyConfig `json:"squid_proxy"`
-	AdGuard    AdGuardConfig    `json:"adguard"`
-	QoS        QoSConfig        `json:"qos"`
-	WiFi       WiFiConfig       `json:"wifi"`
+	Revision   Revision           `json:"revision"`
+	UpdatedAt  time.Time          `json:"updated_at"`
+	System     SystemSettings     `json:"system"`
+	WAN        WANSettings        `json:"wan"`
+	LAN        LANSettings        `json:"lan"`
+	DHCP       DHCPSettings       `json:"dhcp"`
+	Firewall   FirewallConfig     `json:"firewall"`
+	WireGuard  WireGuardConfig    `json:"wireguard"`
+	Cloudflare CloudflareConfig   `json:"cloudflare"`
+	SquidProxy SquidProxyConfig   `json:"squid_proxy"`
+	AdGuard    AdGuardConfig      `json:"adguard"`
+	QoS        QoSConfig          `json:"qos"`
+	WiFi       WiFiConfig         `json:"wifi"`
+	IoT        IoTConfig          `json:"iot"`
+	Policies   DevicePolicyConfig `json:"device_policies"`
 }
 
 type WireGuardConfig struct {
@@ -76,6 +78,91 @@ func (c SystemConfig) RuntimeLANInterface() string {
 	return c.LAN.Interface
 }
 
+const IoTVLANInterface = "mr-iot"
+
+// IoTConfig defines an optional isolated IPv4 zone. The zone may use a
+// dedicated physical interface or one explicitly configured 802.1Q VLAN.
+type IoTConfig struct {
+	Enabled         bool            `json:"enabled"`
+	Mode            string          `json:"mode"` // dedicated or vlan
+	Interface       string          `json:"interface"`
+	ParentInterface string          `json:"parent_interface,omitempty"`
+	VLANID          int             `json:"vlan_id,omitempty"`
+	IPAddress       string          `json:"ip_address"`
+	Netmask         string          `json:"netmask"`
+	CIDR            string          `json:"cidr"`
+	DHCP            IoTDHCPSettings `json:"dhcp"`
+}
+
+// IoTDHCPSettings contains the DHCP pool owned by the isolated IoT zone.
+type IoTDHCPSettings struct {
+	Enabled      bool          `json:"enabled"`
+	RangeStart   string        `json:"range_start"`
+	RangeEnd     string        `json:"range_end"`
+	LeaseTime    string        `json:"lease_time"`
+	StaticLeases []StaticLease `json:"static_leases"`
+}
+
+// DevicePolicyConfig applies time-bounded Internet policies to devices with
+// stable DHCP reservations. Unassigned devices retain the normal zone policy.
+type DevicePolicyConfig struct {
+	Enabled     bool               `json:"enabled"`
+	Profiles    []DeviceProfile    `json:"profiles"`
+	Assignments []DeviceAssignment `json:"assignments"`
+}
+
+// DeviceProfile describes when a device may forward traffic and whether the
+// permitted window allows all Internet traffic or only named service groups.
+type DeviceProfile struct {
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	Enabled         bool           `json:"enabled"`
+	AccessMode      string         `json:"access_mode"` // allow_all or allow_services
+	AllowedServices []string       `json:"allowed_services"`
+	Windows         []AccessWindow `json:"windows"`
+}
+
+// AccessWindow is evaluated using the configured appliance timezone. A full-day
+// window ignores Start and End. Otherwise the interval must not cross midnight.
+type AccessWindow struct {
+	Days   []string `json:"days"`
+	Start  string   `json:"start,omitempty"`
+	End    string   `json:"end,omitempty"`
+	AllDay bool     `json:"all_day"`
+}
+
+// DeviceAssignment binds a profile to a stable DHCP reservation. Zone must be
+// lan or iot. Matching both IP and MAC prevents accidental policy drift.
+type DeviceAssignment struct {
+	ID        string `json:"id"`
+	Hostname  string `json:"hostname"`
+	MAC       string `json:"mac"`
+	IPAddress string `json:"ip_address"`
+	Zone      string `json:"zone"`
+	ProfileID string `json:"profile_id"`
+}
+
+// RuntimeIoTInterface returns the interface owned by the IoT zone. VLAN mode
+// uses one fixed project-owned name so generated firewall rules are deterministic.
+func (c SystemConfig) RuntimeIoTInterface() string {
+	if !c.IoT.Enabled {
+		return ""
+	}
+	if c.IoT.Mode == "vlan" {
+		return IoTVLANInterface
+	}
+	return c.IoT.Interface
+}
+
+// EffectiveTimezone preserves compatibility with configurations created before
+// timezone-aware schedules were introduced.
+func (c SystemConfig) EffectiveTimezone() string {
+	if c.System.Timezone == "" {
+		return "UTC"
+	}
+	return c.System.Timezone
+}
+
 // QoSConfig holds traffic shaping and CAKE / FQ-CoDel bufferbloat prevention settings.
 type QoSConfig struct {
 	Enabled           bool   `json:"enabled"`
@@ -121,6 +208,7 @@ type SquidProxyConfig struct {
 type SystemSettings struct {
 	Hostname         string `json:"hostname"`
 	Domain           string `json:"domain"`
+	Timezone         string `json:"timezone"`
 	HTTPSEnabled     bool   `json:"https_enabled"`
 	HTTPSPort        int    `json:"https_port"`
 	ManagementAccess string `json:"management_access"` // lan_and_wireguard or wireguard_only
@@ -203,6 +291,7 @@ func DefaultConfig() SystemConfig {
 		System: SystemSettings{
 			Hostname:         "minimalrouter",
 			Domain:           "lan",
+			Timezone:         "UTC",
 			HTTPSEnabled:     true,
 			HTTPSPort:        8443,
 			ManagementAccess: "lan_and_wireguard",
@@ -280,6 +369,26 @@ func DefaultConfig() SystemConfig {
 			Band:       "5ghz",
 			Channel:    36,
 			HideSSID:   false,
+		},
+		IoT: IoTConfig{
+			Enabled:   false,
+			Mode:      "dedicated",
+			Interface: "eth2",
+			IPAddress: "192.168.30.1",
+			Netmask:   "255.255.255.0",
+			CIDR:      "192.168.30.1/24",
+			DHCP: IoTDHCPSettings{
+				Enabled:      true,
+				RangeStart:   "192.168.30.100",
+				RangeEnd:     "192.168.30.200",
+				LeaseTime:    "12h",
+				StaticLeases: []StaticLease{},
+			},
+		},
+		Policies: DevicePolicyConfig{
+			Enabled:     false,
+			Profiles:    []DeviceProfile{},
+			Assignments: []DeviceAssignment{},
 		},
 	}
 }

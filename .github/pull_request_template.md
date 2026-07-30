@@ -14,6 +14,7 @@ List the exact checks performed, environment, and any limitations.
 ```text
 [ ] go test -race ./...
 [ ] go vet ./...
+[ ] pnpm --dir web test
 [ ] pnpm --dir web lint
 [ ] pnpm --dir web build
 [ ] clean Alpine install / wizard smoke test, when applicable

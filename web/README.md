@@ -17,6 +17,7 @@ From this directory:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm test
 pnpm lint
 pnpm build
 ```

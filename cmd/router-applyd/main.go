@@ -230,7 +230,8 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not write candidate files", false)
 	}
-	if err := preflight(req.Config, candidates); err != nil {
+	previousConfig, _ := loadLastGood()
+	if err := preflight(req.Config, candidates, previousConfig); err != nil {
 		return failure(req.ID, "component preflight failed: "+safeError(err), false)
 	}
 
@@ -238,7 +239,6 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
-	previousConfig, _ := loadLastGood()
 	if req.RequireConfirmation {
 		lanChanged := previousConfig != nil &&
 			(previousConfig.LAN.IPAddress != req.Config.LAN.IPAddress ||
@@ -247,7 +247,13 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			previousConfig.System.ManagementAccess != req.Config.System.ManagementAccess
 		topologyChanged := previousConfig != nil &&
 			(previousConfig.WiFi.Enabled != req.Config.WiFi.Enabled ||
-				previousConfig.WiFi.Interface != req.Config.WiFi.Interface)
+				previousConfig.WiFi.Interface != req.Config.WiFi.Interface ||
+				previousConfig.IoT.Enabled != req.Config.IoT.Enabled ||
+				previousConfig.IoT.Mode != req.Config.IoT.Mode ||
+				previousConfig.IoT.Interface != req.Config.IoT.Interface ||
+				previousConfig.IoT.ParentInterface != req.Config.IoT.ParentInterface ||
+				previousConfig.IoT.VLANID != req.Config.IoT.VLANID ||
+				previousConfig.IoT.CIDR != req.Config.IoT.CIDR)
 		if previousConfig == nil ||
 			previousConfig.LAN.Interface != req.Config.LAN.Interface ||
 			(!lanChanged && !managementChanged && !topologyChanged) {
@@ -256,7 +262,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q activation failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return failure(req.ID, "apply failed and rollback could not be verified", true)
@@ -265,7 +271,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
 	}
 	if err := verifyActive(req.Config); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return failure(req.ID, "verification failed and rollback could not be verified", true)
@@ -280,7 +286,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			Config:     req.Config,
 		})
 		if hashErr != nil || pendingErr != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return failure(req.ID, "could not persist pending state and rollback failed", true)
 			}
@@ -288,7 +294,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		}
 	} else {
 		if err := saveLastGood(req.Config); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return failure(req.ID, "could not persist last-good state and rollback failed", true)
 			}
@@ -351,7 +357,7 @@ func rejectUnimplementedFeatures(cfg config.SystemConfig) error {
 	case cfg.DHCP.DNSEnabled:
 		return errors.New("DNS-over-HTTPS has no verified Alpine 3.22 runtime adapter")
 	case len(cfg.AdGuard.FilterDevices) > 0:
-		return errors.New("per-device DNS filtering is unsupported because dnsmasq address rules are global")
+		return errors.New("legacy AdGuard per-device rules are unavailable; use device_policies instead")
 	default:
 		return nil
 	}
@@ -482,7 +488,15 @@ func writeCandidates(dir string, generated map[string]artifact) (map[string]stri
 	return paths, nil
 }
 
-func preflight(cfg config.SystemConfig, candidates map[string]string) error {
+func preflight(cfg config.SystemConfig, candidates map[string]string, previous *config.SystemConfig) error {
+	if err := preflightTimezone(cfg.EffectiveTimezone()); err != nil {
+		return fmt.Errorf("timezone: %w", err)
+	}
+	if cfg.IoT.Enabled {
+		if err := preflightIoT(cfg, previous); err != nil {
+			return fmt.Errorf("IoT zone: %w", err)
+		}
+	}
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}
@@ -524,7 +538,7 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			return fmt.Errorf("install %s: %w", name, err)
 		}
 	}
-	if err := applyKernelHardening(cfg); err != nil {
+	if err := configureTimezone(cfg.EffectiveTimezone()); err != nil {
 		return err
 	}
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
@@ -538,6 +552,12 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if err := configureRuntimeLAN(cfg); err != nil {
 			return err
 		}
+	}
+	if err := configureIoTTransition(cfg, previous); err != nil {
+		return err
+	}
+	if err := applyKernelHardening(cfg); err != nil {
+		return err
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
@@ -637,6 +657,20 @@ func verifyActive(cfg config.SystemConfig) error {
 	}
 	if !strings.Contains(output, "inet "+prefix+"/") {
 		return errors.New("configured LAN address is not active")
+	}
+	if cfg.IoT.Enabled {
+		iotInterface := cfg.RuntimeIoTInterface()
+		iotOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", iotInterface)
+		if err != nil {
+			return fmt.Errorf("IoT interface unavailable: %w", err)
+		}
+		iotPrefix := cfg.IoT.CIDR
+		if slash := strings.IndexByte(iotPrefix, '/'); slash >= 0 {
+			iotPrefix = iotPrefix[:slash]
+		}
+		if !strings.Contains(iotOutput, "inet "+iotPrefix+"/") {
+			return errors.New("configured IoT gateway address is not active")
+		}
 	}
 	if cfg.WAN.Enabled {
 		deadline := time.Now().Add(20 * time.Second)
@@ -831,7 +865,7 @@ func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 	return result, nil
 }
 
-func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
+func rollback(previousConfig, candidateConfig *config.SystemConfig, files []previousFile) error {
 	var errs []string
 	hadPreviousNft := false
 	for _, file := range files {
@@ -848,12 +882,23 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 			errs = append(errs, safeError(err))
 		}
 	}
+	if candidateConfig != nil {
+		if err := cleanupIoT(*candidateConfig); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	}
 	if previousConfig != nil {
-		if err := applyKernelHardening(*previousConfig); err != nil {
+		if err := configureTimezone(previousConfig.EffectiveTimezone()); err != nil {
 			errs = append(errs, safeError(err))
 		}
 		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 		if err := configureRuntimeLAN(*previousConfig); err != nil {
+			errs = append(errs, safeError(err))
+		}
+		if err := configureIoTTransition(*previousConfig, nil); err != nil {
+			errs = append(errs, safeError(err))
+		}
+		if err := applyKernelHardening(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
 	}
@@ -1024,6 +1069,178 @@ func removeOwnedLANBridge() error {
 	return nil
 }
 
+func preflightTimezone(timezone string) error {
+	clean := filepath.Clean(timezone)
+	if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "../") {
+		return errors.New("invalid timezone path")
+	}
+	zonePath := filepath.Join("/usr/share/zoneinfo", clean)
+	resolved, err := filepath.EvalSymlinks(zonePath)
+	if err != nil {
+		return errors.New("timezone data is unavailable")
+	}
+	root := "/usr/share/zoneinfo/"
+	if !strings.HasPrefix(resolved, root) {
+		return errors.New("timezone resolves outside the system zoneinfo directory")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("timezone data is not a regular file")
+	}
+	return nil
+}
+
+func atomicSymlink(target, path string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".minimalrouter-link-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Remove(tmpName); err != nil {
+		return err
+	}
+	defer os.Remove(tmpName)
+	if err := os.Symlink(target, tmpName); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	dirHandle, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer dirHandle.Close()
+	return dirHandle.Sync()
+}
+
+func configureTimezone(timezone string) error {
+	if err := preflightTimezone(timezone); err != nil {
+		return fmt.Errorf("configure timezone: %w", err)
+	}
+	clean := filepath.Clean(timezone)
+	zonePath := filepath.Join("/usr/share/zoneinfo", clean)
+	if err := atomicWrite("/etc/timezone", []byte(clean+"\n"), 0644); err != nil {
+		return fmt.Errorf("persist timezone: %w", err)
+	}
+	if err := atomicSymlink(zonePath, "/etc/localtime"); err != nil {
+		return fmt.Errorf("activate timezone: %w", err)
+	}
+	return nil
+}
+
+func preflightIoT(cfg config.SystemConfig, previous *config.SystemConfig) error {
+	if !cfg.IoT.Enabled {
+		return nil
+	}
+	if cfg.IoT.Mode == "vlan" {
+		if err := runFixed("/sbin/ip", "link", "show", "dev", cfg.IoT.ParentInterface); err != nil {
+			return fmt.Errorf("VLAN parent interface unavailable: %w", err)
+		}
+		return nil
+	}
+	if err := runFixed("/sbin/ip", "link", "show", "dev", cfg.IoT.Interface); err != nil {
+		return fmt.Errorf("dedicated interface unavailable: %w", err)
+	}
+
+	previouslyOwned := previous != nil && previous.IoT.Enabled &&
+		previous.IoT.Mode == "dedicated" && previous.IoT.Interface == cfg.IoT.Interface
+	if !previouslyOwned {
+		if master, err := os.Readlink(filepath.Join("/sys/class/net", cfg.IoT.Interface, "master")); err == nil {
+			return fmt.Errorf("dedicated interface is already attached to %s", filepath.Base(master))
+		}
+		addresses, err := runFixedOutput("/sbin/ip", "-4", "-o", "addr", "show", "dev", cfg.IoT.Interface, "scope", "global")
+		if err != nil {
+			return fmt.Errorf("inspect dedicated interface addresses: %w", err)
+		}
+		if strings.TrimSpace(addresses) != "" {
+			return errors.New("dedicated interface already has a global IPv4 address")
+		}
+	}
+	return nil
+}
+
+func cleanupIoT(cfg config.SystemConfig) error {
+	if cfg.IoT.Mode == "vlan" || cfg.RuntimeIoTInterface() == config.IoTVLANInterface {
+		if err := runFixed("/sbin/ip", "link", "show", "dev", config.IoTVLANInterface); err == nil {
+			if err := runFixed("/sbin/ip", "link", "delete", "dev", config.IoTVLANInterface); err != nil {
+				return fmt.Errorf("remove IoT VLAN interface: %w", err)
+			}
+		}
+		return nil
+	}
+	iface := cfg.RuntimeIoTInterface()
+	if iface == "" || !interfaceNamePattern.MatchString(iface) {
+		return nil
+	}
+	if err := runFixed("/sbin/ip", "link", "show", "dev", iface); err != nil {
+		return nil
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", iface, "scope", "global"); err != nil {
+		return fmt.Errorf("clear IoT interface address: %w", err)
+	}
+	return nil
+}
+
+func configureIoTTransition(candidate config.SystemConfig, previous *config.SystemConfig) error {
+	if previous != nil && previous.IoT.Enabled {
+		previousInterface := previous.RuntimeIoTInterface()
+		candidateInterface := candidate.RuntimeIoTInterface()
+		if !candidate.IoT.Enabled || previousInterface != candidateInterface ||
+			previous.IoT.Mode != candidate.IoT.Mode || previous.IoT.VLANID != candidate.IoT.VLANID ||
+			previous.IoT.ParentInterface != candidate.IoT.ParentInterface {
+			if err := cleanupIoT(*previous); err != nil {
+				return err
+			}
+		}
+	}
+	if !candidate.IoT.Enabled {
+		// Remove the fixed project-owned VLAN even when an older configuration
+		// did not record it, for deterministic recovery after interrupted setup.
+		if err := runFixed("/sbin/ip", "link", "show", "dev", config.IoTVLANInterface); err == nil {
+			if err := runFixed("/sbin/ip", "link", "delete", "dev", config.IoTVLANInterface); err != nil {
+				return fmt.Errorf("remove disabled IoT VLAN: %w", err)
+			}
+		}
+		return nil
+	}
+
+	iface := candidate.RuntimeIoTInterface()
+	if candidate.IoT.Mode == "vlan" {
+		if err := runFixed("/sbin/ip", "link", "show", "dev", config.IoTVLANInterface); err == nil {
+			if err := runFixed("/sbin/ip", "link", "delete", "dev", config.IoTVLANInterface); err != nil {
+				return fmt.Errorf("replace IoT VLAN interface: %w", err)
+			}
+		}
+		if err := runFixed("/sbin/ip", "link", "set", "dev", candidate.IoT.ParentInterface, "up"); err != nil {
+			return fmt.Errorf("bring IoT VLAN parent up: %w", err)
+		}
+		if err := runFixed("/sbin/ip", "link", "add", "link", candidate.IoT.ParentInterface,
+			"name", config.IoTVLANInterface, "type", "vlan", "id", strconv.Itoa(candidate.IoT.VLANID)); err != nil {
+			return fmt.Errorf("create IoT VLAN interface: %w", err)
+		}
+	} else {
+		if err := runFixed("/sbin/ip", "link", "show", "dev", iface); err != nil {
+			return fmt.Errorf("IoT interface unavailable: %w", err)
+		}
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", iface, "up"); err != nil {
+		return fmt.Errorf("bring IoT interface up: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", iface, "scope", "global"); err != nil {
+		return fmt.Errorf("clear previous IoT addresses: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "add", candidate.IoT.CIDR, "dev", iface); err != nil {
+		return fmt.Errorf("configure IoT gateway address: %w", err)
+	}
+	return nil
+}
+
 func configureRuntimeLAN(cfg config.SystemConfig) error {
 	if !cfg.WiFi.Enabled {
 		if err := removeOwnedLANBridge(); err != nil {
@@ -1112,6 +1329,11 @@ func applyKernelHardening(cfg config.SystemConfig) error {
 	}
 	if err := runFixed("/sbin/sysctl", "-w", "net.ipv4.conf."+cfg.WAN.Interface+".rp_filter=1"); err != nil {
 		return fmt.Errorf("enable WAN reverse-path filtering: %w", err)
+	}
+	if cfg.IoT.Enabled {
+		if err := runFixed("/sbin/sysctl", "-w", "net.ipv4.conf."+cfg.RuntimeIoTInterface()+".rp_filter=1"); err != nil {
+			return fmt.Errorf("enable IoT reverse-path filtering: %w", err)
+		}
 	}
 	return nil
 }

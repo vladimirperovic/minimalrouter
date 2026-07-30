@@ -9,6 +9,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
 // WizardSetupRequest contains the first-run installation parameters per DESIGN.md §14.
@@ -19,6 +20,7 @@ type WizardSetupRequest struct {
 	AdminPassword string `json:"admin_password"`
 	LANInterface  string `json:"lan_interface"`
 	LANIPAddress  string `json:"lan_ip_address"` // e.g. "192.168.1.1"
+	Timezone      string `json:"timezone"`
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +36,8 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		"wan_interface": cfg.WAN.Interface,
 		"lan_interface": cfg.LAN.Interface,
 		"lan_ip":        cfg.LAN.IPAddress,
+		"timezone":      cfg.EffectiveTimezone(),
+		"interfaces":    telemetry.InterfaceInventory(),
 	})
 }
 
@@ -89,6 +93,9 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := config.DefaultConfig()
+	if req.Timezone != "" {
+		cfg.System.Timezone = req.Timezone
+	}
 
 	// Optional external and wireless integrations are always opt-in. Keep them
 	// explicitly disabled during first-run setup even if another default changes

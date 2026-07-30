@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import SetupWizard from "./components/SetupWizard";
 import AuthGate from "./components/AuthGate";
+import NetworkPolicies from "./components/NetworkPolicies";
 import { apiFetch } from "./lib/api";
 
 type Theme = "light" | "dark";
@@ -13,9 +14,10 @@ const navItems = [
   ["05", "WireGuard", "wireguard"],
   ["06", "Cloudflare", "cloudflare"],
   ["07", "Squid Proxy", "squid"],
-  ["08", "AdGuard Filter", "adguard"],
-  ["09", "Wi-Fi AP", "wifi"],
-  ["10", "Recovery", "recovery"],
+  ["08", "DNS Filter", "adguard"],
+  ["09", "IoT & Schedules", "policies"],
+  ["10", "Wi-Fi AP", "wifi"],
+  ["11", "Recovery", "recovery"],
 ] as const;
 
 function formatBytes(value = 0) {
@@ -264,6 +266,17 @@ function Dashboard() {
         mac: string;
         ip_address: string;
         hostname?: string;
+      }>;
+      interfaces?: Array<{
+        name: string;
+        mac?: string;
+        state?: string;
+        carrier?: boolean;
+        speed_mbps?: number;
+        driver?: string;
+        bus_path?: string;
+        kind?: string;
+        loopback?: boolean;
       }>;
     };
   }>({});
@@ -618,13 +631,6 @@ function Dashboard() {
   };
 
   const [adguardEnabled, setAdguardEnabled] = useState(false);
-  const [filterDevices, setFilterDevices] = useState<
-    { id: string; hostname: string; ip_address: string; blocked_services: string[]; enabled: boolean }[]
-  >([]);
-  const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
-  const [newFilterHost, setNewFilterHost] = useState("");
-  const [newFilterIP, setNewFilterIP] = useState("");
-  const [newFilterServices, setNewFilterServices] = useState<string[]>(["youtube", "tiktok"]);
 
   const handleToggleAdGuard = (enabled: boolean) => {
     if (apiConnected) {
@@ -657,19 +663,6 @@ function Dashboard() {
 
   const handleUpdateBlocklist = () => {
     setOperationError("Online blocklist refresh is disabled in this hardened build; the built-in global blocklist remains available.");
-  };
-
-  const handleToggleFilterDevice = () => {
-    setOperationError("Per-device DNS filtering is unavailable in this build.");
-  };
-
-  const handleRemoveFilterDevice = () => {
-    setOperationError("Per-device DNS filtering is unavailable in this build.");
-  };
-
-  const handleAddFilterDevice = (e: React.FormEvent) => {
-    e.preventDefault();
-    setOperationError("Per-device DNS filtering is unavailable in this build.");
   };
 
   const [dnsModalOpen, setDnsModalOpen] = useState(false);
@@ -1289,7 +1282,6 @@ function Dashboard() {
         setSquidUser(cfg.squid_proxy?.username ?? "");
         setSquidRestrictedIPs(cfg.squid_proxy?.restricted_ips ?? []);
         setAdguardEnabled(cfg.adguard?.enabled === true);
-        setFilterDevices(cfg.adguard?.filter_devices ?? []);
         setWifiEnabled(cfg.wifi?.enabled === true);
         setWifiPassStored(cfg.wifi?.enabled === true);
         setWifiSSID(cfg.wifi?.ssid ?? "");
@@ -2236,148 +2228,59 @@ function Dashboard() {
           <section className="section-block" id="adguard">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">AdGuard Home & Content Filter</p>
-                <h2>Global DNS sinkhole</h2>
+                <p className="eyebrow">DNS Filter</p>
+                <h2>Global ad and tracker sinkhole</h2>
               </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+              <div className="section-actions">
                 <span className="quiet-meta">
-                  Status: <strong style={{ color: adguardEnabled ? "#34C759" : "var(--text-tertiary)" }}>{adguardEnabled ? "Active (AdBlock ON)" : "Disabled (Default)"}</strong>
+                  Status: <strong>{adguardEnabled ? "Active" : "Disabled"}</strong>
                 </span>
                 <button
                   className="button secondary"
                   type="button"
                   onClick={handleUpdateBlocklist}
                   disabled
-                  title="Online refresh is disabled; the built-in blocklist is applied transactionally"
-                  style={{ fontSize: "13px" }}
+                  title="Online refresh is disabled; the reviewed built-in blocklist is applied transactionally"
                 >
-                  Update Blocklist
+                  Built-in list
                 </button>
                 <button
                   className="button secondary"
                   type="button"
                   onClick={() => handleToggleAdGuard(!adguardEnabled)}
                   disabled={!apiConnected}
-                  style={{ fontSize: "13px" }}
                 >
-                  {adguardEnabled ? "Disable Filter" : "Enable Filter"}
+                  {adguardEnabled ? "Disable DNS filter" : "Enable DNS filter"}
                 </button>
               </div>
             </div>
 
-            <article className="card table-card">
+            <article className="card settings-card">
               <div className="card-title-row">
                 <div>
-                  <h3>Per-device rules unavailable</h3>
-                  <p>dnsmasq address rules are global; this build refuses to claim client-specific filtering.</p>
+                  <h3>Reviewed global protection</h3>
+                  <p>The same small built-in domain list applies to every LAN and IoT client when enabled.</p>
                 </div>
-                <button
-                  className="quiet-button"
-                  type="button"
-                  disabled
-                  title="Requires a resolver that can enforce client-specific policy"
-                  style={{ color: "#0071E3", fontWeight: 650 }}
-                >
-                  + Add Filtered Device
-                </button>
+                <span className={`status-label ${adguardEnabled ? "success" : ""}`}>
+                  <i className="status-dot" /> {adguardEnabled ? "Filtering" : "Off"}
+                </span>
               </div>
-              <div className="table-scroll">
-                <table>
-                  <caption className="sr-only">AdGuard Device Filter list</caption>
-                  <thead>
-                    <tr>
-                      <th>Host</th>
-                      <th>IP Address</th>
-                      <th>Blocked Services</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filterDevices.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "20px" }}>
-                          Global filtering applies equally to all LAN devices when enabled.
-                        </td>
-                      </tr>
-                    ) : (
-                      filterDevices.map((item) => (
-                        <tr key={item.id}>
-                          <td><strong style={{ fontSize: "13px", color: "var(--text-primary)" }}>{item.hostname}</strong></td>
-                          <td><code>{item.ip_address}</code></td>
-                          <td>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {item.blocked_services.includes("youtube") && (
-                                <span style={{ fontSize: "11px", background: "#FF3B3015", color: "#FF3B30", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  YouTube
-                                </span>
-                              )}
-                              {item.blocked_services.includes("tiktok") && (
-                                <span style={{ fontSize: "11px", background: "#00000015", color: "var(--text-primary)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  TikTok
-                                </span>
-                              )}
-                              {item.blocked_services.includes("facebook") && (
-                                <span style={{ fontSize: "11px", background: "#0071E315", color: "#0071E3", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  Facebook/IG
-                                </span>
-                              )}
-                              {item.blocked_services.includes("adult") && (
-                                <span style={{ fontSize: "11px", background: "#FF950015", color: "#FF9500", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  Adult
-                                </span>
-                              )}
-                              {item.blocked_services.includes("gaming") && (
-                                <span style={{ fontSize: "11px", background: "#AF52DE15", color: "#AF52DE", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
-                                  Gaming
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td>
-                            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}>
-                              <input
-                                type="checkbox"
-                                checked={item.enabled}
-                                onChange={handleToggleFilterDevice}
-                                disabled
-                                title="Per-device DNS filtering is unavailable"
-                                style={{ width: "16px", height: "16px", cursor: "not-allowed" }}
-                              />
-                              {item.enabled ? "Active" : "Disabled"}
-                            </label>
-                          </td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={handleRemoveFilterDevice}
-                              disabled
-                              style={{
-                                border: "none",
-                                background: "#FF3B3015",
-                                color: "#FF3B30",
-                                width: "24px",
-                                height: "24px",
-                                borderRadius: "50%",
-                                cursor: "not-allowed",
-                                fontWeight: "bold",
-                                fontSize: "12px",
-                                display: "grid",
-                                placeItems: "center",
-                              }}
-                              title="Per-device DNS filtering is unavailable"
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div className="setting-row">
+                <div>
+                  <strong>Per-device access belongs to Device Schedules</strong>
+                  <span>Use the IoT & Schedules section for fixed devices, weekday hours, and YouTube/Steam access.</span>
+                </div>
+                <a className="button secondary" href="#policies">Open schedules</a>
               </div>
             </article>
           </section>
+
+          <NetworkPolicies
+            apiConnected={apiConnected}
+            interfaces={systemInfo.runtime?.interfaces ?? []}
+            leases={systemInfo.runtime?.dhcp_leases ?? []}
+            onPendingConfirmation={setPendingConfirmationID}
+          />
 
           <section className="section-block" id="wifi">
             <div className="section-heading">
@@ -3443,84 +3346,6 @@ function Dashboard() {
                 </button>
                 <button className="button primary" type="submit">
                   Save Credentials
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {addFilterModalOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAddFilterModalOpen(false)}>
-          <section
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Router configuration dialog"
-            onMouseDown={(event) => event.stopPropagation()}
-            style={{ maxWidth: "480px", borderRadius: "20px" }}
-          >
-            <button className="modal-close" type="button" aria-label="Close dialog" onClick={() => setAddFilterModalOpen(false)}>×</button>
-            <p className="eyebrow">AdGuard Content Filter</p>
-            <h2>Add Filtered Device</h2>
-            <p className="modal-copy" style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
-              Select which online services to block for this device IP address via DNS sinkhole.
-            </p>
-            <form onSubmit={handleAddFilterDevice} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Device Name / Host</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Kid's Tablet, Living Room TV"
-                  value={newFilterHost}
-                  onChange={(e) => setNewFilterHost(e.target.value)}
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "4px" }}>Target Device IP Address</label>
-                <input
-                  type="text"
-                  placeholder="10.0.0.80"
-                  value={newFilterIP}
-                  onChange={(e) => setNewFilterIP(e.target.value)}
-                  style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1px solid var(--separator)", background: "var(--surface)" }}
-                  required
-                />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, marginBottom: "6px" }}>Blocked Services</label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  {[
-                    { id: "youtube", label: "YouTube" },
-                    { id: "tiktok", label: "TikTok" },
-                    { id: "facebook", label: "Facebook & IG" },
-                    { id: "adult", label: "Adult Content" },
-                    { id: "gaming", label: "Gaming & Roblox" },
-                  ].map((s) => (
-                    <label key={s.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", background: "var(--surface)", padding: "8px 10px", borderRadius: "8px", border: "1px solid var(--separator)" }}>
-                      <input
-                        type="checkbox"
-                        checked={newFilterServices.includes(s.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setNewFilterServices([...newFilterServices, s.id]);
-                          } else {
-                            setNewFilterServices(newFilterServices.filter((x) => x !== s.id));
-                          }
-                        }}
-                      />
-                      {s.label}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="modal-actions" style={{ marginTop: "8px" }}>
-                <button className="button secondary" type="button" onClick={() => setAddFilterModalOpen(false)}>
-                  Cancel
-                </button>
-                <button className="button primary" type="submit">
-                  Save Device Filter
                 </button>
               </div>
             </form>

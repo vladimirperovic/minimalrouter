@@ -249,7 +249,13 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 		current.LAN.CIDR != candidate.LAN.CIDR ||
 		current.System.ManagementAccess != candidate.System.ManagementAccess ||
 		current.WiFi.Enabled != candidate.WiFi.Enabled ||
-		current.WiFi.Interface != candidate.WiFi.Interface
+		current.WiFi.Interface != candidate.WiFi.Interface ||
+		current.IoT.Enabled != candidate.IoT.Enabled ||
+		current.IoT.Mode != candidate.IoT.Mode ||
+		current.IoT.Interface != candidate.IoT.Interface ||
+		current.IoT.ParentInterface != candidate.IoT.ParentInterface ||
+		current.IoT.VLANID != candidate.IoT.VLANID ||
+		current.IoT.CIDR != candidate.IoT.CIDR
 }
 
 // GetPendingTransaction returns a copy of the provisionally active transaction.

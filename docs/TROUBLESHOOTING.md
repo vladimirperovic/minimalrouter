@@ -126,7 +126,7 @@ interface descriptions, hostnames, and comments before sharing.
 ## PPPoE does not connect
 
 Use test credentials where possible. Verify the physical or virtual WAN path,
-VLAN requirements outside the current supported profile, MTU expectations, and
+ISP VLAN requirements (which remain separate from the optional LAN-side IoT VLAN), MTU expectations, and
 that credentials were entered through the application rather than stored in the
 repository or shell history.
 
@@ -146,6 +146,51 @@ Check:
 
 Never attach a client profile or QR code to a public issue. Generate a new peer if
 a private key or preshared key may have been exposed.
+
+## IoT clients cannot connect or can reach the wrong network
+
+Verify the configured mode first. Dedicated mode requires a physically separate
+port. VLAN mode requires the external switch/access point to tag the configured
+VLAN ID on the selected parent trunk and to place IoT access ports or SSIDs in
+that VLAN.
+
+```sh
+ip -d link show mr-iot
+ip -4 address show dev mr-iot
+rc-service dnsmasq status
+nft list table inet minimalrouter
+```
+
+The expected policy blocks forwarding between the main LAN and IoT interfaces
+in both directions. It does not block two clients connected to the same Layer-2
+IoT segment; enable client/port isolation on the access point or switch when that
+is required. Keep console access and allow an unconfirmed topology change to
+roll back rather than weakening the firewall.
+
+## A child schedule is not behaving as expected
+
+Check all of the following:
+
+- the device uses the configured fixed DHCP reservation and has not enabled a
+  randomized/private MAC address for this network;
+- the assignment zone matches the interface on which the device is connected;
+- `date`, `timedatectl` where available, `/etc/timezone`, and `chronyd` show the
+  intended local time;
+- the profile contains the expected weekday names and non-overnight interval;
+- the device uses the router DNS service so service addresses can populate the
+  volatile nftables sets.
+
+```sh
+date
+cat /etc/timezone
+rc-service chronyd status
+nft list set inet minimalrouter svc_youtube
+nft list set inet minimalrouter svc_steam
+```
+
+Service-only mode is best-effort DNS/IP classification. Existing device DNS
+caches, hard-coded addresses, provider domain changes, and shared CDNs can change
+results. Do not describe it as content inspection or a guaranteed safety filter.
 
 ## High disk use
 

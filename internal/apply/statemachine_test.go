@@ -136,3 +136,28 @@ func TestWiFiTopologyChangesRequireConfirmation(t *testing.T) {
 		t.Fatal("an SSID-only change does not alter management topology")
 	}
 }
+
+func TestIoTTopologyChangesRequireConfirmation(t *testing.T) {
+	previous := config.DefaultConfig()
+
+	enabled := previous
+	enabled.IoT.Enabled = true
+	if !requiresConfirmation(previous, enabled) {
+		t.Fatal("enabling the isolated IoT zone must require confirmation")
+	}
+
+	newSubnet := enabled
+	newSubnet.IoT.IPAddress = "192.168.40.1"
+	newSubnet.IoT.CIDR = "192.168.40.1/24"
+	newSubnet.IoT.DHCP.RangeStart = "192.168.40.100"
+	newSubnet.IoT.DHCP.RangeEnd = "192.168.40.200"
+	if !requiresConfirmation(enabled, newSubnet) {
+		t.Fatal("changing the IoT subnet must require confirmation")
+	}
+
+	policyOnly := enabled
+	policyOnly.Policies.Enabled = true
+	if requiresConfirmation(enabled, policyOnly) {
+		t.Fatal("a policy-only change does not alter management topology")
+	}
+}

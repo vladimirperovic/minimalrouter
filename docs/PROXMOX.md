@@ -17,8 +17,7 @@ For a controlled lab trial, create the VM manually:
 
 1. Install Alpine Linux 3.22 x86_64 in a QEMU VM.
 2. Allocate 1 vCPU, 1 GiB RAM, and an 8 GiB disk.
-3. Add two VirtIO NICs. Connect `net0` to a test WAN/NAT bridge and `net1` to an
-   isolated LAN bridge such as `vmbr1`.
+3. Add two VirtIO NICs. Connect `net0` to a test WAN/NAT bridge and `net1` to an isolated LAN bridge such as `vmbr1`. Add `net2` on a second isolated bridge only when testing dedicated-port IoT mode.
 4. Do not connect the isolated LAN bridge to the normal household/office LAN and
    do not attach the candidate WAN directly to the ISP during the first trial.
 5. On a trusted development computer, check out the exact Git commit, run
@@ -69,10 +68,10 @@ future signed-image workflow and is not the current installation path.
 
 Before moving beyond an isolated VM test, verify:
 
-- WAN and LAN roles remain correct after reboot;
+- WAN, LAN, and optional IoT roles remain correct after reboot;
 - management is reachable only from the intended LAN or WireGuard path;
 - an unconfirmed disruptive change rolls back;
-- DHCP, DNS, NAT, and firewall behavior survive reboot reconciliation;
+- DHCP, DNS, NAT, IoT isolation/schedules, and firewall behavior survive reboot reconciliation;
 - backup export and restore work with synthetic data;
 - the existing router can be restored immediately.
 

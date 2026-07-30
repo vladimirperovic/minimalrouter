@@ -14,7 +14,7 @@ fi
 # 2. Install system dependencies from the pinned repository.
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc tzdata chrony
 
 # 3. Create unprivileged routerd user/group
 if ! id -u routerd >/dev/null 2>&1; then
@@ -75,6 +75,7 @@ for unused_service in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
+rc-update add chronyd default
 rc-update add router-applyd default
 rc-update add routerd default
 

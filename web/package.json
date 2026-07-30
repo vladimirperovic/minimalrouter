@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ignore-pattern dist"
+    "lint": "eslint . --ignore-pattern dist",
+    "test": "node --experimental-strip-types --test src/lib/policies.test.ts"
   },
   "dependencies": {
     "react": "19.2.6",

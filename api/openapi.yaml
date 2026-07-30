@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Minimal Router OS REST API
   description: Version 1 REST API contract for Minimal Router OS management plane (routerd).
-  version: 1.0.0
+  version: 1.1.0
 servers:
   - url: https://192.168.1.1:8443/api/v1
     description: LAN HTTPS management endpoint
@@ -19,6 +19,128 @@ components:
       type: apiKey
       in: header
       name: X-CSRF-Token
+  schemas:
+    NetworkInterfaceStatus:
+      type: object
+      required: [name, carrier, kind, loopback]
+      properties:
+        name: {type: string, example: eth1}
+        mac: {type: string, example: "02:00:00:00:00:11"}
+        state: {type: string, example: up}
+        carrier: {type: boolean}
+        speed_mbps: {type: integer, minimum: 0}
+        driver: {type: string}
+        bus_path: {type: string}
+        kind: {type: string, enum: [ethernet, wifi, virtual, loopback]}
+        loopback: {type: boolean}
+    StaticLease:
+      type: object
+      required: [id, hostname, mac, ip_address]
+      properties:
+        id: {type: string}
+        hostname: {type: string}
+        mac: {type: string, example: "02:00:00:00:00:10"}
+        ip_address: {type: string, format: ipv4}
+    AccessWindow:
+      type: object
+      required: [days, all_day]
+      properties:
+        days:
+          type: array
+          minItems: 1
+          maxItems: 7
+          items:
+            type: string
+            enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+        start: {type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$'}
+        end: {type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$'}
+        all_day: {type: boolean}
+    DeviceProfile:
+      type: object
+      required: [id, name, enabled, access_mode, allowed_services, windows]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,47}$'}
+        name: {type: string}
+        enabled: {type: boolean}
+        access_mode: {type: string, enum: [allow_all, allow_services]}
+        allowed_services:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [youtube, steam]}
+        windows:
+          type: array
+          maxItems: 21
+          items: {$ref: '#/components/schemas/AccessWindow'}
+    DeviceAssignment:
+      type: object
+      required: [id, hostname, mac, ip_address, zone, profile_id]
+      properties:
+        id: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,47}$'}
+        hostname: {type: string}
+        mac: {type: string}
+        ip_address: {type: string, format: ipv4}
+        zone: {type: string, enum: [lan, iot]}
+        profile_id: {type: string}
+    DevicePolicyConfig:
+      type: object
+      required: [enabled, profiles, assignments]
+      properties:
+        enabled: {type: boolean}
+        profiles:
+          type: array
+          items: {$ref: '#/components/schemas/DeviceProfile'}
+        assignments:
+          type: array
+          items: {$ref: '#/components/schemas/DeviceAssignment'}
+    IoTDHCPSettings:
+      type: object
+      required: [enabled, range_start, range_end, lease_time, static_leases]
+      properties:
+        enabled: {type: boolean}
+        range_start: {type: string, format: ipv4}
+        range_end: {type: string, format: ipv4}
+        lease_time: {type: string, example: 12h}
+        static_leases:
+          type: array
+          items: {$ref: '#/components/schemas/StaticLease'}
+    IoTConfig:
+      type: object
+      description: Optional routed IPv4 zone isolated from the main LAN. VLAN mode requires an external managed-switch trunk.
+      required: [enabled, mode, interface, ip_address, netmask, cidr, dhcp]
+      properties:
+        enabled: {type: boolean}
+        mode: {type: string, enum: [dedicated, vlan]}
+        interface: {type: string, description: Dedicated physical interface when mode=dedicated}
+        parent_interface: {type: string, description: 802.1Q trunk parent when mode=vlan}
+        vlan_id: {type: integer, minimum: 1, maximum: 4094}
+        ip_address: {type: string, format: ipv4}
+        netmask: {type: string, example: 255.255.255.0}
+        cidr: {type: string, example: 192.168.30.1/24}
+        dhcp: {$ref: '#/components/schemas/IoTDHCPSettings'}
+    CanonicalConfig:
+      type: object
+      required: [revision, system, wan, lan, dhcp, firewall, wireguard, cloudflare, squid_proxy, adguard, qos, wifi, iot, device_policies]
+      additionalProperties: true
+      properties:
+        revision: {type: integer, minimum: 1}
+        updated_at: {type: string, format: date-time}
+        system:
+          type: object
+          additionalProperties: true
+          properties:
+            timezone: {type: string, example: Europe/Belgrade}
+        wan: {type: object, additionalProperties: true}
+        lan: {type: object, additionalProperties: true}
+        dhcp: {type: object, additionalProperties: true}
+        firewall: {type: object, additionalProperties: true}
+        wireguard: {type: object, additionalProperties: true}
+        cloudflare: {type: object, additionalProperties: true}
+        squid_proxy: {type: object, additionalProperties: true}
+        adguard: {type: object, additionalProperties: true}
+        qos: {type: object, additionalProperties: true}
+        wifi: {type: object, additionalProperties: true}
+        iot: {$ref: '#/components/schemas/IoTConfig'}
+        device_policies: {$ref: '#/components/schemas/DevicePolicyConfig'}
 
 paths:
   /auth/login:
@@ -139,6 +261,10 @@ paths:
                               format: ipv4
                             hostname:
                               type: string
+                      interfaces:
+                        type: array
+                        description: Stable operator-facing interface inventory used by setup and IoT selection.
+                        items: {$ref: '#/components/schemas/NetworkInterfaceStatus'}
 
   /config:
     get:
@@ -149,6 +275,9 @@ paths:
       responses:
         '200':
           description: Canonical configuration object
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CanonicalConfig'}
     put:
       summary: Submit configuration update and execute transaction pipeline
       operationId: updateConfig
@@ -159,8 +288,7 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              type: object
+            schema: {$ref: '#/components/schemas/CanonicalConfig'}
       responses:
         '200':
           description: Transaction committed successfully
@@ -299,6 +427,19 @@ paths:
       responses:
         '200':
           description: Setup status; contains no secrets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured: {type: boolean}
+                  wan_interface: {type: string}
+                  lan_interface: {type: string}
+                  lan_ip: {type: string, format: ipv4}
+                  timezone: {type: string}
+                  interfaces:
+                    type: array
+                    items: {$ref: '#/components/schemas/NetworkInterfaceStatus'}
 
   /setup/apply:
     post:
@@ -318,6 +459,7 @@ paths:
                 pppoe_password: {type: string}
                 admin_password: {type: string, minLength: 15, maxLength: 1024}
                 lan_ip_address: {type: string, example: 192.168.1.1}
+                timezone: {type: string, example: Europe/Belgrade}
       responses:
         '200': {description: Setup applied and initial session issued}
         '403': {description: Appliance is already configured}

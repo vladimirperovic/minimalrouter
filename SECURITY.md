@@ -85,11 +85,32 @@ The default and first-run configuration is intended to provide:
 - management HTTPS on the selected LAN address, not on WAN;
 - SSH, UPnP, plaintext management, Cloudflare integrations, Wi-Fi AP, Squid,
   QoS, and WireGuard disabled until explicitly configured;
-- IPv6 disabled and blocked until it has policy parity with IPv4;
+- IPv6 disabled and blocked; IPv6 parity is not part of the current implementation scope;
 - no WAN port forwards in the current secure appliance profile;
 - DNS and DHCP bound to the selected LAN interface;
 - unique per-device TLS material rather than an image-wide private key;
 - no shipped administrator password.
+
+## IoT and device-policy security
+
+The optional IoT zone is a routed IPv4 boundary, not a label applied to devices
+on the ordinary LAN. Enabling it requires a dedicated interface or an explicit
+VLAN parent and ID. The generated firewall blocks forwarding between the main
+LAN and IoT zone in both directions before established-state acceptance and does
+not expose management HTTPS, Squid, or WireGuard administration on the IoT
+interface.
+
+Device schedules require a matching fixed DHCP reservation. Rules match the
+reserved source IPv4 address and selected ingress zone before generic forwarding
+rules. The configured timezone is validated against installed zoneinfo and
+activated with atomic file replacement. Correct wall-clock synchronization is
+therefore security relevant; the installer enables `chronyd`.
+
+YouTube/Steam allowlists are intentionally described as best effort. DNS answers
+populate volatile project-owned nftables sets; this is not TLS inspection, an
+application firewall, or a guarantee that every provider address is exclusively
+used by one service. Same-L2 IoT clients can communicate without traversing the
+router unless the switch or access point supplies client isolation.
 
 ## Authentication and browser security
 
@@ -205,7 +226,7 @@ The current project does not claim complete protection against:
 - denial of service that saturates the WAN link;
 - traffic analysis by the ISP;
 - LAN Layer-2 attacks such as rogue DHCP or ARP spoofing;
-- unsupported IPv6 traffic, VLAN topologies, multi-WAN, or high availability;
+- unsupported IPv6 traffic, VLAN topologies beyond the single explicit IoT VLAN, multi-WAN, or high availability;
 - supply-chain compromise outside the project's verified build inputs;
 - weak administrator operational practices;
 - undiscovered implementation defects.
@@ -241,8 +262,7 @@ Public source availability does not make the router production-ready. Before a
 future release is recommended as a household production router, the project must
 also:
 
-- verify PPPoE, DHCP, DNS, NAT, WireGuard, reboot reconciliation, backup restore,
-  rollback, and recovery on supported physical hardware;
+- verify PPPoE, DHCP, DNS, NAT, WireGuard, IoT isolation, schedule cutoffs, reboot reconciliation, backup restore, rollback, and recovery on supported physical hardware;
 - perform independent external IPv4 and IPv6 scanning from an unrelated network;
 - run fault injection for full disk, read-only filesystem, service crash,
   interrupted transaction, and corrupted snapshot;
