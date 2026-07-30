@@ -47,7 +47,7 @@ export function netmaskFromCIDR(cidr: string): string | null {
   if (extra !== undefined || !ipv4IsValid(address) || !/^\d{1,2}$/.test(rawPrefix || "")) return null;
   const prefix = Number(rawPrefix);
   if (!Number.isInteger(prefix) || prefix < 1 || prefix > 30) return null;
-  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  const mask = (0xffffffff << (32 - prefix)) >>> 0;
   return [24, 16, 8, 0].map((shift) => String((mask >>> shift) & 0xff)).join(".");
 }
 
