@@ -6,13 +6,21 @@ on:
       - feature/alpha-1-1-recovery
     paths:
       - .github/patch-ready
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/patch-ready
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: github.repository_owner == 'vladimirperovic'
+    if: >-
+      github.repository_owner == 'vladimirperovic' &&
+      (github.event_name == 'push' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
