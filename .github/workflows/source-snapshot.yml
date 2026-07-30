@@ -1,26 +1,45 @@
-name: Source snapshot
+name: Apply Alpha 1.1 patch
 
 on:
   push:
     branches:
       - feature/alpha-1-1-recovery
-  pull_request:
-    branches:
-      - main
+    paths:
+      - .github/patch-ready
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  apply:
+    if: github.repository_owner == 'vladimirperovic'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - name: Archive source
-        run: tar --exclude=.git -czf /tmp/minimalrouter-source.tar.gz .
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@v4
+      - name: Check out feature branch
+        uses: actions/checkout@v6
         with:
-          name: minimalrouter-source-${{ github.sha }}
-          path: /tmp/minimalrouter-source.tar.gz
-          retention-days: 1
+          ref: feature/alpha-1-1-recovery
+          fetch-depth: 0
+
+      - name: Verify and apply reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/patch-parts/part-* \
+            | base64 --decode \
+            | gzip -dc > /tmp/alpha-1-1.patch
+          echo "9c8ea33d208d75e0027024303b760d23d0577a938d5cb93966a29e0b31b9b03f  /tmp/alpha-1-1.patch" \
+            | sha256sum -c -
+          git apply --check --whitespace=error-all /tmp/alpha-1-1.patch
+          git apply --index --whitespace=error-all /tmp/alpha-1-1.patch
+          git rm -r .github/patch-parts .github/patch-ready
+
+      - name: Commit and push implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Minimal Router CI"
+          git config user.email "minimalrouter-ci@users.noreply.github.com"
+          git commit -m "feat: add IoT isolation and device schedules"
+          git push origin HEAD:feature/alpha-1-1-recovery
