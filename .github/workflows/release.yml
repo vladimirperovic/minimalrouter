@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out signed tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
