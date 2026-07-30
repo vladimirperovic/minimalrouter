@@ -16,6 +16,11 @@ import (
 
 var releaseVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`)
 
+const (
+	operationJournalVersion = 1
+	operationJournalName    = "operation.json"
+)
+
 // SlotState records the current, previous, and staged software versions. The
 // current and previous symlinks are authoritative at runtime; state.json keeps
 // the same information for diagnostics and the pending marker.
@@ -23,6 +28,13 @@ type SlotState struct {
 	Current  string `json:"current"`
 	Previous string `json:"previous"`
 	Pending  string `json:"pending"`
+}
+
+type slotOperation struct {
+	Version int       `json:"version"`
+	Kind    string    `json:"kind"`
+	Old     SlotState `json:"old"`
+	Next    SlotState `json:"next"`
 }
 
 // SlotManager stages only content covered by an Ed25519-signed manifest. It
@@ -34,6 +46,9 @@ type SlotManager struct {
 
 func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 	return m.withLock(func() error {
+		if err := m.recoverOperation(); err != nil {
+			return fmt.Errorf("recover interrupted slot operation: %w", err)
+		}
 		if manifest == nil || !releaseVersionPattern.MatchString(manifest.Version) {
 			return errors.New("release version is not a safe semantic version")
 		}
@@ -46,7 +61,7 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 
 		// Validate existing state before committing a final slot. A corrupt state
 		// file must never leave a version directory that blocks a safe retry.
-		state, err := m.State()
+		state, err := m.stateWithoutOperation()
 		if err != nil {
 			return err
 		}
@@ -107,13 +122,16 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 
 func (m SlotManager) Activate(version string) error {
 	return m.withLock(func() error {
+		if err := m.recoverOperation(); err != nil {
+			return fmt.Errorf("recover interrupted slot operation: %w", err)
+		}
 		if !releaseVersionPattern.MatchString(version) {
 			return errors.New("invalid release version")
 		}
 		if err := m.requireSlot(version); err != nil {
 			return err
 		}
-		state, err := m.State()
+		state, err := m.stateWithoutOperation()
 		if err != nil {
 			return err
 		}
@@ -128,31 +146,28 @@ func (m SlotManager) Activate(version string) error {
 		next.Current = version
 		next.Pending = ""
 
-		// Runtime pointers are authoritative. Move them first and persist metadata
-		// last. After a sudden power loss State reconstructs current/previous from
-		// the symlinks instead of claiming a version that is not actually active.
-		if old.Current != "" {
-			if err := m.swapLink("previous", old.Current); err != nil {
-				return fmt.Errorf("prepare previous slot pointer: %w", err)
+		return m.commitOperation("activate", old, next, func() error {
+			if old.Current != "" {
+				if err := m.swapLink("previous", old.Current); err != nil {
+					return fmt.Errorf("prepare previous slot pointer: %w", err)
+				}
+			} else if err := m.removeLink("previous"); err != nil {
+				return err
 			}
-		} else if err := m.removeLink("previous"); err != nil {
-			return err
-		}
-		if err := m.swapLink("current", version); err != nil {
-			restoreErr := m.restoreLinks(old)
-			return errors.Join(fmt.Errorf("activate slot pointer: %w", err), restoreErr)
-		}
-		if err := m.saveState(next); err != nil {
-			restoreErr := m.restoreLinks(old)
-			return errors.Join(fmt.Errorf("persist activated slot state: %w", err), restoreErr)
-		}
-		return nil
+			if err := m.swapLink("current", version); err != nil {
+				return fmt.Errorf("activate slot pointer: %w", err)
+			}
+			return nil
+		})
 	})
 }
 
 func (m SlotManager) Rollback() error {
 	return m.withLock(func() error {
-		state, err := m.State()
+		if err := m.recoverOperation(); err != nil {
+			return fmt.Errorf("recover interrupted slot operation: %w", err)
+		}
+		state, err := m.stateWithoutOperation()
 		if err != nil {
 			return err
 		}
@@ -168,27 +183,34 @@ func (m SlotManager) Rollback() error {
 		next.Current, next.Previous = old.Previous, old.Current
 		next.Pending = ""
 
-		if err := m.swapLink("current", next.Current); err != nil {
-			return fmt.Errorf("restore current slot pointer: %w", err)
-		}
-		if next.Previous != "" {
-			if err := m.swapLink("previous", next.Previous); err != nil {
-				restoreErr := m.restoreLinks(old)
-				return errors.Join(fmt.Errorf("preserve rollback slot pointer: %w", err), restoreErr)
+		return m.commitOperation("rollback", old, next, func() error {
+			if err := m.swapLink("current", next.Current); err != nil {
+				return fmt.Errorf("restore current slot pointer: %w", err)
 			}
-		} else if err := m.removeLink("previous"); err != nil {
-			restoreErr := m.restoreLinks(old)
-			return errors.Join(err, restoreErr)
-		}
-		if err := m.saveState(next); err != nil {
-			restoreErr := m.restoreLinks(old)
-			return errors.Join(fmt.Errorf("persist rollback state: %w", err), restoreErr)
-		}
-		return nil
+			if next.Previous != "" {
+				if err := m.swapLink("previous", next.Previous); err != nil {
+					return fmt.Errorf("preserve rollback slot pointer: %w", err)
+				}
+			} else if err := m.removeLink("previous"); err != nil {
+				return err
+			}
+			return nil
+		})
 	})
 }
 
 func (m SlotManager) State() (SlotState, error) {
+	operation, exists, err := m.readOperation()
+	if err != nil {
+		return SlotState{}, err
+	}
+	if exists {
+		return m.projectOperationState(operation)
+	}
+	return m.stateWithoutOperation()
+}
+
+func (m SlotManager) stateWithoutOperation() (SlotState, error) {
 	var state SlotState
 	data, err := os.ReadFile(filepath.Join(m.Root, "state.json"))
 	if err == nil {
@@ -213,6 +235,164 @@ func (m SlotManager) State() (SlotState, error) {
 		state.Previous = previous
 	}
 	return state, nil
+}
+
+func (m SlotManager) commitOperation(kind string, old, next SlotState, mutate func() error) error {
+	operation := slotOperation{
+		Version: operationJournalVersion,
+		Kind:    kind,
+		Old:     old,
+		Next:    next,
+	}
+	if err := m.beginOperation(operation); err != nil {
+		return fmt.Errorf("persist slot operation journal: %w", err)
+	}
+	if err := mutate(); err != nil {
+		return m.abortOperation(old, err)
+	}
+	if err := m.saveState(next); err != nil {
+		return m.abortOperation(old, fmt.Errorf("persist slot state: %w", err))
+	}
+	if err := m.clearOperation(); err != nil {
+		return fmt.Errorf("clear completed slot operation journal: %w", err)
+	}
+	return nil
+}
+
+func (m SlotManager) abortOperation(old SlotState, primary error) error {
+	if err := m.restoreLinks(old); err != nil {
+		return errors.Join(primary, fmt.Errorf("restore slot pointers: %w", err))
+	}
+	if err := m.saveState(old); err != nil {
+		return errors.Join(primary, fmt.Errorf("restore slot state: %w", err))
+	}
+	if err := m.clearOperation(); err != nil {
+		return errors.Join(primary, fmt.Errorf("clear aborted slot operation journal: %w", err))
+	}
+	return primary
+}
+
+func (m SlotManager) recoverOperation() error {
+	operation, exists, err := m.readOperation()
+	if err != nil || !exists {
+		return err
+	}
+	target, err := m.projectOperationState(operation)
+	if err != nil {
+		return err
+	}
+	if err := m.restoreLinks(target); err != nil {
+		return fmt.Errorf("recover slot pointers: %w", err)
+	}
+	if err := m.saveState(target); err != nil {
+		return fmt.Errorf("recover slot state: %w", err)
+	}
+	if err := m.clearOperation(); err != nil {
+		return fmt.Errorf("clear recovered slot operation journal: %w", err)
+	}
+	return nil
+}
+
+func (m SlotManager) projectOperationState(operation *slotOperation) (SlotState, error) {
+	if err := m.validateOperation(operation); err != nil {
+		return SlotState{}, err
+	}
+	current, exists, err := m.linkVersion("current")
+	if err != nil {
+		return SlotState{}, err
+	}
+	if exists && current == operation.Next.Current {
+		return operation.Next, nil
+	}
+	if exists && current == operation.Old.Current {
+		return operation.Old, nil
+	}
+	if !exists && operation.Old.Current == "" {
+		return operation.Old, nil
+	}
+	if !exists && operation.Next.Current == "" {
+		return operation.Next, nil
+	}
+	return SlotState{}, errors.New("slot operation journal does not match the current runtime pointer")
+}
+
+func (m SlotManager) beginOperation(operation slotOperation) error {
+	if err := m.validateOperation(&operation); err != nil {
+		return err
+	}
+	return m.writeAtomicJSON(operationJournalName, ".operation-", 0o600, operation)
+}
+
+func (m SlotManager) readOperation() (*slotOperation, bool, error) {
+	data, err := os.ReadFile(filepath.Join(m.Root, operationJournalName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var operation slotOperation
+	if err := json.Unmarshal(data, &operation); err != nil {
+		return nil, false, fmt.Errorf("decode slot operation journal: %w", err)
+	}
+	if err := m.validateOperation(&operation); err != nil {
+		return nil, false, err
+	}
+	return &operation, true, nil
+}
+
+func (m SlotManager) validateOperation(operation *slotOperation) error {
+	if operation == nil || operation.Version != operationJournalVersion {
+		return errors.New("unsupported slot operation journal")
+	}
+	if err := m.validateJournalState(operation.Old); err != nil {
+		return fmt.Errorf("invalid old slot operation state: %w", err)
+	}
+	if err := m.validateJournalState(operation.Next); err != nil {
+		return fmt.Errorf("invalid next slot operation state: %w", err)
+	}
+	if operation.Next.Pending != "" {
+		return errors.New("completed slot operation state cannot remain pending")
+	}
+	switch operation.Kind {
+	case "activate":
+		if operation.Next.Current == "" || operation.Next.Current == operation.Old.Current || operation.Next.Previous != operation.Old.Current {
+			return errors.New("invalid activation slot operation journal")
+		}
+	case "rollback":
+		if operation.Old.Previous == "" || operation.Next.Current != operation.Old.Previous || operation.Next.Previous != operation.Old.Current {
+			return errors.New("invalid rollback slot operation journal")
+		}
+	default:
+		return errors.New("unknown slot operation journal kind")
+	}
+	return nil
+}
+
+func (m SlotManager) validateJournalState(state SlotState) error {
+	for _, version := range []string{state.Current, state.Previous, state.Pending} {
+		if version == "" {
+			continue
+		}
+		if !releaseVersionPattern.MatchString(version) {
+			return errors.New("journal contains an invalid release version")
+		}
+		if err := m.requireSlot(version); err != nil {
+			return fmt.Errorf("journal references an unavailable slot %q", version)
+		}
+	}
+	if state.Current != "" && state.Current == state.Previous {
+		return errors.New("current and previous journal slots must differ")
+	}
+	return nil
+}
+
+func (m SlotManager) clearOperation() error {
+	err := os.Remove(filepath.Join(m.Root, operationJournalName))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDir(m.Root)
 }
 
 func (m SlotManager) ensureRoot() error {
@@ -245,21 +425,25 @@ func (m SlotManager) withLock(fn func() error) error {
 }
 
 func (m SlotManager) saveState(state SlotState) error {
+	return m.writeAtomicJSON("state.json", ".state-", 0o644, state)
+}
+
+func (m SlotManager) writeAtomicJSON(name, pattern string, mode os.FileMode, value any) error {
 	if err := m.ensureRoot(); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	temp, err := os.CreateTemp(m.Root, ".state-")
+	temp, err := os.CreateTemp(m.Root, pattern)
 	if err != nil {
 		return err
 	}
-	name := temp.Name()
-	defer os.Remove(name)
-	if err := temp.Chmod(0o644); err != nil {
+	tempName := temp.Name()
+	defer os.Remove(tempName)
+	if err := temp.Chmod(mode); err != nil {
 		temp.Close()
 		return err
 	}
@@ -274,7 +458,7 @@ func (m SlotManager) saveState(state SlotState) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(name, filepath.Join(m.Root, "state.json")); err != nil {
+	if err := os.Rename(tempName, filepath.Join(m.Root, name)); err != nil {
 		return err
 	}
 	return syncDir(m.Root)
