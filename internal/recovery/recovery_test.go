@@ -2,6 +2,7 @@ package recovery
 
 import (
 	"testing"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -15,7 +16,8 @@ func TestResetAuthenticationChangesPasswordClearsTOTPAndSessions(t *testing.T) {
 	if err := store.SetAdminTOTPSecret("JBSWY3DPEHPK3PXP"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateSession("session", "csrf", false, testTime(), testTime()); err != nil {
+	now := time.Now().UTC()
+	if err := store.CreateSession("session", "csrf", false, now, now); err != nil {
 		t.Fatal(err)
 	}
 	manager := Manager{Store: store}
@@ -119,8 +121,4 @@ func testStore(t *testing.T) *config.SQLiteStore {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store
-}
-
-func testTime() (result interface{ Format(string) string }) {
-	panic("replaced by bootstrap gofmt patch")
 }
