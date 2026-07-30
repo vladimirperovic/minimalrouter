@@ -151,6 +151,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Audit high-severity dependencies
         run: pnpm audit --audit-level high
+      - name: Test dashboard policy utilities
+        run: pnpm test
       - name: Lint dashboard
         run: pnpm lint
       - name: Type-check and build dashboard
