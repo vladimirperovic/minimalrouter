@@ -73,14 +73,14 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 // ServiceDomains maps stable service identifiers to domains whose resolved
 // IPv4 destinations are inserted into nftables sets by dnsmasq.
 var ServiceDomains = map[string][]string{
-	"youtube":  {"youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"},
-	"steam":    {"steampowered.com", "steamcommunity.com", "steamstatic.com", "steamcontent.com", "steamserver.net"},
-	"tiktok":   {"tiktok.com", "byteoversea.com", "ibytedtos.com", "tiktokv.com"},
+	"youtube":   {"youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"},
+	"steam":     {"steampowered.com", "steamcommunity.com", "steamstatic.com", "steamcontent.com", "steamserver.net"},
+	"tiktok":    {"tiktok.com", "byteoversea.com", "ibytedtos.com", "tiktokv.com"},
 	"instagram": {"instagram.com", "cdninstagram.com"},
-	"facebook": {"facebook.com", "fbcdn.net", "messenger.com"},
-	"roblox":   {"roblox.com", "rbxcdn.com"},
-	"epic":     {"epicgames.com", "unrealengine.com"},
-	"twitch":   {"twitch.tv", "ttvnw.net", "jtvnw.net"},
-	"adult":    {"pornhub.com", "xvideos.com", "xnxx.com", "onlyfans.com"},
-	"gaming":   {"roblox.com", "rbxcdn.com", "twitch.tv", "ttvnw.net", "steampowered.com", "steamcommunity.com", "epicgames.com"},
+	"facebook":  {"facebook.com", "fbcdn.net", "messenger.com"},
+	"roblox":    {"roblox.com", "rbxcdn.com"},
+	"epic":      {"epicgames.com", "unrealengine.com"},
+	"twitch":    {"twitch.tv", "ttvnw.net", "jtvnw.net"},
+	"adult":     {"pornhub.com", "xvideos.com", "xnxx.com", "onlyfans.com"},
+	"gaming":    {"roblox.com", "rbxcdn.com", "twitch.tv", "ttvnw.net", "steampowered.com", "steamcommunity.com", "epicgames.com"},
 }
