@@ -7,24 +7,37 @@ not embed or impersonate AdGuard Home.
 ## What a device profile does
 
 A profile binds one or more static LAN IPv4 addresses to selected managed
-services and a weekly access schedule. The router resolver places IPv4
-addresses returned for those services into bounded nftables sets. The firewall
-then allows or blocks matching traffic for the profile addresses.
+services and an access schedule. The router resolver places IPv4 addresses
+returned for those services into bounded nftables sets. The firewall then
+allows or blocks matching traffic for the profile addresses.
 
 Profiles are applied before established-connection acceptance, so an existing
 stream is cut when its permitted window closes instead of remaining open until
 the application disconnects.
 
-## Default Kids example
+## Kids profile and visual scheduler
 
-The dashboard starts a new `Kids` profile with:
+In the dashboard, select **Add device profile**, then choose **Kids** as the
+profile type. Only then does the parental-control editor open.
 
-- YouTube, Steam, and Wikipedia/Wikimedia selected;
-- access from `19:00` through `23:59` Monday through Friday;
-- selected services available all day Saturday and Sunday.
+The editor contains:
 
-These values are editable before saving. Other services can be selected
-individually.
+- a seven-day grid, Monday through Sunday;
+- 24 hourly cells for every day;
+- click-and-drag painting of allowed or blocked hours;
+- per-day **All** and **None** controls;
+- global **Default**, **Allow all**, and **Block all** controls;
+- individual service selection for YouTube, Steam, Wikipedia/Wikimedia, TikTok,
+  Instagram, Facebook/Messenger, Roblox, Epic Games, and Twitch.
+
+The initial preset selects YouTube, Steam, and Wikipedia/Wikimedia, allows them
+from `19:00` until the end of Monday through Friday, and allows them all day on
+Saturday and Sunday. This is only a starting preset: every hour and every day
+can be changed before saving.
+
+The scheduler stores independent `day_windows` for each day. Older backups that
+use `weekday_windows`, `weekend_mode`, and `weekend_windows` remain readable,
+but new dashboard profiles use the per-day format.
 
 ## Requirements
 
@@ -55,8 +68,10 @@ For that reason:
 ## Failure behavior
 
 Invalid profiles are rejected before generation. Duplicate device addresses,
-overlapping windows, invalid time ranges, unknown services, and addresses
-outside the LAN subnet fail closed.
+overlapping windows, invalid local times, unknown services, and addresses
+outside the LAN subnet fail closed. A 24-hour hourly row may contain up to 12
+non-overlapping windows, which covers the most fragmented possible hourly
+selection.
 
 Configuration changes use the normal snapshot, preflight, apply, verify, and
 rollback transaction. If DNS or nftables preflight fails, the previous known-good
@@ -77,11 +92,15 @@ configuration remains active.
         "services": ["youtube", "steam", "wiki"],
         "enabled": true,
         "schedule": {
-          "weekday_windows": [
-            { "start": "19:00", "end": "23:59" }
-          ],
-          "weekend_mode": "all_day",
-          "weekend_windows": []
+          "day_windows": {
+            "monday": [{ "start": "19:00", "end": "23:59" }],
+            "tuesday": [{ "start": "19:00", "end": "23:59" }],
+            "wednesday": [{ "start": "19:00", "end": "23:59" }],
+            "thursday": [{ "start": "19:00", "end": "23:59" }],
+            "friday": [{ "start": "19:00", "end": "23:59" }],
+            "saturday": [{ "start": "00:00", "end": "23:59" }],
+            "sunday": [{ "start": "00:00", "end": "23:59" }]
+          }
         }
       }
     ]
