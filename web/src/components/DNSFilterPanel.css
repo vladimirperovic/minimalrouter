@@ -74,7 +74,7 @@
 }
 
 .dns-profile-modal {
-  max-width: 720px;
+  max-width: 980px;
 }
 
 .modal-heading {
@@ -103,13 +103,15 @@
   margin-top: 24px;
 }
 
-.service-picker {
+.service-picker,
+.weekly-scheduler {
   border: 0;
   margin: 0;
   padding: 0;
 }
 
-.service-picker legend {
+.service-picker legend,
+.weekly-scheduler legend {
   font-size: 13px;
   font-weight: 650;
   margin-bottom: 10px;
@@ -152,6 +154,110 @@
   justify-content: flex-end;
 }
 
+.scheduler-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.scheduler-toolbar p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin: 0;
+}
+
+.scheduler-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.button.compact {
+  font-size: 12px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.scheduler-scroll {
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  overflow-x: auto;
+  padding: 12px;
+}
+
+.scheduler-grid {
+  display: grid;
+  gap: 3px;
+  grid-template-columns: 112px repeat(24, 25px);
+  min-width: 788px;
+  user-select: none;
+}
+
+.scheduler-corner,
+.scheduler-hour {
+  height: 20px;
+}
+
+.scheduler-hour {
+  color: var(--text-tertiary);
+  font-size: 9px;
+  text-align: center;
+}
+
+.scheduler-row {
+  display: contents;
+}
+
+.scheduler-day {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  height: 25px;
+  justify-content: space-between;
+  padding-right: 6px;
+}
+
+.scheduler-day strong {
+  font-size: 12px;
+}
+
+.scheduler-day span {
+  display: flex;
+  gap: 3px;
+}
+
+.scheduler-day button {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  padding: 2px;
+}
+
+.scheduler-slot {
+  background: var(--surface-secondary);
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  cursor: crosshair;
+  height: 25px;
+  padding: 0;
+  touch-action: none;
+  width: 25px;
+}
+
+.scheduler-slot:hover {
+  border-color: var(--accent);
+}
+
+.scheduler-slot.is-allowed {
+  background: color-mix(in srgb, var(--accent) 72%, white);
+  border-color: var(--accent);
+}
+
 @media (max-width: 760px) {
   .dns-filter-heading,
   .two-column-fields {
@@ -160,5 +266,10 @@
 
   .dns-filter-actions {
     justify-content: flex-start;
+  }
+
+  .scheduler-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
