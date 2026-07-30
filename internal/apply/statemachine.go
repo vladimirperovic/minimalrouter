@@ -329,8 +329,15 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	resp, err := e.applyPrivileged(ctx, req)
 	cancel()
-	if err != nil || !resp.Success || !resp.Verified {
-		return pending.tx, fmt.Errorf("privileged confirmation failed")
+	if err != nil {
+		pending.tx.CurrentState = StateRecoveryRequired
+		pending.tx.Error = fmt.Sprintf("privileged confirmation outcome is unknown; verified rollback or retry is required: %v", err)
+		return pending.tx, fmt.Errorf("privileged confirmation failed: %w", err)
+	}
+	if !resp.Success || !resp.Verified {
+		pending.tx.CurrentState = StateRecoveryRequired
+		pending.tx.Error = "privileged confirmation failed; verified rollback or retry is required: " + resp.Error
+		return pending.tx, fmt.Errorf("privileged confirmation failed: %s", resp.Error)
 	}
 	if e.store != nil {
 		if err := e.store.SaveConfig(pending.tx.Config); err != nil {

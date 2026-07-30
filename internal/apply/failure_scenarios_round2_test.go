@@ -167,3 +167,31 @@ func TestConfirmedRuntimeWithCanonicalStoreFailureRemainsRecoverable(t *testing.
 		t.Fatal("failed canonical commit changed the in-memory canonical configuration")
 	}
 }
+
+func TestConfirmationHelperFailureSurfacesRecoveryRequired(t *testing.T) {
+	initial := config.DefaultConfig()
+	client := &scenarioApplyClient{steps: []scenarioApplyStep{
+		successfulScenarioStep(),
+		{response: ApplyResponse{Success: false, RecoveryRequired: true, Error: "pending state is corrupt"}},
+	}}
+	engine := NewEngineWithClient(initial, nil, client)
+	tx, err := engine.ProcessTransaction("tx-confirm-helper-failure", candidateWithNewLAN(initial))
+	if err != nil {
+		t.Fatalf("create pending transaction: %v", err)
+	}
+	defer func() {
+		if engine.pending != nil && engine.pending.timer != nil {
+			engine.pending.timer.Stop()
+		}
+	}()
+	confirmed, confirmErr := engine.ConfirmTransaction(tx.ID)
+	if confirmErr == nil {
+		t.Fatal("helper confirmation failure was accepted")
+	}
+	if confirmed.CurrentState != StateRecoveryRequired {
+		t.Fatalf("confirmation failure state=%s", confirmed.CurrentState)
+	}
+	if engine.GetPendingTransaction() == nil {
+		t.Fatal("confirmation recovery context was discarded")
+	}
+}

@@ -166,12 +166,9 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, failure(req.ID, "could not fingerprint request", false))
 		return
 	}
-	if previous, err := loadLastTransaction(); err == nil && previous.ID == req.ID {
-		if previous.ConfigHash != configHash {
-			writeResponse(conn, failure(req.ID, "transaction ID was already used for different content", false))
-			return
-		}
-		writeResponse(conn, previous.Response)
+	previous, loadErr := loadLastTransaction()
+	if replay, handled := replayTransactionResponse(req.ID, configHash, previous, loadErr); handled {
+		writeResponse(conn, *replay)
 		return
 	}
 
@@ -241,7 +238,11 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
-	previousConfig, _ := loadLastGood()
+	loadedPrevious, previousErr := loadLastGood()
+	previousConfig, previousErr := normalizeLastGood(loadedPrevious, previousErr)
+	if previousErr != nil {
+		return recoveryFailure(req.ID, "last-good configuration could not be read; canonical reconciliation is required")
+	}
 	if req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
 		return failure(req.ID, "confirmation mode is invalid for this change", false)
 	}
@@ -302,23 +303,23 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	pending, err := loadPendingConfirmation()
 	if err != nil {
-		return failure(req.ID, "no configuration is awaiting confirmation", false)
+		return pendingLoadFailure(req.ID, err)
 	}
 	hash, err := hashConfig(req.Config)
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmation does not match pending configuration", false)
 	}
 	if err := configureRuntimeLAN(req.Config); err != nil {
-		return failure(req.ID, "could not finalize LAN address", false)
+		return recoveryFailure(req.ID, "could not finalize LAN address; verified rollback is required")
 	}
 	if err := saveLastGood(req.Config); err != nil {
-		return failure(req.ID, "could not persist confirmed configuration", false)
+		return recoveryFailure(req.ID, "could not persist confirmed configuration; verified rollback is required")
 	}
 	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return failure(req.ID, "could not clear pending confirmation", false)
+		return recoveryFailure(req.ID, "could not clear pending confirmation; canonical reconciliation is required")
 	}
 	if err := verifyActive(req.Config); err != nil {
-		return failure(req.ID, "confirmed configuration verification failed", false)
+		return recoveryFailure(req.ID, "confirmed configuration verification failed; verified rollback is required")
 	}
 	return apply.ApplyResponse{
 		ID: req.ID, Success: true, Verified: true, Logs: "configuration confirmed",
