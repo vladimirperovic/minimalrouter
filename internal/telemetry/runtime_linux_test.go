@@ -25,6 +25,9 @@ func TestInterfaceInventoryAtReportsStableOperatorDetails(t *testing.T) {
 	writeSysfsValue(t, filepath.Join(root, "eth1", "operstate"), "up")
 	writeSysfsValue(t, filepath.Join(root, "eth1", "carrier"), "1")
 	writeSysfsValue(t, filepath.Join(root, "eth1", "speed"), "2500")
+	if err := os.MkdirAll(filepath.Join(root, "eth1", "device"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	writeSysfsValue(t, filepath.Join(root, "lo", "type"), "772")
 	writeSysfsValue(t, filepath.Join(root, "lo", "operstate"), "unknown")
