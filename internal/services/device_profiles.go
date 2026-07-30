@@ -22,7 +22,7 @@ func activeManagedServices(cfg *config.SystemConfig) []string {
 			if _, supported := ServiceDomains[service]; supported {
 				seen[service] = struct{}{}
 			}
-	}
+		}
 	}
 	services := make([]string, 0, len(seen))
 	for service := range seen {
