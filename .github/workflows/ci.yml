@@ -221,7 +221,7 @@ jobs:
       - name: Install, configure, update and roll back on clean Alpine
         run: sh scripts/ci-fresh-install-smoke.sh
       - name: Upload verified Alpine package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: minimalrouter-linux-amd64-${{ github.sha }}
           path: |
