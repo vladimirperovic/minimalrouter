@@ -250,7 +250,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		rollbackErr := rollback(previousConfig, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q activation failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
-			return failure(req.ID, "apply failed and rollback could not be verified", true)
+			return recoveryFailure(req.ID, "apply failed and rollback could not be verified")
 		}
 		log.Printf("apply transaction %q activation failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
@@ -259,7 +259,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		rollbackErr := rollback(previousConfig, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
-			return failure(req.ID, "verification failed and rollback could not be verified", true)
+			return recoveryFailure(req.ID, "verification failed and rollback could not be verified")
 		}
 		log.Printf("apply transaction %q verification failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "verification failed; previous configuration restored: "+safeError(err), true)
@@ -273,7 +273,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		if hashErr != nil || pendingErr != nil {
 			rollbackErr := rollback(previousConfig, previous)
 			if rollbackErr != nil {
-				return failure(req.ID, "could not persist pending state and rollback failed", true)
+				return recoveryFailure(req.ID, "could not persist pending state and rollback failed")
 			}
 			return failure(req.ID, "could not persist pending confirmation state", true)
 		}
@@ -281,7 +281,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		if err := saveLastGood(req.Config); err != nil {
 			rollbackErr := rollback(previousConfig, previous)
 			if rollbackErr != nil {
-				return failure(req.ID, "could not persist last-good state and rollback failed", true)
+				return recoveryFailure(req.ID, "could not persist last-good state and rollback failed")
 			}
 			return failure(req.ID, "could not persist last-good state; previous configuration restored", true)
 		}

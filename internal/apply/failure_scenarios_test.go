@@ -285,8 +285,8 @@ func TestUnverifiedPrivilegedResponseNeverCommits(t *testing.T) {
 	if err == nil {
 		t.Fatal("unverified privileged response must fail")
 	}
-	if tx.CurrentState != StateRolledBack {
-		t.Fatalf("expected rolled back state, got %s", tx.CurrentState)
+	if tx.CurrentState != StateRecoveryRequired {
+		t.Fatalf("expected recovery-required state, got %s", tx.CurrentState)
 	}
 	if engine.GetCurrentConfig().System.Hostname != initial.System.Hostname {
 		t.Fatal("unverified configuration became canonical")

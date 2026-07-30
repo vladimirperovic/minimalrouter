@@ -24,6 +24,7 @@ const (
 	StateAwaitingConfirmation State = "AwaitingConfirmation"
 	StateCommitted            State = "Committed"
 	StateRolledBack           State = "RolledBack"
+	StateRecoveryRequired     State = "RecoveryRequired"
 	StateRejected             State = "Rejected"
 )
 
@@ -209,19 +210,23 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	defer cancel()
 	resp, err := e.applyPrivileged(ctx, applyReq)
 	if err != nil {
-		tx.CurrentState = StateRolledBack
-		tx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; reboot reconciliation will restore the canonical configuration: %v", err)
+		tx.CurrentState = StateRecoveryRequired
+		tx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 	if !resp.Success {
-		tx.CurrentState = StateRolledBack
+		if resp.RecoveryRequired {
+			tx.CurrentState = StateRecoveryRequired
+		} else {
+			tx.CurrentState = StateRolledBack
+		}
 		tx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
 		return tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
 	}
 	tx.CurrentState = StateApplied
 	if !resp.Verified {
-		tx.CurrentState = StateRolledBack
-		tx.Error = "router-applyd did not verify the active configuration"
+		tx.CurrentState = StateRecoveryRequired
+		tx.Error = "router-applyd did not verify the active configuration; recovery is required"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 	tx.CurrentState = StateVerified
@@ -238,13 +243,21 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	}
 	if e.store != nil {
 		if err := e.store.SaveConfig(newCfg); err != nil {
-			tx.CurrentState = StateRolledBack
-			tx.Error = fmt.Sprintf("Failed to commit config store: %v", err)
+			tx.Error = fmt.Sprintf("failed to commit config store: %v", err)
+			tx.CurrentState = StateRecoveryRequired
 			rollbackReq, buildErr := buildApplyRequest(txID+"-rollback", e.currentConfig)
 			if buildErr == nil {
 				rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-				_, _ = e.applyPrivileged(rollbackCtx, rollbackReq)
+				rollbackResp, rollbackErr := e.applyPrivileged(rollbackCtx, rollbackReq)
 				rollbackCancel()
+				if rollbackErr == nil && rollbackResp.Success && rollbackResp.Verified && !rollbackResp.RecoveryRequired {
+					tx.CurrentState = StateRolledBack
+					tx.Error += "; previous configuration was verified restored"
+				} else {
+					tx.Error += "; rollback could not be verified and recovery is required"
+				}
+			} else {
+				tx.Error += "; rollback request could not be generated and recovery is required"
 			}
 			return tx, err
 		}
