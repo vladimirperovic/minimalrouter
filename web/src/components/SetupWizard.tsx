@@ -1,41 +1,99 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import "./SetupWizard.css";
 
 interface SetupWizardProps {
   onComplete: () => void;
   onClose?: () => void;
 }
 
+type InterfaceInfo = {
+  name: string;
+  mac_address?: string;
+  up: boolean;
+  carrier: boolean;
+  physical: boolean;
+  default_route: boolean;
+  score: number;
+};
+
+type InterfaceDiscovery = {
+  wan?: string;
+  lan?: string;
+  interfaces?: InterfaceInfo[];
+  warnings?: string[];
+};
+
+const totalSteps = 5;
+const stepTitles = ["Welcome", "Interfaces", "PPPoE", "Security", "Review"];
+
 export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
   const [step, setStep] = useState(1);
   const [wanIf, setWanIf] = useState("eth0");
   const [lanIf, setLanIf] = useState("eth1");
+  const [interfaces, setInterfaces] = useState<InterfaceInfo[]>([]);
+  const [interfaceWarnings, setInterfaceWarnings] = useState<string[]>([]);
+  const [interfacesLoading, setInterfacesLoading] = useState(true);
   const [pppoeUser, setPppoeUser] = useState("");
   const [pppoePass, setPppoePass] = useState("");
   const [adminPass, setAdminPass] = useState("");
   const [adminPassConfirm, setAdminPassConfirm] = useState("");
-  const lanIP = "192.168.1.1";
   const [errorMsg, setErrorMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const lanIP = "192.168.1.1";
+
   useEffect(() => {
-    fetch("/api/v1/setup/status")
-      .then(async (response) => {
-        if (!response.ok) throw new Error("status unavailable");
-        return response.json();
-      })
-      .then((status) => {
-        if (typeof status.wan_interface === "string") setWanIf(status.wan_interface);
-        if (typeof status.lan_interface === "string") setLanIf(status.lan_interface);
-      })
-      .catch(() => {
-        // Defaults remain editable when status cannot be read.
-      });
+    let active = true;
+    const load = async () => {
+      try {
+        const [statusResponse, interfacesResponse] = await Promise.all([
+          fetch("/api/v1/setup/status", { cache: "no-store", credentials: "same-origin" }),
+          fetch("/api/v1/setup/interfaces", { cache: "no-store", credentials: "same-origin" }),
+        ]);
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          if (active && typeof status.wan_interface === "string") setWanIf(status.wan_interface);
+          if (active && typeof status.lan_interface === "string") setLanIf(status.lan_interface);
+        }
+        if (interfacesResponse.ok) {
+          const discovery = await interfacesResponse.json() as InterfaceDiscovery;
+          if (!active) return;
+          setInterfaces(Array.isArray(discovery.interfaces) ? discovery.interfaces : []);
+          setInterfaceWarnings(Array.isArray(discovery.warnings) ? discovery.warnings : []);
+          if (discovery.wan) setWanIf(discovery.wan);
+          if (discovery.lan) setLanIf(discovery.lan);
+        }
+      } catch {
+        if (active) {
+          setInterfaceWarnings(["Automatsko otkrivanje nije dostupno. Potvrdite Linux imena kartica na lokalnoj konzoli."]);
+        }
+      } finally {
+        if (active) setInterfacesLoading(false);
+      }
+    };
+    void load();
+    return () => { active = false; };
   }, []);
 
-  const totalSteps = 5;
-  const stepTitles = ["Welcome", "Interfaces", "PPPoE", "Security", "Review"];
+  const options = useMemo(() => {
+    if (interfaces.length > 0) return interfaces;
+    return [
+      { name: wanIf, up: false, carrier: false, physical: false, default_route: false, score: 0 },
+      { name: lanIf, up: false, carrier: false, physical: false, default_route: false, score: 0 },
+    ].filter((item, index, items) => items.findIndex((candidate) => candidate.name === item.name) === index);
+  }, [interfaces, lanIf, wanIf]);
 
-  const handleNext = () => {
+  const next = () => {
     setErrorMsg("");
+    if (step === 2) {
+      if (!wanIf || !lanIf) {
+        setErrorMsg("Odaberite i WAN i LAN karticu.");
+        return;
+      }
+      if (wanIf === lanIf) {
+        setErrorMsg("WAN i LAN moraju biti dvije različite kartice.");
+        return;
+      }
+    }
     if (step === 3 && ((pppoeUser && !pppoePass) || (!pppoeUser && pppoePass))) {
       setErrorMsg("Unesite oba PPPoE podatka ili ostavite oba polja prazna.");
       return;
@@ -50,25 +108,21 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
         return;
       }
     }
-    if (step < totalSteps) {
-      setStep(step + 1);
-    }
+    setStep((current) => Math.min(totalSteps, current + 1));
   };
 
-  const handlePrev = () => {
+  const previous = () => {
     setErrorMsg("");
-    if (step > 1) {
-      setStep(step - 1);
-    }
+    setStep((current) => Math.max(1, current - 1));
   };
 
-  const handleFinish = async () => {
+  const finish = async () => {
     setSubmitting(true);
     setErrorMsg("");
-
     try {
-      const res = await fetch("/api/v1/setup/apply", {
+      const response = await fetch("/api/v1/setup/apply", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           wan_interface: wanIf,
@@ -79,593 +133,138 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           lan_ip_address: lanIP,
         }),
       });
-
-      if (!res.ok) {
-        const text = await res.text();
+      if (!response.ok) {
+        const text = await response.text();
         throw new Error(text || "Greška pri primjeni konfiguracije");
       }
-
-      setStep(6); // Success step
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Neuspešna primjena podešavanja";
-      setErrorMsg(msg);
+      setPppoePass("");
+      setAdminPass("");
+      setAdminPassConfirm("");
+      setStep(6);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Neuspješna primjena podešavanja");
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        display: "grid",
-        placeItems: "center",
-        backgroundColor: "rgba(0, 0, 0, 0.4)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        padding: "24px",
-      }}
-      role="presentation"
-    >
-      <div
-        style={{
-          maxWidth: "680px",
-          width: "100%",
-          borderRadius: "28px",
-          background: "var(--surface, #FFFFFF)",
-          color: "var(--text-primary, #1D1D1F)",
-          padding: "40px",
-          boxShadow: "0 20px 40px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.05)",
-          border: "1px solid rgba(0, 0, 0, 0.08)",
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif",
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {/* Top Header & Close button */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "28px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <div style={{ width: "32px", height: "32px", borderRadius: "10px", background: "#0071E3", display: "grid", placeItems: "center", color: "#FFF", fontWeight: 700, fontSize: "14px" }}>
-              M
-            </div>
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#6E6E73", letterSpacing: "0.02em", textTransform: "uppercase" }}>
-              Minimal Router OS · First-Run Setup
-            </span>
-          </div>
-          {onClose && (
-            <button
-              onClick={onClose}
-              style={{
-                border: "none",
-                background: "#F5F5F7",
-                width: "32px",
-                height: "32px",
-                borderRadius: "50%",
-                fontSize: "18px",
-                color: "#6E6E73",
-                cursor: "pointer",
-                display: "grid",
-                placeItems: "center",
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          )}
-        </div>
+    <main className="setup-backdrop">
+      <section aria-labelledby="setup-title" aria-modal="true" className="setup-panel" role="dialog">
+        <header className="setup-header">
+          <div className="setup-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
+          {onClose && <button aria-label="Close setup" className="setup-close" onClick={onClose} type="button">✕</button>}
+        </header>
 
-        {/* Apple Stepper Track */}
         {step <= totalSteps && (
-          <div style={{ marginBottom: "32px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-              {stepTitles.map((title, i) => (
-                <span
-                  key={i}
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: i + 1 === step ? 600 : 500,
-                    color: i + 1 === step ? "#0071E3" : i + 1 < step ? "#1D1D1F" : "#86868B",
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  {i + 1}. {title}
-                </span>
+          <div className="setup-progress">
+            <div className="setup-step-labels">
+              {stepTitles.map((title, index) => <span className={index + 1 === step ? "is-current" : ""} key={title}>{index + 1}. {title}</span>)}
+            </div>
+            <progress aria-label="Setup progress" max={totalSteps} value={step} />
+          </div>
+        )}
+
+        {errorMsg && <p className="setup-error" role="alert">{errorMsg}</p>}
+
+        {step === 1 && (
+          <div className="setup-page">
+            <p className="eyebrow">Prva instalacija</p>
+            <h1 id="setup-title">Dobrodošli u novi ruter.</h1>
+            <p className="setup-lead">Čarobnjak podešava WAN/LAN uloge, opcionu PPPoE vezu i administratorsku zaštitu. Svaki izbor možete pregledati prije primjene.</p>
+            <div className="setup-feature-grid">
+              <article><span>Sigurna primjena</span><strong>Snapshot i rollback</strong><p>Disruptivne izmjene se provjeravaju i mogu vratiti na prethodno stanje.</p></article>
+              <article><span>Lokalni oporavak</span><strong>Bez podrazumijevane lozinke</strong><p>Recovery konzola ostaje lokalna i ne otvara mrežni endpoint.</p></article>
+            </div>
+            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={next} type="button">Započni podešavanje →</button></div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="setup-page">
+            <p className="eyebrow">Mrežni priključci</p>
+            <h1 id="setup-title">Potvrdite WAN i LAN kartice</h1>
+            <p className="setup-lead">Preporuka koristi fizičku karticu, link i postojeću default rutu. Ne primjenjuje se bez vaše potvrde.</p>
+            {interfacesLoading ? <p className="setup-note">Otkrivanje kartica…</p> : null}
+            {interfaceWarnings.map((warning) => <p className="setup-warning" key={warning}>{warning}</p>)}
+            <div className="setup-interface-grid">
+              <label className="field"><span>WAN — internet</span><select onChange={(event) => setWanIf(event.target.value)} value={wanIf}>{options.map((item) => <option key={`wan-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
+              <label className="field"><span>LAN — lokalna mreža</span><select onChange={(event) => setLanIf(event.target.value)} value={lanIf}>{options.map((item) => <option key={`lan-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
+            </div>
+            <div className="setup-interface-list">
+              {options.map((item) => (
+                <article className={(item.name === wanIf || item.name === lanIf) ? "is-selected" : ""} key={item.name}>
+                  <div><strong>{item.name}</strong><code>{item.mac_address || "MAC unavailable"}</code></div>
+                  <div className="setup-badges">
+                    {item.physical && <span>Physical</span>}
+                    {item.carrier && <span>Link</span>}
+                    {item.default_route && <span>Default route</span>}
+                    {item.name === wanIf && <span className="is-wan">WAN</span>}
+                    {item.name === lanIf && <span className="is-lan">LAN</span>}
+                  </div>
+                </article>
               ))}
             </div>
-            <div style={{ height: "4px", width: "100%", background: "#E5E5EA", borderRadius: "2px", overflow: "hidden" }}>
-              <div
-                style={{
-                  height: "100%",
-                  width: `${(step / totalSteps) * 100}%`,
-                  background: "#0071E3",
-                  borderRadius: "2px",
-                  transition: "width 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
-                }}
-              />
-            </div>
+            <p className="setup-note">LAN gateway nakon instalacije: <code>{lanIP}/24</code>. Konzolni recovery može kasnije bezbjedno promijeniti LAN.</p>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Nastavi →</button></div>
           </div>
         )}
 
-        {/* Error message card */}
-        {errorMsg && (
-          <div
-            style={{
-              padding: "14px 18px",
-              borderRadius: "14px",
-              background: "#FF3B3015",
-              border: "1px solid #FF3B3030",
-              color: "#FF3B30",
-              fontSize: "14px",
-              fontWeight: 500,
-              marginBottom: "24px",
-            }}
-          >
-            {errorMsg}
-          </div>
-        )}
-
-        {/* STEP 1: WELCOME */}
-        {step === 1 && (
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0071E3", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Prva instalacija
-            </div>
-            <h1 style={{ fontSize: "32px", fontWeight: 600, margin: "0 0 12px", letterSpacing: "-0.03em", color: "#1D1D1F" }}>
-              Dobrodošli u novi ruter.
-            </h1>
-            <p style={{ fontSize: "16px", color: "#6E6E73", lineHeight: 1.5, marginBottom: "32px" }}>
-              Ovaj čarobnjak će vas voditi kroz podešavanje PPPoE internet veze, LAN mreže i administrator sigurnosti u manje od 2 minute.
-            </p>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "36px" }}>
-              <div style={{ padding: "20px", borderRadius: "18px", background: "#F5F5F7", border: "1px solid #E5E5EA" }}>
-                <div style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", marginBottom: "6px" }}>Brzina & Sigurnost</div>
-                <div style={{ fontSize: "18px", fontWeight: 600, color: "#1D1D1F" }}>Kernel Control Plane</div>
-                <div style={{ fontSize: "13px", color: "#86868B", marginTop: "4px" }}>Pogonjen Alpine Linux-om i Go mikrokontrolerom</div>
-              </div>
-              <div style={{ padding: "20px", borderRadius: "18px", background: "#F5F5F7", border: "1px solid #E5E5EA" }}>
-                <div style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", marginBottom: "6px" }}>Zaštita stanja</div>
-                <div style={{ fontSize: "18px", fontWeight: 600, color: "#1D1D1F" }}>Automatski Snapshotti</div>
-                <div style={{ fontSize: "13px", color: "#86868B", marginTop: "4px" }}>Svaka izmjena je reverzibilna sa 1-klik rollback-om</div>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                onClick={handleNext}
-                style={{
-                  background: "#0071E3",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 28px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  boxShadow: "0 4px 12px rgba(0, 113, 227, 0.25)",
-                }}
-              >
-                Započni podešavanje →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 2: INTERFACES */}
-        {step === 2 && (
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0071E3", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Mrežni priključci
-            </div>
-            <h2 style={{ fontSize: "26px", fontWeight: 600, margin: "0 0 8px", letterSpacing: "-0.02em" }}>
-              Potvrdite WAN i LAN interfejse
-            </h2>
-            <p style={{ fontSize: "15px", color: "#6E6E73", marginBottom: "20px" }}>
-              Provjerite stvarna Linux imena interfejsa na lokalnoj konzoli. Čarobnjak ne nagađa hardver niti tvrdi da je internet veza aktivna.
-            </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "36px" }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: "#1D1D1F" }}>
-                    WAN Port (Internet priključak)
-                  </label>
-                  <span style={{ fontSize: "11px", color: "#86868B" }}>Podrazumijevano: eth0</span>
-                </div>
-                <input
-                  type="text"
-                  value={wanIf}
-                  onChange={(e) => setWanIf(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
-              </div>
-
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: "#1D1D1F" }}>
-                    LAN Port (Lokalna mreža)
-                  </label>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: "#86868B" }}>
-                    Automatski dodijeljen (192.168.1.1)
-                  </span>
-                </div>
-                <input
-                  type="text"
-                  value={lanIf}
-                  onChange={(e) => setLanIf(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <button
-                onClick={handlePrev}
-                style={{
-                  background: "#F5F5F7",
-                  color: "#1D1D1F",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 24px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nazad
-              </button>
-              <button
-                onClick={handleNext}
-                style={{
-                  background: "#0071E3",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 28px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nastavi →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 3: PPPoE CREDENTIALS */}
         {step === 3 && (
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0071E3", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Internet Konekcija
+          <div className="setup-page">
+            <p className="eyebrow">Internet konekcija</p>
+            <h1 id="setup-title">Unesite PPPoE podatke</h1>
+            <p className="setup-lead">Unesite oba podatka dobijena od ISP-a. Za izolovanu laboratoriju ostavite oba polja prazna.</p>
+            <div className="setup-fields">
+              <label className="field"><span>PPPoE korisničko ime</span><input autoComplete="username" onChange={(event) => setPppoeUser(event.target.value)} placeholder="korisnik@isp.net" value={pppoeUser} /></label>
+              <label className="field"><span>PPPoE lozinka</span><input autoComplete="current-password" onChange={(event) => setPppoePass(event.target.value)} type="password" value={pppoePass} /></label>
             </div>
-            <h2 style={{ fontSize: "26px", fontWeight: 600, margin: "0 0 8px", letterSpacing: "-0.02em" }}>
-              Unesite PPPoE podatke
-            </h2>
-            <p style={{ fontSize: "15px", color: "#6E6E73", marginBottom: "28px" }}>
-              Unesite oba podatka koja ste dobili od ISP-a. Za laboratoriju bez PPPoE veze ostavite oba polja prazna.
-            </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginBottom: "36px" }}>
-              <div>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F", marginBottom: "8px" }}>
-                  PPPoE Korisničko ime
-                </label>
-                <input
-                  type="text"
-                  placeholder="korisnik@isp.net"
-                  value={pppoeUser}
-                  onChange={(e) => setPppoeUser(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F", marginBottom: "8px" }}>
-                  PPPoE Lozinka
-                </label>
-                <input
-                  type="password"
-                  placeholder="••••••••••••"
-                  value={pppoePass}
-                  onChange={(e) => setPppoePass(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "14px 16px",
-                    borderRadius: "14px",
-                    border: "1px solid #D2D2D7",
-                    background: "#FFFFFF",
-                    fontSize: "15px",
-                    color: "#1D1D1F",
-                    outline: "none",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <button
-                onClick={handlePrev}
-                style={{
-                  background: "#F5F5F7",
-                  color: "#1D1D1F",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 24px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nazad
-              </button>
-              <button
-                onClick={handleNext}
-                style={{
-                  background: "#0071E3",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 28px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nastavi →
-              </button>
-            </div>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Nastavi →</button></div>
           </div>
         )}
 
-        {/* STEP 4: ADMIN PASSWORD */}
         {step === 4 && (
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0071E3", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Sigurnost Rutera
+          <div className="setup-page">
+            <p className="eyebrow">Sigurnost rutera</p>
+            <h1 id="setup-title">Kreirajte administrator lozinku</h1>
+            <p className="setup-lead">Najmanje 15 karaktera. Nema fabričke ili rezervne mrežne lozinke.</p>
+            <div className="setup-fields">
+              <label className="field"><span>Administrator lozinka</span><input autoComplete="new-password" className={adminPass.length >= 15 ? "is-valid" : ""} onChange={(event) => setAdminPass(event.target.value)} type="password" value={adminPass} /></label>
+              <label className="field"><span>Potvrdite lozinku</span><input autoComplete="new-password" className={adminPassConfirm !== "" && adminPassConfirm === adminPass ? "is-valid" : ""} onChange={(event) => setAdminPassConfirm(event.target.value)} type="password" value={adminPassConfirm} /></label>
+              <div className="setup-password-meter"><progress aria-label="Password minimum length" max={15} value={Math.min(adminPass.length, 15)} /><span>{adminPass.length >= 15 ? "✓ Minimalna dužina ispunjena" : `${adminPass.length}/15 karaktera`}</span></div>
             </div>
-            <h2 style={{ fontSize: "26px", fontWeight: 600, margin: "0 0 8px", letterSpacing: "-0.02em" }}>
-              Kreirajte administrator lozinku
-            </h2>
-            <p style={{ fontSize: "15px", color: "#6E6E73", marginBottom: "28px" }}>
-              Zahtijeva se najmanje 15 karaktera uz Argon2id zaštitu.
-            </p>
-
-            <div style={{ marginBottom: "36px", display: "grid", gap: "16px" }}>
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F", marginBottom: "8px" }}>
-                Administrator Lozinka
-              </label>
-              <input
-                type="password"
-                placeholder="Najmanje 15 karaktera"
-                value={adminPass}
-                onChange={(e) => setAdminPass(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "14px 16px",
-                  borderRadius: "14px",
-                  border: `1px solid ${adminPass.length >= 15 ? "#34C759" : "#D2D2D7"}`,
-                  background: "#FFFFFF",
-                  fontSize: "15px",
-                  color: "#1D1D1F",
-                  outline: "none",
-                }}
-              />
-              <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#1D1D1F" }}>
-                Potvrdite administrator lozinku
-              </label>
-              <input
-                type="password"
-                placeholder="Ponovite lozinku"
-                value={adminPassConfirm}
-                onChange={(e) => setAdminPassConfirm(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "14px 16px",
-                  borderRadius: "14px",
-                  border: `1px solid ${adminPassConfirm && adminPassConfirm === adminPass ? "#34C759" : "#D2D2D7"}`,
-                  background: "#FFFFFF",
-                  fontSize: "15px",
-                  color: "#1D1D1F",
-                  outline: "none",
-                }}
-              />
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "8px" }}>
-                <div style={{ flex: 1, height: "4px", background: "#E5E5EA", borderRadius: "2px", overflow: "hidden" }}>
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${Math.min(100, (adminPass.length / 15) * 100)}%`,
-                      background: adminPass.length >= 15 ? "#34C759" : "#FF9500",
-                      transition: "width 0.2s ease",
-                    }}
-                  />
-                </div>
-                <span style={{ fontSize: "12px", fontWeight: 600, color: adminPass.length >= 15 ? "#34C759" : "#86868B" }}>
-                  {adminPass.length >= 15 ? "✓ Lozinka je sigurna" : `${adminPass.length}/15 karaktera`}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <button
-                onClick={handlePrev}
-                style={{
-                  background: "#F5F5F7",
-                  color: "#1D1D1F",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 24px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nazad
-              </button>
-              <button
-                onClick={handleNext}
-                style={{
-                  background: "#0071E3",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 28px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Pregledaj & Instaliraj →
-              </button>
-            </div>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Pregledaj →</button></div>
           </div>
         )}
 
-        {/* STEP 5: REVIEW */}
         {step === 5 && (
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#0071E3", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Završna potvrda
+          <div className="setup-page">
+            <p className="eyebrow">Završna potvrda</p>
+            <h1 id="setup-title">Pregled podešavanja</h1>
+            <div className="setup-review-grid">
+              <article><span>WAN</span><strong>{wanIf}</strong></article>
+              <article><span>LAN</span><strong>{lanIf}</strong></article>
+              <article><span>Internet</span><strong>{pppoeUser ? `PPPoE: ${pppoeUser}` : "PPPoE isključen"}</strong></article>
+              <article><span>LAN gateway</span><strong>{lanIP}/24</strong></article>
+              <article><span>DHCP</span><strong>192.168.1.100–192.168.1.200</strong></article>
+              <article><span>Recovery</span><strong>Lokalna konzola</strong></article>
             </div>
-            <h2 style={{ fontSize: "26px", fontWeight: 600, margin: "0 0 16px", letterSpacing: "-0.02em" }}>
-              Pregled podešavanja
-            </h2>
-
-            {/* Apple Card Review Grid */}
-            <div style={{ background: "#F5F5F7", padding: "24px", borderRadius: "20px", border: "1px solid #E5E5EA", marginBottom: "32px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-              <div>
-                <span style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
-                  WAN Priključak
-                </span>
-                <strong style={{ fontSize: "16px", color: "#1D1D1F" }}>{wanIf} (PPPoE)</strong>
-              </div>
-
-              <div>
-                <span style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
-                  PPPoE Korisnik
-                </span>
-                <strong style={{ fontSize: "16px", color: "#1D1D1F" }}>{pppoeUser}</strong>
-              </div>
-
-              <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: "14px" }}>
-                <span style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
-                  LAN Gateway
-                </span>
-                <code style={{ fontSize: "15px", color: "#0071E3", fontWeight: 600 }}>{lanIP}/24 ({lanIf})</code>
-              </div>
-
-              <div style={{ borderTop: "1px solid #E5E5EA", paddingTop: "14px" }}>
-                <span style={{ fontSize: "12px", color: "#6E6E73", fontWeight: 600, textTransform: "uppercase", display: "block", marginBottom: "4px" }}>
-                  DHCP Opseg
-                </span>
-                <code style={{ fontSize: "15px", color: "#1D1D1F" }}>192.168.1.100–200</code>
-              </div>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <button
-                onClick={handlePrev}
-                disabled={submitting}
-                style={{
-                  background: "#F5F5F7",
-                  color: "#1D1D1F",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 24px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Nazad
-              </button>
-              <button
-                onClick={handleFinish}
-                disabled={submitting}
-                style={{
-                  background: "#34C759",
-                  color: "#FFFFFF",
-                  border: "none",
-                  borderRadius: "14px",
-                  padding: "14px 32px",
-                  fontSize: "15px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  boxShadow: "0 4px 14px rgba(52, 199, 89, 0.3)",
-                }}
-              >
-                {submitting ? "Primjenjujem..." : "Primjeni & Pokreni Ruter"}
-              </button>
-            </div>
+            <p className="setup-warning">Potvrdite da kablovi odgovaraju odabranim ulogama. Pogrešan izbor može prekinuti pristup dok ga ne popravite na konzoli.</p>
+            <div className="setup-actions"><button className="button secondary" disabled={submitting} onClick={previous} type="button">Nazad</button><button className="button success" disabled={submitting} onClick={finish} type="button">{submitting ? "Primjenjujem…" : "Primijeni podešavanja"}</button></div>
           </div>
         )}
 
-        {/* STEP 6: SUCCESS */}
         {step === 6 && (
-          <div style={{ textAlign: "center", padding: "20px 0" }}>
-            <div style={{ width: "72px", height: "72px", borderRadius: "50%", background: "#34C75915", color: "#34C759", display: "grid", placeItems: "center", fontSize: "36px", margin: "0 auto 20px" }}>
-              ✓
-            </div>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: "#34C759", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>
-              Podešavanje Uspješno
-            </div>
-            <h1 style={{ fontSize: "32px", fontWeight: 600, margin: "0 0 12px", letterSpacing: "-0.03em", color: "#1D1D1F" }}>
-              Vaš ruter je aktivan.
-            </h1>
-            <p style={{ fontSize: "16px", color: "#6E6E73", marginBottom: "32px", maxWidth: "440px", marginInline: "auto" }}>
-              Minimal Router OS je sačuvao podešavanja i kreirao nulti snapshot. Dashboard je dostupan na <code>https://{lanIP}</code>.
-            </p>
-            <button
-              onClick={() => {
-                onComplete();
-              }}
-              style={{
-                background: "#0071E3",
-                color: "#FFFFFF",
-                border: "none",
-                borderRadius: "14px",
-                padding: "14px 32px",
-                fontSize: "15px",
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: "0 4px 14px rgba(0, 113, 227, 0.3)",
-              }}
-            >
-              Otvori Router Dashboard
-            </button>
+          <div className="setup-page setup-success">
+            <span aria-hidden="true" className="setup-success-icon">✓</span>
+            <p className="eyebrow">Podešavanje završeno</p>
+            <h1 id="setup-title">Ruter je inicijalizovan.</h1>
+            <p className="setup-lead">Otvorite novu upravljačku adresu i provjerite prikazani TLS fingerprint prije prijave.</p>
+            <code>https://{lanIP}:8443</code>
+            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={onComplete} type="button">Nastavi na prijavu</button></div>
           </div>
         )}
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
