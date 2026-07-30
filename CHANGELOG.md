@@ -33,9 +33,9 @@ commits.
 - Regression coverage for authenticated TOTP disable behavior.
 - Operator-facing NIC inventory and timezone selection in first-run setup.
 - Optional isolated IoT IPv4 zone on a dedicated port or one explicit 802.1Q VLAN.
-- Separate tagged IoT DHCP pool, static reservations, and LAN↔IoT firewall isolation.
-- Timezone-aware fixed-device schedules enforced in nftables before generic state/forward accepts.
-- Built-in YouTube and Steam DNS/IP service groups plus a weekday-evening/weekend dashboard template.
+- Separate tagged IoT DHCP pool, static reservations, and LAN-to-IoT firewall isolation.
+- Timezone-aware fixed-device schedules enforced in nftables before generic state and forward accepts.
+- Built-in YouTube and Steam DNS/IP service groups plus a weekday-evening and weekend dashboard template.
 - Zero-dependency frontend unit tests for schedule construction and network input helpers.
 
 ### Changed
