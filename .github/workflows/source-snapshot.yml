@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/alpha-1-1-recovery
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
