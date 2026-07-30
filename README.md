@@ -13,166 +13,83 @@
 
 <p align="center">
   <a href="docs/INSTALLATION.md">Installation</a> ·
+  <a href="docs/PROXMOX.md">Proxmox</a> ·
+  <a href="docs/CURRENT_VALIDATION.md">Current validation</a> ·
   <a href="docs/README.md">Documentation</a> ·
   <a href="SECURITY.md">Security</a> ·
-  <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
 <a id="project-status"></a>
 
-> **Development status: early alpha.** Minimal Router OS is a community-driven
-> research and homelab project. It is not yet a drop-in replacement for pfSense,
-> OpenWrt, or a commercially supported firewall. Use it on an isolated test
-> network until the project publishes a stable release and a completed hardware
-> validation matrix.
+> **Development status: early alpha.** Minimal Router OS is a research and
+> homelab project. It is suitable for an isolated, console-accessible Proxmox or
+> hardware pilot with a known-good router ready for rollback. It is not yet a
+> drop-in unattended replacement for pfSense, OpenWrt, or a commercially
+> supported firewall.
 
-Minimal Router OS is a small Alpine Linux router appliance with a Go control
-plane and a React dashboard. It combines proven Linux networking components with
-a narrow, validated configuration system instead of implementing a new packet
-processing stack.
+Minimal Router OS is a focused Alpine Linux router appliance with a Go control
+plane and a static React dashboard. Packet forwarding remains in the Linux
+kernel. The project uses proven components instead of implementing a new packet
+processing stack:
 
-- `nftables` for firewalling, NAT, and scheduled device-profile policy;
+- `nftables` for firewalling and NAT;
 - `pppd` for PPPoE;
-- `dnsmasq` for DHCP, DNS, the global DNS Filter, and bounded service destination sets;
+- `dnsmasq` for DHCP, DNS, filtering, and bounded service sets;
 - WireGuard for remote access;
-- optional Squid proxy, QoS, Cloudflare DDNS, and Wi-Fi AP support.
+- optional Squid, QoS, Cloudflare DDNS, and Wi-Fi AP support.
 
-The goal is a focused home and small-office router that is understandable,
-resource-efficient, secure by default, recoverable after mistakes, and pleasant
-to administer.
+## Current baseline
 
-## Dashboard
+Implemented and covered in the development environment:
 
-The dashboard follows a restrained Apple × Swiss visual system and exposes the
-router configuration through the same validated API used by other clients.
+- unprivileged `routerd` plus narrow privileged `router-applyd`;
+- SQLite canonical configuration state and migrations;
+- typed validation and deterministic configuration generation;
+- snapshot, preflight, apply, verification, commit-confirm, and rollback;
+- default-deny WAN policy and LAN-to-WAN NAT;
+- PPPoE, DHCP, DNS, WireGuard, DNS Filter profiles, QoS, DDNS, and Wi-Fi paths;
+- Argon2id authentication, secure sessions, CSRF, rate limiting, and optional TOTP;
+- encrypted backup export, configuration snapshots, and local recovery console;
+- crash-safe A/B update activation and rollback using a durable operation journal;
+- signed manifests, SHA-256 verification, checksums, SPDX SBOMs, and provenance;
+- frontend unit tests and Playwright browser E2E tests;
+- clean Alpine install, first-run wizard, signed update, activation, and rollback CI;
+- race tests, `vet`, `govulncheck`, CodeQL, secret scan, `gosec`, `shellcheck`, and
+  `actionlint`;
+- API/update benchmarks, fuzzing, ARM64 QEMU smoke tests, and an isolated
+  WAN-router-LAN namespace laboratory.
 
-![Minimal Router OS dashboard overview showing synthetic router status, traffic, resource use, and navigation](docs/images/dashboard-overview.png)
+The current dashboard build uses TypeScript 6.0.3 and Node.js type definitions
+26.1.2. Node.js is a build-time dependency only; it is not installed or running
+on the router.
 
-The image above was captured automatically from the React production build.
-Every displayed address, hostname, device, MAC address, status value, and
-measurement is synthetic documentation data. It is not a screenshot of a
-personal or production network.
+See [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for the exact dated
+automated evidence, benchmark ranges, and remaining manual gates.
 
-## Current capabilities
+## What remains unproven
 
-### Implemented and covered in the development environment
+GitHub Actions cannot establish target-host production readiness. The project
+still requires recorded evidence for:
 
-- split control plane: unprivileged `routerd` and privileged `router-applyd`;
-- SQLite canonical configuration store;
-- transactional generation, preflight, snapshot, apply, verify, and rollback;
-- default-deny WAN firewall and NAT;
-- PPPoE WAN configuration;
-- reliable WAN/LAN interface discovery with explicit operator confirmation;
-- DHCP and DNS service;
-- global DNS Filter and scheduled device profiles;
-- configurable Kids profile, including weekday windows and full-weekend access;
-- WireGuard server and split-tunnel phone profiles;
-- encrypted backup export and configuration snapshots;
-- Argon2id authentication, secure sessions, CSRF protection, and optional TOTP;
-- local recovery console for password/TOTP reset, LAN repair, snapshot restore,
-  and factory reset;
-- live DHCP lease display and redacted audit logs;
-- guided first-run wizard;
-- frontend unit tests and browser E2E coverage for critical setup/profile flows;
-- Alpine/OpenRC packaging and a clean-install CI smoke test;
-- signed release workflow with checksums, SPDX SBOMs, GitHub provenance, and a
-  pinned-key A/B staging/rollback implementation.
-
-### Optional and disabled by default
-
-- Cloudflare Dynamic DNS;
-- Wi-Fi access point;
-- Squid forward proxy;
-- traffic shaping/QoS;
-- WireGuard remote access;
-- DNS Filter device profiles.
-
-### Not yet a stable release feature
-
-- production-grade IPv6 parity;
-- multi-WAN and high availability;
-- VLAN and managed-switch workflows;
-- signed bootable recovery images;
-- unattended update activation or unattended production support;
-- a broad third-party package ecosystem;
-- physical-hardware qualification across supported NICs.
-
-Unsupported functionality fails closed or is shown as unavailable rather than
-being simulated.
-
-## Kids schedule example
-
-The device-profile editor starts with a practical household preset:
-
-- YouTube, Steam, and Wikipedia/Wikimedia;
-- Monday-Friday from `19:00` through `23:59`;
-- all-day access on Saturday and Sunday.
-
-The schedule and selected services are editable. Managed devices require stable
-LAN addresses and must use the router resolver. DNS-derived classification is a
-household convenience policy, not a high-assurance application firewall; read
-[docs/DEVICE_PROFILES.md](docs/DEVICE_PROFILES.md) before relying on it.
-
-## Project principles
-
-- **Safe defaults:** WAN is default-deny and management is not exposed directly
-  to WAN.
-- **Least privilege:** the network-facing API runs separately from the privileged
-  apply helper.
-- **Deterministic changes:** configuration is validated and generated from typed
-  models rather than arbitrary shell fragments.
-- **Recoverability:** disruptive changes use snapshots, verification,
-  confirmation, local-console recovery, and rollback.
-- **Honest status:** documentation distinguishes implemented behavior, measured
-  evidence, planned work, and unsupported features.
-- **Small scope:** features may be declined when they significantly expand attack
-  surface or long-term maintenance cost.
-
-## Minimal Router OS and pfSense
-
-This is an approximate comparison of project scope, not a claim of feature or
-security parity.
-
-| Area | Minimal Router OS — current alpha | pfSense |
-|---|---|---|
-| Maturity | Experimental, community development project | Mature production firewall platform |
-| Intended use today | Lab, homelab pilot, controlled testing | Production home, business, and enterprise deployments |
-| Base operating system | Alpine Linux | FreeBSD |
-| Hardware architecture | Development targets include x86-64 and ARM64 | x86-64 plus supported Netgate ARM appliances |
-| RAM | About 140 MiB idle and about 203 MiB after setup/config activity in one ARM64 VM test; 512 MiB tested minimum, 1 GiB recommended for comfortable development use | Official minimum is 1 GiB; actual sizing depends on states, packages, VPN, and traffic |
-| Disk | Small application payload; 8 GiB is currently recommended for the appliance, logs, snapshots, and upgrades | Official minimum is 8 GB |
-| CPU | Narrow service set is expected to have low idle CPU use, but a fair cross-platform benchmark has not yet been published | Depends heavily on throughput, VPN, IDS/IPS, packages, and state count |
-| Firewall/NAT | Focused generated `nftables` policy; WAN port forwards intentionally unsupported in the secure profile | Extensive firewall, NAT, policy routing, aliases, schedules, and advanced features |
-| Remote administration | WireGuard-first; no WAN web management | Multiple mature VPN and administration options |
-| DNS filtering | Basic global sinkhole plus bounded DNS-derived device schedules | DNS filtering is commonly added with optional packages or a separate resolver |
-| Packages | No general package ecosystem | Large optional package system |
-| IPv6 | Disabled/fail-closed until policy parity is complete | Mature IPv6 support |
-| High availability | Not implemented | CARP and established HA workflows |
-| Support | Community best effort | Community plus commercial Netgate support options |
-
-The lower measured memory footprint is mainly a consequence of Minimal Router OS
-having a much narrower feature set. pfSense remains substantially more mature,
-more flexible, more thoroughly deployed, and the safer choice when its advanced
-features or production support are required.
-
-References:
-
-- pfSense minimum requirements: https://docs.netgate.com/pfsense/en/latest/hardware/minimum-requirements.html
-- pfSense hardware sizing: https://docs.netgate.com/pfsense/en/latest/hardware/size.html
-- pfSense package system: https://docs.netgate.com/pfsense/en/latest/packages/
-
-A more detailed three-way comparison is available in
-[docs/COMPARISON.md](docs/COMPARISON.md). Dated measurement evidence is in
-[docs/RESOURCE_AND_HARDWARE_TEST.md](docs/RESOURCE_AND_HARDWARE_TEST.md).
+- the owner's actual Proxmox VM and bridge/NIC configuration;
+- stable WAN/LAN identity across repeated reboots;
+- real ISP PPPoE connection and reconnect;
+- physical or VirtIO NIC throughput, packet rate, CPU, IRQ, latency, and thermals;
+- real WireGuard throughput and recovery from an unrelated network;
+- external IPv4/IPv6 scanning;
+- backup restore into a fresh VM;
+- destructive fault injection on a disposable target;
+- at least seven days of sustained operation;
+- owner-signed install/recovery media and independent security review.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
     Browser[Administrator browser]
-    UI[React dashboard]
-    Routerd[routerd — unprivileged Go API]
+    UI[Static React dashboard]
+    Routerd[routerd — unprivileged API]
     DB[(SQLite canonical state)]
     Applyd[router-applyd — privileged helper]
     Recovery[Local recovery console]
@@ -190,31 +107,53 @@ flowchart LR
     Linux <--> WAN
 ```
 
-Packet forwarding stays in the Linux kernel. API handlers do not execute
-arbitrary shell commands or edit service configuration directly.
-
-Every configuration change follows the same invariant:
+Every configuration mutation follows the same invariant:
 
 ```text
 input → validation → typed model → generation → preflight → snapshot
       → apply → verification → commit or rollback
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and
-[docs/RECOVERY.md](docs/RECOVERY.md).
+Unsupported functionality fails closed or is shown as unavailable rather than
+being simulated.
 
-## Development setup
+## Controlled installation
 
-Requirements:
+There is no signed stable ISO yet. Use a clean Alpine Linux 3.22 VM or dedicated
+test system with two interfaces and local console access.
 
-- Go version declared in `go.mod`;
-- Node.js 22;
-- pnpm.
+Start with:
+
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
+- [`docs/PROXMOX.md`](docs/PROXMOX.md)
+- [`docs/RECOVERY.md`](docs/RECOVERY.md)
+- [`docs/TESTING.md`](docs/TESTING.md)
+
+Keep the existing router available. Initial testing must use an isolated LAN and
+a test/NAT WAN path. Never run two DHCP servers on the same production LAN.
+
+Build an AMD64 development archive:
 
 ```sh
 git clone https://github.com/vladimirperovic/minimalrouter.git
 cd minimalrouter
+pnpm --dir web install --frozen-lockfile
+make dist-amd64
+cd build
+sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
+```
 
+A development archive is not a signed stable firmware release.
+
+## Development
+
+Requirements:
+
+- the Go version declared in `go.mod`;
+- Node.js 22;
+- pnpm.
+
+```sh
 go test -race ./...
 go vet ./...
 
@@ -222,105 +161,57 @@ pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test
 pnpm --dir web build
-```
-
-Run browser E2E tests after installing the Playwright Chromium dependency:
-
-```sh
 pnpm --dir web exec playwright install chromium
 pnpm --dir web test:e2e
 ```
 
-Run the dashboard development server:
+Additional automated suites are defined in:
 
-```sh
-pnpm --dir web dev
-```
-
-The production router does not require Node.js. The dashboard is compiled to
-static assets during the build. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-for the complete workflow.
-
-## Controlled installation
-
-There is no signed stable ISO yet. For a controlled lab installation, use a
-clean Alpine Linux 3.22 VM or dedicated test system with two network interfaces.
-
-Start with [docs/INSTALLATION.md](docs/INSTALLATION.md). Proxmox users should also
-read [docs/PROXMOX.md](docs/PROXMOX.md).
-
-Build a self-contained x86-64 archive:
-
-```sh
-make dist-amd64
-```
-
-The CI workflow installs the generated archive in a clean privileged Alpine
-container and completes the first-run wizard over HTTPS. This smoke test does not
-replace physical NIC, real ISP, power-loss, throughput, recovery-media, or
-independent security testing.
+- `.github/workflows/ci.yml`;
+- `.github/workflows/deep-validation.yml`;
+- `.github/workflows/performance.yml`;
+- `.github/workflows/codeql.yml`.
 
 ## Security and privacy
 
-A router is a security boundary. Read [SECURITY.md](SECURITY.md) before running
-the project or changing privileged code. Do not report vulnerabilities in a
-public issue; use the private reporting method described in the security policy.
-
-The current project does not intentionally include project-operated analytics,
-advertising, or cloud telemetry. Local data and optional integrations are
-explained in [PRIVACY.md](PRIVACY.md).
+A router is a security boundary. Read [`SECURITY.md`](SECURITY.md) before running
+or changing privileged code. Do not report vulnerabilities in public issues.
 
 Never commit or publicly attach:
 
-- PPPoE usernames or passwords;
+- PPPoE credentials;
 - administrator passwords, hashes, sessions, or CSRF values;
 - WireGuard private keys, preshared keys, profiles, or QR codes;
-- Cloudflare or other provider tokens;
-- release signing private keys;
-- exported backups;
-- real runtime databases, configuration files, snapshots, packet captures, logs,
-  public addresses, hostnames, MAC addresses, or device inventory.
+- provider tokens;
+- signing private keys;
+- backups, databases, snapshots, packet captures, or runtime logs;
+- real public addresses, hostnames, MAC addresses, or device inventory.
 
-## Community and governance
-
-Beginners, homelab users, network engineers, security reviewers, designers,
-technical writers, testers, translators, and experienced Go or React developers
-are welcome.
-
-- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow and definition of done;
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — expected community behavior;
-- [GOVERNANCE.md](GOVERNANCE.md) — decision-making, security review, and release authority;
-- [MAINTAINERS.md](MAINTAINERS.md) — active maintainers and ownership;
-- [SUPPORT.md](SUPPORT.md) — support scope and privacy-safe diagnostics.
+The project does not intentionally include project-operated analytics,
+advertising, or cloud telemetry. See [`PRIVACY.md`](PRIVACY.md).
 
 ## Documentation
 
-The complete documentation index is [docs/README.md](docs/README.md).
+The complete index is [`docs/README.md`](docs/README.md). Key documents:
 
-Key documents:
-
-- [Architecture](ARCHITECTURE.md)
-- [Product scope](PROJECT.md)
-- [Security policy and threat model](SECURITY.md)
-- [Privacy](PRIVACY.md)
-- [Installation](docs/INSTALLATION.md)
-- [Recovery](docs/RECOVERY.md)
-- [DNS Filter device profiles](docs/DEVICE_PROFILES.md)
-- [Release security and rollback](docs/RELEASE_SECURITY.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [Development guide](docs/DEVELOPMENT.md)
-- [Testing guide](docs/TESTING.md)
-- [Current security review](docs/SECURITY_REVIEW.md)
-- [Roadmap](ROADMAP.md)
-- [Changelog](CHANGELOG.md)
-- [Architecture decisions](docs/adr/README.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`PROJECT.md`](PROJECT.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md)
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
+- [`docs/PROXMOX.md`](docs/PROXMOX.md)
+- [`docs/TESTING.md`](docs/TESTING.md)
+- [`docs/RECOVERY.md`](docs/RECOVERY.md)
+- [`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md)
+- [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)
+- [`ROADMAP.md`](ROADMAP.md)
+- [`CHANGELOG.md`](CHANGELOG.md)
 
 ## Releases
 
-There is no stable signed release yet. Do not treat a development archive or a
-source commit as production-ready firmware. Official releases must follow
-[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) and
-[docs/RELEASE_SECURITY.md](docs/RELEASE_SECURITY.md), publish signed manifests,
+There is no stable signed release yet. Official releases must follow
+[`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md) and
+[`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md), publish signed manifests,
 checksums, SPDX SBOMs, provenance, known limitations, and the exact supported
 deployment class.
 

@@ -1,285 +1,261 @@
-# Testing Strategy
+# Testing strategy
 
-## 1. Principle
+## Principle
 
-Router configuration tests must prove failure behavior, not only the happy
-path. Every mutation must end in exactly one of two states:
+Router tests must prove failure behavior, not only the happy path. Every mutation
+must end in exactly one of two states:
 
-- The complete new configuration is active and recorded.
-- The complete previous known-good configuration is restored.
+- the complete new configuration is active and recorded; or
+- the complete previous known-good configuration is restored.
 
 Partial success is a defect.
 
-## 2. Test layers
+The latest repository-wide result is summarized in
+[`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md). Dated hardware evidence remains
+in [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md).
 
-### Go unit tests
+## Automated test layers
 
-Run without root or Linux networking dependencies.
-
-- Domain and API validation
-- Cross-field invariants
-- Authorization decisions
-- Transaction state machine
-- Revision and idempotency behavior
-- Deterministic configuration generation
-- Redaction
-- Snapshot retention and compatibility
-- Recovery credential/session behavior
-- WAN/LAN recommendation scoring and exclusions
-- Device-profile schedule validation and nftables rendering
-- Signed-manifest verification and A/B slot transitions
-- Migration logic
-
-Run:
+### Go correctness and race tests
 
 ```sh
 go test -race ./...
 go vet ./...
+govulncheck ./...
 ```
 
-### Dashboard unit tests
+Coverage includes validation, authorization, configuration generation,
+transaction state, snapshots, recovery, migrations, interface selection,
+device-profile schedules, signed manifests, and A/B slot transitions.
 
-Vitest covers pure frontend behavior such as profile construction, validation,
-and human-readable schedule descriptions.
+### Dashboard tests
 
 ```sh
 pnpm --dir web install --frozen-lockfile
+pnpm --dir web lint
 pnpm --dir web test
-```
-
-A unit test must not make a real router API request or depend on the developer's
-browser state.
-
-### Dashboard browser E2E tests
-
-Playwright builds and serves the production dashboard, mocks the versioned API,
-and drives critical user workflows in Chromium. The minimum required flows are:
-
-- first-run interface discovery and explicit role confirmation;
-- authentication/session restoration;
-- DNS Filter navigation;
-- opening the Kids profile editor;
-- the default `19:00`-`23:59` weekday window;
-- YouTube, Steam, and Wikipedia selected;
-- full-day Saturday/Sunday access selected;
-- successful profile serialization and error display.
-
-Run:
-
-```sh
 pnpm --dir web build
 pnpm --dir web exec playwright install chromium
 pnpm --dir web test:e2e
 ```
 
-E2E fixtures must contain only synthetic addresses, hostnames, devices, and
-credentials.
+The dashboard currently builds with TypeScript 6.0.3 and Node.js type definitions
+26.1.2. Unit tests must not use a real router API or developer browser state.
+Playwright fixtures must use synthetic addresses, devices, and credentials.
 
-### Component contract tests
+### Clean Alpine installation
 
-Run in a pinned Alpine container or VM with the real binaries.
+The standard CI builds an AMD64 distribution and verifies in a clean Alpine
+environment:
 
-- `nft --check` and atomic load behavior
-- `dnsmasq --test` behavior, including nftset directives when device profiles
-  are enabled
-- pppd configuration and permissions
-- bounded dnsmasq lease parsing and authenticated live-device telemetry
-- WireGuard argument/config mapping
-- QoS qdisc installation and inspection
-- Cloudflare DDNS `inadyn` validation, bounded update, service health, and
-  rollback
-- Wi-Fi AP capability checks, bridge membership, hostapd health,
-  commit-confirm, and rollback
-- unsupported Cloudflare Tunnel and DoH settings fail closed
-- OpenRC service reload/restart behavior
-- SQLite locking, corruption detection, and recovery
-- recovery console commands operate only on the local store and create undo
-  snapshots before disruptive changes
-- release staging rejects untrusted signatures, symlinks, missing files, unsafe
-  paths, and hash mismatches
+- archive checksum;
+- installer and shell syntax;
+- OpenRC services;
+- first-run HTTPS wizard;
+- nftables, dnsmasq, and dashboard availability;
+- signed update staging and explicit activation;
+- service execution from the active slot;
+- explicit rollback to the previous verified slot.
 
-Containers may validate generators, but they do not replace boot, kernel, and
-network tests.
+This is a packaging and lifecycle smoke test. It does not replace real Proxmox,
+physical NIC, PPPoE, external scan, sustained load, or abrupt host-power tests.
 
-### Integration tests
+### Crash recovery and fuzzing
 
-Run in disposable network namespaces or VMs.
+The Deep validation workflow runs:
 
-- WAN/LAN role assignment and selection of a distinct pair
-- PPPoE establishment and reconnect
-- DHCP allocation and static leases
-- DNS forwarding
-- Firewall allow/deny
-- NAT forwarding from LAN to WAN; new WAN port forwards must remain rejected
-- WireGuard connectivity
-- QoS lifecycle using controlled test interfaces
-- DNS Filter destination-set population and schedule transitions
-- managed-device direct DNS and DNS-over-TLS bypass rejection
-- schedule closure terminates existing matching flows
-- Snapshot apply and restore
-- Recovery password/TOTP reset and session revocation
-- A/B update stage, explicit activation, health verification, and rollback
-- Concurrent and repeated API mutations
+```sh
+go test -race -count=25 ./internal/firmware \
+  -run 'Test(Interrupted|CorruptOperationJournal|OperationJournal|SlotManagerStages)'
 
-### End-to-end appliance tests
+go test ./internal/api -run '^$' \
+  -fuzz '^FuzzMalformedUnauthenticatedRequests$' -fuzztime=20s
 
-Boot the actual image and drive the public HTTPS API/UI plus local recovery
-console.
+go test ./internal/firmware -run '^$' \
+  -fuzz '^FuzzOperationJournalParsing$' -fuzztime=20s
+```
 
-- Installation and first-run wizard
-- Interface recommendation and manual confirmation
-- Authentication, session rotation, timeout, and logout
-- CSRF and same-origin rejection
-- Complete configuration flows
-- Commit-confirmed LAN and firewall changes
-- Backup and restore
-- Password/TOTP recovery, LAN recovery, snapshot restore, and factory reset
-- Signed update stage/activate/rollback
-- Reboot during every durable transaction stage
+The update manager uses a durable operation journal so interrupted activation or
+rollback can be reconciled. Fuzzing rejects malformed unauthenticated HTTP input
+and corrupt or hostile journal data without panic or uncontrolled behavior.
 
-### Platform tests
+### Security hardening
 
-For each claimed platform:
+Automated security gates include:
 
-- Install and first boot
-- Interface discovery and stable naming
-- Reboot and shutdown
-- Timekeeping and entropy availability
-- Snapshot/restore and update rollback
-- 1 GbE baseline throughput
-- Optional higher-speed measurements where virtual/hardware support exists
+- CodeQL and secret scanning;
+- `govulncheck`;
+- high-severity/high-confidence `gosec`;
+- `shellcheck` and `actionlint`;
+- binary architecture and module inspection;
+- executable-stack rejection;
+- dashboard dependency audit;
+- default-deny WAN checks in the network laboratory;
+- management and service port scanning on the synthetic WAN.
 
-## 3. Failure injection matrix
+Every reported vulnerability requires a regression test.
+
+### ARM64 smoke test
+
+CI cross-builds ARM64 binaries and executes recovery-safe commands through QEMU.
+This proves architecture and basic execution compatibility; it is not an ARM64
+hardware, driver, thermal, or throughput qualification.
+
+### Isolated WAN-router-LAN laboratory
+
+`scripts/ci-network-namespace-lab.sh` builds disposable Linux WAN, router, and LAN
+namespaces. It validates:
+
+- DHCP;
+- DNS;
+- IPv4 forwarding and NAT;
+- stateful firewall behavior;
+- TCP and UDP;
+- parallel flows;
+- latency and packet loss;
+- rejection of tested WAN management/service ports.
+
+Very high same-kernel throughput is a regression ceiling, not a physical or
+VirtIO performance claim.
+
+### Performance baselines
+
+The Performance workflow records `ns/op`, `B/op`, and `allocs/op` for concurrent
+management API operations and update-state reads:
+
+```sh
+go test ./internal/api -run '^$' -bench '^BenchmarkAPI' \
+  -benchmem -benchtime=1s -count=3
+
+go test ./internal/firmware -run '^$' -bench '^BenchmarkSlotManager' \
+  -benchmem -benchtime=1s -count=3
+```
+
+Recorded 2026-07-30 control-plane ranges on a GitHub-hosted AMD EPYC runner were:
+
+| Operation | Approximate result |
+|---|---:|
+| Setup-status API | 4.8–5.4 microseconds |
+| Normal update-state read | about 26 microseconds |
+| Journal-recovery state read | 44.6–45.1 microseconds |
+| Rejected protected request with durable audit write | 4.27–4.40 milliseconds |
+
+Packet forwarding remains in the Linux kernel and must be benchmarked separately.
+
+## Component contract tests
+
+Component tests run in pinned Alpine containers or disposable VMs and cover:
+
+- `nft --check` and atomic load behavior;
+- `dnsmasq --test`, DHCP leases, DNS filtering, and nft sets;
+- PPPoE configuration and permissions;
+- WireGuard mapping, routes, MTU, and cleanup;
+- QoS lifecycle and live qdisc inspection;
+- DDNS and Wi-Fi capability/preflight/rollback behavior;
+- OpenRC service lifecycle;
+- SQLite locking and corruption detection;
+- recovery commands and undo snapshots;
+- signature, checksum, path, symlink, and manifest rejection.
+
+Containers validate generators and lifecycle contracts but do not replace boot,
+kernel, hypervisor, or physical-network tests.
+
+## Manual Proxmox and appliance tests
+
+Run on the actual target VM with pfSense ready for rollback. Record the exact host
+and guest environment, but redact real identifiers and secrets.
+
+Required order:
+
+1. Read-only VM, disk, and NIC/bridge inventory.
+2. Known-good application backup and Proxmox snapshot.
+3. Repeated graceful guest and Proxmox lifecycle reboots.
+4. Stable WAN/LAN role reconciliation.
+5. DHCP, DNS, NAT, and default-deny WAN validation.
+6. HTTPS management boundary, login/logout, CSRF, and recovery-console access.
+7. Update activation, service restart/reboot, verification, and rollback.
+8. Backup restore into a fresh VM.
+9. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss, and
+   management responsiveness.
+10. Controlled service crash, disk pressure, read-only, corrupt-state, and abrupt
+    power-loss tests on a disposable target.
+11. Real PPPoE only during a maintenance window after rollback is proven.
+12. External IPv4/IPv6 scan and WireGuard from an unrelated network.
+13. At least seven days of continuous operation.
+
+## Failure-injection matrix
 
 Inject at least:
 
-- Invalid API payload
-- Stale revision
-- Generator failure
-- Full disk
-- Read-only filesystem
-- Snapshot write failure
-- Component preflight failure
-- nftables apply failure
-- dnsmasq nftset syntax failure
-- Service reload timeout
-- Service starts then exits
-- Lost default route
-- Lost management address
-- Failed connectivity probe
-- Missing administrator confirmation
-- `routerd` crash
-- `router-applyd` crash
-- Recovery interruption after snapshot and before commit
-- Update interruption while copying, before slot rename, after slot rename, and
-  during pointer replacement
-- Power loss/reboot before and after each durable transaction marker
-- Corrupted current snapshot
-- Unsupported database, backup, manifest, or release version
+- invalid or oversized API input;
+- stale revision;
+- generator/preflight/apply/verification failure;
+- full disk and inode exhaustion;
+- read-only filesystem;
+- snapshot write failure;
+- nftables or dnsmasq validation failure;
+- service timeout or crash;
+- lost route or management address;
+- missing administrator confirmation;
+- interrupted update before/after every durable marker;
+- corrupted current snapshot, database, manifest, or journal;
+- unsupported backup, database, or release version.
 
-Each case asserts active Linux state, database revision, service health, update
-slot state, and audit result after recovery.
+For every case assert:
 
-## 4. Security tests
+- active Linux state;
+- database revision;
+- service health;
+- update slot and journal state;
+- audit result;
+- recovery or rollback outcome.
 
-- WAN cannot reach management ports over IPv4 or IPv6.
-- Unauthenticated and expired sessions cannot read sensitive state or mutate.
-- Cookies have all required attributes.
-- Login rotates the session ID.
-- CSRF token absence/mismatch and cross-origin requests fail.
-- Host-header and DNS-rebinding defenses fail closed.
-- Login and expensive operations are rate-limited.
-- Unknown fields, oversized bodies, invalid UTF-8, path traversal, and command
-  metacharacters are rejected.
-- The privileged helper rejects unknown peers, operations, paths, flags, and
-  oversized messages.
-- `router-applyd` has no-new-privileges, no core dumps, bounded descriptors and
-  processes, a fixed executable path, and no inherited dynamic-loader hooks.
-- API, logs, audit events, process listings, generated public files, backups,
-  and diagnostic bundles contain no unapproved secret values.
-- Recovery has no network endpoint and credential changes revoke all sessions.
-- Update and restore reject tampered signatures, checksums, unsafe files, and
-  incompatible versions.
-- The release workflow refuses an absent signing key and lightweight tags.
-- Dashboard production assets contain no inline script blocks. Newly refactored
-  components use external stylesheets; any temporary legacy style-attribute
-  allowance remains explicitly bounded by CSP and repository checks.
+## Security test matrix
 
-Maintain regression tests for every reported vulnerability.
+Verify:
 
-## 4.1 Current pilot evidence (2026-07-28)
+- WAN cannot reach management over IPv4 or IPv6;
+- unauthenticated, expired, or cross-origin requests fail;
+- session rotation, cookie flags, CSRF, Host, and DNS-rebinding defenses;
+- login and expensive-operation rate limits;
+- rejection of invalid UTF-8, unknown fields, traversal, metacharacters, and large
+  bodies;
+- privileged helper peer, operation, path, flag, and message bounds;
+- `router-applyd` no-new-privileges, fixed executable path, bounded resources, and
+  sanitized loader environment;
+- logs, diagnostics, backups, public files, and artifacts contain no unapproved
+  secrets;
+- recovery has no network endpoint and credential changes revoke sessions;
+- update/restore reject tampering, unsafe files, wrong signatures, and incompatible
+  versions.
 
-The macOS host suite passed `go test ./...`, `go test -race ./...`,
-`go vet ./...`, frontend lint/type-check/build, and the dependency audit.
-The then-current change set was rebuilt and exercised in an Alpine 3.22.5
-ARM64 VM: authentication, process separation, management-boundary checks,
-global DNS filtering, CAKE, fq_codel, QoS removal, nftables, unsupported-feature
-rejection, and commit-confirm revision consistency produced the expected result.
-A subsequent clean 512 MiB VM proved that Bash and `wg-quick` are absent and ran
-the opt-in production WireGuard lifecycle integration test: preflight, real
-handshake, five encrypted packets, PPPoE-aware MTU, peer route, and cleanup
-passed. See [the dated security review](SECURITY_REVIEW.md) and
-[resource/network report](RESOURCE_AND_HARDWARE_TEST.md) for exact evidence.
+## Performance measurements on the target
 
-The recovery, device-profile, browser E2E, and signed-update additions in the
-current unreleased branch require new dated appliance evidence before their
-results may be added to this pilot section. Real PPPoE, physical NIC/radio
-behavior, signed recovery media, and an external WAN scan remain manual release
-gates.
+Record:
 
-The root Linux test is gated so an ordinary host test never alters interfaces:
+- Proxmox version and host kernel;
+- guest Alpine and kernel versions;
+- CPU model/type, vCPU, RAM, disk/storage;
+- VirtIO queues, offloads, bridges, VLANs using synthetic labels;
+- packet sizes, directions, duration, and traffic-generator placement;
+- boot-to-forwarding-ready and management-ready;
+- idle and loaded CPU/RAM;
+- routing/NAT throughput and packets per second;
+- PPPoE reconnect time and MTU;
+- WireGuard throughput and CPU cost;
+- QoS behavior under load;
+- packet loss, latency, jitter, and management responsiveness;
+- log, snapshot, and disk growth.
 
-```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-  go test -c -o bin/router-applyd-integration-test ./cmd/router-applyd
-MINIMALROUTER_WIREGUARD_INTEGRATION=1 \
-  ./bin/router-applyd-integration-test \
-  -test.run '^TestBashlessWireGuardLifecycleIntegration$' -test.v
-```
+Do not use the Go control plane as the forwarding benchmark path.
 
-Run the resulting binary only inside a disposable root VM/network namespace.
+## Evidence and privacy
 
-## 5. Performance tests
+A result is publishable only when it includes date, exact commit, environment,
+commands, units, raw summary, pass/fail, failures, recovery steps, and limitations.
 
-Record the exact hardware, NICs, hypervisor, vCPU count, RAM, Alpine/kernel
-version, offload settings, packet sizes, directions, and test duration.
+Never commit credentials, tokens, private keys, backups, databases, packet
+captures, public addresses, hostnames, MAC addresses, VM inventory, or household
+device information.
 
-Measure:
-
-- Boot to forwarding-ready and management-ready
-- Idle and normal-operation memory
-- Configuration apply latency
-- PPPoE reconnect time
-- Routing/NAT throughput and packets per second
-- Device-profile rule and set scaling
-- CPU use and packet loss under load
-- Management responsiveness during traffic load
-
-The Go control plane must not be used as the packet-forwarding benchmark path.
-
-## 6. Test environments
-
-- Tests never alter a developer's active host firewall or routes.
-- Real network tests run in disposable VMs/namespaces.
-- External services use dedicated test accounts and least-privilege tokens.
-- CI secrets are masked, short-lived where possible, and unavailable to
-  untrusted contributions.
-- The release signing key is available only to protected tag workflows and is
-  never exposed to pull-request jobs.
-- Test logs and artifacts pass secret scanning before upload.
-
-## 7. Release evidence
-
-A release candidate includes machine-readable results for:
-
-- Go unit/race/vet and vulnerability checks
-- Dashboard lint, unit, production build, and browser E2E suites
-- Platform matrix
-- Security release gates
-- Recovery and update/rollback tests
-- Backup/restore tests
-- Boot and memory targets
-- Throughput on reference hardware
-- SHA-256 checksums, signed manifests, SPDX SBOMs, and provenance attestations
-
-Release claims are based on recorded results, not expected capability.
+Release claims must be based on recorded results, not expected capability.

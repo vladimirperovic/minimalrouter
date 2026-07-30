@@ -1,164 +1,127 @@
 # Roadmap
 
-Minimal Router OS is an early-alpha community project. The roadmap is organized
-around evidence and safety gates rather than promised dates.
+Minimal Router OS is an early-alpha project. This roadmap is organized around
+recorded evidence and safety gates, not promised dates.
 
-Items marked complete indicate that an implementation exists and has passed the
-listed development tests. They do not automatically imply production readiness
-on every hardware platform.
+A checked item means the implementation exists and passed the listed development
+tests. It does not imply production readiness on every host, NIC, ISP, or network.
 
-## Current alpha baseline
+Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-Implemented in the current tree:
+## Current automated baseline
 
 - [x] Alpine Linux packaging and OpenRC services
-- [x] split `routerd` / `router-applyd` control plane
-- [x] SQLite canonical configuration store and migrations
-- [x] typed configuration validation
-- [x] deterministic nftables, PPPoE, dnsmasq, WireGuard, Squid, QoS, DDNS, and
-      Wi-Fi configuration paths
-- [x] transaction state machine with snapshots and rollback
-- [x] first-run wizard
-- [x] HTTPS management and authenticated REST API
-- [x] Argon2id authentication, sessions, CSRF, rate limiting, and optional TOTP
-- [x] default-deny WAN policy and WireGuard-only remote-entry profile
-- [x] DHCP/DNS and integrated global DNS blocklist
-- [x] WireGuard split-tunnel client profiles
+- [x] split unprivileged `routerd` and privileged `router-applyd`
+- [x] SQLite canonical store, migrations, typed validation, and deterministic
+      generators
+- [x] snapshot/apply/verify/commit-or-rollback configuration lifecycle
+- [x] default-deny WAN firewall and LAN-to-WAN NAT
+- [x] PPPoE, DHCP, DNS, WireGuard, QoS, DDNS, Wi-Fi, and DNS Filter paths
+- [x] first-run HTTPS wizard and interface confirmation
+- [x] Argon2id, secure sessions, CSRF, rate limiting, TOTP, and local recovery
 - [x] encrypted backup export and restore validation
-- [x] redacted audit events and dashboard log view
-- [x] React/Vite static dashboard
-- [x] clean Alpine installation and wizard CI smoke test
-- [x] Go race tests, vet, frontend lint/build, Dependabot, CodeQL, repository
-      hygiene, and secret-scan configuration
+- [x] crash-safe A/B update activation and rollback with durable journal
+- [x] signed manifests, SHA-256 checks, SPDX SBOMs, and provenance support
+- [x] Go race/vet/vulnerability tests, CodeQL, secret scan, and repository hygiene
+- [x] frontend lint, unit, TypeScript 6 build, dependency audit, and Playwright E2E
+- [x] clean Alpine install, wizard, update activation, and rollback CI
+- [x] repeated interrupted-update recovery tests
+- [x] API and update-journal fuzzing
+- [x] `gosec`, `shellcheck`, `actionlint`, and Linux binary inspection
+- [x] ARM64 build and QEMU smoke test
+- [x] isolated WAN-router-LAN DHCP/DNS/NAT/firewall/traffic laboratory
+- [x] control-plane benchmark and allocation artifacts
+- [x] GitHub core CI actions and artifact upload moved to v7
+- [x] dashboard TypeScript 6.0.3 and Node type definitions 26.1.2
 
-## Public alpha release
+## Alpha pilot — actual Proxmox VM
 
-Goal: publish a clean, honest, contribution-friendly repository without exposing
-private development history, credentials, or historical repository metadata.
+Goal: prove the minimum router workflow on the target Proxmox host without risking
+the production network.
 
-- [x] preserve and verify the complete private development history in private
-      archives
-- [x] remove tracked runtime configuration and snapshots from the reviewed tree
-- [x] remove private AI handoff and session notes
-- [x] rewrite README, architecture, comparison, security, contribution, support,
-      development, release, and community documentation
-- [x] add issue/PR templates, CodeQL, Dependabot, CODEOWNERS, repository hygiene,
-      and current/full-history secret scanning
-- [x] fix and test the TOTP-disable request-order regression
-- [x] capture a real sanitized dashboard screenshot from the current clean build
-- [x] add a local-only script for creating and scanning a one-commit candidate
-- [ ] create the one-commit candidate locally and pass full-history Gitleaks
-- [ ] rotate any credential that appeared in previous private history
-- [ ] create a brand-new private repository with one branch, one commit, no tags,
-      and no inherited pull requests, issues, workflow logs, or artifacts
-- [ ] pass CI, private CodeQL analysis, and both secret scans in the new repository
-- [ ] review repository settings and rendered documentation
-- [ ] change visibility only as the final explicit owner action
-- [ ] rerun CodeQL after publication and confirm GitHub Code Scanning upload
+- [ ] identify and document the candidate VM and NIC/bridge roles read-only
+- [ ] confirm isolated LAN and test/NAT WAN topology
+- [ ] preserve pfSense rollback independent of the candidate
+- [ ] create known-good application backup and Proxmox snapshot
+- [ ] record exact host/guest versions and installed commit
+- [ ] complete five graceful guest reboot cycles
+- [ ] complete repeated Proxmox shutdown/start cycles
+- [ ] prove stable WAN/LAN role reconciliation
+- [ ] prove DHCP, DNS, NAT, HTTPS management, and default-deny WAN behavior
+- [ ] prove unconfirmed disruptive-change rollback and recovery-console access
+- [ ] activate a verified update, reboot, validate, and explicitly roll back
+- [ ] restore an encrypted backup into a fresh VM
 
-Exit criterion: the public repository contains only the reviewed one-commit
-history, passes all checks, and accurately labels the project early alpha.
+Exit criterion: the VM survives repeated boot, configuration, update, rollback,
+and restore tests without manual file repair or loss of management access.
 
-## Alpha 1 — reliable clean installation
+## Alpha performance — target-host evidence
 
-Goal: a contributor can install a verified archive on clean Alpine Linux and
-complete the wizard without manual source-code changes.
+Goal: replace same-kernel CI ceilings with reproducible Proxmox and NIC results.
 
-- [x] self-contained x86-64 distribution archive
-- [x] architecture and payload validation in the installer
-- [x] immediate kernel-module and sysctl activation
-- [x] clean Alpine CI install
-- [x] first-run HTTPS wizard smoke test
-- [ ] validate aarch64 distribution in equivalent CI or hardware
-- [ ] make interface selection robust across common predictable Linux names
-- [ ] document recovery when the selected WAN/LAN interface is wrong
-- [ ] publish checksummed alpha artifacts from tagged commits
+- [ ] record Proxmox version, host kernel, guest kernel, vCPU, RAM, disk, and NIC
+      model
+- [ ] document VirtIO queues, offloads, bridges, and traffic-generator placement
+- [ ] measure boot-to-forwarding-ready and management-ready
+- [ ] measure idle and loaded CPU/RAM
+- [ ] measure routing/NAT throughput and packets per second
+- [ ] measure latency, jitter, retransmits, and packet loss under load
+- [ ] verify management responsiveness during traffic
+- [ ] measure real PPPoE connect/reconnect, MTU, and CPU cost
+- [ ] measure real WireGuard throughput and CPU cost
+- [ ] measure QoS behavior under load
+- [ ] measure 1 GbE and, where available, 2.5 GbE
+- [ ] investigate 10 GbE only after lower-speed evidence is stable
+- [ ] record log, snapshot, and disk growth
 
-Exit criterion: x86-64 and aarch64 clean-install evidence is reproducible and
-new users have a documented rollback path.
+Exit criterion: every published number links to exact hardware, commands,
+configuration, duration, raw summary, and limitations.
 
-## Alpha 2 — real home-router pilot
+## Alpha recovery and fault injection
 
-Goal: prove the minimum router workflow on real or dedicated test hardware.
+- [x] automated interrupted update/rollback journal reconciliation
+- [x] automated corrupt journal and malformed API fuzzing
+- [x] automated signed package and clean-install rollback tests
+- [ ] service-crash tests on the target VM
+- [ ] full-disk and inode-exhaustion test on a disposable clone
+- [ ] read-only-filesystem test on a disposable clone
+- [ ] corrupt state/snapshot restore rehearsal
+- [ ] abrupt Proxmox host/guest power-loss test after graceful tests pass
+- [ ] backup restore into a completely new VM
+- [ ] seven-day continuous pilot with bounded logs and stable memory
 
-- [ ] stable physical WAN/LAN NIC identification
-- [ ] real ISP PPPoE connection and reconnect testing
-- [ ] DHCP, DNS, NAT, and MTU validation with multiple client types
-- [ ] reboot reconciliation after clean and failed shutdowns
-- [ ] power-loss testing during idle, configuration apply, snapshot, and backup
-- [ ] WireGuard provisioning and recovery from an unrelated external network
-- [ ] external IPv4 and IPv6 scan from an unrelated network
-- [ ] backup export, factory restore, and rollback rehearsal
-- [ ] seven-day continuous pilot with bounded logs and disk usage
+Exit criterion: every failure returns to a documented known-good state and pfSense
+can be restored immediately.
 
-Exit criterion: the pilot survives repeated reboot, reconnect, invalid-change,
-and recovery scenarios without requiring manual file repair.
+## External and production gates
 
-## Alpha 3 — hardware and performance evidence
+- [ ] real ISP PPPoE during a maintenance window
+- [ ] WireGuard from an unrelated external network
+- [ ] external IPv4 scan from an unrelated host
+- [ ] external IPv6 scan or documented fail-closed result
+- [ ] owner-signed install and recovery media
+- [ ] independent focused security review
+- [ ] supported Proxmox/NIC matrix
+- [ ] stable migration and upgrade policy
+- [ ] security-update and support policy
+- [ ] no unresolved critical or high-severity findings
 
-Goal: replace estimates with reproducible measurements.
+Until these gates pass, the project remains a controlled pilot rather than an
+unattended pfSense replacement.
 
-- [ ] publish reference x86-64 and ARM64 hardware profiles
-- [ ] measure idle and loaded CPU usage
-- [ ] measure idle, setup, and sustained memory usage
-- [ ] measure 1 GbE forwarding throughput and latency
-- [ ] measure WireGuard throughput and CPU cost
-- [ ] measure PPPoE and QoS performance
-- [ ] test 2.5 GbE where supported
-- [ ] investigate 10 GbE feasibility without promising support prematurely
-- [ ] record thermal behavior and management responsiveness under load
-- [ ] compare results using equivalent workloads rather than minimum-requirement
-      tables
+## Deferred or outside current scope
 
-Exit criterion: every published performance claim links to hardware, commands,
-configuration, and raw results.
+- pfSense feature parity
+- multi-WAN and high availability
+- IDS/IPS
+- captive portal
+- BGP or OSPF
+- OpenVPN or IPsec
+- arbitrary WAN port forwarding
+- Docker or Kubernetes on the router
+- general third-party package ecosystem
+- full AdGuard Home feature parity
 
-## Beta — lifecycle and recovery
-
-Goal: support safe long-term operation and upgrades.
-
-- [ ] signed package or image release channel
-- [ ] SBOM and provenance/attestation for release artifacts
-- [ ] pre-update snapshot and verified rollback
-- [ ] signed recovery media and tested console recovery
-- [ ] bounded log rotation and disk-pressure behavior
-- [ ] cross-version backup migration tests
-- [ ] administrator password and TOTP console recovery procedure
-- [ ] stronger `router-applyd` confinement using capabilities, namespaces,
-      seccomp, or a documented alternative
-- [ ] independent security review
-
-Exit criterion: update, failed update, recovery, and restore are rehearsed on all
-claimed platforms.
-
-## Version 1 consideration
-
-Version 1 will be considered only after the project has:
-
-- a documented supported hardware and hypervisor matrix;
-- reproducible installation and signed recovery artifacts;
-- stable configuration migrations;
-- measured performance and resource requirements;
-- external network and security review evidence;
-- a documented support and security-update policy;
-- no unresolved critical or high-severity security findings;
-- clear upgrade and rollback guarantees.
-
-## Explicitly outside the current scope
-
-The current release line does not target:
-
-- pfSense feature parity;
-- multi-WAN;
-- high availability/CARP;
-- IDS/IPS;
-- captive portals;
-- BGP or OSPF;
-- OpenVPN or IPsec;
-- arbitrary WAN port forwarding;
-- Docker or Kubernetes on the router;
-- a general third-party package platform;
-- full AdGuard Home feature parity.
-
-A proposal to add one of these items requires a product decision, threat review,
-maintenance plan, and evidence that it belongs in a small home-router appliance.
+Adding any deferred feature requires a product decision, threat review,
+maintenance plan, and recorded evidence that it belongs in a small home-router
+appliance.
