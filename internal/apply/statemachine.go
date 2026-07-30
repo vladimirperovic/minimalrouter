@@ -257,7 +257,7 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	wireGuardManagementChanged :=
 		(current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
-		!reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
+			!reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
 	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
 		current.LAN.CIDR != candidate.LAN.CIDR ||
 		current.System.ManagementAccess != candidate.System.ManagementAccess ||
@@ -337,15 +337,25 @@ func (e *Engine) rollbackExpired(txID string) {
 
 func buildApplyRequest(txID string, cfg config.SystemConfig) (ApplyRequest, error) {
 	nftablesCfg, err := services.GenerateNftables(&cfg)
-	if err != nil { return ApplyRequest{}, err }
+	if err != nil {
+		return ApplyRequest{}, err
+	}
 	pppoeBundle, err := services.GeneratePPPoE(&cfg)
-	if err != nil { return ApplyRequest{}, err }
+	if err != nil {
+		return ApplyRequest{}, err
+	}
 	dnsmasqCfg, err := services.GenerateDnsmasq(&cfg)
-	if err != nil { return ApplyRequest{}, err }
+	if err != nil {
+		return ApplyRequest{}, err
+	}
 	hostapdCfg, err := services.GenerateHostapd(&cfg)
-	if err != nil { return ApplyRequest{}, err }
+	if err != nil {
+		return ApplyRequest{}, err
+	}
 	wireGuardCfg, err := services.GenerateWireGuard(&cfg.WireGuard)
-	if err != nil { return ApplyRequest{}, err }
+	if err != nil {
+		return ApplyRequest{}, err
+	}
 	return ApplyRequest{ID: txID, Op: OpApplyAll, Revision: cfg.Revision, Config: cfg, Nftables: nftablesCfg, PPPoEPeer: pppoeBundle.PeerConfig, PPPoESecret: pppoeBundle.ChapSecrets, Dnsmasq: dnsmasqCfg, Hostapd: hostapdCfg, WireGuard: wireGuardCfg}, nil
 }
 
@@ -353,10 +363,16 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	req, err := buildApplyRequest(fmt.Sprintf("boot-reconcile-%d", time.Now().UnixNano()), e.currentConfig)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	resp, err := e.applyPrivileged(ctx, req)
-	if err != nil { return fmt.Errorf("boot reconciliation failed: %w", err) }
-	if !resp.Success || !resp.Verified { return fmt.Errorf("boot reconciliation was not verified: %s", resp.Error) }
+	if err != nil {
+		return fmt.Errorf("boot reconciliation failed: %w", err)
+	}
+	if !resp.Success || !resp.Verified {
+		return fmt.Errorf("boot reconciliation was not verified: %s", resp.Error)
+	}
 	return nil
 }
 
