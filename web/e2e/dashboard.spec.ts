@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("opens DNS Filter and the Kids full-weekend schedule", async ({ page }) => {
+test("opens DNS Filter and the Kids after-19:00 full-weekend schedule", async ({ page }) => {
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/v1/auth/session") {
@@ -36,7 +36,10 @@ test("opens DNS Filter and the Kids full-weekend schedule", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Scheduled service access" })).toBeVisible();
   await page.getByRole("button", { name: "Add device profile" }).click();
   await expect(page.getByRole("heading", { name: "Kids service schedule" })).toBeVisible();
+  await expect(page.getByLabel("Weekdays from")).toHaveValue("19:00");
+  await expect(page.getByLabel("Weekdays until")).toHaveValue("23:59");
   await expect(page.getByLabel("Allow selected services all day Saturday and Sunday")).toBeChecked();
   await expect(page.getByLabel("YouTube")).toBeChecked();
   await expect(page.getByLabel("Steam")).toBeChecked();
+  await expect(page.getByLabel("Wikipedia / Wikimedia")).toBeChecked();
 });
