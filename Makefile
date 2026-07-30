@@ -28,6 +28,9 @@ build:
 	mkdir -p bin
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd ./cmd/routerd
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
+	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
+	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
+	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-sign ./cmd/firmware-sign
 
 build-mcp:
 	mkdir -p bin
@@ -37,6 +40,8 @@ build-linux:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-amd64 ./cmd/routerd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
 
 build-linux-amd64: build-linux
 
@@ -44,6 +49,8 @@ build-linux-arm64:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-arm64 ./cmd/routerd
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
 
 web-build:
 	pnpm --dir web build
@@ -87,6 +94,8 @@ dist-arm64: build-linux-arm64 web-build
 		build/dist/minimalrouter-linux-arm64/modules
 	@cp bin/routerd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/routerd-arm64
 	@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64
+	@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64
+	@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-arm64/web/dist/
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-arm64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-arm64/init.d/router-applyd
@@ -111,6 +120,8 @@ dist-amd64: build-linux-amd64 web-build
 		build/dist/minimalrouter-linux-amd64/modules
 	@cp bin/routerd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/routerd-amd64
 	@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64
+	@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64
+	@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-amd64/web/dist/
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-amd64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-amd64/init.d/router-applyd

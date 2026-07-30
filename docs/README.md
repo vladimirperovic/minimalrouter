@@ -11,6 +11,12 @@ notes before installation, development, or hardware testing.
   verification, first-run setup, and rollback precautions.
 - [`../SECURITY.md`](../SECURITY.md) — security policy, trust boundaries, secure
   defaults, vulnerability reporting, and release gates.
+- [`RECOVERY.md`](RECOVERY.md) — local recovery console, credential reset, LAN
+  repair, snapshot restore, and factory reset.
+- [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md) — DNS Filter device profiles,
+  parental-control schedules, and limitations.
+- [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md) — signed packages, checksums,
+  SBOMs, provenance, staged updates, and rollback.
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — contribution workflow for code,
   documentation, design, testing, and review.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — safe diagnostic sequence and
@@ -31,21 +37,24 @@ notes before installation, development, or hardware testing.
 
 - [`INSTALLATION.md`](INSTALLATION.md) — generic controlled-lab installation.
 - [`PROXMOX.md`](PROXMOX.md) — Proxmox VM preparation and current limitations.
+- [`RECOVERY.md`](RECOVERY.md) — local-console recovery and lockout repair.
+- [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md) — scheduled household service policy.
+- [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md) — update verification and rollback.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — local-console-first diagnostics.
 - [`../SUPPORT.md`](../SUPPORT.md) — support scope, issue requirements, and
   diagnostic redaction.
 - [`../PRIVACY.md`](../PRIVACY.md) — local data, optional integrations, backups,
   telemetry status, and privacy-safe reporting.
 
-There is currently no signed release ISO. Treat installation as a controlled lab
+There is currently no signed stable ISO. Treat installation as a controlled lab
 procedure and keep console access plus an established-router rollback path.
 
 ## Development and testing
 
 - [`DEVELOPMENT.md`](DEVELOPMENT.md) — local Go/dashboard development and test
   commands.
-- [`TESTING.md`](TESTING.md) — test layers, integration requirements, failure
-  testing, and network safety expectations.
+- [`TESTING.md`](TESTING.md) — Go, frontend unit, browser E2E, integration,
+  failure, recovery, and network-safety testing.
 - [`../api/openapi.yaml`](../api/openapi.yaml) — versioned REST API contract.
 - [`MCP.md`](MCP.md) — Model Context Protocol integration and its security
   boundary.
@@ -60,8 +69,8 @@ procedure and keep console access plus an established-router rollback path.
   and enforcement.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — notable changes and current limitations.
 - [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — maintainer process for producing a
-  clean repository, validating the exact release commit, and performing an
-  owner-reviewed release cutover.
+  clean repository, validating the exact release commit, restoring public
+  repository protections, and performing an owner-reviewed release cutover.
 
 ## Comparisons and evidence
 

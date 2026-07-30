@@ -1,8 +1,6 @@
 package config
 
-import (
-	"time"
-)
+import "time"
 
 // Revision represents an optimistic concurrency token for config changes.
 type Revision uint64
@@ -19,9 +17,11 @@ type SystemConfig struct {
 	WireGuard  WireGuardConfig  `json:"wireguard"`
 	Cloudflare CloudflareConfig `json:"cloudflare"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
-	AdGuard    AdGuardConfig    `json:"adguard"`
-	QoS        QoSConfig        `json:"qos"`
-	WiFi       WiFiConfig       `json:"wifi"`
+	// AdGuard is the retained JSON compatibility key. The user-facing feature
+	// is named DNS Filter and does not embed or impersonate AdGuard Home.
+	AdGuard DNSFilterConfig `json:"adguard"`
+	QoS     QoSConfig       `json:"qos"`
+	WiFi    WiFiConfig      `json:"wifi"`
 }
 
 type WireGuardConfig struct {
@@ -79,27 +79,60 @@ func (c SystemConfig) RuntimeLANInterface() string {
 // QoSConfig holds traffic shaping and CAKE / FQ-CoDel bufferbloat prevention settings.
 type QoSConfig struct {
 	Enabled           bool   `json:"enabled"`
-	Algorithm         string `json:"algorithm"`           // "cake" or "fq_codel"
-	DownloadLimitMbps int    `json:"download_limit_mbps"` // e.g. 100
-	UploadLimitMbps   int    `json:"upload_limit_mbps"`   // e.g. 20
+	Algorithm         string `json:"algorithm"`
+	DownloadLimitMbps int    `json:"download_limit_mbps"`
+	UploadLimitMbps   int    `json:"upload_limit_mbps"`
 }
 
-// FilterDeviceRule represents a device subject to per-device content/service blocking (YouTube, TikTok, etc.)
+// AccessWindow is a local-router-time half-open access interval. End must be
+// later than Start; midnight-spanning windows are represented as two windows.
+type AccessWindow struct {
+	Start string `json:"start"` // HH:MM
+	End   string `json:"end"`   // HH:MM
+}
+
+// WeeklyAccessSchedule controls managed services independently for each day.
+// The legacy weekday/weekend fields remain readable for old backups.
+type WeeklyAccessSchedule struct {
+	DayWindows     map[string][]AccessWindow `json:"day_windows,omitempty"`
+	WeekdayWindows []AccessWindow            `json:"weekday_windows,omitempty"`
+	WeekendMode    string                    `json:"weekend_mode,omitempty"`
+	WeekendWindows []AccessWindow            `json:"weekend_windows,omitempty"`
+}
+
+// DeviceProfile applies a service schedule to one or more static LAN addresses.
+// DNS-derived destination sets are enforced in nftables, before established
+// connection acceptance, so a session does not remain open after a window ends.
+type DeviceProfile struct {
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	IPAddresses []string             `json:"ip_addresses"`
+	Services    []string             `json:"services"`
+	Schedule    WeeklyAccessSchedule `json:"schedule"`
+	Enabled     bool                 `json:"enabled"`
+}
+
+// FilterDeviceRule is retained only so old backups can be decoded. New writes
+// must use DeviceProfiles because legacy dnsmasq address rules were global.
 type FilterDeviceRule struct {
 	ID              string   `json:"id"`
 	Hostname        string   `json:"hostname"`
 	IPAddress       string   `json:"ip_address"`
-	BlockedServices []string `json:"blocked_services"` // e.g. ["youtube", "tiktok", "facebook", "adult", "gaming"]
+	BlockedServices []string `json:"blocked_services"`
 	Enabled         bool     `json:"enabled"`
 }
 
-// AdGuardConfig holds AdBlock and per-device parental content filtering settings.
-type AdGuardConfig struct {
-	Enabled       bool               `json:"enabled"`
-	BlocklistURL  string             `json:"blocklist_url"`
-	LastUpdated   string             `json:"last_updated"`
-	FilterDevices []FilterDeviceRule `json:"filter_devices"`
+// DNSFilterConfig holds the global DNS sinkhole and per-device access profiles.
+type DNSFilterConfig struct {
+	Enabled        bool               `json:"enabled"`
+	BlocklistURL   string             `json:"blocklist_url"`
+	LastUpdated    string             `json:"last_updated"`
+	FilterDevices  []FilterDeviceRule `json:"filter_devices,omitempty"` // legacy import only
+	DeviceProfiles []DeviceProfile    `json:"device_profiles"`
 }
+
+// AdGuardConfig remains a source-compatible alias for older callers.
+type AdGuardConfig = DNSFilterConfig
 
 // RestrictedIPItem represents a device IP in the Restricted Alias list with a toggle state.
 type RestrictedIPItem struct {
@@ -111,10 +144,10 @@ type RestrictedIPItem struct {
 // SquidProxyConfig holds non-caching HTTP/HTTPS proxy configuration.
 type SquidProxyConfig struct {
 	Enabled       bool               `json:"enabled"`
-	Port          int                `json:"port"`               // e.g. 3128
-	Username      string             `json:"username"`           // Proxy auth username
-	Password      string             `json:"password,omitempty"` // Proxy auth password
-	RestrictedIPs []RestrictedIPItem `json:"restricted_ips"`     // IP Alias list with enabled toggle
+	Port          int                `json:"port"`
+	Username      string             `json:"username"`
+	Password      string             `json:"password,omitempty"`
+	RestrictedIPs []RestrictedIPItem `json:"restricted_ips"`
 }
 
 // SystemSettings holds basic appliance metadata and management settings.
@@ -123,35 +156,35 @@ type SystemSettings struct {
 	Domain           string `json:"domain"`
 	HTTPSEnabled     bool   `json:"https_enabled"`
 	HTTPSPort        int    `json:"https_port"`
-	ManagementAccess string `json:"management_access"` // lan_and_wireguard or wireguard_only
+	ManagementAccess string `json:"management_access"`
 }
 
 // WANSettings holds PPPoE internet connection configuration.
 type WANSettings struct {
-	Interface  string `json:"interface"` // e.g. "eth0"
+	Interface  string `json:"interface"`
 	Enabled    bool   `json:"enabled"`
 	Username   string `json:"username"`
-	Password   string `json:"password,omitempty"` // Omitted in status, set on change
+	Password   string `json:"password,omitempty"`
 	MTU        int    `json:"mtu"`
 	UsePeerDNS bool   `json:"use_peer_dns"`
 }
 
 // LANSettings holds local network configuration.
 type LANSettings struct {
-	Interface string `json:"interface"`  // e.g. "eth1" or "br0"
-	IPAddress string `json:"ip_address"` // e.g. "192.168.1.1"
-	Netmask   string `json:"netmask"`    // e.g. "255.255.255.0"
-	CIDR      string `json:"cidr"`       // e.g. "192.168.1.1/24"
+	Interface string `json:"interface"`
+	IPAddress string `json:"ip_address"`
+	Netmask   string `json:"netmask"`
+	CIDR      string `json:"cidr"`
 }
 
 // DHCPSettings holds dnsmasq DHCP server configuration and static leases.
 type DHCPSettings struct {
 	Enabled      bool          `json:"enabled"`
-	DNSEnabled   bool          `json:"dns_enabled"` // Enable DNS-over-HTTPS proxy
-	RangeStart   string        `json:"range_start"` // e.g. "192.168.1.100"
-	RangeEnd     string        `json:"range_end"`   // e.g. "192.168.1.200"
-	LeaseTime    string        `json:"lease_time"`  // e.g. "12h"
-	DNSServers   []string      `json:"dns_servers"` // e.g. ["1.1.1.1", "8.8.8.8"]
+	DNSEnabled   bool          `json:"dns_enabled"`
+	RangeStart   string        `json:"range_start"`
+	RangeEnd     string        `json:"range_end"`
+	LeaseTime    string        `json:"lease_time"`
+	DNSServers   []string      `json:"dns_servers"`
 	StaticLeases []StaticLease `json:"static_leases"`
 }
 
@@ -165,31 +198,29 @@ type StaticLease struct {
 
 // FirewallConfig holds packet filtering and NAT port forwarding rules.
 type FirewallConfig struct {
-	DefaultWANInputPolicy string            `json:"default_wan_input_policy"` // "deny"
-	WANIngressMode        string            `json:"wan_ingress_mode"`         // "wireguard_only"
+	DefaultWANInputPolicy string            `json:"default_wan_input_policy"`
+	WANIngressMode        string            `json:"wan_ingress_mode"`
 	StatefulFirewall      bool              `json:"stateful_firewall"`
 	PortForwards          []PortForwardRule `json:"port_forwards"`
 	CustomRules           []FirewallRule    `json:"custom_rules"`
 }
 
-// PortForwardRule redirects an incoming WAN port to an internal LAN IP and port.
 type PortForwardRule struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	Protocol     string `json:"protocol"`      // "tcp", "udp", or "both"
-	ExternalPort int    `json:"external_port"` // e.g. 8080
-	InternalIP   string `json:"internal_ip"`   // e.g. "192.168.1.50"
-	InternalPort int    `json:"internal_port"` // e.g. 80
+	Protocol     string `json:"protocol"`
+	ExternalPort int    `json:"external_port"`
+	InternalIP   string `json:"internal_ip"`
+	InternalPort int    `json:"internal_port"`
 	Enabled      bool   `json:"enabled"`
 }
 
-// FirewallRule represents a custom filtering rule.
 type FirewallRule struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Action    string `json:"action"`    // "allow" or "deny"
-	Direction string `json:"direction"` // "input" or "forward"
-	Protocol  string `json:"protocol"`  // "tcp", "udp", "icmp", "any"
+	Action    string `json:"action"`
+	Direction string `json:"direction"`
+	Protocol  string `json:"protocol"`
 	SrcIP     string `json:"src_ip,omitempty"`
 	DstPort   int    `json:"dst_port,omitempty"`
 	Enabled   bool   `json:"enabled"`
@@ -207,79 +238,23 @@ func DefaultConfig() SystemConfig {
 			HTTPSPort:        8443,
 			ManagementAccess: "lan_and_wireguard",
 		},
-		WAN: WANSettings{
-			Interface:  "eth0",
-			Enabled:    false,
-			Username:   "",
-			Password:   "",
-			MTU:        1492,
-			UsePeerDNS: true,
-		},
-		LAN: LANSettings{
-			Interface: "eth1",
-			IPAddress: "192.168.1.1",
-			Netmask:   "255.255.255.0",
-			CIDR:      "192.168.1.1/24",
-		},
+		WAN: WANSettings{Interface: "eth0", Enabled: false, MTU: 1492, UsePeerDNS: true},
+		LAN: LANSettings{Interface: "eth1", IPAddress: "192.168.1.1", Netmask: "255.255.255.0", CIDR: "192.168.1.1/24"},
 		DHCP: DHCPSettings{
-			Enabled:      true,
-			RangeStart:   "192.168.1.100",
-			RangeEnd:     "192.168.1.200",
-			LeaseTime:    "12h",
-			DNSServers:   []string{"1.1.1.1", "1.0.0.1"},
-			StaticLeases: []StaticLease{},
+			Enabled: true, RangeStart: "192.168.1.100", RangeEnd: "192.168.1.200", LeaseTime: "12h",
+			DNSServers: []string{"1.1.1.1", "1.0.0.1"}, StaticLeases: []StaticLease{},
 		},
 		Firewall: FirewallConfig{
-			DefaultWANInputPolicy: "deny",
-			WANIngressMode:        "wireguard_only",
-			StatefulFirewall:      true,
-			PortForwards:          []PortForwardRule{},
-			CustomRules:           []FirewallRule{},
+			DefaultWANInputPolicy: "deny", WANIngressMode: "wireguard_only", StatefulFirewall: true,
+			PortForwards: []PortForwardRule{}, CustomRules: []FirewallRule{},
 		},
-		WireGuard: WireGuardConfig{
-			Enabled:    false,
-			Interface:  "wg0",
-			PrivateKey: "",
-			ListenPort: 51820,
-			Address:    "10.8.0.1/24",
-			Peers:      []WireGuardPeer{},
+		WireGuard:  WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
+		Cloudflare: CloudflareConfig{},
+		SquidProxy: SquidProxyConfig{Enabled: false, Port: 3128, Username: "proxyadmin", RestrictedIPs: []RestrictedIPItem{}},
+		AdGuard: DNSFilterConfig{
+			Enabled: false, LastUpdated: "Never", FilterDevices: []FilterDeviceRule{}, DeviceProfiles: []DeviceProfile{},
 		},
-		Cloudflare: CloudflareConfig{
-			DDNSEnabled:   false,
-			APIToken:      "",
-			ZoneID:        "",
-			ZoneName:      "",
-			Domain:        "",
-			TunnelEnabled: false,
-			TunnelToken:   "",
-		},
-		SquidProxy: SquidProxyConfig{
-			Enabled:       false,
-			Port:          3128,
-			Username:      "proxyadmin",
-			Password:      "",
-			RestrictedIPs: []RestrictedIPItem{},
-		},
-		AdGuard: AdGuardConfig{
-			Enabled:       false,
-			BlocklistURL:  "",
-			LastUpdated:   "Never",
-			FilterDevices: []FilterDeviceRule{},
-		},
-		QoS: QoSConfig{
-			Enabled:           false,
-			Algorithm:         "cake",
-			DownloadLimitMbps: 100,
-			UploadLimitMbps:   20,
-		},
-		WiFi: WiFiConfig{
-			Enabled:    false,
-			Interface:  "wlan0",
-			SSID:       "MinimalRouter-Home",
-			Passphrase: "",
-			Band:       "5ghz",
-			Channel:    36,
-			HideSSID:   false,
-		},
+		QoS:  QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
+		WiFi: WiFiConfig{Enabled: false, Interface: "wlan0", SSID: "MinimalRouter-Home", Band: "5ghz", Channel: 36},
 	}
 }

@@ -26,6 +26,7 @@ jobs:
           sh -n scripts/prepare-public-root.sh
           sh -n scripts/ci-fresh-install-smoke.sh
           sh -n quick-test.sh
+          sh -n packaging/alpine/install-dist.sh
       - name: Reject private and runtime files
         run: |
           set -eu
@@ -54,6 +55,21 @@ jobs:
             printf '%s\n' "$suspicious" >&2
             exit 1
           fi
+      - name: Reject runtime inline styles and scripts
+        run: |
+          set -eu
+          if grep -R -n -F 'style={{' web/src; then
+            echo "Runtime React source must use external CSS instead of inline style objects" >&2
+            exit 1
+          fi
+          if grep -R -n -E '<style([[:space:]>])' web/src web/index.html; then
+            echo "Inline style blocks are forbidden in dashboard source" >&2
+            exit 1
+          fi
+          if grep -R -n -E '<script([[:space:]>])' web/src; then
+            echo "Inline script blocks are forbidden in React source" >&2
+            exit 1
+          fi
       - name: Verify public documentation assets
         run: |
           for required in \
@@ -70,7 +86,10 @@ jobs:
             docs/README.md \
             docs/INSTALLATION.md \
             docs/TROUBLESHOOTING.md \
+            docs/RECOVERY.md \
+            docs/DEVICE_PROFILES.md \
             docs/RELEASE_PROCESS.md \
+            docs/RELEASE_SECURITY.md \
             docs/images/dashboard-overview.png \
             web/public/favicon.svg
           do
@@ -130,7 +149,7 @@ jobs:
   dashboard:
     name: Dashboard lint, audit and build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: web
@@ -153,8 +172,14 @@ jobs:
         run: pnpm audit --audit-level high
       - name: Lint dashboard
         run: pnpm lint
+      - name: Run dashboard unit tests
+        run: pnpm test
       - name: Type-check and build dashboard
         run: pnpm build
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run dashboard E2E tests
+        run: pnpm test:e2e
 
   fresh-install:
     name: Clean Alpine install and wizard
@@ -163,7 +188,7 @@ jobs:
       - go
       - dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v6

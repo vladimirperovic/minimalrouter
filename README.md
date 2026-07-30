@@ -32,11 +32,11 @@ plane and a React dashboard. It combines proven Linux networking components with
 a narrow, validated configuration system instead of implementing a new packet
 processing stack.
 
-- `nftables` for firewalling and NAT
-- `pppd` for PPPoE
-- `dnsmasq` for DHCP, DNS, and the integrated global DNS blocklist
-- WireGuard for remote access
-- optional Squid proxy, QoS, Cloudflare DDNS, and Wi-Fi AP support
+- `nftables` for firewalling, NAT, and scheduled device-profile policy;
+- `pppd` for PPPoE;
+- `dnsmasq` for DHCP, DNS, the global DNS Filter, and bounded service destination sets;
+- WireGuard for remote access;
+- optional Squid proxy, QoS, Cloudflare DDNS, and Wi-Fi AP support.
 
 The goal is a focused home and small-office router that is understandable,
 resource-efficient, secure by default, recoverable after mistakes, and pleasant
@@ -49,28 +49,35 @@ router configuration through the same validated API used by other clients.
 
 ![Minimal Router OS dashboard overview showing synthetic router status, traffic, resource use, and navigation](docs/images/dashboard-overview.png)
 
-The image above was captured automatically from the current React production
-build. Every displayed address, hostname, device, MAC address, status value, and
+The image above was captured automatically from the React production build.
+Every displayed address, hostname, device, MAC address, status value, and
 measurement is synthetic documentation data. It is not a screenshot of a
 personal or production network.
 
 ## Current capabilities
 
-### Implemented and tested in the development environment
+### Implemented and covered in the development environment
 
 - split control plane: unprivileged `routerd` and privileged `router-applyd`;
 - SQLite canonical configuration store;
 - transactional generation, preflight, snapshot, apply, verify, and rollback;
 - default-deny WAN firewall and NAT;
 - PPPoE WAN configuration;
+- reliable WAN/LAN interface discovery with explicit operator confirmation;
 - DHCP and DNS service;
-- global DNS blocklist/sinkhole integrated into the router UI;
+- global DNS Filter and scheduled device profiles;
+- configurable Kids profile, including weekday windows and full-weekend access;
 - WireGuard server and split-tunnel phone profiles;
 - encrypted backup export and configuration snapshots;
 - Argon2id authentication, secure sessions, CSRF protection, and optional TOTP;
+- local recovery console for password/TOTP reset, LAN repair, snapshot restore,
+  and factory reset;
 - live DHCP lease display and redacted audit logs;
 - guided first-run wizard;
-- Alpine/OpenRC packaging and a clean-install CI smoke test.
+- frontend unit tests and browser E2E coverage for critical setup/profile flows;
+- Alpine/OpenRC packaging and a clean-install CI smoke test;
+- signed release workflow with checksums, SPDX SBOMs, GitHub provenance, and a
+  pinned-key A/B staging/rollback implementation.
 
 ### Optional and disabled by default
 
@@ -78,19 +85,34 @@ personal or production network.
 - Wi-Fi access point;
 - Squid forward proxy;
 - traffic shaping/QoS;
-- WireGuard remote access.
+- WireGuard remote access;
+- DNS Filter device profiles.
 
 ### Not yet a stable release feature
 
 - production-grade IPv6 parity;
 - multi-WAN and high availability;
 - VLAN and managed-switch workflows;
-- signed recovery images and a complete update rollback channel;
+- signed bootable recovery images;
+- unattended update activation or unattended production support;
 - a broad third-party package ecosystem;
-- unattended production support.
+- physical-hardware qualification across supported NICs.
 
 Unsupported functionality fails closed or is shown as unavailable rather than
 being simulated.
+
+## Kids schedule example
+
+The device-profile editor starts with a practical household preset:
+
+- YouTube, Steam, and Wikipedia/Wikimedia;
+- Monday-Friday from `19:00` through `23:59`;
+- all-day access on Saturday and Sunday.
+
+The schedule and selected services are editable. Managed devices require stable
+LAN addresses and must use the router resolver. DNS-derived classification is a
+household convenience policy, not a high-assurance application firewall; read
+[docs/DEVICE_PROFILES.md](docs/DEVICE_PROFILES.md) before relying on it.
 
 ## Project principles
 
@@ -101,7 +123,7 @@ being simulated.
 - **Deterministic changes:** configuration is validated and generated from typed
   models rather than arbitrary shell fragments.
 - **Recoverability:** disruptive changes use snapshots, verification,
-  confirmation, and rollback.
+  confirmation, local-console recovery, and rollback.
 - **Honest status:** documentation distinguishes implemented behavior, measured
   evidence, planned work, and unsupported features.
 - **Small scope:** features may be declined when they significantly expand attack
@@ -123,7 +145,7 @@ security parity.
 | CPU | Narrow service set is expected to have low idle CPU use, but a fair cross-platform benchmark has not yet been published | Depends heavily on throughput, VPN, IDS/IPS, packages, and state count |
 | Firewall/NAT | Focused generated `nftables` policy; WAN port forwards intentionally unsupported in the secure profile | Extensive firewall, NAT, policy routing, aliases, schedules, and advanced features |
 | Remote administration | WireGuard-first; no WAN web management | Multiple mature VPN and administration options |
-| DNS ad/domain blocking | Basic global DNS blocklist is built directly into the Minimal Router configuration and dashboard | DNS blocking is commonly added with the optional `pfBlockerNG` package or a separate DNS filtering service |
+| DNS filtering | Basic global sinkhole plus bounded DNS-derived device schedules | DNS filtering is commonly added with optional packages or a separate resolver |
 | Packages | No general package ecosystem | Large optional package system |
 | IPv6 | Disabled/fail-closed until policy parity is complete | Mature IPv6 support |
 | High availability | Not implemented | CARP and established HA workflows |
@@ -138,10 +160,10 @@ References:
 
 - pfSense minimum requirements: https://docs.netgate.com/pfsense/en/latest/hardware/minimum-requirements.html
 - pfSense hardware sizing: https://docs.netgate.com/pfsense/en/latest/hardware/size.html
-- pfSense package system and pfBlockerNG: https://docs.netgate.com/pfsense/en/latest/packages/
+- pfSense package system: https://docs.netgate.com/pfsense/en/latest/packages/
 
 A more detailed three-way comparison is available in
-[docs/COMPARISON.md](docs/COMPARISON.md). The dated measurement evidence is in
+[docs/COMPARISON.md](docs/COMPARISON.md). Dated measurement evidence is in
 [docs/RESOURCE_AND_HARDWARE_TEST.md](docs/RESOURCE_AND_HARDWARE_TEST.md).
 
 ## Architecture
@@ -153,6 +175,7 @@ flowchart LR
     Routerd[routerd — unprivileged Go API]
     DB[(SQLite canonical state)]
     Applyd[router-applyd — privileged helper]
+    Recovery[Local recovery console]
     Linux[Linux networking services]
     LAN[LAN clients]
     WAN[Internet]
@@ -161,6 +184,7 @@ flowchart LR
     UI -->|HTTPS /api/v1| Routerd
     Routerd --> DB
     Routerd -->|typed local IPC| Applyd
+    Recovery -->|local console only| DB
     Applyd --> Linux
     LAN <--> Linux
     Linux <--> WAN
@@ -176,7 +200,8 @@ input → validation → typed model → generation → preflight → snapshot
       → apply → verification → commit or rollback
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [SECURITY.md](SECURITY.md).
+See [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), and
+[docs/RECOVERY.md](docs/RECOVERY.md).
 
 ## Development setup
 
@@ -195,7 +220,15 @@ go vet ./...
 
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
+pnpm --dir web test
 pnpm --dir web build
+```
+
+Run browser E2E tests after installing the Playwright Chromium dependency:
+
+```sh
+pnpm --dir web exec playwright install chromium
+pnpm --dir web test:e2e
 ```
 
 Run the dashboard development server:
@@ -210,8 +243,8 @@ for the complete workflow.
 
 ## Controlled installation
 
-There is no signed stable ISO yet. For a controlled lab installation, use a clean
-Alpine Linux 3.22 VM or dedicated test system with two network interfaces.
+There is no signed stable ISO yet. For a controlled lab installation, use a
+clean Alpine Linux 3.22 VM or dedicated test system with two network interfaces.
 
 Start with [docs/INSTALLATION.md](docs/INSTALLATION.md). Proxmox users should also
 read [docs/PROXMOX.md](docs/PROXMOX.md).
@@ -243,6 +276,7 @@ Never commit or publicly attach:
 - administrator passwords, hashes, sessions, or CSRF values;
 - WireGuard private keys, preshared keys, profiles, or QR codes;
 - Cloudflare or other provider tokens;
+- release signing private keys;
 - exported backups;
 - real runtime databases, configuration files, snapshots, packet captures, logs,
   public addresses, hostnames, MAC addresses, or device inventory.
@@ -270,6 +304,9 @@ Key documents:
 - [Security policy and threat model](SECURITY.md)
 - [Privacy](PRIVACY.md)
 - [Installation](docs/INSTALLATION.md)
+- [Recovery](docs/RECOVERY.md)
+- [DNS Filter device profiles](docs/DEVICE_PROFILES.md)
+- [Release security and rollback](docs/RELEASE_SECURITY.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Testing guide](docs/TESTING.md)
@@ -282,8 +319,10 @@ Key documents:
 
 There is no stable signed release yet. Do not treat a development archive or a
 source commit as production-ready firmware. Official releases must follow
-[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md), publish checksums and known
-limitations, and state the exact supported deployment class.
+[docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) and
+[docs/RELEASE_SECURITY.md](docs/RELEASE_SECURITY.md), publish signed manifests,
+checksums, SPDX SBOMs, provenance, known limitations, and the exact supported
+deployment class.
 
 ## License
 

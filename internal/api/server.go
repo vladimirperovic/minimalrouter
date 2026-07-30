@@ -295,6 +295,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	// ── Public endpoints (no auth required) ──
 	mux.HandleFunc("POST /api/v1/auth/login", sh(s.handleLogin))
 	mux.HandleFunc("GET /api/v1/setup/status", sh(s.handleSetupStatus))
+	mux.HandleFunc("GET /api/v1/setup/interfaces", sh(s.handleDiscoverSetupInterfaces))
 
 	// ── Protected endpoints (auth required) ──
 	mux.HandleFunc("POST /api/v1/auth/logout", sh(s.authMiddleware(s.handleLogout)))
@@ -307,6 +308,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/auth/totp/disable", sh(s.authMiddleware(s.handleTOTPDisable)))
 
 	mux.HandleFunc("GET /api/v1/system", sh(s.authMiddleware(s.handleGetSystem)))
+	mux.HandleFunc("GET /api/v1/system/interfaces", sh(s.authMiddleware(s.handleDiscoverInterfaces)))
 	mux.HandleFunc("GET /api/v1/system/diagnostics", sh(s.authMiddleware(s.handleGetDiagnostics)))
 	mux.HandleFunc("GET /api/v1/audit/events", sh(s.authMiddleware(s.handleGetAuditEvents)))
 	mux.HandleFunc("GET /api/v1/config", sh(s.authMiddleware(s.handleGetConfig)))
