@@ -2,6 +2,8 @@ package api
 
 import (
 	"bytes"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,7 +28,12 @@ func benchmarkMux(b *testing.B) (*http.ServeMux, func()) {
 	server := NewServer(engine)
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
-	return mux, func() { _ = os.RemoveAll(tempDir) }
+	previousLogOutput := log.Writer()
+	log.SetOutput(io.Discard)
+	return mux, func() {
+		log.SetOutput(previousLogOutput)
+		_ = os.RemoveAll(tempDir)
+	}
 }
 
 func BenchmarkAPISetupStatusParallel(b *testing.B) {
