@@ -94,10 +94,10 @@ type AccessWindow struct {
 // WeeklyAccessSchedule controls managed services independently for each day.
 // The legacy weekday/weekend fields remain readable for old backups.
 type WeeklyAccessSchedule struct {
-	DayWindows      map[string][]AccessWindow `json:"day_windows,omitempty"`
-	WeekdayWindows  []AccessWindow            `json:"weekday_windows,omitempty"`
-	WeekendMode     string                    `json:"weekend_mode,omitempty"`
-	WeekendWindows  []AccessWindow            `json:"weekend_windows,omitempty"`
+	DayWindows     map[string][]AccessWindow `json:"day_windows,omitempty"`
+	WeekdayWindows []AccessWindow            `json:"weekday_windows,omitempty"`
+	WeekendMode    string                    `json:"weekend_mode,omitempty"`
+	WeekendWindows []AccessWindow            `json:"weekend_windows,omitempty"`
 }
 
 // DeviceProfile applies a service schedule to one or more static LAN addresses.
