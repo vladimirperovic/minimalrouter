@@ -19,9 +19,9 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("Kids");
   const [addresses, setAddresses] = useState("");
-  const [services, setServices] = useState<string[]>(["youtube", "steam"]);
-  const [weekdayStart, setWeekdayStart] = useState("17:00");
-  const [weekdayEnd, setWeekdayEnd] = useState("21:00");
+  const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
+  const [weekdayStart, setWeekdayStart] = useState("19:00");
+  const [weekdayEnd, setWeekdayEnd] = useState("23:59");
   const [weekendAllDay, setWeekendAllDay] = useState(true);
 
   useEffect(() => {
@@ -185,10 +185,10 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
       {modalOpen && (
         <div className="modal-backdrop" role="presentation">
-          <section aria-labelledby="profile-title" className="modal-panel dns-profile-modal" role="dialog">
+          <section aria-labelledby="profile-title" aria-modal="true" className="modal-panel dns-profile-modal" role="dialog">
             <div className="modal-heading">
               <div><p className="eyebrow">Parental control</p><h2 id="profile-title">Kids service schedule</h2></div>
-              <button className="modal-close" onClick={() => setModalOpen(false)} type="button">✕</button>
+              <button aria-label="Close Kids profile dialog" className="modal-close" onClick={() => setModalOpen(false)} type="button">✕</button>
             </div>
             <form className="form-grid" onSubmit={submitProfile}>
               <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} required value={name} /></label>
@@ -206,7 +206,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                 <label className="field"><span>Weekdays until</span><input onChange={(event) => setWeekdayEnd(event.target.value)} type="time" value={weekdayEnd} /></label>
               </div>
               <label className="checkbox-row"><input checked={weekendAllDay} onChange={(event) => setWeekendAllDay(event.target.checked)} type="checkbox" /><span>Allow selected services all day Saturday and Sunday</span></label>
-              <p className="form-note">Outside the weekday window the selected services are blocked. Existing streams are also cut when the window closes.</p>
+              <p className="form-note">Podrazumijevano: YouTube, Steam i Wikipedia od 19:00 do kraja radnog dana, a vikendom cijeli dan. Postojeće konekcije se prekidaju kada prozor istekne.</p>
               <div className="modal-actions"><button className="button secondary" onClick={() => setModalOpen(false)} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
             </form>
           </section>
