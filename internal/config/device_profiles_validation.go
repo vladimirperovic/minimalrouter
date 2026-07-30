@@ -16,6 +16,10 @@ var supportedProfileServices = map[string]struct{}{
 	"roblox": {}, "epic": {}, "twitch": {}, "adult": {}, "gaming": {},
 }
 
+var supportedScheduleDays = map[string]struct{}{
+	"monday": {}, "tuesday": {}, "wednesday": {}, "thursday": {}, "friday": {}, "saturday": {}, "sunday": {},
+}
+
 func (c *SystemConfig) validateDeviceProfiles(lanNetwork *net.IPNet) ValidationErrors {
 	var errs ValidationErrors
 	if len(c.AdGuard.FilterDevices) > 0 {
@@ -67,22 +71,43 @@ func (c *SystemConfig) validateDeviceProfiles(lanNetwork *net.IPNet) ValidationE
 			}
 			seenServices[service] = struct{}{}
 		}
-		validateWindows(&errs, base+".schedule.weekday_windows", profile.Schedule.WeekdayWindows)
-		switch profile.Schedule.WeekendMode {
-		case "all_day", "blocked", "same_as_weekdays":
-			if len(profile.Schedule.WeekendWindows) != 0 {
-				appendFieldError(&errs, base+".schedule.weekend_windows", "must be empty unless weekend_mode is custom")
-			}
-		case "custom":
-			if len(profile.Schedule.WeekendWindows) == 0 {
-				appendFieldError(&errs, base+".schedule.weekend_windows", "must contain at least one window for custom weekend mode")
-			}
-			validateWindows(&errs, base+".schedule.weekend_windows", profile.Schedule.WeekendWindows)
-		default:
-			appendFieldError(&errs, base+".schedule.weekend_mode", "must be all_day, blocked, same_as_weekdays, or custom")
-		}
+		validateProfileSchedule(&errs, base+".schedule", profile.Schedule)
 	}
 	return errs
+}
+
+func validateProfileSchedule(errs *ValidationErrors, field string, schedule WeeklyAccessSchedule) {
+	if len(schedule.DayWindows) > 0 {
+		if len(schedule.DayWindows) > 7 {
+			appendFieldError(errs, field+".day_windows", "cannot contain more than seven days")
+		}
+		if len(schedule.WeekdayWindows) > 0 || schedule.WeekendMode != "" || len(schedule.WeekendWindows) > 0 {
+			appendFieldError(errs, field, "must not mix day_windows with legacy weekday/weekend fields")
+		}
+		for day, windows := range schedule.DayWindows {
+			if _, supported := supportedScheduleDays[day]; !supported {
+				appendFieldError(errs, field+".day_windows."+day, "is not a supported weekday")
+				continue
+			}
+			validateWindows(errs, field+".day_windows."+day, windows)
+		}
+		return
+	}
+
+	validateWindows(errs, field+".weekday_windows", schedule.WeekdayWindows)
+	switch schedule.WeekendMode {
+	case "all_day", "blocked", "same_as_weekdays", "":
+		if len(schedule.WeekendWindows) != 0 {
+			appendFieldError(errs, field+".weekend_windows", "must be empty unless weekend_mode is custom")
+		}
+	case "custom":
+		if len(schedule.WeekendWindows) == 0 {
+			appendFieldError(errs, field+".weekend_windows", "must contain at least one window for custom weekend mode")
+		}
+		validateWindows(errs, field+".weekend_windows", schedule.WeekendWindows)
+	default:
+		appendFieldError(errs, field+".weekend_mode", "must be all_day, blocked, same_as_weekdays, or custom")
+	}
 }
 
 func validateWindows(errs *ValidationErrors, field string, windows []AccessWindow) {
