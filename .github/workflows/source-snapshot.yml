@@ -30,7 +30,18 @@ jobs:
           ref: feature/alpha-1-1-recovery
           fetch-depth: 0
 
+      - name: Detect patch marker
+        id: marker
+        shell: bash
+        run: |
+          if [[ -f .github/patch-ready ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Verify and apply reviewed patch
+        if: steps.marker.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -40,19 +51,19 @@ jobs:
           echo "9c8ea33d208d75e0027024303b760d23d0577a938d5cb93966a29e0b31b9b03f  /tmp/alpha-1-1.patch" \
             | sha256sum -c -
 
-          # The reviewed patch deletes this one-shot workflow. Exclude it from
-          # git apply because the running bootstrap differs by design, then
-          # remove it explicitly with the other temporary patch transport files.
+          # GitHub Actions tokens cannot modify workflow files. Apply the
+          # reviewed application patch here and update workflows separately
+          # through the repository connector after this commit lands.
           git apply --check --whitespace=error-all \
-            --exclude=.github/workflows/source-snapshot.yml \
+            --exclude='.github/workflows/*' \
             /tmp/alpha-1-1.patch
           git apply --index --whitespace=error-all \
-            --exclude=.github/workflows/source-snapshot.yml \
+            --exclude='.github/workflows/*' \
             /tmp/alpha-1-1.patch
-          git rm .github/workflows/source-snapshot.yml
           git rm -r .github/patch-parts .github/patch-ready
 
       - name: Commit and push implementation
+        if: steps.marker.outputs.present == 'true'
         shell: bash
         run: |
           set -euo pipefail
