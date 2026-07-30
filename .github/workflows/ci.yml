@@ -147,7 +147,7 @@ jobs:
         run: govulncheck ./...
 
   dashboard:
-    name: Dashboard lint, unit, E2E, audit and build
+    name: Dashboard lint, audit and build
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
