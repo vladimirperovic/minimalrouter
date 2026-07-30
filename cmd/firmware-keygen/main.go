@@ -26,7 +26,9 @@ func main() {
 		fatal(err)
 	}
 	if err := writeFile(*publicPath, []byte(hex.EncodeToString(publicKey)+"\n"), 0o644); err != nil {
-		_ = os.Remove(*privatePath)
+		if removeErr := os.Remove(*privatePath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("remove incomplete private key: %w", removeErr))
+		}
 		fatal(err)
 	}
 }
@@ -40,20 +42,25 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	if _, err := file.Write(data); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return err
+		return cleanupFailedFile(file, path, err)
 	}
 	if err := file.Sync(); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return err
+		return cleanupFailedFile(file, path, err)
 	}
 	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return err
+		removeErr := os.Remove(path)
+		return errors.Join(err, removeErr)
 	}
 	return os.Chmod(path, mode)
+}
+
+func cleanupFailedFile(file *os.File, path string, primary error) error {
+	closeErr := file.Close()
+	removeErr := os.Remove(path)
+	if errors.Is(removeErr, os.ErrNotExist) {
+		removeErr = nil
+	}
+	return errors.Join(primary, closeErr, removeErr)
 }
 
 func fatal(err error) {
