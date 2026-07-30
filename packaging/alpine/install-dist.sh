@@ -30,6 +30,8 @@ echo "Architecture: $ARCH ($BIN_ARCH)"
 for required in \
     "bin/routerd-${BIN_ARCH}" \
     "bin/router-applyd-${BIN_ARCH}" \
+    "bin/router-recovery-${BIN_ARCH}" \
+    "bin/router-update-${BIN_ARCH}" \
     "web/dist/index.html" \
     "init.d/routerd" \
     "init.d/router-applyd" \
@@ -76,6 +78,8 @@ install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
 
 install -m 0755 "bin/routerd-${BIN_ARCH}" /usr/bin/routerd
 install -m 0755 "bin/router-applyd-${BIN_ARCH}" /usr/sbin/router-applyd
+install -m 0750 "bin/router-recovery-${BIN_ARCH}" /usr/sbin/router-recovery
+install -m 0750 "bin/router-update-${BIN_ARCH}" /usr/sbin/router-update
 
 # 5. Web dashboard
 echo "[4/7] Installing dashboard..."

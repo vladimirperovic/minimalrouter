@@ -426,22 +426,7 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
-	for i, fd := range c.AdGuard.FilterDevices {
-		appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d]", i), "per-device DNS filtering is unavailable; dnsmasq address rules are global")
-		if fd.Hostname == "" {
-			appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].hostname", i), "hostname is required")
-		}
-		if fd.IPAddress == "" {
-			appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "ip_address is required")
-		} else {
-			ip := parseIPv4(fd.IPAddress)
-			if ip == nil {
-				appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "must be a valid IPv4 address")
-			} else if lanNetwork != nil && !lanNetwork.Contains(ip) {
-				appendFieldError(&errs, fmt.Sprintf("adguard.filter_devices[%d].ip_address", i), "must be within the LAN subnet")
-			}
-		}
-	}
+	errs = append(errs, c.validateDeviceProfiles(lanNetwork)...)
 	if c.AdGuard.BlocklistURL != "" {
 		appendFieldError(&errs, "adguard.blocklist_url", "external blocklist refresh is unavailable in the hardened pilot; use the built-in global list")
 	}

@@ -74,7 +74,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
     return () => { active = false; };
   }, []);
 
-  const options = useMemo(() => {
+  const options = useMemo<InterfaceInfo[]>(() => {
     if (interfaces.length > 0) return interfaces;
     return [
       { name: wanIf, up: false, carrier: false, physical: false, default_route: false, score: 0 },
