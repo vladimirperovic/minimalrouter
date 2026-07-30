@@ -12,6 +12,14 @@ alpha, compatibility may change between commits.
 - Recovery-safe bootstrap executables independent of the candidate firmware slot.
 - Failure-injection coverage for interrupted activation, rollback, corrupt
   journals, state-write failures, and concurrent update operations.
+- Deterministic router failure scenarios covering lost privileged responses,
+  confirmation-response loss, simulated power loss during pending changes,
+  WireGuard-only management changes, failed automatic rollback, SQLite commit
+  failure, unverified helper results, and boot reconciliation.
+- Explicit `RecoveryRequired` transaction and RPC outcome for runtime states whose
+  rollback has not been verified.
+- Failure-scenario matrix for IPC, power, process, storage, firewall, DHCP/DNS,
+  PPPoE, WireGuard, update, backup, restore, and target-Proxmox testing.
 - Fuzz targets for malformed unauthenticated API requests and update journals.
 - Isolated WAN-router-LAN network namespace laboratory covering DHCP, DNS, NAT,
   firewall, TCP, UDP, parallel flows, packet loss, latency, and WAN port checks.
@@ -35,6 +43,13 @@ alpha, compatibility may change between commits.
 
 ### Changed
 
+- Ambiguous `routerd` to `router-applyd` transport failures retry the exact same
+  transaction ID so the helper can return its persisted idempotent result.
+- WireGuard key, port, address, peer, and route changes require commit-confirm
+  while management is WireGuard-only.
+- A failed automatic commit-confirm rollback retains pending/candidate access,
+  blocks overlapping configuration, schedules another attempt, and uses a fresh
+  rollback transaction ID rather than replaying a cached failed response.
 - Core GitHub CI actions and artifact upload use v7.
 - Dashboard development uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
 - TypeScript 6 CSS side-effect import checks are satisfied with the Vite client
@@ -61,6 +76,14 @@ alpha, compatibility may change between commits.
 
 ### Fixed
 
+- Lost IPC responses after a completed apply or confirmation no longer force an
+  unnecessary unknown outcome when the helper can return the saved result.
+- Privileged confirmation now recognizes WireGuard control-plane changes that can
+  break a WireGuard-only management path.
+- A rollback that fails verification is no longer falsely reported as
+  `RolledBack`; it is reported as `RecoveryRequired`.
+- SQLite commit failure reports `RolledBack` only after a successful, verified
+  privileged restoration of the previous configuration.
 - A crash between update pointer changes can no longer silently lose the intended
   activation/rollback transition; journal reconciliation restores consistency.
 - Corrupt state no longer leaves a blocking partially staged version.
