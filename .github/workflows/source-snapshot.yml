@@ -39,6 +39,40 @@ jobs:
             | gzip -dc > /tmp/alpha-1-1.patch
           echo "9c8ea33d208d75e0027024303b760d23d0577a938d5cb93966a29e0b31b9b03f  /tmp/alpha-1-1.patch" \
             | sha256sum -c -
+
+          # The reviewed patch intentionally deletes this temporary workflow.
+          # Restore its exact reviewed pre-bootstrap contents so the patch can
+          # be applied reproducibly even though the running workflow differs.
+          cat > .github/workflows/source-snapshot.yml <<'WORKFLOW'
+          name: Source snapshot
+
+          on:
+            push:
+              branches:
+                - feature/alpha-1-1-recovery
+            pull_request:
+              branches:
+                - main
+
+          permissions:
+            contents: read
+
+          jobs:
+            snapshot:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v6
+                - name: Archive source
+                  run: tar --exclude=.git -czf /tmp/minimalrouter-source.tar.gz .
+                - name: Upload source snapshot
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: minimalrouter-source-${{ github.sha }}
+                    path: /tmp/minimalrouter-source.tar.gz
+                    retention-days: 1
+          WORKFLOW
+          git add .github/workflows/source-snapshot.yml
+
           git apply --check --whitespace=error-all /tmp/alpha-1-1.patch
           git apply --index --whitespace=error-all /tmp/alpha-1-1.patch
           git rm -r .github/patch-parts .github/patch-ready
