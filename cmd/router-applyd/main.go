@@ -60,8 +60,9 @@ type previousFile struct {
 type transactionRecord struct {
 	ID          string              `json:"id"`
 	ConfigHash  string              `json:"config_hash"`
-	Response    apply.ApplyResponse `json:"response"`
-	CompletedAt time.Time           `json:"completed_at"`
+	Response    apply.ApplyResponse `json:"response,omitempty"`
+	StartedAt   time.Time           `json:"started_at"`
+	CompletedAt time.Time           `json:"completed_at,omitempty"`
 }
 
 type pendingConfirmation struct {
@@ -179,6 +180,15 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
+	intent := transactionRecord{
+		ID: req.ID, ConfigHash: configHash, StartedAt: time.Now(),
+	}
+	if err := saveLastTransaction(intent); err != nil {
+		writeResponse(conn, failure(req.ID, "privileged transaction intent could not be persisted", false))
+		return
+	}
+	lastTransactionMemory = &intent
+
 	log.Printf("apply transaction %q revision %d", req.ID, req.Revision)
 	var resp apply.ApplyResponse
 	if req.Op == apply.OpConfirm {
@@ -187,7 +197,8 @@ func handleConnection(conn net.Conn) {
 		resp = applyAll(req)
 	}
 	record := transactionRecord{
-		ID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
+		ID: req.ID, ConfigHash: configHash, Response: resp,
+		StartedAt: intent.StartedAt, CompletedAt: time.Now(),
 	}
 	record, resp = persistTransactionOutcome(record, saveLastTransaction)
 	lastTransactionMemory = &record
@@ -1241,8 +1252,18 @@ func validateTransactionRecord(record transactionRecord) error {
 	if err != nil || len(digest) != sha256.Size {
 		return errors.New("transaction record has an invalid configuration fingerprint")
 	}
+	if record.StartedAt.IsZero() {
+		return errors.New("transaction record has no start time")
+	}
 	if record.CompletedAt.IsZero() {
-		return errors.New("transaction record has no completion time")
+		if record.Response.ID != "" || record.Response.Success || record.Response.Verified ||
+			record.Response.RolledBack || record.Response.RecoveryRequired || record.Response.Error != "" {
+			return errors.New("incomplete transaction record contains a final response")
+		}
+		return nil
+	}
+	if record.CompletedAt.Before(record.StartedAt) {
+		return errors.New("transaction record completion precedes start")
 	}
 	if record.Response.ID != record.ID {
 		return errors.New("transaction record response ID does not match")

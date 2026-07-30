@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -26,7 +27,8 @@ func TestReplayTransactionResponseAllowsMissingJournal(t *testing.T) {
 func TestReplayTransactionResponseReturnsPersistedResult(t *testing.T) {
 	stored := &transactionRecord{
 		ID: "tx-existing", ConfigHash: "same",
-		Response: apply.ApplyResponse{ID: "tx-existing", Success: true, Verified: true},
+		Response:  apply.ApplyResponse{ID: "tx-existing", Success: true, Verified: true},
+		StartedAt: time.Now().Add(-time.Second), CompletedAt: time.Now(),
 	}
 	response, handled := replayTransactionResponse("tx-existing", "same", stored, nil)
 	if !handled || response == nil || !response.Success || !response.Verified {
@@ -55,5 +57,15 @@ func TestPendingLoadFailureDistinguishesMissingFromCorrupt(t *testing.T) {
 	corrupt := pendingLoadFailure("tx-corrupt", errors.New("corrupt pending JSON"))
 	if !corrupt.RecoveryRequired || corrupt.RolledBack || corrupt.Success {
 		t.Fatalf("corrupt pending state must require recovery: %+v", corrupt)
+	}
+}
+
+func TestReplayIncompleteIntentRequiresRecoveryWithoutReapply(t *testing.T) {
+	record := validTransactionRecordForTest()
+	record.Response = apply.ApplyResponse{}
+	record.CompletedAt = time.Time{}
+	response, handled := replayTransactionResponse(record.ID, record.ConfigHash, &record, nil)
+	if !handled || response == nil || !response.RecoveryRequired || response.RolledBack || response.Success {
+		t.Fatalf("incomplete intent replay handled=%v response=%+v", handled, response)
 	}
 }

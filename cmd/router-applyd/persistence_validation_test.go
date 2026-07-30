@@ -17,7 +17,7 @@ func validTransactionRecordForTest() transactionRecord {
 		Response: apply.ApplyResponse{
 			ID: "tx-valid-record", Success: true, Verified: true,
 		},
-		CompletedAt: time.Now(),
+		StartedAt: time.Now().Add(-time.Second), CompletedAt: time.Now(),
 	}
 }
 
@@ -38,7 +38,8 @@ func TestValidateTransactionRecordChecksFingerprintResponseAndTime(t *testing.T)
 		mutate func(*transactionRecord)
 	}{
 		{name: "bad fingerprint", mutate: func(r *transactionRecord) { r.ConfigHash = "xyz" }},
-		{name: "missing completion", mutate: func(r *transactionRecord) { r.CompletedAt = time.Time{} }},
+		{name: "missing start", mutate: func(r *transactionRecord) { r.StartedAt = time.Time{} }},
+		{name: "completion before start", mutate: func(r *transactionRecord) { r.CompletedAt = r.StartedAt.Add(-time.Second) }},
 		{name: "response ID mismatch", mutate: func(r *transactionRecord) { r.Response.ID = "other" }},
 		{name: "contradictory response", mutate: func(r *transactionRecord) { r.Response = apply.ApplyResponse{ID: r.ID, Success: true} }},
 	}
@@ -74,5 +75,18 @@ func TestSaveLastGoodRejectsInvalidConfigBeforeWrite(t *testing.T) {
 	cfg.LAN.CIDR = "not-a-cidr"
 	if err := saveLastGood(cfg); err == nil {
 		t.Fatal("invalid last-good configuration reached the write path")
+	}
+}
+
+func TestValidateTransactionRecordAcceptsDurableIncompleteIntent(t *testing.T) {
+	record := validTransactionRecordForTest()
+	record.Response = apply.ApplyResponse{}
+	record.CompletedAt = time.Time{}
+	if err := validateTransactionRecord(record); err != nil {
+		t.Fatalf("durable incomplete intent rejected: %v", err)
+	}
+	record.Response.Error = "must not exist before completion"
+	if err := validateTransactionRecord(record); err == nil {
+		t.Fatal("incomplete intent with final response was accepted")
 	}
 }

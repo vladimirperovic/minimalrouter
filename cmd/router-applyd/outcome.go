@@ -59,6 +59,10 @@ func replayTransactionResponse(id, configHash string, previous *transactionRecor
 		response := failure(id, "transaction ID was already used for different content", false)
 		return &response, true
 	}
+	if previous.CompletedAt.IsZero() {
+		response := recoveryFailure(id, "privileged transaction outcome is incomplete; canonical reconciliation is required")
+		return &response, true
+	}
 	response := previous.Response
 	return &response, true
 }
