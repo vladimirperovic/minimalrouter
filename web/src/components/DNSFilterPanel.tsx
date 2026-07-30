@@ -1,10 +1,16 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../lib/api";
 import {
+  createDefaultKidsGrid,
+  createEmptyGrid,
   createKidsProfile,
   describeSchedule,
   DeviceProfile,
+  gridToDayWindows,
+  HourGrid,
   managedServices,
+  scheduleDays,
+  ScheduleDay,
 } from "../lib/deviceProfiles";
 
 type Props = {
@@ -17,12 +23,12 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [profileTemplate, setProfileTemplate] = useState<"" | "kids">("");
   const [name, setName] = useState("Kids");
   const [addresses, setAddresses] = useState("");
   const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
-  const [weekdayStart, setWeekdayStart] = useState("19:00");
-  const [weekdayEnd, setWeekdayEnd] = useState("23:59");
-  const [weekendAllDay, setWeekendAllDay] = useState(true);
+  const [grid, setGrid] = useState<HourGrid>(() => createDefaultKidsGrid());
+  const dragValue = useRef<boolean | null>(null);
 
   useEffect(() => {
     if (!apiConnected) return;
@@ -37,6 +43,12 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
       })
       .catch((error) => onError(error instanceof Error ? error.message : "DNS Filter configuration unavailable"));
   }, [apiConnected, onError]);
+
+  useEffect(() => {
+    const stopDrag = () => { dragValue.current = null; };
+    window.addEventListener("pointerup", stopDrag);
+    return () => window.removeEventListener("pointerup", stopDrag);
+  }, []);
 
   const persist = async (nextEnabled: boolean, nextProfiles: DeviceProfile[]) => {
     if (!apiConnected) throw new Error("Router API is unavailable.");
@@ -60,6 +72,15 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
     setProfiles(nextProfiles);
   };
 
+  const closeModal = () => {
+    setModalOpen(false);
+    setProfileTemplate("");
+    setName("Kids");
+    setAddresses("");
+    setServices(["youtube", "steam", "wiki"]);
+    setGrid(createDefaultKidsGrid());
+  };
+
   const toggleGlobal = async () => {
     setSaving(true);
     try {
@@ -74,19 +95,20 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const submitProfile = async (event: FormEvent) => {
     event.preventDefault();
+    if (profileTemplate !== "kids") {
+      onError("Odaberite Kids profil prije podešavanja rasporeda.");
+      return;
+    }
     setSaving(true);
     try {
       const profile = createKidsProfile({
         name,
         addresses: addresses.split(","),
         services,
-        weekdayStart,
-        weekdayEnd,
-        weekendAllDay,
+        dayWindows: gridToDayWindows(grid),
       });
       await persist(true, [...profiles, profile]);
-      setModalOpen(false);
-      setAddresses("");
+      closeModal();
       onError("");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Profile could not be saved");
@@ -126,6 +148,27 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
       : [...current, service]);
   };
 
+  const setHour = (day: ScheduleDay, hour: number, value: boolean) => {
+    setGrid((current) => ({
+      ...current,
+      [day]: current[day].map((slot, index) => index === hour ? value : slot),
+    }));
+  };
+
+  const startPaint = (day: ScheduleDay, hour: number) => {
+    const next = !grid[day][hour];
+    dragValue.current = next;
+    setHour(day, hour, next);
+  };
+
+  const paint = (day: ScheduleDay, hour: number) => {
+    if (dragValue.current !== null) setHour(day, hour, dragValue.current);
+  };
+
+  const setDay = (day: ScheduleDay, value: boolean) => {
+    setGrid((current) => ({ ...current, [day]: Array(24).fill(value) }));
+  };
+
   return (
     <section className="section-block dns-filter" id="adguard">
       <div className="section-heading dns-filter-heading">
@@ -152,7 +195,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="card-title-row">
           <div>
             <h3>Device profiles</h3>
-            <p>Radnim danima birate vremenski prozor; vikend može biti dozvoljen cijeli dan.</p>
+            <p>Za Kids profil biraš dozvoljene sate posebno za svaki dan u sedmici.</p>
           </div>
         </div>
         <div className="table-scroll">
@@ -187,27 +230,75 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="modal-backdrop" role="presentation">
           <section aria-labelledby="profile-title" aria-modal="true" className="modal-panel dns-profile-modal" role="dialog">
             <div className="modal-heading">
-              <div><p className="eyebrow">Parental control</p><h2 id="profile-title">Kids service schedule</h2></div>
-              <button aria-label="Close Kids profile dialog" className="modal-close" onClick={() => setModalOpen(false)} type="button">✕</button>
+              <div><p className="eyebrow">Parental control</p><h2 id="profile-title">Device profile</h2></div>
+              <button aria-label="Close profile dialog" className="modal-close" onClick={closeModal} type="button">✕</button>
             </div>
             <form className="form-grid" onSubmit={submitProfile}>
-              <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} required value={name} /></label>
-              <label className="field"><span>Static IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
-              <fieldset className="field service-picker">
-                <legend>Managed services</legend>
-                <div className="service-checkboxes">
-                  {managedServices.map(([value, label]) => (
-                    <label key={value}><input checked={services.includes(value)} onChange={() => toggleService(value)} type="checkbox" />{label}</label>
-                  ))}
-                </div>
-              </fieldset>
-              <div className="two-column-fields">
-                <label className="field"><span>Weekdays from</span><input onChange={(event) => setWeekdayStart(event.target.value)} type="time" value={weekdayStart} /></label>
-                <label className="field"><span>Weekdays until</span><input onChange={(event) => setWeekdayEnd(event.target.value)} type="time" value={weekdayEnd} /></label>
-              </div>
-              <label className="checkbox-row"><input checked={weekendAllDay} onChange={(event) => setWeekendAllDay(event.target.checked)} type="checkbox" /><span>Allow selected services all day Saturday and Sunday</span></label>
-              <p className="form-note">Podrazumijevano: YouTube, Steam i Wikipedia od 19:00 do kraja radnog dana, a vikendom cijeli dan. Postojeće konekcije se prekidaju kada prozor istekne.</p>
-              <div className="modal-actions"><button className="button secondary" onClick={() => setModalOpen(false)} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
+              <label className="field">
+                <span>Profile type</span>
+                <select onChange={(event) => setProfileTemplate(event.target.value as "" | "kids")} required value={profileTemplate}>
+                  <option value="">Select profile…</option>
+                  <option value="kids">Kids</option>
+                </select>
+              </label>
+
+              {profileTemplate === "kids" && (
+                <>
+                  <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} required value={name} /></label>
+                  <label className="field"><span>Static IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
+                  <fieldset className="field service-picker">
+                    <legend>Managed services</legend>
+                    <div className="service-checkboxes">
+                      {managedServices.map(([value, label]) => (
+                        <label key={value}><input checked={services.includes(value)} onChange={() => toggleService(value)} type="checkbox" />{label}</label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <fieldset className="weekly-scheduler">
+                    <legend>Allowed time</legend>
+                    <div className="scheduler-toolbar">
+                      <p>Obojeni sati su dozvoljeni. Klikni ili prevuci preko polja da promijeniš raspored.</p>
+                      <div>
+                        <button className="button secondary compact" onClick={() => setGrid(createDefaultKidsGrid())} type="button">Default</button>
+                        <button className="button secondary compact" onClick={() => setGrid(Object.fromEntries(scheduleDays.map(([day]) => [day, Array(24).fill(true)])) as HourGrid)} type="button">Allow all</button>
+                        <button className="button secondary compact" onClick={() => setGrid(createEmptyGrid())} type="button">Block all</button>
+                      </div>
+                    </div>
+                    <div className="scheduler-scroll">
+                      <div className="scheduler-grid">
+                        <div className="scheduler-corner" />
+                        {Array.from({ length: 24 }, (_, hour) => <span className="scheduler-hour" key={hour}>{String(hour).padStart(2, "0")}</span>)}
+                        {scheduleDays.map(([day, label]) => (
+                          <div className="scheduler-row" key={day}>
+                            <div className="scheduler-day">
+                              <strong>{label}</strong>
+                              <span>
+                                <button aria-label={`Allow all ${label}`} onClick={() => setDay(day, true)} type="button">All</button>
+                                <button aria-label={`Block all ${label}`} onClick={() => setDay(day, false)} type="button">None</button>
+                              </span>
+                            </div>
+                            {grid[day].map((allowed, hour) => (
+                              <button
+                                aria-label={`${label} ${String(hour).padStart(2, "0")}:00 ${allowed ? "allowed" : "blocked"}`}
+                                aria-pressed={allowed}
+                                className={`scheduler-slot ${allowed ? "is-allowed" : ""}`}
+                                key={hour}
+                                onPointerDown={(event) => { event.preventDefault(); startPaint(day, hour); }}
+                                onPointerEnter={() => paint(day, hour)}
+                                type="button"
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </fieldset>
+                  <p className="form-note">Podrazumijevano su YouTube, Steam i Wikipedia dozvoljeni radnim danima od 19:00, a vikendom cijeli dan. Ti možeš promijeniti svaki sat i svaki dan.</p>
+                </>
+              )}
+
+              <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving || profileTemplate !== "kids"} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
             </form>
           </section>
         </div>
