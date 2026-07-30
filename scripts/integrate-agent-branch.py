@@ -69,6 +69,13 @@ replace_once(
     "style-src 'self'; style-src-attr 'none'; script-src-attr 'none'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'none'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 )
 
+# Keep fallback interface choices strongly typed.
+replace_once(
+    "web/src/components/SetupWizard.tsx",
+    "  const options = useMemo(() => {",
+    "  const options = useMemo<InterfaceInfo[]>(() => {",
+)
+
 # Integrate the new audit component into the component dashboard.
 replace_once(
     "web/src/DashboardApp.tsx",
