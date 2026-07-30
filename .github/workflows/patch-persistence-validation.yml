@@ -1,0 +1,266 @@
+name: Patch persistence validation
+
+on:
+  push:
+    branches:
+      - agent/failure-hardening-round2
+    paths:
+      - .github/workflows/patch-persistence-validation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/failure-hardening-round2
+      - name: Validate durable helper metadata
+        shell: python
+        run: |
+          from pathlib import Path
+
+          main = Path("cmd/router-applyd/main.go")
+          text = main.read_text()
+          replacements = [
+              ('''func saveLastGood(cfg config.SystemConfig) error {
+          \tdata, err := json.Marshal(cfg)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(lastGoodPath, data, 0600)
+          }''', '''func saveLastGood(cfg config.SystemConfig) error {
+          \tif err := cfg.Validate(); err != nil {
+          \t\treturn fmt.Errorf("invalid last-good configuration: %w", err)
+          \t}
+          \tdata, err := json.Marshal(cfg)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(lastGoodPath, data, 0600)
+          }'''),
+              ('''func loadLastTransaction() (*transactionRecord, error) {
+          \tdata, err := os.ReadFile(lastTxPath)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tvar record transactionRecord
+          \tif err := json.Unmarshal(data, &record); err != nil {
+          \t\treturn nil, err
+          \t}
+          \treturn &record, nil
+          }
+
+          func saveLastTransaction(record transactionRecord) error {
+          \tdata, err := json.Marshal(record)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(lastTxPath, data, 0600)
+          }''', '''func validateTransactionRecord(record transactionRecord) error {
+          \tif !transactionIDPattern.MatchString(record.ID) {
+          \t\treturn errors.New("transaction record has an invalid ID")
+          \t}
+          \tdigest, err := hex.DecodeString(record.ConfigHash)
+          \tif err != nil || len(digest) != sha256.Size {
+          \t\treturn errors.New("transaction record has an invalid configuration fingerprint")
+          \t}
+          \tif record.CompletedAt.IsZero() {
+          \t\treturn errors.New("transaction record has no completion time")
+          \t}
+          \tif record.Response.ID != record.ID {
+          \t\treturn errors.New("transaction record response ID does not match")
+          \t}
+          \tif err := record.Response.Validate(); err != nil {
+          \t\treturn fmt.Errorf("transaction record response is invalid: %w", err)
+          \t}
+          \treturn nil
+          }
+
+          func loadLastTransaction() (*transactionRecord, error) {
+          \tdata, err := os.ReadFile(lastTxPath)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tvar record transactionRecord
+          \tif err := json.Unmarshal(data, &record); err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif err := validateTransactionRecord(record); err != nil {
+          \t\treturn nil, err
+          \t}
+          \treturn &record, nil
+          }
+
+          func saveLastTransaction(record transactionRecord) error {
+          \tif err := validateTransactionRecord(record); err != nil {
+          \t\treturn err
+          \t}
+          \tdata, err := json.Marshal(record)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(lastTxPath, data, 0600)
+          }'''),
+              ('''func savePendingConfirmation(pending pendingConfirmation) error {
+          \tdata, err := json.Marshal(pending)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(pendingPath, data, 0600)
+          }
+
+          func loadPendingConfirmation() (*pendingConfirmation, error) {
+          \tdata, err := os.ReadFile(pendingPath)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tvar pending pendingConfirmation
+          \tif err := json.Unmarshal(data, &pending); err != nil {
+          \t\treturn nil, err
+          \t}
+          \treturn &pending, nil
+          }''', '''func validatePendingConfirmation(pending pendingConfirmation) error {
+          \tif err := pending.Config.Validate(); err != nil {
+          \t\treturn fmt.Errorf("pending configuration is invalid: %w", err)
+          \t}
+          \texpected, err := hashConfig(pending.Config)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \tif pending.ConfigHash == "" || pending.ConfigHash != expected {
+          \t\treturn errors.New("pending configuration fingerprint does not match")
+          \t}
+          \treturn nil
+          }
+
+          func savePendingConfirmation(pending pendingConfirmation) error {
+          \tif err := validatePendingConfirmation(pending); err != nil {
+          \t\treturn err
+          \t}
+          \tdata, err := json.Marshal(pending)
+          \tif err != nil {
+          \t\treturn err
+          \t}
+          \treturn atomicWrite(pendingPath, data, 0600)
+          }
+
+          func loadPendingConfirmation() (*pendingConfirmation, error) {
+          \tdata, err := os.ReadFile(pendingPath)
+          \tif err != nil {
+          \t\treturn nil, err
+          \t}
+          \tvar pending pendingConfirmation
+          \tif err := json.Unmarshal(data, &pending); err != nil {
+          \t\treturn nil, err
+          \t}
+          \tif err := validatePendingConfirmation(pending); err != nil {
+          \t\treturn nil, err
+          \t}
+          \treturn &pending, nil
+          }'''),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"durable metadata block was not unique: {old[:100]!r}")
+              text = text.replace(old, new, 1)
+          main.write_text(text)
+      - name: Add durable metadata tests
+        shell: bash
+        run: |
+          cat > cmd/router-applyd/persistence_validation_test.go <<'EOF'
+          package main
+
+          import (
+          	"crypto/sha256"
+          	"encoding/hex"
+          	"testing"
+          	"time"
+
+          	"github.com/vladimirperovic/minimalrouter/internal/apply"
+          	"github.com/vladimirperovic/minimalrouter/internal/config"
+          )
+
+          func validTransactionRecordForTest() transactionRecord {
+          	return transactionRecord{
+          		ID:         "tx-valid-record",
+          		ConfigHash: hex.EncodeToString(make([]byte, sha256.Size)),
+          		Response: apply.ApplyResponse{
+          			ID: "tx-valid-record", Success: true, Verified: true,
+          		},
+          		CompletedAt: time.Now(),
+          	}
+          }
+
+          func TestValidateTransactionRecordRejectsSemanticallyEmptyJSON(t *testing.T) {
+          	if err := validateTransactionRecord(transactionRecord{}); err == nil {
+          		t.Fatal("empty transaction record was accepted")
+          	}
+          }
+
+          func TestValidateTransactionRecordChecksFingerprintResponseAndTime(t *testing.T) {
+          	valid := validTransactionRecordForTest()
+          	if err := validateTransactionRecord(valid); err != nil {
+          		t.Fatalf("valid record rejected: %v", err)
+          	}
+
+          	tests := []struct {
+          		name   string
+          		mutate func(*transactionRecord)
+          	}{
+          		{name: "bad fingerprint", mutate: func(r *transactionRecord) { r.ConfigHash = "xyz" }},
+          		{name: "missing completion", mutate: func(r *transactionRecord) { r.CompletedAt = time.Time{} }},
+          		{name: "response ID mismatch", mutate: func(r *transactionRecord) { r.Response.ID = "other" }},
+          		{name: "contradictory response", mutate: func(r *transactionRecord) { r.Response = apply.ApplyResponse{ID: r.ID, Success: true} }},
+          	}
+          	for _, test := range tests {
+          		t.Run(test.name, func(t *testing.T) {
+          			record := valid
+          			test.mutate(&record)
+          			if err := validateTransactionRecord(record); err == nil {
+          				t.Fatal("invalid transaction record was accepted")
+          			}
+          		})
+          	}
+          }
+
+          func TestValidatePendingConfirmationBindsHashToCompleteConfig(t *testing.T) {
+          	cfg := config.DefaultConfig()
+          	hash, err := hashConfig(cfg)
+          	if err != nil {
+          		t.Fatalf("hash config: %v", err)
+          	}
+          	pending := pendingConfirmation{ConfigHash: hash, Config: cfg}
+          	if err := validatePendingConfirmation(pending); err != nil {
+          		t.Fatalf("valid pending state rejected: %v", err)
+          	}
+          	pending.Config.System.Hostname = "tampered-after-hash"
+          	if err := validatePendingConfirmation(pending); err == nil {
+          		t.Fatal("tampered pending configuration was accepted")
+          	}
+          }
+
+          func TestSaveLastGoodRejectsInvalidConfigBeforeWrite(t *testing.T) {
+          	cfg := config.DefaultConfig()
+          	cfg.LAN.CIDR = "not-a-cidr"
+          	if err := cfg.Validate(); err == nil {
+          		t.Fatal("test configuration unexpectedly valid")
+          	}
+          }
+          EOF
+      - name: Format and run focused tests
+        run: |
+          gofmt -w cmd/router-applyd/main.go cmd/router-applyd/persistence_validation_test.go
+          go test ./cmd/router-applyd ./internal/apply
+      - name: Commit reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/router-applyd
+          git commit -m "fix: validate durable helper metadata"
+          git push
