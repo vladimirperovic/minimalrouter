@@ -1,0 +1,8 @@
+transaction struct: 1
+operation block: 1
+record validator: 1
+replay block: 1
+valid record fixture: 1
+missing completion test: 1
+incomplete intent test already present: False
+incomplete replay test already present: False
