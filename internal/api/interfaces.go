@@ -7,6 +7,17 @@ import (
 	networkinfo "github.com/vladimirperovic/minimalrouter/internal/network"
 )
 
+func (s *Server) handleDiscoverSetupInterfaces(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	configured := s.adminHash != ""
+	s.mu.RUnlock()
+	if configured {
+		http.NotFound(w, r)
+		return
+	}
+	s.handleDiscoverInterfaces(w, r)
+}
+
 func (s *Server) handleDiscoverInterfaces(w http.ResponseWriter, _ *http.Request) {
 	result, err := networkinfo.Discover()
 	if err != nil {
