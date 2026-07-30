@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -181,5 +182,45 @@ func TestValidationRejectsWireGuardRouteWiderThanTunnelSubnet(t *testing.T) {
 	err := cfg.Validate()
 	if err == nil || !strings.Contains(err.Error(), "inside the WireGuard subnet") {
 		t.Fatalf("expected wider WireGuard route rejection, got %v", err)
+	}
+}
+
+func TestValidationAcceptsMostFragmentedHourlyKidsSchedule(t *testing.T) {
+	windows := make([]AccessWindow, 0, 12)
+	for hour := 0; hour < 24; hour += 2 {
+		windows = append(windows, AccessWindow{
+			Start: fmt.Sprintf("%02d:00", hour),
+			End:   fmt.Sprintf("%02d:00", hour+1),
+		})
+	}
+	cfg := DefaultConfig()
+	cfg.AdGuard.Enabled = true
+	cfg.AdGuard.DeviceProfiles = []DeviceProfile{{
+		ID:          "kids-fragmented",
+		Name:        "Kids",
+		IPAddresses: []string{"192.168.1.50"},
+		Services:    []string{"youtube"},
+		Enabled:     true,
+		Schedule: WeeklyAccessSchedule{DayWindows: map[string][]AccessWindow{
+			"monday": windows,
+		}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("12 non-overlapping hourly windows should be accepted: %v", err)
+	}
+}
+
+func TestValidationRejectsMoreThanHourlyGridCanProduce(t *testing.T) {
+	windows := make([]AccessWindow, 0, 13)
+	for minute := 0; minute < 26; minute += 2 {
+		windows = append(windows, AccessWindow{
+			Start: fmt.Sprintf("00:%02d", minute),
+			End:   fmt.Sprintf("00:%02d", minute+1),
+		})
+	}
+	var errs ValidationErrors
+	validateWindows(&errs, "schedule.day_windows.monday", windows)
+	if len(errs) == 0 || !strings.Contains(errs.Error(), "twelve windows") {
+		t.Fatalf("expected a 13-window validation error, got %v", errs)
 	}
 }
