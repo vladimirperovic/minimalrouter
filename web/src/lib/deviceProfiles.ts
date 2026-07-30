@@ -16,6 +16,7 @@ export type DeviceProfile = {
 export const managedServices = [
   ["youtube", "YouTube"],
   ["steam", "Steam"],
+  ["wiki", "Wikipedia / Wikimedia"],
   ["tiktok", "TikTok"],
   ["instagram", "Instagram"],
   ["facebook", "Facebook / Messenger"],
