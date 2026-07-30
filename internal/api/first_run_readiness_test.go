@@ -9,12 +9,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
+	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
 
 func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	tempDir, err := os.MkdirTemp("", "router-fresh-install-*")
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
+
+	store, err := config.NewStore(tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := config.DefaultConfig()
+	// A clean installer reconciles the detected interface names before the
+	// wizard is presented. Model that state instead of changing a live LAN role.
+	initial.WAN.Interface = "enp1s0"
+	initial.LAN.Interface = "enp2s0"
+	engine := apply.NewEngineWithClient(initial, store, apiTestApplyClient{})
+	server := NewServer(engine)
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
 
 	body, err := json.Marshal(map[string]string{
 		"wan_interface":  "enp1s0",
