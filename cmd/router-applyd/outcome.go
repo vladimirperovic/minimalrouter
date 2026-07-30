@@ -20,14 +20,15 @@ func recoveryFailure(id, message string) apply.ApplyResponse {
 	}
 }
 
-// journalPersistenceFailure preserves a verified rollback, but otherwise treats
-// the runtime outcome as unknown. Without the idempotency record, routerd cannot
-// safely prove that a lost response would not replay a completed mutation.
+// journalPersistenceFailure always blocks further mutation. Even when the
+// previous runtime was restored, losing the durable idempotency result means a
+// lost response could be replayed without proof of the first outcome.
 func journalPersistenceFailure(id string, previous apply.ApplyResponse) apply.ApplyResponse {
+	message := "transaction result could not be persisted; durable idempotency is unavailable and canonical reconciliation is required"
 	if previous.RolledBack && !previous.RecoveryRequired {
-		return failure(id, "transaction result could not be persisted; previous configuration was verified restored", true)
+		message = "transaction result could not be persisted; previous runtime was restored but durable idempotency is unavailable and canonical reconciliation is required"
 	}
-	return recoveryFailure(id, "transaction result could not be persisted; canonical reconciliation is required")
+	return recoveryFailure(id, message)
 }
 
 func replayTransactionResponse(id, configHash string, previous *transactionRecord, loadErr error) (*apply.ApplyResponse, bool) {
