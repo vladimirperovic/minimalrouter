@@ -247,13 +247,13 @@ func DefaultConfig() SystemConfig {
 			DefaultWANInputPolicy: "deny", WANIngressMode: "wireguard_only", StatefulFirewall: true,
 			PortForwards: []PortForwardRule{}, CustomRules: []FirewallRule{},
 		},
-		WireGuard: WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
+		WireGuard:  WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
 		Cloudflare: CloudflareConfig{},
 		SquidProxy: SquidProxyConfig{Enabled: false, Port: 3128, Username: "proxyadmin", RestrictedIPs: []RestrictedIPItem{}},
 		AdGuard: DNSFilterConfig{
 			Enabled: false, LastUpdated: "Never", FilterDevices: []FilterDeviceRule{}, DeviceProfiles: []DeviceProfile{},
 		},
-		QoS: QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
+		QoS:  QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
 		WiFi: WiFiConfig{Enabled: false, Interface: "wlan0", SSID: "MinimalRouter-Home", Band: "5ghz", Channel: 36},
 	}
 }
