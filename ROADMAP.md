@@ -1,127 +1,129 @@
 # Roadmap
 
-The roadmap is outcome-based. Dates are intentionally omitted until the first
-vertical slice establishes realistic delivery speed.
+This private roadmap is outcome-based and evidence-driven. Dates are intentionally
+secondary to safe, reproducible results.
 
-## Milestone 0 — Decisions and proof of concept
+Current automated status: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
+Existing Proxmox VM continuation: [`docs/PROXMOX_AI_HANDOFF.md`](docs/PROXMOX_AI_HANDOFF.md).
 
-Goal: remove the highest architectural risks before building the full UI.
+## Completed implementation and automated validation
 
-- Accept the product, architecture, and security baselines.
-- Create ADRs for update rollback, certificate bootstrap, backup encryption,
-  image building, and IPv6 scope.
-- Pin Alpine and Go versions.
-- Build a minimal Alpine image for `x86_64`.
-- Prove PPPoE, DHCP/DNS, nftables, and WireGuard integration independently.
-- Prove an atomic nftables apply and automatic rollback.
-- Prove commit-confirmed LAN address changes.
-- Measure boot, idle memory, and routing throughput on reference hardware.
+- [x] Alpine packaging and OpenRC services
+- [x] split unprivileged `routerd` and privileged `router-applyd`
+- [x] SQLite canonical store, migrations, typed validation, and generators
+- [x] snapshot/apply/verify/commit-or-rollback lifecycle
+- [x] default-deny WAN policy and LAN-to-WAN NAT
+- [x] PPPoE, DHCP, DNS, WireGuard, QoS, DDNS, Wi-Fi, and DNS Filter paths
+- [x] HTTPS wizard, interface confirmation, Argon2id, sessions, CSRF, rate limits,
+      TOTP, and local recovery
+- [x] encrypted backup export and restore validation
+- [x] crash-safe A/B activation and rollback with durable operation journal
+- [x] signed manifests, checksums, SBOM, and provenance support
+- [x] race/vet/vulnerability checks and repository hygiene
+- [x] frontend lint, unit, TypeScript 6 build, dependency audit, and Playwright E2E
+- [x] clean Alpine install, setup, update activation, and rollback CI
+- [x] interrupted-update stress tests and two fuzz targets
+- [x] security analysis, binary inspection, shell/workflow validation
+- [x] ARM64 build and QEMU smoke test
+- [x] isolated WAN-router-LAN DHCP/DNS/NAT/firewall/traffic laboratory
+- [x] API/update performance and allocation baselines
+- [x] core CI GitHub Actions and artifact upload v7
+- [x] TypeScript 6.0.3 and Node type definitions 26.1.2
+- [x] private AI handoff for the existing Proxmox VM
 
-Exit criteria: a console-driven prototype applies and rolls back one complete
-WAN/LAN configuration safely.
+## Immediate milestone — continue the existing Proxmox VM
 
-## Milestone 1 — Configuration engine
+The VM already exists. Do not recreate or rewire it until read-only inventory
+identifies the exact candidate and both bridge roles.
 
-Goal: establish the single safe path for every future feature.
+- [ ] identify Proxmox node, candidate VM, disk, and NIC/bridge purpose privately
+- [ ] confirm isolated LAN and test/NAT WAN
+- [ ] ensure pfSense rollback is independent and immediately available
+- [ ] export encrypted application backup
+- [ ] create a known-good Proxmox snapshot from a consistent state
+- [ ] record installed commit, current/previous slots, Alpine/kernel, vCPU, RAM,
+      disk, NIC model, and offloads
+- [ ] update or reinstall from the exact current private commit using a verified
+      archive and supported path
+- [ ] create `docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md` with redacted evidence
 
-- SQLite schema and migrations
-- Typed configuration model
-- Cross-field validation
-- Deterministic generators
-- Preflight adapters
-- Immutable snapshots
-- Apply state machine
-- Crash recovery
-- Privileged helper protocol
-- Audit events
+Exit criterion: another operator can reproduce the inventory and safe boot without
+relying on chat history or guessing topology.
 
-Exit criteria: integration tests inject failures at every apply stage and always
-produce either the new valid state or the previous known-good state.
+## Proxmox functional pilot
 
-## Milestone 2 — Secure management plane
+- [ ] five graceful guest reboots
+- [ ] repeated Proxmox graceful shutdown/start cycles
+- [ ] stable WAN/LAN reconciliation after every boot
+- [ ] DHCP lease and static-lease validation
+- [ ] DNS forwarding and filter validation
+- [ ] LAN-to-WAN NAT and stateful firewall validation
+- [ ] HTTPS management reachable only through intended LAN/WireGuard path
+- [ ] unconfirmed LAN/firewall change automatically rolls back
+- [ ] local recovery console remains usable
+- [ ] signed update activation, reboot, verification, and explicit rollback
+- [ ] encrypted backup restored into a fresh VM
 
-Goal: make the appliance safely configurable from a browser and API client.
+Exit criterion: the candidate survives lifecycle and recovery tests without manual
+file repair, ambiguous interfaces, or production-network impact.
 
-- HTTPS and per-device certificate bootstrap
-- First-run administrator creation
-- Argon2id authentication
-- Secure server-side sessions
-- CSRF and same-origin controls
-- Rate limiting and local-console recovery
-- Versioned REST API and OpenAPI contract
-- React/Vite static application shell and design system
+## Proxmox performance and stability
 
-Exit criteria: authentication and session security gates in `SECURITY.md` pass
-end-to-end tests.
+- [ ] boot-to-forwarding-ready and management-ready
+- [ ] idle and loaded CPU/RAM
+- [ ] routing/NAT throughput and packets per second
+- [ ] latency, jitter, retransmits, and packet loss without and under load
+- [ ] management responsiveness during sustained traffic
+- [ ] VirtIO multiqueue/offload comparison
+- [ ] 1 GbE result
+- [ ] 2.5 GbE result where available
+- [ ] 10 GbE feasibility only after stable lower-speed tests
+- [ ] PPPoE throughput, reconnect, MTU, and CPU cost
+- [ ] WireGuard throughput and CPU cost
+- [ ] QoS under load
+- [ ] log, snapshot, database, and disk growth
+- [ ] seven-day continuous pilot
 
-## Milestone 3 — Core router experience
+Exit criterion: every result includes exact commit, environment, commands,
+duration, raw summary, failures, and limitations.
 
-Goal: deliver the smallest useful router.
+## Recovery and destructive tests
 
-- Installation flow
-- WAN detection and confirmation
-- PPPoE
-- LAN addressing
-- DHCP and static leases
-- DNS forwarding
-- Simple firewall and LAN-to-WAN NAT; prove WAN port forwards remain forbidden
-- Minimal dashboard
-- Connected-device view
+Run only after backup, snapshot, console access, and pfSense rollback are proven.
+Use a disposable clone or dedicated test disk where indicated.
 
-Exit criteria: a non-networking user can install the image, get online, and
-recover automatically from a lockout-prone change.
+- [x] automated interrupted update and rollback journal reconciliation
+- [x] automated corrupt journal and hostile API fuzzing
+- [ ] service crash and restart behavior
+- [ ] full disk and inode exhaustion on disposable target
+- [ ] read-only filesystem on disposable target
+- [ ] corrupt state/snapshot recovery
+- [ ] abrupt guest termination during controlled update stages
+- [ ] abrupt Proxmox host/guest power-loss recovery
+- [ ] fresh-VM backup restore
 
-## Milestone 4 — Secure connectivity
+Exit criterion: all failures recover to a known-good state or trigger immediate,
+documented pfSense restoration.
 
-Goal: add the remaining version 1 network integrations.
+## Real network and production gates
 
-- WireGuard
-- Cloudflare DDNS through the stable Alpine `inadyn` package, including
-  credential/update verification and rollback
-- Wi-Fi AP through `hostapd` with AP-capability preflight, LAN bridging,
-  commit-confirm, health verification, and rollback
-- Keep Cloudflare Tunnel deferred unless the security policy is explicitly
-  changed; WireGuard is currently the only WAN entry point
-- Secret rotation and redacted status
-- Integration-specific failure and rollback tests
+- [ ] real ISP PPPoE during a maintenance window
+- [ ] repeated PPPoE disconnect/reconnect and guest reboot
+- [ ] WireGuard from an unrelated mobile/external network
+- [ ] external IPv4 scan
+- [ ] external IPv6 scan or documented fail-closed behavior
+- [ ] owner-signed installation and recovery media
+- [ ] supported Proxmox/NIC matrix
+- [ ] independent focused security review
+- [ ] stable cross-version migration and update policy
+- [ ] bounded logs and disk-pressure policy
+- [ ] support and security-update policy
+- [ ] no unresolved critical or high-severity findings
 
-Exit criteria: each integration can be configured, disabled, rotated, and
-restored without leaking its secrets.
-
-## Milestone 5 — Lifecycle management
-
-Goal: make long-term operation safe.
-
-- Encrypted backup export
-- Validated restore
-- Signed update channel
-- Pre-update snapshot
-- Boot health confirmation and update rollback
-- Bounded logs and diagnostics export
-- Factory reset and recovery console
-
-Exit criteria: update, failed-update rollback, backup, cross-version restore,
-and recovery are tested on every claimed platform.
-
-## Milestone 6 — Version 1 release
-
-Goal: meet the product, security, and performance promises.
-
-- Bare-metal and hypervisor compatibility matrix
-- 1/2.5/10 GbE measurements on documented hardware
-- Boot under 10 seconds on reference hardware
-- 150–250 MB normal memory use
-- Reproducible release artifacts and SBOM
-- Independent security review
-- Installation and administrator documentation
-- Support and security-update policy
-
-Exit criteria: all version 1 success criteria in `PROJECT.md` and release gates
-in `SECURITY.md` pass with recorded evidence.
+Until these gates pass, pfSense remains the known-good production fallback.
 
 ## Explicitly deferred
 
-IDS/IPS, captive portals, multi-WAN, BGP, OSPF, Docker, Kubernetes, enterprise
-QoS, OpenVPN, and IPsec remain outside version 1. The pilot includes
-a narrow CAKE/fq_codel shaper, but it is not an enterprise traffic-policy
-system.
+IDS/IPS, captive portals, multi-WAN, HA, BGP, OSPF, Docker, Kubernetes,
+enterprise QoS, OpenVPN, IPsec, arbitrary WAN port forwarding, and a general
+third-party package platform remain outside the current target.
