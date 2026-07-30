@@ -41,18 +41,30 @@ func persistTransactionOutcome(record transactionRecord, save func(transactionRe
 }
 
 func replayTransactionResponse(id, configHash string, previous *transactionRecord, loadErr error) (*apply.ApplyResponse, bool) {
+	return replayTransactionResponseWithOverride(id, configHash, previous, loadErr, false)
+}
+
+func replayTransactionResponseWithOverride(id, configHash string, previous *transactionRecord, loadErr error, canonicalReconcile bool) (*apply.ApplyResponse, bool) {
 	if loadErr != nil {
-		if errors.Is(loadErr, os.ErrNotExist) {
+		if errors.Is(loadErr, os.ErrNotExist) || canonicalReconcile {
 			return nil, false
 		}
 		response := recoveryFailure(id, "transaction journal could not be read; canonical reconciliation is required")
 		return &response, true
 	}
 	if previous == nil {
+		if canonicalReconcile {
+			return nil, false
+		}
 		response := recoveryFailure(id, "transaction journal returned no record; canonical reconciliation is required")
 		return &response, true
 	}
 	if previous.ID != id {
+		unresolved := previous.CompletedAt.IsZero() || previous.Response.RecoveryRequired
+		if unresolved && !canonicalReconcile {
+			response := recoveryFailure(id, "a previous privileged transaction remains unresolved; canonical reconciliation is required")
+			return &response, true
+		}
 		return nil, false
 	}
 	if previous.ConfigHash != configHash {

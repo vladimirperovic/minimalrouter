@@ -155,7 +155,9 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "invalid transaction ID"})
 		return
 	}
-	if req.Op != apply.OpApplyAll && req.Op != apply.OpConfirm {
+	switch req.Op {
+	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile:
+	default:
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "operation is not allowlisted"})
 		return
 	}
@@ -168,14 +170,15 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, failure(req.ID, "could not fingerprint request", false))
 		return
 	}
+	canonicalReconcile := req.Op == apply.OpReconcile
 	if lastTransactionMemory != nil {
-		if replay, handled := replayTransactionResponse(req.ID, configHash, lastTransactionMemory, nil); handled {
+		if replay, handled := replayTransactionResponseWithOverride(req.ID, configHash, lastTransactionMemory, nil, canonicalReconcile); handled {
 			writeResponse(conn, *replay)
 			return
 		}
 	}
 	previous, loadErr := loadLastTransaction()
-	if replay, handled := replayTransactionResponse(req.ID, configHash, previous, loadErr); handled {
+	if replay, handled := replayTransactionResponseWithOverride(req.ID, configHash, previous, loadErr, canonicalReconcile); handled {
 		writeResponse(conn, *replay)
 		return
 	}
@@ -191,9 +194,12 @@ func handleConnection(conn net.Conn) {
 
 	log.Printf("apply transaction %q revision %d", req.ID, req.Revision)
 	var resp apply.ApplyResponse
-	if req.Op == apply.OpConfirm {
+	switch req.Op {
+	case apply.OpConfirm:
 		resp = confirmApply(req)
-	} else {
+	case apply.OpCommitConfirmed:
+		resp = commitConfirmedApply(req)
+	default:
 		resp = applyAll(req)
 	}
 	record := transactionRecord{
@@ -330,17 +336,37 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err := configureRuntimeLAN(req.Config); err != nil {
 		return recoveryFailure(req.ID, "could not finalize LAN address; verified rollback is required")
 	}
+	if err := verifyActive(req.Config); err != nil {
+		return recoveryFailure(req.ID, "confirmed runtime verification failed; verified rollback is required")
+	}
+	return apply.ApplyResponse{
+		ID: req.ID, Success: true, Verified: true, Logs: "runtime confirmation verified; canonical commit pending",
+	}
+}
+
+func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
+	if err := req.Config.Validate(); err != nil {
+		return failure(req.ID, "confirmed commit configuration is invalid", false)
+	}
+	pending, err := loadPendingConfirmation()
+	if err != nil {
+		return pendingLoadFailure(req.ID, err)
+	}
+	hash, err := hashConfig(req.Config)
+	if err != nil || hash != pending.ConfigHash {
+		return failure(req.ID, "confirmed commit does not match pending configuration", false)
+	}
+	if err := verifyActive(req.Config); err != nil {
+		return recoveryFailure(req.ID, "confirmed runtime is no longer active; canonical reconciliation is required")
+	}
 	if err := saveLastGood(req.Config); err != nil {
-		return recoveryFailure(req.ID, "could not persist confirmed configuration; verified rollback is required")
+		return recoveryFailure(req.ID, "could not persist canonical last-good configuration")
 	}
 	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return recoveryFailure(req.ID, "could not clear pending confirmation; canonical reconciliation is required")
 	}
-	if err := verifyActive(req.Config); err != nil {
-		return recoveryFailure(req.ID, "confirmed configuration verification failed; verified rollback is required")
-	}
 	return apply.ApplyResponse{
-		ID: req.ID, Success: true, Verified: true, Logs: "configuration confirmed",
+		ID: req.ID, Success: true, Verified: true, Logs: "confirmed configuration committed as canonical last-good",
 	}
 }
 

@@ -48,10 +48,11 @@ const (
 )
 
 type pendingChange struct {
-	tx               *Transaction
-	previous         config.SystemConfig
-	timer            *time.Timer
-	rollbackAttempts int
+	tx                 *Transaction
+	previous           config.SystemConfig
+	timer              *time.Timer
+	rollbackAttempts   int
+	canonicalCommitted bool
 }
 
 // Engine manages execution of configuration transactions.
@@ -325,34 +326,60 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 		return nil, fmt.Errorf("transaction is not awaiting confirmation")
 	}
 	pending := e.pending
-	req := ApplyRequest{ID: txID + "-confirm", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
-	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-	resp, err := e.applyPrivileged(ctx, req)
-	cancel()
-	if err != nil {
-		pending.tx.CurrentState = StateRecoveryRequired
-		pending.tx.Error = fmt.Sprintf("privileged confirmation outcome is unknown; verified rollback or retry is required: %v", err)
-		return pending.tx, fmt.Errorf("privileged confirmation failed: %w", err)
-	}
-	if !resp.Success || !resp.Verified {
-		pending.tx.CurrentState = StateRecoveryRequired
-		pending.tx.Error = "privileged confirmation failed; verified rollback or retry is required: " + resp.Error
-		return pending.tx, fmt.Errorf("privileged confirmation failed: %s", resp.Error)
-	}
-	if e.store != nil {
-		if err := e.store.SaveConfig(pending.tx.Config); err != nil {
+	if !pending.canonicalCommitted {
+		req := ApplyRequest{ID: txID + "-confirm-runtime", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+		resp, err := e.applyPrivileged(ctx, req)
+		cancel()
+		if err != nil {
 			pending.tx.CurrentState = StateRecoveryRequired
-			pending.tx.Error = "privileged confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
-			return pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
+			pending.tx.Error = fmt.Sprintf("privileged runtime confirmation outcome is unknown; verified rollback or retry is required: %v", err)
+			e.requireRecovery(pending.tx.Error)
+			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %w", err)
+		}
+		if !resp.Success || !resp.Verified {
+			pending.tx.CurrentState = StateRecoveryRequired
+			pending.tx.Error = "privileged runtime confirmation failed; verified rollback or retry is required: " + resp.Error
+			e.requireRecovery(pending.tx.Error)
+			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %s", resp.Error)
+		}
+		if e.store != nil {
+			if err := e.store.SaveConfig(pending.tx.Config); err != nil {
+				pending.tx.CurrentState = StateRecoveryRequired
+				pending.tx.Error = "runtime confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
+				return pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
+			}
+		}
+		pending.canonicalCommitted = true
+		e.currentConfig = pending.tx.Config
+		if pending.timer != nil {
+			pending.timer.Stop()
 		}
 	}
+
+	commitReq := ApplyRequest{ID: txID + "-commit-confirmed", Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+	commitResp, commitErr := e.applyPrivileged(commitCtx, commitReq)
+	commitCancel()
+	if commitErr != nil || !commitResp.Success || !commitResp.Verified {
+		pending.tx.CurrentState = StateRecoveryRequired
+		if commitErr != nil {
+			pending.tx.Error = fmt.Sprintf("canonical configuration was committed but helper last-good acknowledgement is unknown: %v", commitErr)
+		} else {
+			pending.tx.Error = "canonical configuration was committed but helper last-good acknowledgement failed: " + commitResp.Error
+		}
+		e.requireRecovery(pending.tx.Error)
+		return pending.tx, fmt.Errorf("confirmed helper commit failed")
+	}
+
 	now := time.Now()
 	pending.tx.ConfirmedAt = &now
 	pending.tx.CurrentState = StateCommitted
-	pending.timer.Stop()
 	e.currentConfig = pending.tx.Config
 	e.pending = nil
 	e.activeTx = pending.tx
+	e.recoveryRequired = false
+	e.recoveryReason = ""
 	return pending.tx, nil
 }
 
@@ -363,6 +390,9 @@ func (e *Engine) rollbackExpired(txID string) {
 		return
 	}
 	pending := e.pending
+	if pending.canonicalCommitted {
+		return
+	}
 	pending.rollbackAttempts++
 	rollbackID := fmt.Sprintf("%s-timeout-rollback-%d", txID, pending.rollbackAttempts)
 	req, err := buildApplyRequest(rollbackID, pending.previous)
@@ -377,6 +407,8 @@ func (e *Engine) rollbackExpired(txID string) {
 				pending.timer.Stop()
 			}
 			e.pending = nil
+			e.recoveryRequired = false
+			e.recoveryReason = ""
 			return
 		}
 		pending.tx.CurrentState = StateRecoveryRequired
@@ -419,6 +451,7 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	req.Op = OpReconcile
 	resp, err := e.applyPrivileged(ctx, req)
 	if err != nil {
 		return fmt.Errorf("boot reconciliation failed: %w", err)

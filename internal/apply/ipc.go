@@ -27,6 +27,8 @@ type OperationType string
 const (
 	OpApplyAll        OperationType = "APPLY_ALL"
 	OpConfirm         OperationType = "CONFIRM"
+	OpCommitConfirmed OperationType = "COMMIT_CONFIRMED"
+	OpReconcile       OperationType = "RECONCILE"
 	OpLoadNftables    OperationType = "LOAD_NFTABLES"
 	OpReloadService   OperationType = "RELOAD_SERVICE"
 	OpRestoreSnapshot OperationType = "RESTORE_SNAPSHOT"
