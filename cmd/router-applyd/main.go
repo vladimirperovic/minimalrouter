@@ -40,6 +40,7 @@ const (
 )
 
 var applyMu sync.Mutex
+var lastTransactionMemory *transactionRecord
 var transactionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
 
@@ -166,6 +167,12 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, failure(req.ID, "could not fingerprint request", false))
 		return
 	}
+	if lastTransactionMemory != nil {
+		if replay, handled := replayTransactionResponse(req.ID, configHash, lastTransactionMemory, nil); handled {
+			writeResponse(conn, *replay)
+			return
+		}
+	}
 	previous, loadErr := loadLastTransaction()
 	if replay, handled := replayTransactionResponse(req.ID, configHash, previous, loadErr); handled {
 		writeResponse(conn, *replay)
@@ -179,11 +186,11 @@ func handleConnection(conn net.Conn) {
 	} else {
 		resp = applyAll(req)
 	}
-	if err := saveLastTransaction(transactionRecord{
+	record := transactionRecord{
 		ID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
-	}); err != nil {
-		resp = journalPersistenceFailure(req.ID, resp)
 	}
+	record, resp = persistTransactionOutcome(record, saveLastTransaction)
+	lastTransactionMemory = &record
 	writeResponse(conn, resp)
 }
 

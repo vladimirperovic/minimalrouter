@@ -31,6 +31,15 @@ func journalPersistenceFailure(id string, previous apply.ApplyResponse) apply.Ap
 	return recoveryFailure(id, message)
 }
 
+func persistTransactionOutcome(record transactionRecord, save func(transactionRecord) error) (transactionRecord, apply.ApplyResponse) {
+	response := record.Response
+	if err := save(record); err != nil {
+		response = journalPersistenceFailure(record.ID, response)
+		record.Response = response
+	}
+	return record, response
+}
+
 func replayTransactionResponse(id, configHash string, previous *transactionRecord, loadErr error) (*apply.ApplyResponse, bool) {
 	if loadErr != nil {
 		if errors.Is(loadErr, os.ErrNotExist) {

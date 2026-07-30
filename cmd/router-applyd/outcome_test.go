@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
@@ -29,5 +30,22 @@ func TestJournalPersistenceFailureAlwaysRequiresRecovery(t *testing.T) {
 				t.Fatalf("journal failure produced invalid response: %v", err)
 			}
 		})
+	}
+}
+
+func TestPersistTransactionOutcomeCachesRecoveryWhenDiskJournalFails(t *testing.T) {
+	record := validTransactionRecordForTest()
+	stored, response := persistTransactionOutcome(record, func(transactionRecord) error {
+		return errors.New("disk full")
+	})
+	if !response.RecoveryRequired || response.RolledBack || response.Success {
+		t.Fatalf("journal failure response=%+v", response)
+	}
+	if !stored.Response.RecoveryRequired {
+		t.Fatal("in-memory record did not retain recovery-required result")
+	}
+	replayed, handled := replayTransactionResponse(stored.ID, stored.ConfigHash, &stored, nil)
+	if !handled || replayed == nil || !replayed.RecoveryRequired {
+		t.Fatalf("in-memory recovery result was not replayed: handled=%v response=%+v", handled, replayed)
 	}
 }
