@@ -1,5 +1,5 @@
 #!/sbin/openrc-run
-# OpenRC service script for Minimal Router OS router-applyd (privileged helper)
+# Minimal Router OS — privileged execution helper
 
 name="router-applyd"
 description="Minimal Router OS privileged execution helper"
@@ -7,6 +7,10 @@ daemon="/usr/sbin/router-applyd"
 pidfile="/run/router-applyd.pid"
 output_log="/var/log/router-applyd.log"
 error_log="/var/log/router-applyd.err"
+
+# Opt in only for the installed appliance. Developer tests and ad-hoc host builds
+# must never reconcile or mutate the host network merely by loading the package.
+export MINIMALROUTER_APPLYD_STARTUP_RECONCILE=1
 
 depend() {
     before routerd
@@ -17,6 +21,20 @@ depend() {
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
+}
+
+# The daemon is backgrounded by OpenRC, but routerd must not be released merely
+# because the process was forked. The Unix socket appears only after startup
+# reconciliation has completed successfully.
+start_post() {
+    attempts=0
+    while [ "$attempts" -lt 120 ]; do
+        [ -S /run/minimalrouter/apply.sock ] && return 0
+        attempts=$((attempts + 1))
+        sleep 0.25
+    done
+    eerror "router-applyd did not complete startup reconciliation"
+    return 1
 }
 
 command="/usr/sbin/router-applyd"

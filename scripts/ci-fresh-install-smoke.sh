@@ -128,9 +128,30 @@ ip link set eth1 up
 
 ROUTERD_PID=""
 APPLYD_PID=""
-start_router() {
-    /usr/sbin/router-applyd >/tmp/router-applyd.log 2>&1 &
+wait_applyd() {
+    ready=0
+    for _ in $(seq 1 120); do
+        if [ -S /run/minimalrouter/apply.sock ] && kill -0 "$APPLYD_PID" >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        if ! kill -0 "$APPLYD_PID" >/dev/null 2>&1; then
+            cat /tmp/router-applyd.log >&2 || true
+            return 1
+        fi
+        sleep 0.25
+    done
+    [ "$ready" -eq 1 ]
+}
+start_applyd() {
+    rm -f /run/minimalrouter/apply.sock
+    MINIMALROUTER_APPLYD_STARTUP_RECONCILE=1 \
+        /usr/sbin/router-applyd >/tmp/router-applyd.log 2>&1 &
     APPLYD_PID=$!
+    wait_applyd
+}
+start_router() {
+    start_applyd
     /usr/bin/routerd >/tmp/routerd.log 2>&1 &
     ROUTERD_PID=$!
 }
@@ -168,11 +189,15 @@ cleanup() {
         nft list ruleset >&2 || true
         echo "===== addresses =====" >&2
         ip -4 address >&2 || true
+        echo "===== services =====" >&2
+        rc-status -a >&2 || true
     fi
     exit "$status"
 }
 trap cleanup EXIT INT TERM
 
+# Fresh install: startup reconciliation is enabled but has no canonical state,
+# so it must be a side-effect-free no-op before the first-run wizard.
 start_router
 wait_router
 jq -e '.is_configured == false and .lan_interface == "eth1" and .lan_ip == "192.168.1.1"' /tmp/setup-status.json
@@ -245,6 +270,60 @@ stop_router
 start_router
 wait_router
 curl -kfsS https://192.168.1.1:8443/update-marker.txt | grep -qx 'slot-one'
+
+# Destructive power-loss simulation. Build a valid confirmed state with PPPoE
+# and WireGuard enabled, erase volatile kernel/runtime state, and verify that the
+# activated slot reconstructs the router before exposing its privileged socket.
+stop_router
+cp /var/lib/minimalrouter-applyd/last-good.json /tmp/last-good.original.json
+WG_PRIVATE_KEY="$(wg genkey)"
+jq --arg private_key "$WG_PRIVATE_KEY" '
+    .wan.enabled = true |
+    .wan.username = "ci-pppoe-user" |
+    .wan.password = "ci-pppoe-password" |
+    .wireguard.enabled = true |
+    .wireguard.interface = "wg0" |
+    .wireguard.private_key = $private_key |
+    .wireguard.listen_port = 51820 |
+    .wireguard.address = "10.8.0.1/24" |
+    .wireguard.peers = []
+' /tmp/last-good.original.json >/tmp/last-good.wireguard.json
+install -m 0600 /tmp/last-good.wireguard.json /var/lib/minimalrouter-applyd/last-good.json
+
+rc-service dnsmasq stop >/dev/null 2>&1 || true
+rc-service pppoe-wan stop >/dev/null 2>&1 || true
+rc-service hostapd stop >/dev/null 2>&1 || true
+rc-service inadyn stop >/dev/null 2>&1 || true
+rc-service squid stop >/dev/null 2>&1 || true
+rm -f /run/minimalrouter/*.conf /run/minimalrouter/apply.sock
+nft delete table inet minimalrouter >/dev/null 2>&1 || true
+ip link delete wg0 >/dev/null 2>&1 || true
+ip -4 addr flush dev eth1 scope global
+sysctl -w net.ipv4.ip_forward=0 >/dev/null
+
+start_applyd
+test "$(sysctl -n net.ipv4.ip_forward)" = "1"
+nft list table inet minimalrouter >/tmp/nftables-power-recovery.txt
+grep -q 'policy drop' /tmp/nftables-power-recovery.txt
+grep -q 'udp dport 51820 accept' /tmp/nftables-power-recovery.txt
+ip -4 addr show dev eth1 | grep -q 'inet 192.168.1.1/24'
+wg show wg0 >/tmp/wg-power-recovery.txt
+ip -4 addr show dev wg0 | grep -q 'inet 10.8.0.1/24'
+test -s /run/minimalrouter/nftables.nft
+test -s /run/minimalrouter/wg0.runtime.conf
+rc-service dnsmasq status
+
+# Restore the original confirmed state and reconcile again. A stale WireGuard
+# interface and WAN firewall opening must disappear deterministically.
+kill "$APPLYD_PID"
+wait "$APPLYD_PID" >/dev/null 2>&1 || true
+APPLYD_PID=""
+install -m 0600 /tmp/last-good.original.json /var/lib/minimalrouter-applyd/last-good.json
+start_applyd
+! ip link show wg0 >/dev/null 2>&1
+nft list table inet minimalrouter >/tmp/nftables-power-rollback.txt
+! grep -q 'udp dport 51820 accept' /tmp/nftables-power-rollback.txt
+ip -4 addr show dev eth1 | grep -q 'inet 192.168.1.1/24'
 
 trap - EXIT INT TERM
 stop_router
