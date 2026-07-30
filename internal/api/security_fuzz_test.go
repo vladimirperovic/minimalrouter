@@ -6,11 +6,26 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
+	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
 func FuzzMalformedUnauthenticatedRequests(f *testing.F) {
-	_, mux, tempDir := setupTestServer(f)
+	tempDir, err := os.MkdirTemp("", "router-fuzz-*")
+	if err != nil {
+		f.Fatal(err)
+	}
 	defer os.RemoveAll(tempDir)
+
+	store, err := config.NewStore(tempDir)
+	if err != nil {
+		f.Fatal(err)
+	}
+	engine := apply.NewEngineWithClient(config.DefaultConfig(), store, apiTestApplyClient{})
+	server := NewServer(engine)
+	mux := http.NewServeMux()
+	server.RegisterRoutes(mux)
 
 	for _, seed := range [][]byte{
 		{},
