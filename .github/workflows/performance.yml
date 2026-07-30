@@ -1,0 +1,62 @@
+name: Performance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: API and update benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run concurrent management API benchmarks
+        run: |
+          mkdir -p build/performance
+          go test ./internal/api \
+            -run '^$' \
+            -bench '^BenchmarkAPI' \
+            -benchmem \
+            -benchtime=1s \
+            -count=3 | tee build/performance/api.txt
+      - name: Run update state benchmarks
+        run: |
+          go test ./internal/firmware \
+            -run '^$' \
+            -bench '^BenchmarkSlotManager' \
+            -benchmem \
+            -benchtime=1s \
+            -count=3 | tee build/performance/update.txt
+      - name: Reject benchmark crashes and missing measurements
+        run: |
+          grep -q 'BenchmarkAPISetupStatusParallel' build/performance/api.txt
+          grep -q 'BenchmarkAPIProtectedEndpointParallel' build/performance/api.txt
+          grep -q 'BenchmarkSlotManagerState' build/performance/update.txt
+          grep -q 'allocs/op' build/performance/api.txt
+          grep -q 'allocs/op' build/performance/update.txt
+      - name: Upload performance evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-${{ github.sha }}
+          path: build/performance
+          if-no-files-found: error
+          retention-days: 30
