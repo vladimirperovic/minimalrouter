@@ -1216,11 +1216,34 @@ func loadLastGood() (*config.SystemConfig, error) {
 }
 
 func saveLastGood(cfg config.SystemConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid last-good configuration: %w", err)
+	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 	return atomicWrite(lastGoodPath, data, 0600)
+}
+
+func validateTransactionRecord(record transactionRecord) error {
+	if !transactionIDPattern.MatchString(record.ID) {
+		return errors.New("transaction record has an invalid ID")
+	}
+	digest, err := hex.DecodeString(record.ConfigHash)
+	if err != nil || len(digest) != sha256.Size {
+		return errors.New("transaction record has an invalid configuration fingerprint")
+	}
+	if record.CompletedAt.IsZero() {
+		return errors.New("transaction record has no completion time")
+	}
+	if record.Response.ID != record.ID {
+		return errors.New("transaction record response ID does not match")
+	}
+	if err := record.Response.Validate(); err != nil {
+		return fmt.Errorf("transaction record response is invalid: %w", err)
+	}
+	return nil
 }
 
 func loadLastTransaction() (*transactionRecord, error) {
@@ -1232,10 +1255,16 @@ func loadLastTransaction() (*transactionRecord, error) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return nil, err
 	}
+	if err := validateTransactionRecord(record); err != nil {
+		return nil, err
+	}
 	return &record, nil
 }
 
 func saveLastTransaction(record transactionRecord) error {
+	if err := validateTransactionRecord(record); err != nil {
+		return err
+	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -1252,7 +1281,24 @@ func hashConfig(cfg config.SystemConfig) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func validatePendingConfirmation(pending pendingConfirmation) error {
+	if err := pending.Config.Validate(); err != nil {
+		return fmt.Errorf("pending configuration is invalid: %w", err)
+	}
+	expected, err := hashConfig(pending.Config)
+	if err != nil {
+		return err
+	}
+	if pending.ConfigHash == "" || pending.ConfigHash != expected {
+		return errors.New("pending configuration fingerprint does not match")
+	}
+	return nil
+}
+
 func savePendingConfirmation(pending pendingConfirmation) error {
+	if err := validatePendingConfirmation(pending); err != nil {
+		return err
+	}
 	data, err := json.Marshal(pending)
 	if err != nil {
 		return err
@@ -1267,6 +1313,9 @@ func loadPendingConfirmation() (*pendingConfirmation, error) {
 	}
 	var pending pendingConfirmation
 	if err := json.Unmarshal(data, &pending); err != nil {
+		return nil, err
+	}
+	if err := validatePendingConfirmation(pending); err != nil {
 		return nil, err
 	}
 	return &pending, nil
