@@ -80,7 +80,7 @@ jobs:
           chmod 0600 "$RUNNER_TEMP/minimalrouter-signing/release.key"
           test "$(wc -c < "$RUNNER_TEMP/minimalrouter-signing/release.key")" -eq 64
 
-      - name: Sign extracted update payloads
+      - name: Sign extracted update payloads and embed trust anchor
         shell: bash
         run: |
           set -euo pipefail
@@ -91,14 +91,27 @@ jobs:
             --key "$key" \
             --version "$version" \
             --commit "$GITHUB_SHA" \
+            --public-key-output build/dist/minimalrouter-linux-amd64/firmware-signing.pub \
             --output build/minimalrouter-linux-amd64.manifest.json
           go run ./cmd/firmware-sign \
             --dir build/dist/minimalrouter-linux-arm64 \
             --key "$key" \
             --version "$version" \
             --commit "$GITHUB_SHA" \
+            --public-key-output build/dist/minimalrouter-linux-arm64/firmware-signing.pub \
             --output build/minimalrouter-linux-arm64.manifest.json
           rm -f "$key"
+
+      - name: Repack signed install archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
+          tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
+          sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
+          sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
+          tar tzf build/minimalrouter-linux-amd64.tar.gz | grep -qx 'minimalrouter-linux-amd64/firmware-signing.pub'
+          tar tzf build/minimalrouter-linux-arm64.tar.gz | grep -qx 'minimalrouter-linux-arm64/firmware-signing.pub'
 
       - name: Generate AMD64 SPDX SBOM
         uses: anchore/sbom-action@v0

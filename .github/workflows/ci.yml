@@ -25,8 +25,10 @@ jobs:
         run: |
           sh -n scripts/prepare-public-root.sh
           sh -n scripts/ci-fresh-install-smoke.sh
+          sh -n scripts/checksum-file.sh
           sh -n quick-test.sh
           sh -n packaging/alpine/install-dist.sh
+          sh -n packaging/alpine/slot-exec
       - name: Reject private and runtime files
         run: |
           set -eu
@@ -188,7 +190,7 @@ jobs:
       - go
       - dashboard
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -211,12 +213,13 @@ jobs:
         run: pnpm --dir web install --frozen-lockfile
       - name: Build clean AMD64 distribution
         run: make dist-amd64
+      - name: Verify portable archive checksum
+        working-directory: build
+        run: sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
       - name: Validate smoke-test shell syntax
         run: sh -n scripts/ci-fresh-install-smoke.sh
-      - name: Install on clean Alpine and complete wizard
+      - name: Install, configure, update and roll back on clean Alpine
         run: sh scripts/ci-fresh-install-smoke.sh
-      - name: Generate SHA-256 checksum
-        run: sha256sum build/minimalrouter-linux-amd64.tar.gz > build/minimalrouter-linux-amd64.tar.gz.sha256
       - name: Upload verified Alpine package
         uses: actions/upload-artifact@v4
         with:

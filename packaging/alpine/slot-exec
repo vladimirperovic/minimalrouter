@@ -1,0 +1,63 @@
+#!/bin/sh
+# Stable command dispatcher for the bootstrap payload and activated A/B slots.
+set -eu
+
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+unset CDPATH ENV BASH_ENV LD_PRELOAD LD_LIBRARY_PATH
+
+command_name="${0##*/}"
+case "$command_name" in
+    slot-exec)
+        [ "$#" -gt 0 ] || { echo "ERROR: slot-exec requires a command" >&2; exit 2; }
+        command_name="$1"
+        shift
+        ;;
+esac
+
+case "$(/bin/uname -m)" in
+    x86_64) arch="amd64" ;;
+    aarch64) arch="arm64" ;;
+    *) echo "ERROR: unsupported Minimal Router architecture: $(/bin/uname -m)" >&2; exit 1 ;;
+esac
+
+case "$command_name" in
+    routerd|router-applyd|router-recovery|router-update) ;;
+    *) echo "ERROR: unsupported Minimal Router command: $command_name" >&2; exit 2 ;;
+esac
+
+active_root="/var/lib/minimalrouter-update/current"
+bootstrap_root="/usr/libexec/minimalrouter/bootstrap"
+bootstrap_binary="$bootstrap_root/bin/${command_name}-${arch}"
+
+# Recovery and rollback must not depend on software from the slot being tested.
+# They are deliberately stable bootstrap components and are updated only by a
+# controlled installer/recovery procedure, never by an ordinary A/B activation.
+case "$command_name" in
+    router-update|router-recovery)
+        [ -x "$bootstrap_binary" ] || {
+            echo "ERROR: no runnable bootstrap $command_name payload for $arch" >&2
+            exit 1
+        }
+        exec "$bootstrap_binary" "$@"
+        ;;
+esac
+
+active_binary="$active_root/bin/${command_name}-${arch}"
+if [ "$command_name" = "routerd" ]; then
+    if [ -r "$active_root/web/dist/index.html" ]; then
+        export MINIMALROUTER_WEB_DIR="$active_root/web/dist"
+    else
+        export MINIMALROUTER_WEB_DIR="$bootstrap_root/web/dist"
+    fi
+fi
+
+if [ -x "$active_binary" ]; then
+    exec "$active_binary" "$@"
+fi
+if [ -x "$bootstrap_binary" ]; then
+    exec "$bootstrap_binary" "$@"
+fi
+
+echo "ERROR: no runnable $command_name payload for $arch" >&2
+exit 1

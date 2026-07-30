@@ -1,7 +1,5 @@
 #!/bin/sh
-# Minimal Router OS — Self-contained dist installer
-# Runs from extracted tarball (no source repo needed)
-# Usage: tar xzf minimalrouter-linux-amd64.tar.gz && cd minimalrouter-linux-amd64 && sudo sh install.sh
+# Minimal Router OS — self-contained Alpine distribution installer.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -17,7 +15,6 @@ echo "=== Minimal Router OS Distribution Installer ==="
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Detect architecture
 ARCH="$(uname -m)"
 case "$ARCH" in
     x86_64)  BIN_ARCH="amd64" ;;
@@ -26,13 +23,13 @@ case "$ARCH" in
 esac
 echo "Architecture: $ARCH ($BIN_ARCH)"
 
-# Verify dist contents before changing the host.
 for required in \
     "bin/routerd-${BIN_ARCH}" \
     "bin/router-applyd-${BIN_ARCH}" \
     "bin/router-recovery-${BIN_ARCH}" \
     "bin/router-update-${BIN_ARCH}" \
     "web/dist/index.html" \
+    "slot-exec" \
     "init.d/routerd" \
     "init.d/router-applyd" \
     "init.d/pppoe-wan" \
@@ -46,48 +43,67 @@ do
 done
 
 ALPINE_VERSION="v3.22"
-
-# 1. Pin Alpine repositories.
 if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi
 
-# 2. System dependencies
 echo "[1/7] Installing dependencies..."
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
 
-# 3. Routerd user
 echo "[2/7] Creating user..."
 if ! id -u routerd >/dev/null 2>&1; then
     addgroup -S routerd
     adduser -S -D -H -h /var/lib/minimalrouter -s /sbin/nologin -G routerd routerd
 fi
 
-# 4. Directories + binaries
-echo "[3/7] Installing binaries..."
+echo "[3/7] Installing bootstrap payload and stable command dispatcher..."
 install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
 install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 install -d -m 0750 -o root -g routerd /run/minimalrouter
 install -d -m 0750 -o root -g inadyn /etc/inadyn
-install -d -m 0755 -o root -g root /usr/share/minimalrouter/web /etc/minimalrouter
+install -d -m 0755 -o root -g root \
+    /usr/libexec/minimalrouter/bootstrap/bin \
+    /usr/libexec/minimalrouter/bootstrap/web/dist \
+    /usr/share/minimalrouter \
+    /etc/minimalrouter \
+    /var/lib/minimalrouter-update \
+    /var/lib/minimalrouter-update/slots
 install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
 install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
 
-install -m 0755 "bin/routerd-${BIN_ARCH}" /usr/bin/routerd
-install -m 0755 "bin/router-applyd-${BIN_ARCH}" /usr/sbin/router-applyd
-install -m 0750 "bin/router-recovery-${BIN_ARCH}" /usr/sbin/router-recovery
-install -m 0750 "bin/router-update-${BIN_ARCH}" /usr/sbin/router-update
+install -m 0755 "bin/routerd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"
+install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"
+install -m 0750 "bin/router-recovery-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}"
+install -m 0750 "bin/router-update-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}"
+install -m 0755 slot-exec /usr/libexec/minimalrouter/slot-exec
 
-# 5. Web dashboard
+ln -sf /usr/libexec/minimalrouter/slot-exec /usr/bin/routerd
+ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-applyd
+ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-recovery
+ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-update
+
+if [ -f firmware-signing.pub ]; then
+    if [ -f /etc/minimalrouter/firmware-signing.pub ] && \
+       ! cmp -s firmware-signing.pub /etc/minimalrouter/firmware-signing.pub; then
+        echo "ERROR: refusing to replace the installed firmware trust anchor" >&2
+        exit 1
+    fi
+    install -m 0644 -o root -g root firmware-signing.pub /etc/minimalrouter/firmware-signing.pub
+else
+    echo "NOTE: unsigned development archive; router-update staging remains disabled until a trusted public key is installed."
+fi
+
 echo "[4/7] Installing dashboard..."
-rm -rf /usr/share/minimalrouter/web/*
-cp -R web/dist/. /usr/share/minimalrouter/web/
-chown -R root:root /usr/share/minimalrouter/web
+rm -rf /usr/libexec/minimalrouter/bootstrap/web/dist/*
+cp -R web/dist/. /usr/libexec/minimalrouter/bootstrap/web/dist/
+chown -R root:root /usr/libexec/minimalrouter/bootstrap/web
+chmod -R a+rX /usr/libexec/minimalrouter/bootstrap/web
+rm -rf /usr/share/minimalrouter/web
+ln -s /usr/libexec/minimalrouter/bootstrap/web/dist /usr/share/minimalrouter/web
 
-# 6. Init scripts and kernel policy
 echo "[5/7] Installing service and kernel configuration..."
 cp init.d/routerd /etc/init.d/routerd
 cp init.d/router-applyd /etc/init.d/router-applyd
@@ -97,8 +113,6 @@ cp modules/minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
 
-# Persist and load every required module now so an immediate service start has
-# the same kernel capabilities as the next boot.
 echo "[6/7] Loading router kernel modules and sysctls..."
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
@@ -112,7 +126,6 @@ sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
     exit 1
 }
 
-# 7. Services
 echo "[7/7] Enabling services..."
 for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true

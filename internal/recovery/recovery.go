@@ -27,16 +27,8 @@ func (m Manager) ResetAuthentication(password string, disableTOTP bool) error {
 	if err != nil {
 		return fmt.Errorf("new administrator password: %w", err)
 	}
-	if err := m.Store.SetAdminHash(hash); err != nil {
-		return fmt.Errorf("store administrator password: %w", err)
-	}
-	if disableTOTP {
-		if err := m.Store.ClearAdminTOTPSecret(); err != nil {
-			return fmt.Errorf("clear TOTP: %w", err)
-		}
-	}
-	if err := m.Store.DeleteAllSessions(); err != nil {
-		return fmt.Errorf("revoke sessions: %w", err)
+	if err := m.Store.RecoveryResetAuthentication(hash, disableTOTP); err != nil {
+		return err
 	}
 	return nil
 }
@@ -58,26 +50,20 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 		return config.Snapshot{}, errors.New("LAN interface must be non-empty and distinct from WAN")
 	}
 
-	snapshot, err := m.Store.CreateSnapshot(current)
-	if err != nil {
-		return config.Snapshot{}, fmt.Errorf("create pre-recovery snapshot: %w", err)
-	}
 	start, end := dhcpRange(network)
-	current.Revision++
-	current.UpdatedAt = time.Now().UTC()
-	current.LAN.Interface = interfaceName
-	current.LAN.IPAddress = ip.String()
-	current.LAN.CIDR = ip.String() + fmt.Sprintf("/%d", prefix)
-	current.LAN.Netmask = net.IP(network.Mask).String()
-	current.DHCP.RangeStart = start
-	current.DHCP.RangeEnd = end
-	if err := current.Validate(); err != nil {
+	next := current
+	next.Revision++
+	next.UpdatedAt = time.Now().UTC()
+	next.LAN.Interface = interfaceName
+	next.LAN.IPAddress = ip.String()
+	next.LAN.CIDR = ip.String() + fmt.Sprintf("/%d", prefix)
+	next.LAN.Netmask = net.IP(network.Mask).String()
+	next.DHCP.RangeStart = start
+	next.DHCP.RangeEnd = end
+	if err := next.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("recovery LAN configuration is invalid: %w", err)
 	}
-	if err := m.Store.SaveConfig(current); err != nil {
-		return config.Snapshot{}, fmt.Errorf("persist recovery LAN configuration: %w", err)
-	}
-	return snapshot, nil
+	return m.Store.RecoverySaveConfig(current, next, nil, false)
 }
 
 func (m Manager) RestoreSnapshot(id string) (config.Snapshot, error) {
@@ -93,19 +79,12 @@ func (m Manager) RestoreSnapshot(id string) (config.Snapshot, error) {
 	if err := json.Unmarshal([]byte(target.ConfigJSON), &restored); err != nil {
 		return config.Snapshot{}, fmt.Errorf("decode snapshot: %w", err)
 	}
-	preRestore, err := m.Store.CreateSnapshot(current)
-	if err != nil {
-		return config.Snapshot{}, fmt.Errorf("create pre-restore snapshot: %w", err)
-	}
 	restored.Revision = current.Revision + 1
 	restored.UpdatedAt = time.Now().UTC()
 	if err := restored.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("snapshot configuration is no longer valid: %w", err)
 	}
-	if err := m.Store.SaveConfig(restored); err != nil {
-		return config.Snapshot{}, fmt.Errorf("persist restored snapshot: %w", err)
-	}
-	return preRestore, nil
+	return m.Store.RecoverySaveConfig(current, restored, nil, false)
 }
 
 func (m Manager) FactoryReset(wanInterface, lanInterface, password string) (config.Snapshot, error) {
@@ -122,10 +101,6 @@ func (m Manager) FactoryReset(wanInterface, lanInterface, password string) (conf
 	if err != nil {
 		return config.Snapshot{}, fmt.Errorf("new administrator password: %w", err)
 	}
-	snapshot, err := m.Store.CreateSnapshot(current)
-	if err != nil {
-		return config.Snapshot{}, fmt.Errorf("create pre-reset snapshot: %w", err)
-	}
 	reset := config.DefaultConfig()
 	reset.Revision = current.Revision + 1
 	reset.UpdatedAt = time.Now().UTC()
@@ -134,19 +109,7 @@ func (m Manager) FactoryReset(wanInterface, lanInterface, password string) (conf
 	if err := reset.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("factory defaults are invalid: %w", err)
 	}
-	if err := m.Store.SaveConfig(reset); err != nil {
-		return config.Snapshot{}, fmt.Errorf("persist factory defaults: %w", err)
-	}
-	if err := m.Store.SetAdminHash(hash); err != nil {
-		return config.Snapshot{}, fmt.Errorf("store reset administrator password: %w", err)
-	}
-	if err := m.Store.ClearAdminTOTPSecret(); err != nil {
-		return config.Snapshot{}, fmt.Errorf("clear TOTP: %w", err)
-	}
-	if err := m.Store.DeleteAllSessions(); err != nil {
-		return config.Snapshot{}, fmt.Errorf("revoke sessions: %w", err)
-	}
-	return snapshot, nil
+	return m.Store.RecoverySaveConfig(current, reset, &hash, true)
 }
 
 func (m Manager) ListSnapshots() ([]config.Snapshot, error) {
