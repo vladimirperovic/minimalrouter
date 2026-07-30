@@ -18,7 +18,7 @@ func TestDeviceProfileRulesAllowPerDayWindows(t *testing.T) {
 		Services:    []string{"youtube", "steam"},
 		Enabled:     true,
 		Schedule: config.WeeklyAccessSchedule{DayWindows: map[string][]config.AccessWindow{
-			"monday":  {{Start: "17:00", End: "21:00"}},
+			"monday":   {{Start: "17:00", End: "21:00"}},
 			"saturday": {{Start: "00:00", End: "23:59"}},
 		}},
 	}}
