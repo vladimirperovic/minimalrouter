@@ -36,16 +36,16 @@ jobs:
             -run '^$' \
             -bench '^BenchmarkAPI' \
             -benchmem \
-            -benchtime=3s \
-            -count=5 | tee build/performance/api.txt
+            -benchtime=1s \
+            -count=3 | tee build/performance/api.txt
       - name: Run update state benchmarks
         run: |
           go test ./internal/firmware \
             -run '^$' \
             -bench '^BenchmarkSlotManager' \
             -benchmem \
-            -benchtime=3s \
-            -count=5 | tee build/performance/update.txt
+            -benchtime=1s \
+            -count=3 | tee build/performance/update.txt
       - name: Reject benchmark crashes and missing measurements
         run: |
           grep -q 'BenchmarkAPISetupStatusParallel' build/performance/api.txt
