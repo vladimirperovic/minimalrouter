@@ -12,7 +12,7 @@ import (
 var deviceProfileIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 var supportedProfileServices = map[string]struct{}{
-	"youtube": {}, "steam": {}, "tiktok": {}, "instagram": {}, "facebook": {},
+	"youtube": {}, "steam": {}, "wiki": {}, "tiktok": {}, "instagram": {}, "facebook": {},
 	"roblox": {}, "epic": {}, "twitch": {}, "adult": {}, "gaming": {},
 }
 
