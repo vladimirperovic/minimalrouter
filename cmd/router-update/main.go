@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
@@ -16,71 +17,146 @@ const (
 )
 
 func main() {
-	if os.Geteuid() != 0 {
-		fatal(errors.New("router-update must run as root"))
-	}
-	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
-	}
-	root := envOr("MINIMALROUTER_UPDATE_ROOT", defaultUpdateRoot)
-	keyPath := envOr("MINIMALROUTER_FIRMWARE_PUBLIC_KEY", defaultPublicKey)
-	key, err := firmware.LoadTrustedPublicKey(keyPath)
-	if err != nil {
-		fatal(fmt.Errorf("load pinned firmware key: %w", err))
-	}
-	manager := firmware.SlotManager{Root: root, TrustedKey: key}
+	os.Exit(run(os.Args[1:], os.Geteuid(), os.Stdout, os.Stderr))
+}
 
-	switch os.Args[1] {
+func run(args []string, euid int, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		usage(stderr)
+		return 2
+	}
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		usage(stdout)
+		return 0
+	}
+
+	root := envOr("MINIMALROUTER_UPDATE_ROOT", defaultUpdateRoot)
+	manager := firmware.SlotManager{Root: root}
+
+	requireRoot := func() bool {
+		if euid == 0 {
+			return true
+		}
+		fmt.Fprintln(stderr, "ERROR: router-update must run as root for this command")
+		return false
+	}
+
+	switch args[0] {
 	case "stage":
-		fs := flag.NewFlagSet("stage", flag.ExitOnError)
+		if !requireRoot() {
+			return 1
+		}
+		fs := flag.NewFlagSet("stage", flag.ContinueOnError)
+		fs.SetOutput(stderr)
 		directory := fs.String("dir", "", "already-extracted release directory")
 		manifestPath := fs.String("manifest", "", "signed release manifest")
-		_ = fs.Parse(os.Args[2:])
-		if *directory == "" || *manifestPath == "" {
-			fatal(errors.New("stage requires --dir and --manifest"))
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 2
 		}
+		if *directory == "" || *manifestPath == "" {
+			fmt.Fprintln(stderr, "ERROR: stage requires --dir and --manifest")
+			return 2
+		}
+		keyPath := envOr("MINIMALROUTER_FIRMWARE_PUBLIC_KEY", defaultPublicKey)
+		key, err := firmware.LoadTrustedPublicKey(keyPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR: load pinned firmware key: %v\n", err)
+			return 1
+		}
+		manager.TrustedKey = key
 		manifest, err := firmware.LoadManifest(*manifestPath)
 		if err != nil {
-			fatal(err)
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
 		}
 		if err := manager.Stage(*directory, manifest); err != nil {
-			fatal(err)
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
 		}
-		fmt.Printf("Release %s verified and staged. Run activate explicitly after review.\n", manifest.Version)
+		fmt.Fprintf(stdout, "Release %s verified and staged. Run activate explicitly after review.\n", manifest.Version)
+		return 0
+
 	case "activate":
-		fs := flag.NewFlagSet("activate", flag.ExitOnError)
+		if !requireRoot() {
+			return 1
+		}
+		fs := flag.NewFlagSet("activate", flag.ContinueOnError)
+		fs.SetOutput(stderr)
 		version := fs.String("version", "", "staged version")
 		confirm := fs.String("confirm", "", "must equal ACTIVATE-UPDATE")
-		_ = fs.Parse(os.Args[2:])
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 2
+		}
+		if *version == "" {
+			fmt.Fprintln(stderr, "ERROR: activate requires --version")
+			return 2
+		}
 		if *confirm != "ACTIVATE-UPDATE" {
-			fatal(errors.New("activation requires --confirm ACTIVATE-UPDATE"))
+			fmt.Fprintln(stderr, "ERROR: activation requires --confirm ACTIVATE-UPDATE")
+			return 2
 		}
 		if err := manager.Activate(*version); err != nil {
-			fatal(err)
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
 		}
-		fmt.Println("Update slot activated. Restart the appliance and verify health before pruning the previous slot.")
+		fmt.Fprintln(stdout, "Update slot activated. Restart router services or reboot, then verify health before pruning the previous slot.")
+		return 0
+
 	case "rollback":
-		fs := flag.NewFlagSet("rollback", flag.ExitOnError)
+		if !requireRoot() {
+			return 1
+		}
+		fs := flag.NewFlagSet("rollback", flag.ContinueOnError)
+		fs.SetOutput(stderr)
 		confirm := fs.String("confirm", "", "must equal ROLLBACK-UPDATE")
-		_ = fs.Parse(os.Args[2:])
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 2
+		}
 		if *confirm != "ROLLBACK-UPDATE" {
-			fatal(errors.New("rollback requires --confirm ROLLBACK-UPDATE"))
+			fmt.Fprintln(stderr, "ERROR: rollback requires --confirm ROLLBACK-UPDATE")
+			return 2
 		}
 		if err := manager.Rollback(); err != nil {
-			fatal(err)
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
 		}
-		fmt.Println("Previous verified update slot restored.")
+		fmt.Fprintln(stdout, "Previous verified update slot restored. Restart router services or reboot to run it.")
+		return 0
+
 	case "status":
+		fs := flag.NewFlagSet("status", flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		if err := fs.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 2
+		}
 		state, err := manager.State()
 		if err != nil {
-			fatal(err)
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
 		}
-		data, _ := json.MarshalIndent(state, "", "  ")
-		fmt.Println(string(data))
+		data, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR: encode update state: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(data))
+		return 0
+
 	default:
-		usage()
-		os.Exit(2)
+		usage(stderr)
+		return 2
 	}
 }
 
@@ -91,15 +167,11 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
-func usage() {
-	fmt.Fprintln(os.Stderr, `Usage: router-update <command>
+func usage(w io.Writer) {
+	fmt.Fprintln(w, `Usage: router-update <command>
   stage --dir PATH --manifest PATH
   activate --version VERSION --confirm ACTIVATE-UPDATE
   rollback --confirm ROLLBACK-UPDATE
-  status`)
-}
-
-func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "ERROR:", err)
-	os.Exit(1)
+  status
+  help`)
 }
