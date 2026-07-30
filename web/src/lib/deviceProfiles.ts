@@ -41,18 +41,18 @@ export const managedServices = [
 ] as const;
 
 const emptyWindows = (): DayWindows => Object.fromEntries(
-  scheduleDays.map(([day]) => [day, []]),
-) as DayWindows;
+  scheduleDays.map(([day]) => [day, [] as AccessWindow[]]),
+) as unknown as DayWindows;
 
 export function createDefaultKidsGrid(): HourGrid {
   return Object.fromEntries(scheduleDays.map(([day], dayIndex) => [
     day,
     Array.from({ length: 24 }, (_, hour) => dayIndex < 5 ? hour >= 19 : true),
-  ])) as HourGrid;
+  ])) as unknown as HourGrid;
 }
 
 export function createEmptyGrid(): HourGrid {
-  return Object.fromEntries(scheduleDays.map(([day]) => [day, Array(24).fill(false)])) as HourGrid;
+  return Object.fromEntries(scheduleDays.map(([day]) => [day, Array<boolean>(24).fill(false)])) as unknown as HourGrid;
 }
 
 export function slotsToWindows(slots: boolean[]): AccessWindow[] {
@@ -74,12 +74,12 @@ export function slotsToWindows(slots: boolean[]): AccessWindow[] {
 }
 
 export function gridToDayWindows(grid: HourGrid): DayWindows {
-  return Object.fromEntries(scheduleDays.map(([day]) => [day, slotsToWindows(grid[day])])) as DayWindows;
+  return Object.fromEntries(scheduleDays.map(([day]) => [day, slotsToWindows(grid[day])])) as unknown as DayWindows;
 }
 
 function normalizeDayWindows(schedule: DeviceProfile["schedule"]): DayWindows {
   if (schedule.day_windows && Object.keys(schedule.day_windows).length > 0) {
-    return Object.fromEntries(scheduleDays.map(([day]) => [day, schedule.day_windows?.[day] ?? []])) as DayWindows;
+    return Object.fromEntries(scheduleDays.map(([day]) => [day, schedule.day_windows?.[day] ?? []])) as unknown as DayWindows;
   }
   const result = emptyWindows();
   for (const [day] of scheduleDays.slice(0, 5)) result[day] = schedule.weekday_windows ?? [];
