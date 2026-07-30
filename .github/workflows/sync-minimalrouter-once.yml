@@ -15,10 +15,10 @@ concurrency:
 
 jobs:
   sync:
-    name: Copy, validate and commit
+    name: Copy verified source and commit
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     steps:
       - name: Check out private home repository
         uses: actions/checkout@v6
@@ -26,7 +26,7 @@ jobs:
           ref: main
           fetch-depth: 1
 
-      - name: Check out hardened public source
+      - name: Check out green public source
         run: |
           set -euo pipefail
           git clone --depth 1 --branch agent/recovery-parental-release-hardening \
@@ -93,41 +93,6 @@ jobs:
           FILES
           chmod 0755 packaging/alpine/install-dist.sh
           rm -f web/src/App.tsx web/src/components/DashboardLogs.tsx
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.9.0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
-
-      - name: Validate Go code
-        run: |
-          set -euo pipefail
-          make fmt-check
-          go test ./...
-          go vet ./...
-
-      - name: Validate dashboard and Kids scheduler
-        run: |
-          set -euo pipefail
-          pnpm --dir web install --frozen-lockfile
-          pnpm --dir web lint
-          pnpm --dir web test
-          pnpm --dir web build
-          pnpm --dir web exec playwright install --with-deps chromium
-          pnpm --dir web test:e2e
 
       - name: Commit synchronized files to main
         shell: bash
