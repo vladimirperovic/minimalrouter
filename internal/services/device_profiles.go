@@ -9,6 +9,8 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+var orderedScheduleDays = []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
 func activeManagedServices(cfg *config.SystemConfig) []string {
 	seen := make(map[string]struct{})
 	for _, profile := range cfg.AdGuard.DeviceProfiles {
@@ -20,7 +22,7 @@ func activeManagedServices(cfg *config.SystemConfig) []string {
 			if _, supported := ServiceDomains[service]; supported {
 				seen[service] = struct{}{}
 			}
-		}
+	}
 	}
 	services := make([]string, 0, len(seen))
 	for service := range seen {
@@ -45,6 +47,28 @@ func writeDNSFilterNftsets(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	}
 }
 
+func effectiveDayWindows(schedule config.WeeklyAccessSchedule) map[string][]config.AccessWindow {
+	if len(schedule.DayWindows) > 0 {
+		return schedule.DayWindows
+	}
+	result := make(map[string][]config.AccessWindow, 7)
+	for _, day := range orderedScheduleDays[:5] {
+		result[day] = schedule.WeekdayWindows
+	}
+	switch schedule.WeekendMode {
+	case "all_day":
+		result["saturday"] = []config.AccessWindow{{Start: "00:00", End: "23:59"}}
+		result["sunday"] = []config.AccessWindow{{Start: "00:00", End: "23:59"}}
+	case "same_as_weekdays":
+		result["saturday"] = schedule.WeekdayWindows
+		result["sunday"] = schedule.WeekdayWindows
+	case "custom":
+		result["saturday"] = schedule.WeekendWindows
+		result["sunday"] = schedule.WeekendWindows
+	}
+	return result
+}
+
 func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	services := activeManagedServices(cfg)
 	if len(services) == 0 {
@@ -60,6 +84,7 @@ func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 			continue
 		}
 		buf.WriteString(fmt.Sprintf("    # Device profile: %s\n", profile.Name))
+		dayWindows := effectiveDayWindows(profile.Schedule)
 		for _, ip := range profile.IPAddresses {
 			// Managed devices must use the router resolver. Direct DNS and DoT
 			// would otherwise bypass the DNS-derived destination sets.
@@ -69,14 +94,8 @@ func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 				if _, supported := ServiceDomains[service]; !supported {
 					continue
 				}
-				writeAllowedWindows(buf, ip, service, "{ monday, tuesday, wednesday, thursday, friday }", profile.Schedule.WeekdayWindows)
-				switch profile.Schedule.WeekendMode {
-				case "all_day":
-					buf.WriteString(fmt.Sprintf("    ip saddr %s ip daddr @svc_%s meta day { saturday, sunday } return\n", ip, service))
-				case "same_as_weekdays":
-					writeAllowedWindows(buf, ip, service, "{ saturday, sunday }", profile.Schedule.WeekdayWindows)
-				case "custom":
-					writeAllowedWindows(buf, ip, service, "{ saturday, sunday }", profile.Schedule.WeekendWindows)
+				for _, day := range orderedScheduleDays {
+					writeAllowedWindows(buf, ip, service, day, dayWindows[day])
 				}
 				buf.WriteString(fmt.Sprintf("    ip saddr %s ip daddr @svc_%s drop\n", ip, service))
 			}
@@ -85,11 +104,11 @@ func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	buf.WriteString("    return\n  }\n\n")
 }
 
-func writeAllowedWindows(buf *bytes.Buffer, ip, service, days string, windows []config.AccessWindow) {
+func writeAllowedWindows(buf *bytes.Buffer, ip, service, day string, windows []config.AccessWindow) {
 	for _, window := range windows {
 		buf.WriteString(fmt.Sprintf(
 			"    ip saddr %s ip daddr @svc_%s meta day %s meta hour \"%s\"-\"%s\" return\n",
-			ip, service, days, window.Start, window.End,
+			ip, service, day, window.Start, window.End,
 		))
 	}
 }
