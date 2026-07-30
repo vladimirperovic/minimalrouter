@@ -111,8 +111,10 @@ func validateProfileSchedule(errs *ValidationErrors, field string, schedule Week
 }
 
 func validateWindows(errs *ValidationErrors, field string, windows []AccessWindow) {
-	if len(windows) > 8 {
-		appendFieldError(errs, field, "cannot contain more than eight windows")
+	// A 24-slot hourly scheduler can produce at most 12 non-overlapping windows
+	// when every other hour is selected.
+	if len(windows) > 12 {
+		appendFieldError(errs, field, "cannot contain more than twelve windows")
 		return
 	}
 	type parsedWindow struct {
