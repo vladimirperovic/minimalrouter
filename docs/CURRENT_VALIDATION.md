@@ -13,8 +13,8 @@ The current `main` branch includes:
 - transactional recovery changes and session revocation;
 - signed update manifests, SHA-256 verification, checksums, SBOM generation, and
   release provenance support;
-- core CI `checkout`, `setup-go`, `setup-node`, and `upload-artifact` actions on
-  v7;
+- CI and tagged-release `checkout`, `setup-go`, and `setup-node` actions on v7,
+  with `upload-artifact` v7 in workflows that upload evidence;
 - TypeScript 6.0.3 and Node.js type definitions 26.1.2 for the dashboard build;
 - Go race tests, `vet`, `govulncheck`, secret scanning, `gosec`, `shellcheck`, and
   `actionlint`;
@@ -29,9 +29,9 @@ The current `main` branch includes:
 - isolated WAN-router-LAN network namespace tests;
 - API and update-state performance benchmarks with allocation measurements.
 
-The private tagged-release workflow still has `checkout`, `setup-go`, and
-`setup-node` v6 entries and should be aligned separately before the next release
-tag. No release tag was created as part of the 2026-07-30 validation.
+No release tag was created as part of the 2026-07-30 validation. The tagged-release
+workflow is aligned with the public repository and still requires the configured
+offline release-signing secret before a real release tag can succeed.
 
 ## Latest automated result
 

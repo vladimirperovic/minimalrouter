@@ -35,7 +35,8 @@ alpha, compatibility may change between commits.
 
 ### Changed
 
-- Core CI GitHub Actions and artifact upload use v7.
+- CI and tagged-release `checkout`, `setup-go`, and `setup-node` actions use v7;
+  evidence-upload workflows use `upload-artifact` v7.
 - Dashboard development uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
 - TypeScript 6 CSS side-effect import checks are satisfied with a Vite client
   declaration rather than disabling stricter compiler behavior.
