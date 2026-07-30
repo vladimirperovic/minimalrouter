@@ -72,7 +72,7 @@ func TestValidatePendingConfirmationBindsHashToCompleteConfig(t *testing.T) {
 func TestSaveLastGoodRejectsInvalidConfigBeforeWrite(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.LAN.CIDR = "not-a-cidr"
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("test configuration unexpectedly valid")
+	if err := saveLastGood(cfg); err == nil {
+		t.Fatal("invalid last-good configuration reached the write path")
 	}
 }
