@@ -75,6 +75,7 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 var ServiceDomains = map[string][]string{
 	"youtube":   {"youtube.com", "googlevideo.com", "ytimg.com", "youtu.be"},
 	"steam":     {"steampowered.com", "steamcommunity.com", "steamstatic.com", "steamcontent.com", "steamserver.net"},
+	"wiki":      {"wikipedia.org", "wikimedia.org", "wikimediafoundation.org", "mediawiki.org"},
 	"tiktok":    {"tiktok.com", "byteoversea.com", "ibytedtos.com", "tiktokv.com"},
 	"instagram": {"instagram.com", "cdninstagram.com"},
 	"facebook":  {"facebook.com", "fbcdn.net", "messenger.com"},
