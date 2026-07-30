@@ -1,0 +1,449 @@
+name: Patch second-round failure hardening
+
+on:
+  push:
+    branches:
+      - agent/failure-hardening-round2
+    paths:
+      - .github/workflows/patch-failure-hardening-round2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/failure-hardening-round2
+      - name: Apply reviewed state-machine changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          main = Path("cmd/router-applyd/main.go")
+          text = main.read_text()
+          old = '''\tif err := saveLastTransaction(transactionRecord{
+          \t\tID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
+          \t}); err != nil {
+          \t\tresp = failure(req.ID, "transaction result could not be persisted", resp.RolledBack)
+          \t}'''
+          new = '''\tif err := saveLastTransaction(transactionRecord{
+          \t\tID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
+          \t}); err != nil {
+          \t\tresp = journalPersistenceFailure(req.ID, resp)
+          \t}'''
+          if text.count(old) != 1:
+              raise SystemExit("transaction journal failure block was not uniquely identified")
+          main.write_text(text.replace(old, new, 1))
+
+          state = Path("internal/apply/statemachine.go")
+          text = state.read_text()
+          replacements = [
+              ('''type Engine struct {
+          \tmu            sync.Mutex
+          \tactiveTx      *Transaction
+          \tcurrentConfig config.SystemConfig
+          \tstore         *config.FileStore
+          \tclient        Client
+          \tpending       *pendingChange
+          }''', '''type Engine struct {
+          \tmu               sync.Mutex
+          \tactiveTx         *Transaction
+          \tcurrentConfig    config.SystemConfig
+          \tstore            *config.FileStore
+          \tclient           Client
+          \tpending          *pendingChange
+          \trecoveryRequired bool
+          \trecoveryReason   string
+          }'''),
+              ('''\t\tresp, err := e.client.Apply(ctx, req)
+          \t\tif err == nil {
+          \t\t\tif resp == nil {
+          \t\t\t\tlastErr = fmt.Errorf("router-applyd returned an empty response")
+          \t\t\t\tcontinue
+          \t\t\t}
+          \t\t\treturn resp, nil
+          \t\t}
+          \t\tlastErr = err''', '''\t\tresp, err := e.client.Apply(ctx, req)
+          \t\tif err == nil {
+          \t\t\tif resp == nil {
+          \t\t\t\tlastErr = fmt.Errorf("router-applyd returned an empty response")
+          \t\t\t\tcontinue
+          \t\t\t}
+          \t\t\tif validationErr := resp.Validate(); validationErr != nil {
+          \t\t\t\treturn nil, fmt.Errorf("router-applyd returned an invalid outcome: %w", validationErr)
+          \t\t\t}
+          \t\t\treturn resp, nil
+          \t\t}
+          \t\tlastErr = err'''),
+              ('''\te.activeTx = tx
+          \tif e.pending != nil {''', '''\te.activeTx = tx
+          \tif e.recoveryRequired {
+          \t\ttx.CurrentState = StateRecoveryRequired
+          \t\ttx.Error = "configuration changes are blocked until canonical reconciliation succeeds"
+          \t\tif e.recoveryReason != "" {
+          \t\t\ttx.Error += ": " + e.recoveryReason
+          \t\t}
+          \t\treturn tx, fmt.Errorf("%s", tx.Error)
+          \t}
+          \tif e.pending != nil {'''),
+              ('''\tif err != nil {
+          \t\ttx.CurrentState = StateRecoveryRequired
+          \t\ttx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
+          \t\treturn tx, fmt.Errorf("%s", tx.Error)
+          \t}''', '''\tif err != nil {
+          \t\ttx.CurrentState = StateRecoveryRequired
+          \t\ttx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
+          \t\te.requireRecovery(tx.Error)
+          \t\treturn tx, fmt.Errorf("%s", tx.Error)
+          \t}'''),
+              ('''\tif !resp.Success {
+          \t\tif resp.RecoveryRequired {
+          \t\t\ttx.CurrentState = StateRecoveryRequired
+          \t\t} else {
+          \t\t\ttx.CurrentState = StateRolledBack
+          \t\t}
+          \t\ttx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
+          \t\treturn tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
+          \t}''', '''\tif !resp.Success {
+          \t\tswitch {
+          \t\tcase resp.RecoveryRequired:
+          \t\t\ttx.CurrentState = StateRecoveryRequired
+          \t\tcase resp.RolledBack:
+          \t\t\ttx.CurrentState = StateRolledBack
+          \t\tdefault:
+          \t\t\ttx.CurrentState = StateRejected
+          \t\t}
+          \t\ttx.Error = fmt.Sprintf("privileged apply failed: %s", resp.Error)
+          \t\tif tx.CurrentState == StateRecoveryRequired {
+          \t\t\te.requireRecovery(tx.Error)
+          \t\t}
+          \t\treturn tx, fmt.Errorf("apply rejected by router-applyd: %s", resp.Error)
+          \t}'''),
+              ('''\tif !resp.Verified {
+          \t\ttx.CurrentState = StateRecoveryRequired
+          \t\ttx.Error = "router-applyd did not verify the active configuration; recovery is required"
+          \t\treturn tx, fmt.Errorf("%s", tx.Error)
+          \t}''', '''\tif !resp.Verified {
+          \t\ttx.CurrentState = StateRecoveryRequired
+          \t\ttx.Error = "router-applyd did not verify the active configuration; recovery is required"
+          \t\te.requireRecovery(tx.Error)
+          \t\treturn tx, fmt.Errorf("%s", tx.Error)
+          \t}'''),
+              ('''\t\t\t} else {
+          \t\t\t\ttx.Error += "; rollback request could not be generated and recovery is required"
+          \t\t\t}
+          \t\t\treturn tx, err''', '''\t\t\t} else {
+          \t\t\t\ttx.Error += "; rollback request could not be generated and recovery is required"
+          \t\t\t}
+          \t\t\tif tx.CurrentState == StateRecoveryRequired {
+          \t\t\t\te.requireRecovery(tx.Error)
+          \t\t\t}
+          \t\t\treturn tx, err'''),
+              ('''\tif e.store != nil {
+          \t\tif err := e.store.SaveConfig(pending.tx.Config); err != nil {
+          \t\t\treturn pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
+          \t\t}
+          \t}''', '''\tif e.store != nil {
+          \t\tif err := e.store.SaveConfig(pending.tx.Config); err != nil {
+          \t\t\tpending.tx.CurrentState = StateRecoveryRequired
+          \t\t\tpending.tx.Error = "privileged confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
+          \t\t\treturn pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
+          \t\t}
+          \t}'''),
+              ('''\t\tpending.tx.Error = "confirmation deadline expired and privileged rollback failed; retry scheduled while candidate access remains available"
+          \t} else {
+          \t\tpending.tx.Error = "confirmation deadline expired and rollback generation failed; retry scheduled while candidate access remains available"
+          \t}''', '''\t\tpending.tx.CurrentState = StateRecoveryRequired
+          \t\tpending.tx.Error = "confirmation deadline expired and privileged rollback failed; retry scheduled while candidate access remains available"
+          \t} else {
+          \t\tpending.tx.CurrentState = StateRecoveryRequired
+          \t\tpending.tx.Error = "confirmation deadline expired and rollback generation failed; retry scheduled while candidate access remains available"
+          \t}'''),
+              ('''\tif !resp.Success || !resp.Verified {
+          \t\treturn fmt.Errorf("boot reconciliation was not verified: %s", resp.Error)
+          \t}
+          \treturn nil''', '''\tif !resp.Success || !resp.Verified {
+          \t\treturn fmt.Errorf("boot reconciliation was not verified: %s", resp.Error)
+          \t}
+          \te.recoveryRequired = false
+          \te.recoveryReason = ""
+          \treturn nil'''),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"state-machine block was not uniquely identified: {old[:100]!r}")
+              text = text.replace(old, new, 1)
+
+          marker = "// ProcessTransaction executes the full state machine pipeline with snapshot and rollback."
+          helper = '''func (e *Engine) requireRecovery(reason string) {
+          \te.recoveryRequired = true
+          \te.recoveryReason = reason
+          }
+
+          '''
+          if text.count(marker) != 1:
+              raise SystemExit("ProcessTransaction marker was not uniquely identified")
+          text = text.replace(marker, helper + marker, 1)
+          state.write_text(text)
+      - name: Add second-round failure tests
+        shell: bash
+        run: |
+          cat > internal/apply/response_validation_test.go <<'EOF'
+          package apply
+
+          import "testing"
+
+          func TestApplyResponseValidation(t *testing.T) {
+          	valid := []ApplyResponse{
+          		{Success: true, Verified: true},
+          		{Success: false},
+          		{Success: false, RolledBack: true},
+          		{Success: false, RecoveryRequired: true},
+          	}
+          	for i, response := range valid {
+          		if err := response.Validate(); err != nil {
+          			t.Fatalf("valid response %d was rejected: %v", i, err)
+          		}
+          	}
+
+          	invalid := []ApplyResponse{
+          		{Success: true, Verified: false},
+          		{Success: true, Verified: true, RolledBack: true},
+          		{Success: true, Verified: true, RecoveryRequired: true},
+          		{Success: false, Verified: true},
+          		{Success: false, RolledBack: true, RecoveryRequired: true},
+          	}
+          	for i, response := range invalid {
+          		if err := response.Validate(); err == nil {
+          			t.Fatalf("invalid response %d was accepted: %+v", i, response)
+          		}
+          	}
+          }
+          EOF
+
+          cat > internal/apply/failure_scenarios_round2_test.go <<'EOF'
+          package apply
+
+          import (
+          	"context"
+          	"errors"
+          	"strings"
+          	"testing"
+
+          	"github.com/vladimirperovic/minimalrouter/internal/config"
+          )
+
+          func TestSideEffectFreeHelperRejectionIsNotReportedAsRollback(t *testing.T) {
+          	initial := config.DefaultConfig()
+          	candidate := initial
+          	candidate.System.Hostname = "rejected-candidate"
+          	client := &scenarioApplyClient{steps: []scenarioApplyStep{{
+          		response: ApplyResponse{Success: false, Error: "component preflight failed"},
+          	}}}
+          	engine := NewEngineWithClient(initial, nil, client)
+
+          	tx, err := engine.ProcessTransaction("tx-preflight-rejection", candidate)
+          	if err == nil {
+          		t.Fatal("helper rejection must fail")
+          	}
+          	if tx.CurrentState != StateRejected {
+          		t.Fatalf("side-effect-free rejection was reported as %s", tx.CurrentState)
+          	}
+          }
+
+          func TestMalformedHelperOutcomeRequiresRecoveryAndBlocksChanges(t *testing.T) {
+          	initial := config.DefaultConfig()
+          	candidate := initial
+          	candidate.System.Hostname = "malformed-outcome"
+          	client := &scenarioApplyClient{steps: []scenarioApplyStep{{
+          		response: ApplyResponse{Success: true, Verified: false},
+          	}}}
+          	engine := NewEngineWithClient(initial, nil, client)
+
+          	tx, err := engine.ProcessTransaction("tx-malformed-outcome", candidate)
+          	if err == nil || tx.CurrentState != StateRecoveryRequired {
+          		t.Fatalf("malformed privileged outcome must require recovery, state=%s err=%v", tx.CurrentState, err)
+          	}
+          	if len(client.requests) != 1 {
+          		t.Fatalf("semantic corruption must not be retried as a transport error; requests=%d", len(client.requests))
+          	}
+
+          	second := initial
+          	second.System.Hostname = "must-remain-blocked"
+          	blocked, blockErr := engine.ProcessTransaction("tx-after-malformed", second)
+          	if blockErr == nil || blocked.CurrentState != StateRecoveryRequired {
+          		t.Fatal("new configuration was not blocked after an unknown runtime outcome")
+          	}
+          	if len(client.requests) != 1 {
+          		t.Fatal("blocked transaction reached the privileged helper")
+          	}
+          }
+
+          func TestAmbiguousOutcomeBlocksChangesUntilCanonicalReconcile(t *testing.T) {
+          	initial := config.DefaultConfig()
+          	client := &scenarioApplyClient{steps: []scenarioApplyStep{
+          		{err: errors.New("response lost")},
+          		{err: errors.New("helper unavailable")},
+          	}}
+          	engine := NewEngineWithClient(initial, nil, client)
+          	candidate := initial
+          	candidate.System.Hostname = "unknown-runtime"
+
+          	if tx, err := engine.ProcessTransaction("tx-ambiguous-lock", candidate); err == nil || tx.CurrentState != StateRecoveryRequired {
+          		t.Fatal("ambiguous outcome did not require recovery")
+          	}
+          	blocked := initial
+          	blocked.System.Hostname = "blocked-before-reconcile"
+          	if tx, err := engine.ProcessTransaction("tx-blocked-before-reconcile", blocked); err == nil || tx.CurrentState != StateRecoveryRequired {
+          		t.Fatal("configuration was accepted before canonical reconciliation")
+          	}
+          	if len(client.requests) != 2 {
+          		t.Fatalf("blocked transaction reached helper; requests=%d", len(client.requests))
+          	}
+
+          	client.steps = append(client.steps, successfulScenarioStep())
+          	if err := engine.Reconcile(context.Background()); err != nil {
+          		t.Fatalf("canonical reconciliation failed: %v", err)
+          	}
+          	client.steps = append(client.steps, successfulScenarioStep())
+          	after := initial
+          	after.System.Hostname = "accepted-after-reconcile"
+          	if tx, err := engine.ProcessTransaction("tx-after-reconcile", after); err != nil || tx.CurrentState != StateCommitted {
+          		t.Fatalf("configuration remained blocked after reconciliation: state=%s err=%v", tx.CurrentState, err)
+          	}
+          }
+
+          func TestFailedTimeoutRollbackSurfacesRecoveryRequired(t *testing.T) {
+          	initial := config.DefaultConfig()
+          	client := &scenarioApplyClient{steps: []scenarioApplyStep{
+          		successfulScenarioStep(),
+          		{response: ApplyResponse{Success: false, Error: "temporary rollback failure"}},
+          	}}
+          	engine := NewEngineWithClient(initial, nil, client)
+          	tx, err := engine.ProcessTransaction("tx-timeout-state", candidateWithNewLAN(initial))
+          	if err != nil {
+          		t.Fatalf("create pending change: %v", err)
+          	}
+          	engine.pending.timer.Stop()
+          	engine.rollbackExpired(tx.ID)
+          	defer func() {
+          		if engine.pending != nil && engine.pending.timer != nil {
+          			engine.pending.timer.Stop()
+          		}
+          	}()
+          	pending := engine.GetPendingTransaction()
+          	if pending == nil || pending.CurrentState != StateRecoveryRequired {
+          		t.Fatalf("failed rollback must surface recovery-required state: %+v", pending)
+          	}
+          	if !strings.Contains(pending.Error, "retry scheduled") {
+          		t.Fatalf("retry status missing: %q", pending.Error)
+          	}
+          }
+
+          type closeStoreOnConfirmClient struct {
+          	store *config.FileStore
+          	calls int
+          }
+
+          func (c *closeStoreOnConfirmClient) Apply(_ context.Context, req ApplyRequest) (*ApplyResponse, error) {
+          	c.calls++
+          	if c.calls == 2 {
+          		if err := c.store.Close(); err != nil {
+          			return nil, err
+          		}
+          	}
+          	return &ApplyResponse{ID: req.ID, Success: true, Verified: true}, nil
+          }
+
+          func TestConfirmedRuntimeWithCanonicalStoreFailureRemainsRecoverable(t *testing.T) {
+          	store := newScenarioStore(t)
+          	initial, err := store.GetLatestConfig()
+          	if err != nil {
+          		t.Fatalf("read initial config: %v", err)
+          	}
+          	client := &closeStoreOnConfirmClient{store: store}
+          	engine := NewEngineWithClient(initial, store, client)
+          	tx, err := engine.ProcessTransaction("tx-confirm-store-failure", candidateWithNewLAN(initial))
+          	if err != nil {
+          		t.Fatalf("create pending change: %v", err)
+          	}
+
+          	confirmed, confirmErr := engine.ConfirmTransaction(tx.ID)
+          	if confirmErr == nil {
+          		t.Fatal("closed canonical store must fail confirmation commit")
+          	}
+          	if confirmed.CurrentState != StateRecoveryRequired {
+          		t.Fatalf("confirmation/store split was reported as %s", confirmed.CurrentState)
+          	}
+          	if engine.GetPendingTransaction() == nil {
+          		t.Fatal("pending recovery context was discarded after store failure")
+          	}
+
+          	engine.pending.timer.Stop()
+          	engine.rollbackExpired(tx.ID)
+          	if engine.GetPendingTransaction() != nil {
+          		t.Fatal("verified rollback did not clear pending recovery state")
+          	}
+          	if confirmed.CurrentState != StateRolledBack {
+          		t.Fatalf("verified rollback state=%s", confirmed.CurrentState)
+          	}
+          	if engine.GetCurrentConfig().LAN.CIDR != initial.LAN.CIDR {
+          		t.Fatal("failed canonical commit changed the in-memory canonical configuration")
+          	}
+          }
+          EOF
+
+          cat > cmd/router-applyd/outcome_test.go <<'EOF'
+          package main
+
+          import (
+          	"testing"
+
+          	"github.com/vladimirperovic/minimalrouter/internal/apply"
+          )
+
+          func TestJournalPersistenceFailureNeverClaimsUnknownRuntimeRolledBack(t *testing.T) {
+          	tests := []struct {
+          		name             string
+          		previous         apply.ApplyResponse
+          		wantRolledBack   bool
+          		wantRecovery     bool
+          	}{
+          		{name: "successful apply", previous: apply.ApplyResponse{Success: true, Verified: true}, wantRecovery: true},
+          		{name: "side-effect-free rejection", previous: apply.ApplyResponse{Success: false}, wantRecovery: true},
+          		{name: "verified rollback", previous: apply.ApplyResponse{Success: false, RolledBack: true}, wantRolledBack: true},
+          		{name: "already recovery required", previous: apply.ApplyResponse{Success: false, RecoveryRequired: true}, wantRecovery: true},
+          	}
+          	for _, test := range tests {
+          		t.Run(test.name, func(t *testing.T) {
+          			got := journalPersistenceFailure("tx-journal", test.previous)
+          			if got.RolledBack != test.wantRolledBack || got.RecoveryRequired != test.wantRecovery {
+          				t.Fatalf("outcome rolled_back=%v recovery_required=%v", got.RolledBack, got.RecoveryRequired)
+          			}
+          			if got.Success || got.Verified {
+          				t.Fatal("journal failure was reported as verified success")
+          			}
+          			if err := got.Validate(); err != nil {
+          				t.Fatalf("journal failure produced invalid response: %v", err)
+          			}
+          		})
+          	}
+          }
+          EOF
+      - name: Format and run focused tests
+        run: |
+          gofmt -w cmd/router-applyd/main.go cmd/router-applyd/outcome.go cmd/router-applyd/outcome_test.go internal/apply/ipc.go internal/apply/statemachine.go internal/apply/response_validation_test.go internal/apply/failure_scenarios_round2_test.go
+          go test ./internal/apply ./cmd/router-applyd
+      - name: Commit reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/router-applyd internal/apply
+          git commit -m "fix: block configuration on unresolved runtime outcomes"
+          git push
