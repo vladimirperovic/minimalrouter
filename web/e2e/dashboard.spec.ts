@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page }) => {
+test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page, isMobile }) => {
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/v1/auth/session") {
@@ -32,7 +32,7 @@ test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page }) =
 
   await page.goto("/");
   const dnsFilterLink = page.getByRole("link", { name: /DNS Filter/i });
-  if (!(await dnsFilterLink.isVisible())) {
+  if (isMobile) {
     await page.getByRole("button", { name: "Open navigation" }).click();
   }
   await expect(dnsFilterLink).toBeVisible();
