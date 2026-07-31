@@ -1,362 +1,399 @@
 # Architecture
 
-## 1. Purpose
+This document describes the current architecture and the invariants that future
+changes must preserve. Minimal Router OS is early alpha software; a documented
+component may still require additional hardware validation or hardening before a
+stable release.
 
-This document defines the initial architecture for Minimal Router OS. It is a
-constraint for implementation, not a description of code that already exists.
-Changes to the core boundaries or configuration lifecycle require an
-Architecture Decision Record (ADR).
+Changes to a trust boundary, privilege model, persistence model, update strategy,
+or configuration transaction require an Architecture Decision Record (ADR).
 
-## 2. Architectural goals
+## Goals
 
-- Keep Linux in the data plane and the application in the control plane.
-- Keep the control plane small, observable, and replaceable.
-- Make invalid or dangerous states difficult to express.
-- Apply all configuration changes transactionally.
-- Avoid direct, ad hoc edits to Linux service configuration.
-- Run network-facing code with the least privilege possible.
-- Work identically on bare metal and virtualized platforms.
+- Keep packet forwarding in the Linux kernel.
+- Keep the management control plane small and replaceable.
+- Make invalid and dangerous states difficult to express.
+- Route every configuration change through one validated transaction pipeline.
+- Separate network-facing management code from privileged system changes.
+- Generate deterministic service configuration instead of editing files ad hoc.
+- Support recovery from failed or lockout-prone changes.
+- Never report rollback or commit when the runtime outcome cannot be proven.
+- Avoid hypervisor-specific requirements in the core configuration model.
 
-## 3. System context
+## System overview
 
 ```mermaid
 flowchart LR
-    Admin["Administrator browser or API client"]
-    AIAgent["AI Agent (Claude / Antigravity / Cursor)"]
-    MCP["minimalrouter-mcp: Model Context Protocol Server"]
-    UI["Static React web UI"]
-    API["routerd: Go REST API and coordinator"]
-    DB[("SQLite configuration and state")]
-    Apply["router-applyd: restricted privileged helper"]
-    Linux["Linux kernel and proven services (nftables, dnsmasq, pppd, WireGuard, Squid)"]
-    Internet["WAN / Internet"]
-    LAN["LAN clients"]
+    Admin[Administrator browser]
+    UI[Static React dashboard]
+    MCP[minimalrouter-mcp]
+    Routerd[routerd — unprivileged Go API]
+    DB[(SQLite canonical state)]
+    Applyd[router-applyd — privileged helper]
+    Journal[(Privileged intent/result journal)]
+    Linux[Linux kernel and services]
+    LAN[LAN clients]
+    WAN[WAN / Internet]
 
     Admin -->|HTTPS| UI
-    AIAgent -->|JSON-RPC Stdio| MCP
-    MCP -->|/api/v1| API
-    UI -->|/api/v1| API
-    Admin -->|HTTPS /api/v1| API
-    API --> DB
-    API -->|allowlisted local RPC| Apply
-    Apply --> Linux
+    UI -->|/api/v1| Routerd
+    MCP -->|HTTPS /api/v1| Routerd
+    Routerd --> DB
+    Routerd -->|typed local IPC| Applyd
+    Applyd --> Journal
+    Applyd --> Linux
     LAN <--> Linux
-    Linux <--> Internet
+    Linux <--> WAN
 ```
 
-Packet forwarding never passes through the Go backend or web application.
+The Go control plane does not forward user traffic. `nftables`, the kernel
+routing stack, WireGuard, pppd, dnsmasq, and other Linux services remain in the
+data plane.
 
-## 4. Main components
+## Components
 
-### 4.0 `minimalrouter-mcp` (MCP Server)
+### Dashboard
 
-- Official Model Context Protocol (MCP) server written in Go.
-- Allows AI agents to inspect the appliance through a server-enforced read-only
-  session by default.
-- Communicates via JSON-RPC 2.0 stdio with strict schema validation.
-- Exposes redacted status/configuration tools. Supported mutations require
-  explicit local admin mode and still pass normal API authorization,
-  validation, snapshot, apply, and rollback boundaries.
-- Has no listener. It reaches `routerd` through LAN HTTPS or through the
-  authenticated WireGuard tunnel; it is never directly exposed on WAN.
+The dashboard is a React and TypeScript single-page application built with Vite.
+It is compiled to static assets and served by `routerd`. Node.js is a development
+and build dependency only; it is not installed on the router.
 
-### 4.1 Web UI
+The dashboard:
 
-- React + TypeScript, built as static assets.
-- Served by the Go API process or a minimal local web server.
-- Contains no privileged logic and no independent configuration rules.
-- Uses only the versioned REST API.
-- Uses generated API types when practical to avoid client/server drift.
+- contains no privileged logic;
+- uses the versioned REST API;
+- does not write service configuration directly;
+- displays unavailable features honestly rather than simulating success;
+- redacts or avoids rendering secret values;
+- uses the same typed configuration model as other clients.
 
-### 4.2 `routerd`
+### `routerd`
 
-An unprivileged Go process responsible for:
+`routerd` is the unprivileged management process. It is responsible for:
 
-- HTTPS termination and static UI delivery
-- Authentication, sessions, CSRF protection, and authorization
-- REST API validation and response formatting
-- Reading the canonical configuration
-- Planning configuration transactions
-- Snapshot metadata and audit events
-- Health, status, and low-frequency telemetry
-- Coordinating the privileged helper
+- HTTPS termination and static asset delivery;
+- authentication, sessions, CSRF, authorization, and rate limiting;
+- REST request parsing and validation;
+- reading and writing canonical state through the store;
+- planning configuration transactions;
+- snapshots, audit events, diagnostics, and low-frequency telemetry;
+- coordinating `router-applyd` over local IPC;
+- blocking new mutations after an ambiguous privileged outcome;
+- reconciling the SQLite canonical configuration before exposing normal
+  management after startup.
 
-It must not execute arbitrary shell commands or write service files directly.
+`routerd` must not:
 
-### 4.3 `router-applyd`
+- execute arbitrary commands;
+- accept shell fragments;
+- write privileged service files;
+- load caller-supplied nftables programs;
+- restart arbitrary services;
+- bind a management listener to WAN.
 
-A small privileged local helper responsible only for allowlisted operations:
+### `router-applyd`
 
-- Render candidate files from typed configuration input
-- Run component-specific preflight checks
-- Atomically install generated files with fixed paths and permissions
-- Load nftables rules atomically
-- Restart or reload allowlisted services
-- Apply network interface and sysctl changes
-- Report structured results
-- Restore an approved snapshot
+`router-applyd` is a local privileged helper. It currently runs as root because
+it configures interfaces, firewall rules, sysctls, routes, and system services.
 
-Communication uses a root-owned Unix domain socket. Requests are typed,
-versioned, size-limited, authenticated by peer credentials, and never contain
-free-form commands. The helper rejects unknown operations and paths.
+Its interface is intentionally narrow:
 
-Splitting the privileged helper is a release requirement. A single-process
-prototype may be used only before network exposure, and must be tracked as
-temporary technical debt.
+- local Unix socket only;
+- protected socket ownership and permissions;
+- Linux peer-credential verification;
+- versioned, size-limited request schema;
+- serialized and time-bounded operations;
+- fixed binaries, arguments, paths, and service allowlists;
+- deterministic candidate generation;
+- component-specific preflight;
+- atomic file replacement where supported;
+- structured redacted results;
+- rollback to an approved snapshot;
+- a durable intent record written before privileged side effects;
+- a durable completed-result record for idempotent response replay;
+- structural validation of transaction, last-good, and pending-confirmation
+  metadata;
+- fail-closed handling of unreadable, corrupt, or incomplete privileged state.
 
-### 4.4 Canonical store
+A duplicate request with the same transaction ID and identical content returns
+the recorded result instead of repeating side effects. An incomplete intent after
+a process or power interruption is not replayed as a fresh operation: it yields
+`RecoveryRequired` until canonical reconciliation succeeds.
 
-SQLite is the initial source of truth because it provides local transactions,
-schema migrations, integrity constraints, and efficient snapshots without an
-external database.
+Further Linux capability, namespace, and syscall confinement remains release
+hardening work.
+
+### Canonical store
+
+SQLite is the source of truth for desired and applied state. Generated service
+files are disposable artifacts. The privileged helper's `last-good` file is a
+recovery aid and must not advance ahead of the canonical SQLite commit.
 
 The store contains:
 
-- Desired configuration
-- Applied configuration revision
-- Snapshot metadata
-- Session and rate-limit state
-- Audit events
-- Non-secret operational state
+- versioned configuration;
+- applied revisions;
+- snapshot metadata and configuration payloads;
+- administrator password hash and optional TOTP secret;
+- server-side sessions and rate-limit state;
+- bounded audit events;
+- non-secret operational metadata.
 
-Generated files for nftables, pppd, dnsmasq, WireGuard, Squid, global DNS
-blocklisting, QoS, Cloudflare DDNS, Wi-Fi, and networking are derived
-artifacts. They are not edited by hand and are not the source of truth.
-Cloudflare Tunnel and DoH placeholders are not activated in the pilot build.
+Runtime databases, configuration exports, journals, and snapshots must never be
+committed to the source repository.
 
-Secrets are stored separately from ordinary settings where practical, with
-strict ownership and permissions. Passwords are hashed, not encrypted.
+### MCP bridge
 
-### 4.5 Linux integrations
+`minimalrouter-mcp` is a local Model Context Protocol bridge written in Go. Its
+default mode is read-only. Administrator mode must be explicitly enabled and is
+not considered safe for unattended browsing or untrusted content.
 
-| Capability | Component | Integration rule |
+The MCP bridge:
+
+- has no WAN listener;
+- communicates with `routerd` through the normal HTTPS API;
+- receives redacted responses;
+- cannot bypass API authorization, validation, snapshots, or rollback;
+- treats AI-generated output as untrusted input.
+
+## Linux integrations
+
+| Capability | Component | Current integration rule |
 |---|---|---|
-| Packet filtering and NAT | nftables | Generate a complete owned table and load atomically |
-| PPPoE | pppd | Generate peer and secret material; validate paths and permissions |
-| DHCP and DNS | dnsmasq | Generate isolated configuration; run syntax preflight |
-| VPN | WireGuard | Use kernel/userspace tooling through typed operations |
-| Wi-Fi AP | hostapd + Linux bridge | Require an AP-capable radio; bridge wired and wireless LAN, preflight hardware, verify service and membership, and commit-confirm or roll back |
-| Global DNS blocklist | dnsmasq | Parse bounded HTTPS hosts data or use the built-in list; rules remain global |
-| QoS | iproute2 `tc` | Apply a bounded CAKE/fq_codel policy and verify qdisc state |
-| Cloudflare DDNS | inadyn | Stable Alpine package; validate configuration, perform a bounded real update, verify OpenRC service, and roll back |
-| Cloudflare Tunnel and DoH | none | Disabled; Tunnel would violate the WireGuard-only remote-entry policy and DoH has no verified adapter |
-| Updates | Alpine `apk` plus project repository | Automatic route disabled until signed privileged transaction is complete |
+| Firewall and NAT | nftables | Generate one project-owned table and load it atomically |
+| PPPoE | pppd | Generate the WAN peer and secret file with fixed paths and permissions |
+| DHCP and DNS | dnsmasq | Bind to the selected LAN interface and preflight syntax |
+| Global DNS blocklist | dnsmasq | Generate a bounded global sinkhole list; not a full AdGuard Home replacement |
+| VPN | WireGuard | Generate server config and unique peer `/32` routes; phone profiles default to split tunnel |
+| QoS | `tc` | Apply a bounded CAKE or fq_codel configuration and verify qdisc state |
+| Forward proxy | Squid | Optional non-caching proxy with a restricted configuration surface |
+| Cloudflare DDNS | inadyn | Optional and disabled by default; validate config and service lifecycle |
+| Wi-Fi access point | hostapd and Linux bridge | Optional, hardware-dependent, disabled by default, commit-confirmed |
+| Cloudflare Tunnel | none | Not enabled in the secure profile |
+| Automatic updates | A/B bootstrap path | Signed staging, explicit activation, durable journal, and rollback; target-host qualification still required |
 
-The project owns only clearly named configuration files and nftables tables. It
-must not flush or replace unrelated host configuration.
+The project owns only explicitly named files, service instances, interfaces, and
+the `inet minimalrouter` nftables table. It must not flush unrelated host state.
 
-## 5. Configuration transaction
+## Configuration transaction
 
 Every mutation uses the same state machine:
 
 ```mermaid
 stateDiagram-v2
     [*] --> Received
-    Received --> Rejected: schema or policy invalid
-    Received --> Planned: input valid
+    Received --> Rejected: invalid input or policy
+    Received --> Planned
     Planned --> Generated
-    Generated --> Rejected: component preflight fails
+    Generated --> Rejected: preflight failed
     Generated --> Snapshotted
     Snapshotted --> Applied
-    Applied --> Verified: health checks pass
-    Applied --> RolledBack: apply or checks fail
+    Snapshotted --> RecoveryRequired: privileged outcome unknown
+    Applied --> RolledBack: restoration verified
+    Applied --> RecoveryRequired: restoration unverified
+    Applied --> Verified
     Verified --> AwaitingConfirmation: disruptive change
-    Verified --> Committed: safe change
-    AwaitingConfirmation --> Committed: administrator confirms
-    AwaitingConfirmation --> RolledBack: timeout or session lost
+    Verified --> Committed: non-disruptive change and canonical commit succeeds
+    Verified --> RecoveryRequired: canonical commit or rollback cannot be proven
+    AwaitingConfirmation --> RuntimeConfirmed: administrator confirms
+    AwaitingConfirmation --> RolledBack: timeout and restoration verified
+    AwaitingConfirmation --> RecoveryRequired: timeout restoration unverified
+    RuntimeConfirmed --> CanonicalCommitted: SQLite commit succeeds
+    RuntimeConfirmed --> RecoveryRequired: SQLite commit fails
+    CanonicalCommitted --> Committed: helper records last-good and clears pending state
+    CanonicalCommitted --> RecoveryRequired: helper acknowledgement fails
+    RecoveryRequired --> Reconciled: explicit canonical reconcile succeeds
+    Reconciled --> [*]
     Committed --> [*]
     RolledBack --> [*]
     Rejected --> [*]
 ```
 
-### 5.1 Detailed sequence
+Detailed flow:
 
-1. Parse a size-limited request into a typed API model.
-2. Validate syntax, ranges, cross-field constraints, and policy.
-3. Read the current revision and reject stale writes.
-4. Build a deterministic execution plan and human-readable diff.
-5. Render candidates in a private temporary directory.
-6. Run component-specific syntax and semantic preflight checks.
-7. Create a checksummed snapshot of desired state and owned artifacts.
-8. Apply the candidate using atomic operations where supported.
-9. Verify service health, expected interfaces, routes, and connectivity.
-10. Commit the new revision or restore the previous known-good snapshot.
+1. Parse a size-limited request into a strict typed model.
+2. Reject unknown or invalid security-sensitive fields.
+3. Validate syntax, ranges, network overlap, interface names, and cross-field
+   policy.
+4. Compare the expected revision with current canonical state.
+5. Build a deterministic plan and candidate artifacts.
+6. Run component-specific syntax and semantic preflight.
+7. Create a checksummed snapshot.
+8. Write a durable privileged-operation intent before any side effect.
+9. Apply through the privileged helper.
+10. Verify service, interface, route, firewall, and connectivity expectations.
+11. Persist the privileged result so a lost IPC response can be replayed without
+    repeating side effects.
+12. For non-disruptive changes, commit SQLite only after verified apply; restore
+    the old configuration if that commit fails.
+13. For disruptive changes, verify runtime confirmation first, commit SQLite
+    second, then ask the helper to record the same configuration as `last-good`
+    and clear pending state.
+14. End as `Committed`, verified `RolledBack`, or blocking
+    `RecoveryRequired`. Unknown state is never converted into success.
 
-LAN address, management binding, firewall input, default route, and other
-lockout-prone changes use **commit-confirmed** behavior. The system rolls back
-unless the administrator confirms the change within a bounded window from the
-new configuration.
+Only one apply transaction may run at a time. Repeated or concurrent mutations
+must not produce partially mixed configurations. `RecoveryRequired` blocks new
+configuration until an explicit `RECONCILE` operation re-applies and verifies the
+SQLite canonical configuration.
 
-### 5.2 Concurrency and idempotency
+## Lockout-prone changes
 
-- Only one apply transaction may run at a time.
-- Configuration writes use revision-based optimistic concurrency. General
-  idempotency keys remain planned and must not be claimed as implemented.
-- Updates use optimistic concurrency with a configuration revision/ETag.
-- A client must re-read state after ambiguous transport failure; generic
-  replay caching is not implemented yet.
-- Process crashes leave enough durable state to resume rollback on boot.
+Changes to LAN address, management access, firewall input, interface roles,
+Wi-Fi bridging, or WireGuard parameters that carry a WireGuard-only management
+path use commit-confirmed behavior.
 
-## 6. REST API
+During a candidate LAN address transition, the implementation may provision old
+and new management addresses temporarily. Confirmation is intentionally
+three-part:
 
-- Base path: `/api/v1`
-- JSON request and response bodies
-- OpenAPI is the contract and is version-controlled
-- Cookie-based browser sessions; future non-browser tokens require a separate
-  ADR and threat review
-- Consistent problem details for errors
-- Pagination for collections
-- Idempotency keys for mutations
-- Revision/ETag checks for configuration writes
+1. `CONFIRM` finalizes and verifies candidate runtime reachability while the old
+   canonical configuration remains available for rollback.
+2. `routerd` commits the exact candidate revision to SQLite.
+3. `COMMIT_CONFIRMED` verifies that runtime still matches, records the candidate
+   as helper `last-good`, and removes pending-confirmation state.
 
-Proposed resource groups:
+Transport retries within one phase reuse the same transaction ID. A later,
+explicit retry of the final helper commit uses a fresh ID so a transient storage
+failure is not permanently replayed from the idempotency cache.
 
-- `/auth`
-- `/system`
-- `/internet`
-- `/interfaces`
-- `/lan`
-- `/dhcp`
-- `/firewall`
-- `/wireguard`
-- `/cloudflare`
-- `/snapshots`
-- `/backups`
-- `/updates`
-- `/transactions`
+If timeout occurs before SQLite commit, the previous configuration is restored.
+After SQLite commit, timeout rollback is disabled because the candidate is now
+canonical; any missing helper acknowledgement is reported as
+`RecoveryRequired` and resolved by canonical reconciliation.
 
-API handlers never call service commands directly.
+## Startup and reconciliation
 
-## 7. Networking defaults
+On startup, `routerd` loads and validates the SQLite canonical configuration and
+asks `router-applyd` to reconcile the active runtime before normal management is
+considered ready. `RECONCILE` is the only operation allowed to supersede an
+incomplete or `RecoveryRequired` privileged journal record, and it may apply only
+the canonical configuration generated by `routerd`.
 
-- WAN input is denied by default.
-- Management HTTPS is available from LAN and authenticated WireGuard clients.
-- The only permitted new inbound WAN flow is the rate-limited WireGuard UDP
-  endpoint. WAN port forwards, WAN HTTPS, SSH, and UPnP are forbidden.
-- Forwarding is denied unless explicitly allowed by the generated policy.
-- Established and related traffic is handled explicitly.
-- Anti-spoofing checks are applied at trust boundaries.
-- DNS and DHCP listen only on intended LAN interfaces.
-- Unsupported IPv6 is disabled or blocked consistently; it must never bypass
-  the IPv4 policy. Full IPv6 support requires feature parity and an ADR.
-- SSH is disabled by default.
+If canonical state cannot be read, generated, applied, or verified, startup must
+fail closed rather than initialize a new default router over damaged state or
+claim that networking is healthy.
 
-## 8. Snapshots, backup, and recovery
+## Network policy
 
-A snapshot includes:
+The secure appliance profile follows these defaults:
 
-- Schema version and application version
-- Configuration revision
-- Canonical non-ephemeral configuration
-- Encrypted or explicitly excluded secrets
-- Generated artifact hashes
-- Compatibility metadata
+- WAN input is default deny.
+- Web management is unavailable from WAN.
+- WireGuard is the only accepted new WAN service when enabled.
+- WAN port forwarding is rejected in the current profile.
+- LAN-to-WAN forwarding is explicitly generated.
+- DNS and DHCP listen only on selected LAN paths.
+- invalid traffic is dropped before service-specific accepts;
+- established and related traffic is explicit;
+- anti-spoofing is applied at trust boundaries;
+- unsupported IPv6 is disabled and blocked rather than allowed around IPv4
+  policy.
 
-Snapshots are immutable and checksummed. Retention is bounded by count and disk
-budget. Restore always runs migrations, validation, generation, and preflight
-before apply.
+## Authentication and browser boundary
 
-Exported backups contain credentials and private keys, so plaintext export is
-not permitted. The backup encryption format must use a reviewed standard and
-library selected in a dedicated ADR.
+The management plane uses server-side sessions, secure cookies, CSRF protection,
+same-origin checks, host and local-destination validation, bounded request sizes,
+and strict security headers.
 
-On boot, an incomplete apply transaction triggers recovery to the last
-known-good revision before normal management access becomes available.
+The first-run wizard creates the administrator password. There is no shipped
+default password and no insecure remote recovery endpoint.
 
-## 9. Observability
+## Secrets
 
-The appliance records:
+Secrets include PPPoE credentials, administrator hashes, sessions, TOTP secrets,
+WireGuard keys, provider tokens, Wi-Fi credentials, Squid credentials, and
+backup passwords.
 
-- Structured service logs with bounded retention
-- Security and configuration audit events
-- Apply transaction state and duration
-- Boot duration and resource use
-- Component health
-- Coarse interface traffic counters
+They must be:
 
-Logs must redact passwords, PPPoE credentials, session IDs, CSRF tokens,
-WireGuard private keys, Cloudflare tokens, and backup keys.
+- absent from source control and fixtures;
+- omitted or redacted from normal API responses;
+- excluded from request and audit logs;
+- written with restrictive ownership and permissions;
+- encrypted when included in exported backups;
+- rotated after accidental disclosure.
 
-High-cardinality metrics and long-term graphing are outside version 1.
+WireGuard client private keys are generated for one-time delivery and should not
+be persisted as ordinary configuration state.
 
-## 10. Update architecture
+## Installation and boot
 
-- Base-system dependencies come from pinned Alpine stable repositories.
-- Project packages and release metadata are signed.
-- The appliance verifies signatures and compatibility before installation.
-- Updates create a pre-update snapshot.
-- Health checks run after reboot.
-- A failed update restores the previous known-good application and
-  configuration state where the platform supports it.
-- The update path never uses `--allow-untrusted`.
+The current supported development path is a clean Alpine Linux 3.22 system with
+two network interfaces.
 
-The exact A/B or package rollback mechanism requires a dedicated ADR and an
-early proof of concept.
+The distribution installer:
 
-## 11. Proposed repository layout
+- validates architecture and expected payload files;
+- installs pinned platform dependencies;
+- creates dedicated users and restrictive directories;
+- installs OpenRC services;
+- installs and immediately applies hardened sysctls;
+- loads required kernel modules immediately and at boot;
+- disables common unnecessary remote services;
+- enables `router-applyd` before `routerd`;
+- requires canonical runtime reconciliation before management readiness.
+
+A signed bootable ISO and signed recovery-media workflow remain release gates.
+
+## Observability
+
+The project records bounded operational and audit information such as:
+
+- authentication results;
+- configuration transaction state;
+- snapshot and restore events;
+- service lifecycle results;
+- coarse system and interface status;
+- redacted security events.
+
+Logs must not contain request bodies, credentials, private keys, session IDs,
+CSRF tokens, QR payloads, or unredacted generated configurations.
+
+## Source layout
 
 ```text
-/
-├── cmd/
-│   ├── routerd/
-│   └── router-applyd/
-├── internal/
-│   ├── api/
-│   ├── auth/
-│   ├── config/
-│   ├── planner/
-│   ├── apply/
-│   ├── platform/
-│   ├── services/
-│   ├── snapshots/
-│   ├── telemetry/
-│   └── updates/
-├── api/
-│   └── openapi.yaml
-├── web/
-├── migrations/
-├── packaging/
-│   └── alpine/
-├── installer/
-├── tests/
-│   ├── integration/
-│   └── e2e/
-└── docs/
-    └── adr/
+cmd/                    Go entry points
+  routerd/
+  router-applyd/
+  minimalrouter-mcp/
+internal/               Private Go packages
+  api/
+  apply/
+  auth/
+  config/
+  firmware/
+  services/
+  telemetry/
+  tlsutil/
+web/                    React/Vite dashboard
+api/openapi.yaml        Versioned API contract
+migrations/             SQLite migrations
+packaging/alpine/       Alpine installer and OpenRC files
+scripts/                 CI and test helpers
+docs/                   Guides, evidence, and ADRs
+.github/                 CI and community configuration
 ```
 
-Packages are organized around behavior and trust boundaries, not around UI
-pages.
+## Architectural non-goals for the current release line
 
-## 12. Platform support
+The current design does not attempt to provide pfSense feature parity, a general
+package platform, arbitrary shell customization, containers on the router,
+IDS/IPS, captive portal, BGP, OSPF, IPsec, OpenVPN, multi-WAN, or high
+availability.
 
-Core behavior must depend only on Linux and documented component interfaces.
-Platform detection may enable optional drivers, guest agents, or tuning, but
-the configuration model cannot require Proxmox, VMware, Hyper-V, KVM, or
-VirtualBox.
+Adding one of these features requires a product decision and threat review, not
+only an implementation pull request.
 
-Initial reference targets:
+## Validation
 
-- `x86_64` bare metal
-- Proxmox VE VM using VirtIO
+Architecture claims must be backed by tests or recorded evidence. The current CI
+covers Go tests with the race detector, vet, vulnerability scanning, dashboard
+lint/unit/build/E2E, clean Alpine installation and update rollback, crash and
+journal recovery, ARM64 execution, namespace networking, static security
+analysis, and control-plane benchmarks.
 
-Additional claimed platforms require installation, upgrade, rollback, and
-throughput tests in the release matrix.
-
-## 13. Decisions still required
-
-Before version 1 implementation is considered stable, ADRs must resolve:
-
-- Update rollback strategy
-- Backup encryption format and key handling
-- Certificate bootstrap and optional trusted-certificate workflow
-- Image build and reproducibility process
-- IPv6 scope
-- Exact hardware/reference performance matrix
-- Recovery-console access policy
-
-## 14. Architecture references
-
-- [nftables operations and atomic ruleset loading](https://wiki.nftables.org/wiki-nftables/index.php/Operations_at_ruleset_level)
-- [Alpine package management](https://wiki.alpinelinux.org/wiki/Apk)
-- [Go Argon2id package documentation](https://pkg.go.dev/golang.org/x/crypto/argon2)
+Automated tests cover the transaction protocol and simulated interruption
+boundaries, but they do not replace target-host full-disk, read-only filesystem,
+process-kill, abrupt power-loss, real PPPoE, external WireGuard, physical NIC,
+backup-restore, sustained-load, signed-media, or independent security testing.

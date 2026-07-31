@@ -3,17 +3,20 @@
 ## Principle
 
 Router tests must prove failure behavior, not only the happy path. Every mutation
-must end in exactly one of two states:
+must end in exactly one of three states:
 
-- the complete new configuration is active and recorded; or
-- the complete previous known-good configuration is restored.
+- the complete new configuration is active and recorded as `Committed`;
+- the complete previous known-good configuration is positively verified as
+  restored and recorded as `RolledBack`; or
+- the outcome cannot be proven, the router reports `RecoveryRequired`, blocks
+  further mutation, and requires canonical reconciliation or local recovery.
 
-Partial success is a defect.
+Partial success, inferred rollback, and unknown state reported as success are
+defects.
 
 The latest repository-wide result is summarized in
-[`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md). The exact safe continuation path
-for the existing owner-created Proxmox VM is
-[`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md).
+[`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md). Dated hardware evidence remains
+in [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md).
 
 ## Automated test layers
 
@@ -27,7 +30,9 @@ govulncheck ./...
 
 Coverage includes validation, authorization, configuration generation,
 transaction state, snapshots, recovery, migrations, interface selection,
-device-profile schedules, signed manifests, and A/B slot transitions.
+device-profile schedules, signed manifests, A/B slot transitions, privileged RPC
+outcome invariants, durable intent/result records, idempotent retries,
+commit-confirm ordering, and canonical reconciliation.
 
 ### Dashboard tests
 
@@ -40,13 +45,14 @@ pnpm --dir web exec playwright install chromium
 pnpm --dir web test:e2e
 ```
 
-The dashboard builds with TypeScript 6.0.3 and Node.js type definitions 26.1.2.
-Node.js is build-time only. Tests use synthetic fixtures and must not depend on a
-real router API, owner browser state, or private network data.
+The dashboard currently builds with TypeScript 6.0.3 and Node.js type definitions
+26.1.2. Unit tests must not use a real router API or developer browser state.
+Playwright fixtures must use synthetic addresses, devices, and credentials.
 
 ### Clean Alpine installation
 
-The standard CI builds an AMD64 distribution and verifies:
+The standard CI builds an AMD64 distribution and verifies in a clean Alpine
+environment:
 
 - archive checksum;
 - installer and shell syntax;
@@ -57,10 +63,37 @@ The standard CI builds an AMD64 distribution and verifies:
 - service execution from the active slot;
 - explicit rollback to the previous verified slot.
 
-This does not replace real Proxmox, NIC, PPPoE, external scan, sustained load, or
-host-power testing.
+This is a packaging and lifecycle smoke test. It does not replace real Proxmox,
+physical NIC, PPPoE, external scan, sustained load, storage-failure, process-kill,
+or abrupt host-power tests.
 
-### Crash recovery and fuzzing
+### Configuration crash and IPC tests
+
+Deterministic tests cover:
+
+- lost apply and confirmation responses;
+- identical-ID retry without duplicate privileged side effects;
+- transaction-ID reuse with different content;
+- durable intent written before side effects;
+- incomplete intent after a simulated interruption;
+- result-journal persistence failure;
+- corrupt or structurally invalid transaction, pending, and last-good metadata;
+- contradictory privileged RPC outcomes;
+- blocking new mutations after `RecoveryRequired`;
+- canonical `RECONCILE` as the only allowed override for unresolved helper state;
+- WireGuard-only management changes that require confirmation;
+- failed automatic rollback and fresh rollback IDs;
+- SQLite commit failure with verified versus unverified restoration;
+- two-phase confirmation ordering: runtime verification, SQLite commit, helper
+  `last-good` commit, and pending cleanup;
+- fresh final-commit IDs for explicit retry after a helper storage failure.
+
+These tests prove protocol behavior in-process. They do not prove filesystem,
+kernel, service-manager, or power-loss behavior on the target appliance.
+
+### Update crash recovery and fuzzing
+
+The Deep validation workflow runs:
 
 ```sh
 go test -race -count=25 ./internal/firmware \
@@ -73,37 +106,53 @@ go test ./internal/firmware -run '^$' \
   -fuzz '^FuzzOperationJournalParsing$' -fuzztime=20s
 ```
 
-The durable operation journal reconciles interrupted activation and rollback.
-Fuzz targets cover hostile unauthenticated HTTP input and corrupt journal data.
+The update manager uses a durable operation journal so interrupted activation or
+rollback can be reconciled. Fuzzing rejects malformed unauthenticated HTTP input
+and corrupt or hostile journal data without panic or uncontrolled behavior.
 
 ### Security hardening
 
-Automated gates include:
+Automated security gates include:
 
-- secret scanning and available code scanning;
+- CodeQL and secret scanning;
 - `govulncheck`;
 - high-severity/high-confidence `gosec`;
 - `shellcheck` and `actionlint`;
-- binary architecture/module inspection and executable-stack rejection;
+- binary architecture and module inspection;
+- executable-stack rejection;
 - dashboard dependency audit;
-- synthetic WAN port and default-deny checks.
+- default-deny WAN checks in the network laboratory;
+- management and service port scanning on the synthetic WAN.
 
 Every reported vulnerability requires a regression test.
 
 ### ARM64 smoke test
 
 CI cross-builds ARM64 binaries and executes recovery-safe commands through QEMU.
-This is not hardware, driver, thermal, or throughput qualification.
+This proves architecture and basic execution compatibility; it is not an ARM64
+hardware, driver, thermal, or throughput qualification.
 
 ### Isolated WAN-router-LAN laboratory
 
-`scripts/ci-network-namespace-lab.sh` validates DHCP, DNS, IPv4 forwarding, NAT,
-stateful firewalling, TCP, UDP, parallel flows, latency, packet loss, and rejection
-of tested WAN management/service ports.
+`scripts/ci-network-namespace-lab.sh` builds disposable Linux WAN, router, and LAN
+namespaces. It validates:
 
-Very high same-kernel throughput is only a regression ceiling.
+- DHCP;
+- DNS;
+- IPv4 forwarding and NAT;
+- stateful firewall behavior;
+- TCP and UDP;
+- parallel flows;
+- latency and packet loss;
+- rejection of tested WAN management/service ports.
+
+Very high same-kernel throughput is a regression ceiling, not a physical or
+VirtIO performance claim.
 
 ### Performance baselines
+
+The Performance workflow records `ns/op`, `B/op`, and `allocs/op` for concurrent
+management API operations and update-state reads:
 
 ```sh
 go test ./internal/api -run '^$' -bench '^BenchmarkAPI' \
@@ -113,7 +162,7 @@ go test ./internal/firmware -run '^$' -bench '^BenchmarkSlotManager' \
   -benchmem -benchtime=1s -count=3
 ```
 
-Recorded 2026-07-30 ranges on a GitHub-hosted AMD EPYC runner:
+Recorded 2026-07-30 control-plane ranges on a GitHub-hosted AMD EPYC runner were:
 
 | Operation | Approximate result |
 |---|---:|
@@ -122,49 +171,49 @@ Recorded 2026-07-30 ranges on a GitHub-hosted AMD EPYC runner:
 | Journal-recovery state read | 44.6–45.1 microseconds |
 | Rejected protected request with durable audit write | 4.27–4.40 milliseconds |
 
-These are control-plane results. Forwarding must be measured on the owner’s
-Proxmox topology.
+Packet forwarding remains in the Linux kernel and must be benchmarked separately.
 
 ## Component contract tests
 
-Pinned Alpine containers or disposable VMs cover:
+Component tests run in pinned Alpine containers or disposable VMs and cover:
 
-- `nft --check` and atomic loads;
+- `nft --check` and atomic load behavior;
 - `dnsmasq --test`, DHCP leases, DNS filtering, and nft sets;
 - PPPoE configuration and permissions;
 - WireGuard mapping, routes, MTU, and cleanup;
 - QoS lifecycle and live qdisc inspection;
-- DDNS and Wi-Fi preflight/rollback;
-- OpenRC lifecycle;
+- DDNS and Wi-Fi capability/preflight/rollback behavior;
+- OpenRC service lifecycle;
 - SQLite locking and corruption detection;
 - recovery commands and undo snapshots;
 - signature, checksum, path, symlink, and manifest rejection.
 
-Containers do not replace boot, kernel, hypervisor, or physical-network tests.
+Containers validate generators and lifecycle contracts but do not replace boot,
+kernel, hypervisor, physical-network, or persistent-storage tests.
 
-## Existing Proxmox VM test order
+## Manual Proxmox and appliance tests
 
-Another AI or engineer must not recreate, start, or rewire the VM until it follows
-`PROXMOX_AI_HANDOFF.md` and identifies one candidate plus its WAN/LAN bridges
-read-only.
+Run on the actual target VM with pfSense ready for rollback. Record the exact host
+and guest environment, but redact real identifiers and secrets.
 
 Required order:
 
-1. Read-only Proxmox inventory and unambiguous candidate selection.
-2. Confirm isolated LAN and test/NAT WAN; prevent dual DHCP on production LAN.
-3. Confirm pfSense rollback independent of the candidate.
-4. Export an encrypted application backup and take a known-good Proxmox snapshot.
-5. Record current slot, commit, guest versions, services, storage, and topology
-   privately.
-6. Repeated graceful guest and Proxmox lifecycle reboots.
-7. DHCP, DNS, NAT, HTTPS management, and default-deny WAN validation.
-8. Unconfirmed LAN-change rollback and recovery-console access.
-9. Signed update activation, restart/reboot, verification, and explicit rollback.
+1. Read-only VM, disk, and NIC/bridge inventory.
+2. Known-good application backup and Proxmox snapshot.
+3. Repeated graceful guest and Proxmox lifecycle reboots.
+4. Stable WAN/LAN role reconciliation.
+5. DHCP, DNS, NAT, and default-deny WAN validation.
+6. HTTPS management boundary, login/logout, CSRF, and recovery-console access.
+7. Disruptive change with successful confirmation, timeout rollback, and failed
+   rollback recovery.
+8. Process termination at durable-intent, runtime-confirmation, SQLite-commit,
+   final-helper-commit, and reconcile boundaries.
+9. Update activation, service restart/reboot, verification, and rollback.
 10. Backup restore into a fresh VM.
-11. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss, and
-    management responsiveness.
-12. Controlled service, disk-pressure, read-only, corrupt-state, and power-loss
-    tests on a disposable clone/target.
+11. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss,
+    and management responsiveness.
+12. Full disk, inode exhaustion, read-only filesystem, corrupt-state, and abrupt
+    power-loss tests on a disposable target.
 13. Real PPPoE only during a maintenance window after rollback is proven.
 14. External IPv4/IPv6 scan and WireGuard from an unrelated network.
 15. At least seven days of continuous operation.
@@ -173,69 +222,87 @@ Required order:
 
 Inject at least:
 
-- invalid or oversized API input;
+- invalid or oversized API and IPC input;
 - stale revision;
-- generator/preflight/apply/verification failure;
+- generator, preflight, apply, verification, and confirmation failure;
+- failed durable-intent and completed-result writes;
+- unreadable, corrupt, incomplete, or contradictory privileged journal records;
+- lost IPC response after each privileged phase;
+- explicit final helper commit failure followed by retry;
+- SQLite commit failure before and after runtime confirmation;
 - full disk and inode exhaustion;
 - read-only filesystem;
 - snapshot write failure;
 - nftables or dnsmasq validation failure;
-- service timeout or crash;
+- service timeout, crash, and process kill;
 - lost route or management address;
-- missing confirmation;
-- interruption before/after every durable update marker;
-- corrupted snapshot, database, manifest, or journal;
+- missing administrator confirmation;
+- power loss before and after every durable configuration and update marker;
+- corrupted current snapshot, database, manifest, pending record, or journal;
 - unsupported backup, database, or release version.
 
-For every case assert active Linux state, database revision, service health,
-update/journal state, audit result, and rollback outcome.
+For every case assert:
+
+- active Linux state;
+- SQLite canonical revision;
+- helper `last-good`, pending, and transaction-journal state;
+- service health;
+- update slot and update-journal state;
+- audit result;
+- exact terminal state: `Committed`, verified `RolledBack`, or
+  `RecoveryRequired`;
+- whether new mutations are correctly accepted or blocked;
+- recovery or canonical reconcile outcome.
 
 ## Security test matrix
 
 Verify:
 
 - WAN cannot reach management over IPv4 or IPv6;
-- unauthenticated, expired, and cross-origin requests fail;
+- unauthenticated, expired, or cross-origin requests fail;
 - session rotation, cookie flags, CSRF, Host, and DNS-rebinding defenses;
-- rate limits;
-- invalid UTF-8, unknown fields, traversal, metacharacters, and large-body
-  rejection;
-- privileged helper peer/operation/path/message bounds;
+- login and expensive-operation rate limits;
+- rejection of invalid UTF-8, unknown fields, traversal, metacharacters, and large
+  bodies;
+- privileged helper peer, operation, path, flag, message, and outcome bounds;
+- incomplete or corrupt privileged state cannot be treated as fresh state;
+- only the canonical `RECONCILE` operation may supersede unresolved helper
+  journal state;
 - `router-applyd` no-new-privileges, fixed executable path, bounded resources, and
   sanitized loader environment;
 - logs, diagnostics, backups, public files, and artifacts contain no unapproved
   secrets;
 - recovery has no network endpoint and credential changes revoke sessions;
-- update/restore reject tampering and incompatible versions.
+- update/restore reject tampering, unsafe files, wrong signatures, and incompatible
+  versions.
 
-## Target performance report
+## Performance measurements on the target
 
-Record privately:
+Record:
 
-- exact repository commit;
 - Proxmox version and host kernel;
-- guest Alpine/kernel;
+- guest Alpine and kernel versions;
 - CPU model/type, vCPU, RAM, disk/storage;
-- VirtIO queues, offloads, bridges, and VLANs using synthetic labels;
-- traffic-generator placement, packet sizes, directions, and duration;
-- boot-to-ready times;
-- idle/loaded CPU and RAM;
-- routing/NAT throughput and packet rate;
-- PPPoE reconnect and MTU;
+- VirtIO queues, offloads, bridges, VLANs using synthetic labels;
+- packet sizes, directions, duration, and traffic-generator placement;
+- boot-to-forwarding-ready and management-ready;
+- idle and loaded CPU/RAM;
+- routing/NAT throughput and packets per second;
+- PPPoE reconnect time and MTU;
 - WireGuard throughput and CPU cost;
-- QoS under load;
-- loss, latency, jitter, and management responsiveness;
-- disk/log/snapshot growth.
+- QoS behavior under load;
+- packet loss, latency, jitter, and management responsiveness;
+- log, snapshot, helper-journal, and disk growth.
 
 Do not use the Go control plane as the forwarding benchmark path.
 
 ## Evidence and privacy
 
-Write new owner-host evidence to a private dated file such as
-`docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md`.
+A result is publishable only when it includes date, exact commit, environment,
+commands, units, raw summary, pass/fail, failures, recovery steps, and limitations.
 
-Never commit Proxmox hostnames, node names, VM IDs, raw VM configs, bridge
-inventory, credentials, tokens, private keys, backups, databases, packet captures,
-real addresses, MAC addresses, or household devices.
+Never commit credentials, tokens, private keys, backups, databases, packet
+captures, public addresses, hostnames, MAC addresses, VM inventory, or household
+device information.
 
 Release claims must be based on recorded results, not expected capability.
