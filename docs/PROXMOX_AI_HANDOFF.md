@@ -41,6 +41,14 @@ Keep the existing pfSense VM/appliance available for immediate rollback.
    an explicit rollback rehearsal.
 10. **Stop on ambiguity.** If more than one VM looks like the candidate, or bridge
     purpose is unclear, do not change anything.
+11. **Never delete helper recovery metadata merely to clear an error.** Preserve
+    `last-transaction.json`, `pending-confirmation.json`, and `last-good.json`
+    until their meaning has been recorded and canonical reconciliation has been
+    attempted. Removing evidence can cause duplicate privileged side effects or
+    make stale state appear authoritative.
+12. **Unknown is not rollback.** Accept only `Committed`, positively verified
+    `RolledBack`, or blocking `RecoveryRequired`. Do not reinterpret an ambiguous
+    response as success.
 
 ## Known project state
 
@@ -49,14 +57,69 @@ At the time of this handoff:
 - an existing Proxmox VM has already been created by the owner;
 - the exact Proxmox node, VM ID, VM name, bridges, guest addresses, and installed
   commit are intentionally not stored in Git;
-- the repository automated suites pass on the current branch baseline;
-- crash-safe A/B update journaling, deep validation, fuzzing, ARM64 smoke tests,
-  isolated WAN-router-LAN tests, and performance baselines exist;
+- public recovery candidate `vladimirperovic/minimalrouter@1eda8073b6d005dfa5bdb5673c227a991442cdb6`
+  passed standard CI, clean Alpine install/update/rollback, Deep validation,
+  CodeQL, secret scan, and Performance;
+- the private tree imports the same durable transaction protocol, deterministic
+  tests, OpenRC readiness gate, and clean-Alpine power-loss smoke;
+- private GitHub Actions currently terminate before the first job step and
+  provide no logs, so they are **not** evidence that this private commit passed;
+- crash-safe A/B update journaling, durable privileged intents, idempotent result
+  replay, typed canonical reconciliation, two-phase disruptive confirmation,
+  fuzzing, ARM64 smoke tests, isolated WAN-router-LAN tests, and performance
+  baselines exist;
 - real Proxmox, real PPPoE, real NIC, external scan, long-duration, and target-host
-  recovery evidence are still required.
+  destructive recovery evidence are still required.
 
 Read [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md), [`PROXMOX.md`](PROXMOX.md),
-[`TESTING.md`](TESTING.md), and [`RECOVERY.md`](RECOVERY.md) before execution.
+[`TESTING.md`](TESTING.md), [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md), and
+[`RECOVERY.md`](RECOVERY.md) before execution.
+
+## Current configuration transaction protocol
+
+Every privileged mutation must follow this durable order:
+
+```text
+validate and generate
+        ↓
+create snapshot
+        ↓
+write durable privileged intent
+        ↓
+apply runtime side effects
+        ↓
+verify runtime
+        ↓
+write durable privileged result
+        ↓
+commit SQLite canonical state or positively verify rollback
+```
+
+A disruptive change adds three separate phases:
+
+```text
+CONFIRM runtime and management reachability
+        ↓
+commit exact candidate revision to SQLite
+        ↓
+COMMIT_CONFIRMED: verify runtime again, write helper last-good, clear pending
+```
+
+Important boundaries:
+
+- Before SQLite commit, the previous SQLite configuration remains canonical and
+  timeout rollback may restore it.
+- After SQLite commit, the candidate is canonical. A missing helper
+  acknowledgement must not cause timeout rollback to the older helper file.
+- A transport retry for one logical phase reuses the same transaction ID so the
+  helper can replay the persisted result without repeating side effects.
+- A later explicit retry after a recorded final helper storage failure uses a
+  fresh final-commit ID.
+- `RECONCILE` is the only operation permitted to supersede an incomplete or
+  `RecoveryRequired` helper journal. It may apply only the configuration loaded
+  from SQLite canonical state.
+- While `RecoveryRequired` is active, ordinary configuration changes must remain
+  blocked.
 
 ## Phase 0 — establish access without exposing secrets
 
@@ -123,10 +186,12 @@ Before changing or updating the guest:
    window or firmware activation.
 3. Export an encrypted Minimal Router backup through the dashboard when available.
 4. Record the current repository commit and installed update-slot state.
-5. Take a Proxmox snapshot only from a known consistent state. Prefer graceful
+5. Record checksums and metadata for the SQLite store and helper recovery files
+   without copying secrets into Git.
+6. Take a Proxmox snapshot only from a known consistent state. Prefer graceful
    shutdown before the snapshot unless guest-agent filesystem freeze has been
    explicitly verified.
-6. Do not treat a Proxmox snapshot as a substitute for the application backup.
+7. Do not treat a Proxmox snapshot as a substitute for the application backup.
 
 Useful host actions:
 
@@ -168,14 +233,24 @@ readlink -f /var/lib/minimalrouter-update/current 2>/dev/null || true
 readlink -f /var/lib/minimalrouter-update/previous 2>/dev/null || true
 ```
 
-Also verify locally without publishing sensitive output:
+Also inspect locally, without publishing file contents:
+
+```sh
+stat /var/lib/minimalrouter-applyd/last-good.json 2>/dev/null || true
+stat /var/lib/minimalrouter-applyd/last-transaction.json 2>/dev/null || true
+stat /var/lib/minimalrouter-applyd/pending-confirmation.json 2>/dev/null || true
+```
+
+Verify:
 
 - WAN and LAN guest interfaces match the intended Proxmox NIC order;
 - management listens only on the intended LAN/WireGuard path;
 - there is no unexpected default route through the isolated LAN;
 - services are not crash-looping;
 - system time is correct;
-- persistent storage is writable and has adequate free space.
+- persistent storage is writable and has adequate free space;
+- `router-applyd` exposes its Unix socket only after startup reconciliation;
+- no unexplained transaction or pending-confirmation record remains.
 
 Record kernel, Alpine version, vCPU, RAM, NIC model, bridge type, offload settings,
 and exact repository/installed commit in the private test report. Redact real
@@ -235,7 +310,10 @@ Run tests in this order and stop at the first unexplained failure.
 - WAN/LAN roles stable after every boot;
 - `routerd`, `router-applyd`, dnsmasq, nftables, and enabled services healthy;
 - dashboard reachable only from isolated LAN;
-- no pending transaction or update operation after boot.
+- no pending transaction or update operation after boot;
+- canonical SQLite state is re-applied before the helper socket/management plane
+  is considered ready;
+- stale unconfirmed runtime does not survive reboot.
 
 ### B. LAN services and management boundary
 
@@ -270,7 +348,7 @@ Record every command and environment detail. Measure:
 - packets per second with small and large frames;
 - latency and jitter without load and under load;
 - VirtIO multiqueue/offload configuration;
-- disk growth during tests;
+- disk and helper-journal growth during tests;
 - management API responsiveness during traffic.
 
 Use at least two traffic-generator endpoints. Do not use the Go control plane as
@@ -279,17 +357,47 @@ or passthrough results.
 
 ### E. Recovery and failure tests
 
-After a known-good snapshot and backup:
+After a known-good snapshot and backup, use a disposable clone where storage or
+power is intentionally damaged.
+
+Test each configuration boundary separately:
+
+1. **Before durable intent** — request must be side-effect free.
+2. **After durable intent, before runtime apply completes** — restart must find an
+   incomplete intent, block normal mutation, and require canonical reconcile.
+3. **After runtime apply, before completed-result journal** — the same transaction
+   must not be executed again after restart.
+4. **After completed-result journal, before IPC response** — retry with the same
+   ID must return the stored result without repeating side effects.
+5. **After runtime confirmation, before SQLite commit** — old SQLite state remains
+   canonical; timeout/boot recovery may restore it.
+6. **After SQLite commit, before `COMMIT_CONFIRMED`** — candidate remains
+   canonical; old helper `last-good` must not win.
+7. **After helper `last-good`, before pending cleanup** — restart/reconcile must
+   converge on the candidate and safely clear stale pending state.
+8. **During canonical `RECONCILE`** — failure must keep readiness/mutations
+   blocked; success must restore the exact SQLite configuration.
+
+For each boundary record:
+
+- SQLite revision and checksum;
+- helper journal existence, timestamps, and checksum only;
+- active interfaces, addresses, routes, nftables table, and service health;
+- transaction state returned to the administrator;
+- whether a new mutation was correctly blocked;
+- exact recovery action and final state.
+
+Also execute:
 
 - update activation and explicit rollback;
 - reboot after activation and after rollback;
-- kill/reboot during controlled update stages only when a rollback path is ready;
 - service crash and automatic restart behavior;
-- full-disk simulation on a disposable clone or dedicated test disk;
-- read-only filesystem simulation only on a disposable test target;
+- full-disk and inode-exhaustion simulation on a disposable clone/test disk;
+- read-only filesystem simulation only on a disposable target;
+- corrupt/valid-but-empty helper metadata tests;
 - backup restore into a fresh VM;
-- incorrect/unconfirmed LAN change and automatic recovery;
-- abrupt power-loss test only after graceful scenarios pass.
+- incorrect/unconfirmed LAN and WireGuard-only changes;
+- abrupt power-loss tests only after graceful and process-kill scenarios pass.
 
 Never run destructive disk tests on the only candidate copy.
 
@@ -305,6 +413,7 @@ Run only after A–E pass and the owner has a tested rollback plan:
   redacted;
 - disconnect and reconnect repeatedly;
 - reboot the guest and verify automatic reconnection;
+- verify WAN loss never prevents LAN console/dashboard recovery;
 - restore pfSense immediately if authentication, MTU, routing, or management
   recovery is unclear.
 
@@ -313,8 +422,11 @@ Run only after A–E pass and the owner has a tested rollback plan:
 - scan IPv4 and IPv6 from an unrelated external host;
 - verify no WAN management exposure;
 - test WireGuard from an unrelated mobile/external network;
+- rotate a WireGuard-only management key/port/peer in commit-confirm mode while
+  console access is open;
 - run at least seven continuous days before any production recommendation;
-- monitor memory, CPU, disk, log growth, connection stability, and reconnects;
+- monitor memory, CPU, disk, journal/log growth, connection stability, and
+  reconnects;
 - repeat update/rollback and backup/restore after the soak period.
 
 ## Evidence format
@@ -328,13 +440,14 @@ docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md
 The report must include:
 
 - exact repository commit;
+- public source baseline commit used for parity;
 - Proxmox version and kernel;
 - guest Alpine/kernel version;
 - vCPU, RAM, disk, NIC model, bridge mode, and offload settings;
 - test topology described with synthetic labels;
 - commands used;
 - raw measurement summaries or attached private artifacts;
-- pass/fail for every gate;
+- pass/fail for every durable boundary and release gate;
 - failures and recovery steps;
 - explicit limitations;
 - final recommendation: isolated pilot, guarded production pilot, or reject.
@@ -351,14 +464,19 @@ Stop testing and restore pfSense when any of these occurs:
 - two DHCP servers appear on one LAN;
 - default-deny WAN behavior fails;
 - rollback does not restore the previous known-good slot/configuration;
+- `RecoveryRequired` disappears without a successful canonical reconcile or
+  positively verified rollback;
+- a duplicate transaction repeats privileged side effects;
+- helper `last-good` overrides a newer SQLite canonical revision;
 - persistent state becomes corrupt;
-- unexplained packet loss, CPU saturation, memory growth, disk growth, or service
-  restarts occur;
+- unexplained packet loss, CPU saturation, memory growth, disk/journal growth, or
+  service restarts occur;
 - the operator cannot prove which bridge or NIC is being modified.
 
 ## Completion criterion
 
 The handoff is complete only when another operator can reproduce the VM inventory,
-boot, update, rollback, DHCP/DNS/NAT, security-boundary, throughput, reboot,
-backup/restore, PPPoE, external scan, and soak results from the private dated
-report without relying on undocumented chat context.
+boot, update, rollback, DHCP/DNS/NAT, security-boundary, every durable
+configuration interruption point, throughput, reboot, backup/restore, PPPoE,
+external scan, and soak results from the private dated report without relying on
+undocumented chat context.
