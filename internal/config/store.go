@@ -296,7 +296,9 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 
 	hash := sha256.Sum256(data)
 	checksum := hex.EncodeToString(hash[:])
-	id := fmt.Sprintf("snap-%d", time.Now().UnixNano())
+	var randBytes [4]byte
+	rand.Read(randBytes[:])
+	id := fmt.Sprintf("snap-%d-%x", time.Now().UnixNano(), randBytes)
 	createdAt := time.Now().Format(time.RFC3339)
 
 	tx, err := s.db.Begin()
