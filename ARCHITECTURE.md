@@ -17,6 +17,7 @@ or configuration transaction require an Architecture Decision Record (ADR).
 - Separate network-facing management code from privileged system changes.
 - Generate deterministic service configuration instead of editing files ad hoc.
 - Support recovery from failed or lockout-prone changes.
+- Never report rollback or commit when the runtime outcome cannot be proven.
 - Avoid hypervisor-specific requirements in the core configuration model.
 
 ## System overview
@@ -29,6 +30,7 @@ flowchart LR
     Routerd[routerd — unprivileged Go API]
     DB[(SQLite canonical state)]
     Applyd[router-applyd — privileged helper]
+    Journal[(Privileged intent/result journal)]
     Linux[Linux kernel and services]
     LAN[LAN clients]
     WAN[WAN / Internet]
@@ -38,6 +40,7 @@ flowchart LR
     MCP -->|HTTPS /api/v1| Routerd
     Routerd --> DB
     Routerd -->|typed local IPC| Applyd
+    Applyd --> Journal
     Applyd --> Linux
     LAN <--> Linux
     Linux <--> WAN
@@ -74,7 +77,10 @@ The dashboard:
 - reading and writing canonical state through the store;
 - planning configuration transactions;
 - snapshots, audit events, diagnostics, and low-frequency telemetry;
-- coordinating `router-applyd` over local IPC.
+- coordinating `router-applyd` over local IPC;
+- blocking new mutations after an ambiguous privileged outcome;
+- reconciling the SQLite canonical configuration before exposing normal
+  management after startup.
 
 `routerd` must not:
 
@@ -102,7 +108,17 @@ Its interface is intentionally narrow:
 - component-specific preflight;
 - atomic file replacement where supported;
 - structured redacted results;
-- rollback to an approved snapshot.
+- rollback to an approved snapshot;
+- a durable intent record written before privileged side effects;
+- a durable completed-result record for idempotent response replay;
+- structural validation of transaction, last-good, and pending-confirmation
+  metadata;
+- fail-closed handling of unreadable, corrupt, or incomplete privileged state.
+
+A duplicate request with the same transaction ID and identical content returns
+the recorded result instead of repeating side effects. An incomplete intent after
+a process or power interruption is not replayed as a fresh operation: it yields
+`RecoveryRequired` until canonical reconciliation succeeds.
 
 Further Linux capability, namespace, and syscall confinement remains release
 hardening work.
@@ -110,7 +126,8 @@ hardening work.
 ### Canonical store
 
 SQLite is the source of truth for desired and applied state. Generated service
-files are disposable artifacts.
+files are disposable artifacts. The privileged helper's `last-good` file is a
+recovery aid and must not advance ahead of the canonical SQLite commit.
 
 The store contains:
 
@@ -122,8 +139,8 @@ The store contains:
 - bounded audit events;
 - non-secret operational metadata.
 
-Runtime databases, configuration exports, and snapshots must never be committed
-to the source repository.
+Runtime databases, configuration exports, journals, and snapshots must never be
+committed to the source repository.
 
 ### MCP bridge
 
@@ -153,7 +170,7 @@ The MCP bridge:
 | Cloudflare DDNS | inadyn | Optional and disabled by default; validate config and service lifecycle |
 | Wi-Fi access point | hostapd and Linux bridge | Optional, hardware-dependent, disabled by default, commit-confirmed |
 | Cloudflare Tunnel | none | Not enabled in the secure profile |
-| Automatic updates | incomplete | Stable signed update and rollback path is not yet a release feature |
+| Automatic updates | A/B bootstrap path | Signed staging, explicit activation, durable journal, and rollback; target-host qualification still required |
 
 The project owns only explicitly named files, service instances, interfaces, and
 the `inet minimalrouter` nftables table. It must not flush unrelated host state.
@@ -171,12 +188,22 @@ stateDiagram-v2
     Generated --> Rejected: preflight failed
     Generated --> Snapshotted
     Snapshotted --> Applied
-    Applied --> RolledBack: apply or verification failed
+    Snapshotted --> RecoveryRequired: privileged outcome unknown
+    Applied --> RolledBack: restoration verified
+    Applied --> RecoveryRequired: restoration unverified
     Applied --> Verified
     Verified --> AwaitingConfirmation: disruptive change
-    Verified --> Committed: non-disruptive change
-    AwaitingConfirmation --> Committed: administrator confirms
-    AwaitingConfirmation --> RolledBack: timeout or connection lost
+    Verified --> Committed: non-disruptive change and canonical commit succeeds
+    Verified --> RecoveryRequired: canonical commit or rollback cannot be proven
+    AwaitingConfirmation --> RuntimeConfirmed: administrator confirms
+    AwaitingConfirmation --> RolledBack: timeout and restoration verified
+    AwaitingConfirmation --> RecoveryRequired: timeout restoration unverified
+    RuntimeConfirmed --> CanonicalCommitted: SQLite commit succeeds
+    RuntimeConfirmed --> RecoveryRequired: SQLite commit fails
+    CanonicalCommitted --> Committed: helper records last-good and clears pending state
+    CanonicalCommitted --> RecoveryRequired: helper acknowledgement fails
+    RecoveryRequired --> Reconciled: explicit canonical reconcile succeeds
+    Reconciled --> [*]
     Committed --> [*]
     RolledBack --> [*]
     Rejected --> [*]
@@ -192,22 +219,60 @@ Detailed flow:
 5. Build a deterministic plan and candidate artifacts.
 6. Run component-specific syntax and semantic preflight.
 7. Create a checksummed snapshot.
-8. Apply through the privileged helper.
-9. Verify service, interface, route, firewall, and connectivity expectations.
-10. Commit, await confirmation, or restore the previous known-good state.
+8. Write a durable privileged-operation intent before any side effect.
+9. Apply through the privileged helper.
+10. Verify service, interface, route, firewall, and connectivity expectations.
+11. Persist the privileged result so a lost IPC response can be replayed without
+    repeating side effects.
+12. For non-disruptive changes, commit SQLite only after verified apply; restore
+    the old configuration if that commit fails.
+13. For disruptive changes, verify runtime confirmation first, commit SQLite
+    second, then ask the helper to record the same configuration as `last-good`
+    and clear pending state.
+14. End as `Committed`, verified `RolledBack`, or blocking
+    `RecoveryRequired`. Unknown state is never converted into success.
 
 Only one apply transaction may run at a time. Repeated or concurrent mutations
-must not produce partially mixed configurations.
+must not produce partially mixed configurations. `RecoveryRequired` blocks new
+configuration until an explicit `RECONCILE` operation re-applies and verifies the
+SQLite canonical configuration.
 
 ## Lockout-prone changes
 
 Changes to LAN address, management access, firewall input, interface roles,
-Wi-Fi bridging, or other connectivity-critical settings use commit-confirmed
-behavior.
+Wi-Fi bridging, or WireGuard parameters that carry a WireGuard-only management
+path use commit-confirmed behavior.
 
 During a candidate LAN address transition, the implementation may provision old
-and new management addresses temporarily. The candidate is committed only after
-confirmation from an allowed destination; otherwise the system rolls back.
+and new management addresses temporarily. Confirmation is intentionally
+three-part:
+
+1. `CONFIRM` finalizes and verifies candidate runtime reachability while the old
+   canonical configuration remains available for rollback.
+2. `routerd` commits the exact candidate revision to SQLite.
+3. `COMMIT_CONFIRMED` verifies that runtime still matches, records the candidate
+   as helper `last-good`, and removes pending-confirmation state.
+
+Transport retries within one phase reuse the same transaction ID. A later,
+explicit retry of the final helper commit uses a fresh ID so a transient storage
+failure is not permanently replayed from the idempotency cache.
+
+If timeout occurs before SQLite commit, the previous configuration is restored.
+After SQLite commit, timeout rollback is disabled because the candidate is now
+canonical; any missing helper acknowledgement is reported as
+`RecoveryRequired` and resolved by canonical reconciliation.
+
+## Startup and reconciliation
+
+On startup, `routerd` loads and validates the SQLite canonical configuration and
+asks `router-applyd` to reconcile the active runtime before normal management is
+considered ready. `RECONCILE` is the only operation allowed to supersede an
+incomplete or `RecoveryRequired` privileged journal record, and it may apply only
+the canonical configuration generated by `routerd`.
+
+If canonical state cannot be read, generated, applied, or verified, startup must
+fail closed rather than initialize a new default router over damaged state or
+claim that networking is healthy.
 
 ## Network policy
 
@@ -266,7 +331,8 @@ The distribution installer:
 - installs and immediately applies hardened sysctls;
 - loads required kernel modules immediately and at boot;
 - disables common unnecessary remote services;
-- enables `router-applyd` before `routerd`.
+- enables `router-applyd` before `routerd`;
+- requires canonical runtime reconciliation before management readiness.
 
 A signed bootable ISO and signed recovery-media workflow remain release gates.
 
@@ -322,10 +388,12 @@ only an implementation pull request.
 ## Validation
 
 Architecture claims must be backed by tests or recorded evidence. The current CI
-covers Go tests with the race detector, vet, dashboard lint/build, and a clean
-Alpine installation that starts both services and completes the first-run
-wizard.
+covers Go tests with the race detector, vet, vulnerability scanning, dashboard
+lint/unit/build/E2E, clean Alpine installation and update rollback, crash and
+journal recovery, ARM64 execution, namespace networking, static security
+analysis, and control-plane benchmarks.
 
-Production claims additionally require physical NIC testing, real PPPoE,
-external scanning, power-loss and reboot recovery, backup restore, signed
-recovery media, throughput measurements, and independent security review.
+Automated tests cover the transaction protocol and simulated interruption
+boundaries, but they do not replace target-host full-disk, read-only filesystem,
+process-kill, abrupt power-loss, real PPPoE, external WireGuard, physical NIC,
+backup-restore, sustained-load, signed-media, or independent security testing.
