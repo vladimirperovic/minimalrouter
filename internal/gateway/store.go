@@ -296,6 +296,9 @@ func aggregateHistory(raw []HistoryPoint, since time.Time, maxPoints int) []Hist
 	base := since.UTC()
 	for _, point := range raw {
 		key := int64(point.Timestamp.Sub(base) / step)
+		if key >= int64(maxPoints) {
+			key = int64(maxPoints - 1)
+		}
 		item, exists := buckets[key]
 		if !exists {
 			item = &bucket{timestamp: base.Add(time.Duration(key) * step), state: point.State}
