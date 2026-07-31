@@ -431,8 +431,11 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		squidPassword = []byte(cfg.SquidProxy.Username + ":" + string(hash) + "\n")
 	}
 
+	// AdGuard blocklist
 	var adblockConf []byte
 	if cfg.AdGuard.Enabled {
+		// Root never fetches network-controlled configuration. The hardened
+		// pilot uses the reviewed built-in global list only.
 		adblockStr, genErr := services.GenerateAdBlockConf(&cfg, nil)
 		if genErr != nil {
 			return nil, fmt.Errorf("adguard: %w", genErr)
@@ -442,10 +445,13 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		adblockConf = []byte("# AdGuard disabled\n")
 	}
 
+	// QoS traffic shaping
 	qosScript, err := services.GenerateQoS(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("qos: %w", err)
 	}
+
+	// Cloudflare DDNS + Tunnel
 	cfDDNS, err := services.GenerateCloudflareDDNS(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("cloudflare ddns: %w", err)
@@ -454,6 +460,8 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cloudflare tunnel: %w", err)
 	}
+
+	// DNS-over-HTTPS proxy
 	dohProxy, err := services.GenerateDoHProxy(&cfg)
 	if err != nil {
 		return nil, fmt.Errorf("doh proxy: %w", err)
@@ -555,6 +563,8 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
+	// A running AP owns the wireless bridge membership. Stop it before any LAN
+	// topology change so enabling, disabling, and rollback are deterministic.
 	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	if provisional {
 		if err := configureProvisionalRuntimeLAN(cfg, *previous); err != nil {
@@ -621,7 +631,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			iface = "ppp0"
 		}
 		output, err := runFixedOutput("/sbin/tc", "qdisc", "show", "dev", iface)
-		if err != nil || (!strings.Contains(output, " cake ") && !strings.Contains(output, " fq_codel ") && !strings.Contains(output, " htb ")) {
+		if err != nil || (!strings.Contains(output, " cake ") &&
+			!strings.Contains(output, " fq_codel ") &&
+			!strings.Contains(output, " htb ")) {
 			return errors.New("configured QoS qdisc is not active")
 		}
 	}
@@ -761,7 +773,8 @@ func preflightWiFi(interfaceName string) error {
 	if err != nil {
 		return fmt.Errorf("read radio capabilities: %w", err)
 	}
-	if !strings.Contains(capabilities, "Supported interface modes:") || !strings.Contains(capabilities, "* AP") {
+	if !strings.Contains(capabilities, "Supported interface modes:") ||
+		!strings.Contains(capabilities, "* AP") {
 		return errors.New("wireless radio does not advertise access-point mode")
 	}
 	return nil
@@ -847,7 +860,9 @@ func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, previousFile{path: item.path, data: data, mode: info.Mode().Perm(), existed: true})
+		result = append(result, previousFile{
+			path: item.path, data: data, mode: info.Mode().Perm(), existed: true,
+		})
 	}
 	return result, nil
 }
@@ -1160,6 +1175,9 @@ func runFixedTimeout(timeout time.Duration, binary string, args ...string) error
 	return nil
 }
 
+// runNftFile replaces the helper-owned table in one atomic nft batch. When
+// the table already exists, delete and create are part of the same netlink
+// transaction, so there is no fail-open interval.
 func runNftFile(path string, checkOnly bool) error {
 	configBytes, err := os.ReadFile(path)
 	if err != nil {
@@ -1264,7 +1282,8 @@ func validateTransactionRecord(record transactionRecord) error {
 		return errors.New("transaction record has no start time")
 	}
 	if record.CompletedAt.IsZero() {
-		if record.Response.ID != "" || record.Response.Success || record.Response.Verified || record.Response.RolledBack || record.Response.RecoveryRequired || record.Response.Error != "" {
+		if record.Response.ID != "" || record.Response.Success || record.Response.Verified ||
+			record.Response.RolledBack || record.Response.RecoveryRequired || record.Response.Error != "" {
 			return errors.New("incomplete transaction record contains a final response")
 		}
 		return nil
