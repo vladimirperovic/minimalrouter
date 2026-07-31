@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -127,6 +128,9 @@ func TestStageWithCorruptStateLeavesNoBlockingSlot(t *testing.T) {
 }
 
 func TestStagedSlotIsReadableAndExecutableByUnprivilegedServices(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on Windows due to permission model differences")
+	}
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -302,6 +306,9 @@ func TestCorruptOperationJournalIsRejected(t *testing.T) {
 }
 
 func TestOperationJournalIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on Windows due to permission model differences")
+	}
 	manager, old, next := setupJournalTest(t)
 	if err := manager.beginOperation(slotOperation{Version: operationJournalVersion, Kind: "activate", Old: old, Next: next}); err != nil {
 		t.Fatal(err)
@@ -349,7 +356,15 @@ func assertJournalRemoved(t *testing.T, root string) {
 
 func assertLink(t *testing.T, root, name, version string) {
 	t.Helper()
-	target, err := os.Readlink(filepath.Join(root, name))
+	var target string
+	var err error
+	if runtime.GOOS == "windows" {
+		data, e := os.ReadFile(filepath.Join(root, name))
+		err = e
+		target = string(data)
+	} else {
+		target, err = os.Readlink(filepath.Join(root, name))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
