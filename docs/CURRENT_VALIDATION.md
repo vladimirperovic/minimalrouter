@@ -1,15 +1,27 @@
-# Current validation status — 2026-07-30
+# Current validation status — 2026-07-31
 
 This document is the current source of truth for automated validation and the
 remaining manual release gates. Dated hardware reports remain historical evidence;
-this file records the latest repository state.
+this file records the latest repository candidate.
 
 ## Repository baseline
 
-The current `main` branch includes:
+The current validated candidate includes:
 
-- crash-safe A/B activation and rollback with a durable operation journal;
+- crash-safe A/B activation and rollback with a durable update-operation journal;
 - independent bootstrap executables for update and recovery;
+- durable privileged-operation intent before network side effects and validated
+  completed-result persistence afterward;
+- exact-ID idempotent transport retry and fail-closed handling of incomplete,
+  corrupt, unreadable, or contradictory privileged outcomes;
+- explicit `RecoveryRequired` state that blocks ordinary mutations until typed
+  canonical `RECONCILE` succeeds;
+- two-phase disruptive confirmation: runtime verification, SQLite canonical
+  commit, then helper `last-good` acknowledgement and pending cleanup;
+- fresh final-helper-commit IDs for explicit retry after a recorded storage
+  failure, while ambiguous transport retry retains the same ID;
+- WireGuard-only management confirmation coverage for key, port, address, peer,
+  and allowed-route changes;
 - transactional recovery changes and session revocation;
 - signed update manifests, SHA-256 verification, checksums, SBOM generation, and
   release provenance support;
@@ -30,19 +42,42 @@ The current `main` branch includes:
 
 ## Latest automated result
 
-The final pull-request validation on 2026-07-30 completed successfully for the
-standard CI, CodeQL/secret scanning, Deep validation, and Performance workflows.
+Pull-request candidate commit
+`2770703f831872f41fb8840c262a9d19c6031ab6` completed successfully on
+2026-07-31 for:
+
+- standard CI, including Go race/vet/vulnerability checks, dashboard lint/unit/
+  build/E2E, repository hygiene, public-root validation, and clean Alpine install,
+  setup, signed update activation, and rollback;
+- Deep validation, including ARM64 QEMU execution, WAN-router-LAN namespace
+  networking, actionlint, shellcheck, high-confidence gosec, Linux binary
+  inspection, interrupted-update stress, both fuzz targets, benchmarks, and
+  coverage generation;
+- CodeQL;
+- secret scanning; and
+- Performance benchmarks.
+
 The automated suite demonstrated:
 
+- deterministic failure behavior for lost privileged responses, durable-intent
+  interruption, corrupt helper records, contradictory RPC outcomes, failed
+  rollback, SQLite commit failure, and canonical reconciliation;
+- ordered disruptive confirmation where helper `last-good` cannot advance before
+  SQLite canonical commit;
+- retry of a failed final helper acknowledgement without repeating runtime
+  confirmation or canonical commit;
 - DHCP, DNS, NAT, stateful firewall, TCP, UDP, and parallel-flow operation in an
   isolated Linux namespace laboratory;
-- zero packet loss in the recorded virtual network run;
 - no response on the tested WAN management and service ports;
 - successful ARM64 execution of recovery-safe commands;
-- successful crash recovery, both fuzz targets, coverage generation, binary
-  inspection, and high-confidence static security analysis;
+- successful update crash recovery, both fuzz targets, coverage generation,
+  binary inspection, and high-confidence static security analysis;
 - successful dashboard TypeScript 6 build and browser E2E execution;
 - successful clean Alpine installation, setup, update activation, and rollback.
+
+The final documentation-only head after this record must pass the same workflows
+before merge; the merge decision must be based on that final head rather than the
+intermediate candidate named above.
 
 The virtual network result is a same-kernel regression test, not a physical-router
 throughput claim. Very high virtual throughput numbers must not be used as a claim
@@ -73,12 +108,16 @@ The following remain manual Proxmox or hardware gates:
 4. Real WireGuard throughput and recovery from an unrelated external network.
 5. External IPv4 and IPv6 scanning from a host outside the test network.
 6. Backup export and restore into a fresh VM.
-7. Full-disk, read-only-filesystem, service-crash, corrupt-state, and abrupt host
-   power-loss exercises on persistent storage.
-8. Sustained operation, bounded logs, disk growth, memory stability, and thermal
-   behavior over at least seven days.
-9. Owner-signed installation and recovery media booted on the target platform.
-10. An independent focused security review before an unattended production claim.
+7. Full-disk, inode-exhaustion, read-only-filesystem, service-crash,
+   helper-process-crash, corrupt-state, and abrupt host power-loss exercises on
+   persistent storage.
+8. Controlled interruption specifically between privileged intent, runtime
+   apply, runtime confirmation, SQLite commit, helper `last-good` commit, and
+   pending cleanup.
+9. Sustained operation, bounded logs and journals, disk growth, memory stability,
+   and thermal behavior over at least seven days.
+10. Owner-signed installation and recovery media booted on the target platform.
+11. An independent focused security review before an unattended production claim.
 
 ## Current deployment recommendation
 
@@ -94,6 +133,7 @@ See also:
 
 - [`PROXMOX.md`](PROXMOX.md)
 - [`TESTING.md`](TESTING.md)
+- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
 - [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md)
 - [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)
 - [`RECOVERY.md`](RECOVERY.md)
