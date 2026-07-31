@@ -149,3 +149,50 @@ export type SystemStatus = {
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
   };
 };
+
+export type GatewaySettings = {
+  enabled: boolean;
+  targets: string[];
+  interval_seconds: number;
+};
+
+export type GatewayTargetResult = {
+  target: string;
+  reachable: boolean;
+  packets_sent: number;
+  packets_received: number;
+  packet_loss_percent: number;
+  latency_ms?: number;
+  jitter_ms?: number;
+  error?: string;
+};
+
+export type GatewaySummary = {
+  available: boolean;
+  enabled: boolean;
+  state: "unknown" | "healthy" | "degraded" | "offline" | "flapping";
+  timestamp?: string;
+  link: {
+    connected: boolean;
+    interface: string;
+    local_ip?: string;
+    peer_ip?: string;
+  };
+  targets?: GatewayTargetResult[];
+  peer_probe?: GatewayTargetResult;
+  latency_ms?: number;
+  jitter_ms?: number;
+  packet_loss_percent: number;
+  pppoe_uptime_seconds: number;
+  reconnects_1h: number;
+  reconnects_24h: number;
+};
+
+export type GatewayHistoryPoint = {
+  timestamp: string;
+  state: GatewaySummary["state"];
+  latency_ms?: number;
+  jitter_ms?: number;
+  packet_loss_percent: number;
+  pppoe_uptime_seconds: number;
+};
