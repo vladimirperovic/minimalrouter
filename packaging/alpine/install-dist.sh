@@ -50,7 +50,7 @@ fi
 
 echo "[1/7] Installing dependencies..."
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc
 

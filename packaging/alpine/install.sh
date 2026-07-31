@@ -13,7 +13,7 @@ fi
 
 # 2. Install system dependencies from the pinned repository.
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc
 
