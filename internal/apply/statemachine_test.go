@@ -74,8 +74,17 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 	if tx.CurrentState != StateCommitted {
 		t.Errorf("Expected confirmed state StateCommitted, got %s", tx.CurrentState)
 	}
-	if len(client.requests) != 2 || client.requests[1].Config.Revision != client.requests[0].Config.Revision {
-		t.Fatalf("confirmation did not use the exact applied revision")
+	if len(client.requests) != 3 {
+		t.Fatalf("expected apply, runtime confirmation, and canonical helper commit; got %d requests", len(client.requests))
+	}
+	wantOps := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed}
+	for i, wantOp := range wantOps {
+		if client.requests[i].Op != wantOp {
+			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, wantOp)
+		}
+		if client.requests[i].Config.Revision != client.requests[0].Config.Revision {
+			t.Fatalf("request %d did not use the exact applied revision", i)
+		}
 	}
 
 	if engine.GetCurrentConfig().LAN.IPAddress != "10.0.0.1" {
