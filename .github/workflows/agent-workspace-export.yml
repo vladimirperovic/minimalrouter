@@ -1,26 +1,28 @@
 name: Apply reviewed fixes
 
 on:
-  push:
+  pull_request:
     branches:
-      - ai/gemini-security-reliability-fixes
+      - main
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-reviewed-fixes-${{ github.ref }}
+  group: apply-reviewed-fixes-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
   apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out branch
+      - name: Check out pull request branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
       - name: Apply reviewed patch when complete
         shell: bash
         run: |
