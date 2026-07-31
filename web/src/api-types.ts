@@ -142,6 +142,10 @@ export type SystemStatus = {
     disk_used_bytes?: number;
     disk_total_bytes?: number;
     temperature_c?: number;
+    time_synchronized?: boolean;
+    conntrack_count?: number;
+    conntrack_max?: number;
+    conntrack_usage_percent?: number;
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
   };
 };
