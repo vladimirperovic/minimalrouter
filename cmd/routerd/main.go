@@ -96,6 +96,8 @@ func main() {
 	server := api.NewServerWithAuth(engine, sessionMgr, rateLimiter, adminHash, store)
 	server.ConfigureGlobalLoginLimiter(globalRateLimiter)
 	server.ConfigureLoopbackHTTPPreview(previewHTTP)
+	stopGatewayMonitoring := configureGatewayMonitoring(server, absDir)
+	defer stopGatewayMonitoring()
 	const firmwareKeyPath = "/etc/minimalrouter/firmware-signing.pub"
 	if trustedKey, err := firmware.LoadTrustedPublicKey(firmwareKeyPath); err == nil {
 		server.ConfigureFirmwareTrust(trustedKey, "/var/lib/minimalrouter-update/staging")
@@ -105,6 +107,7 @@ func main() {
 	}
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+	server.RegisterGatewayRoutes(mux)
 	if webDir := os.Getenv("MINIMALROUTER_WEB_DIR"); webDir != "" {
 		mux.Handle("/", staticHandler(webDir))
 		log.Printf("Serving dashboard from %s", webDir)
