@@ -4,6 +4,18 @@ on:
   push:
     branches:
       - main
+    paths:
+      - ".github/workflows/service-supervision.yml"
+      - "cmd/routerd/**"
+      - "cmd/router-applyd/**"
+      - "internal/apply/**"
+      - "internal/api/**"
+      - "internal/config/**"
+      - "packaging/alpine/**"
+      - "scripts/ci-service-supervision-smoke.sh"
+      - "Makefile"
+      - "go.mod"
+      - "go.sum"
   pull_request:
     paths:
       - ".github/workflows/service-supervision.yml"
@@ -17,7 +29,6 @@ on:
       - "Makefile"
       - "go.mod"
       - "go.sum"
-      - "web/**"
 
 permissions:
   contents: read
