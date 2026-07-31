@@ -276,61 +276,6 @@ paths:
                     type: string
                     format: date-time
 
-  /auth/totp/enable:
-    post:
-      summary: Enable TOTP for administrator
-      operationId: enableTOTP
-      security:
-        - sessionCookie: []
-          csrfToken: []
-      responses:
-        '200':
-          description: TOTP enabled
-
-  /auth/totp/disable:
-    post:
-      summary: Disable TOTP for administrator
-      operationId: disableTOTP
-      security:
-        - sessionCookie: []
-          csrfToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [password]
-              properties:
-                password:
-                  type: string
-      responses:
-        '200':
-          description: TOTP disabled
-
-  /auth/password:
-    post:
-      summary: Change administrator password
-      operationId: changePassword
-      security:
-        - sessionCookie: []
-          csrfToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [current_password, new_password]
-              properties:
-                current_password:
-                  type: string
-                new_password:
-                  type: string
-      responses:
-        '200':
-          description: Password changed
-
   /setup/interfaces:
     get:
       summary: Discover candidate interfaces during first-run setup
@@ -396,21 +341,6 @@ paths:
                             hostname:
                               type: string
 
-  /system/diagnostics:
-    get:
-      summary: Download system diagnostics archive
-      operationId: getDiagnostics
-      security:
-        - sessionCookie: []
-      responses:
-        '200':
-          description: Diagnostics archive
-          content:
-            application/gzip:
-              schema:
-                type: string
-                format: binary
-
   /system/interfaces:
     get:
       summary: Discover current Linux interface candidates
@@ -461,29 +391,6 @@ paths:
           description: CSRF failure or read-only session
         '422':
           description: Validation or preflight check failed
-
-  /config/confirm:
-    post:
-      summary: Confirm a provisionally applied configuration
-      operationId: confirmConfig
-      security:
-        - sessionCookie: []
-          csrfToken: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [transaction_id]
-              properties:
-                transaction_id:
-                  type: string
-      responses:
-        '200':
-          description: Configuration confirmed and committed
-        '404':
-          description: Transaction not found or expired
 
   /snapshots:
     get:
@@ -572,3 +479,179 @@ paths:
       responses:
         '200':
           description: Audit events without request bodies or secrets
+
+  /setup/status:
+    get:
+      summary: Read first-run and recovery status
+      operationId: getSetupStatus
+      responses:
+        '200': { description: Setup status }
+
+  /setup/apply:
+    post:
+      summary: Atomically apply the first verified network configuration and administrator credential
+      operationId: applyInitialSetup
+      responses:
+        '200': { description: Initial setup committed }
+        '503': { description: Setup entered recovery-required state }
+
+  /auth/change-password:
+    post:
+      summary: Change the administrator password and revoke older auth generations
+      operationId: changePassword
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Password changed }
+
+  /auth/totp/enroll:
+    post:
+      summary: Create a pending TOTP enrollment
+      operationId: enrollTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Enrollment secret created }
+
+  /auth/totp/enable:
+    post:
+      summary: Confirm and enable pending TOTP enrollment
+      operationId: enableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: TOTP enabled }
+
+  /auth/totp/disable:
+    post:
+      summary: Disable TOTP after password and TOTP verification
+      operationId: disableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: TOTP disabled }
+
+  /system/diagnostics:
+    get:
+      summary: Download redacted diagnostics JSON
+      operationId: getDiagnostics
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Diagnostics document
+          content:
+            application/json:
+              schema: { type: object }
+
+  /transactions/pending:
+    get:
+      summary: Read the current commit-confirm transaction
+      operationId: getPendingTransaction
+      security:
+        - sessionCookie: []
+      responses:
+        '200': { description: Pending transaction or pending=false }
+
+  /transactions/{id}/confirm:
+    post:
+      summary: Confirm a connectivity-critical transaction
+      operationId: confirmTransaction
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Transaction committed }
+        '409': { description: Transaction is not awaiting confirmation }
+
+  /recovery/reconcile:
+    post:
+      summary: Explicitly retry canonical runtime reconciliation
+      operationId: retryReconciliation
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Reconciliation verified }
+        '503': { description: Recovery is still required }
+
+  /import/pfsense/preview:
+    post:
+      summary: Preview a pfSense XML import
+      operationId: previewPfSenseImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Redacted import preview }
+
+  /import/pfsense/{id}/apply:
+    post:
+      summary: Apply a previously previewed pfSense import
+      operationId: applyPfSenseImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Import applied }
+        '202': { description: Import awaits connectivity confirmation }
+
+  /backup/export:
+    post:
+      summary: Export an encrypted configuration backup
+      operationId: exportBackup
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Encrypted backup }
+
+  /backup/import/preview:
+    post:
+      summary: Preview an encrypted backup import
+      operationId: previewBackupImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Redacted backup preview }
+
+  /import/backup/{id}/apply:
+    post:
+      summary: Apply a previously previewed backup
+      operationId: applyBackupImport
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Backup applied }
+        '202': { description: Backup awaits connectivity confirmation }
+
+  /firmware/verify:
+    post:
+      summary: Verify a staged firmware manifest against the pinned trust anchor
+      operationId: verifyFirmware
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Firmware signature verified }

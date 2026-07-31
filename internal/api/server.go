@@ -1,14 +1,13 @@
 package api
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -318,6 +317,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/wireguard/peers", sh(s.authMiddleware(s.handleProvisionWireGuardPeer)))
 	mux.HandleFunc("GET /api/v1/transactions/pending", sh(s.authMiddleware(s.handleGetPendingTransaction)))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", sh(s.authMiddleware(s.handleConfirmTransaction)))
+	mux.HandleFunc("POST /api/v1/recovery/reconcile", sh(s.authMiddleware(s.handleRecoveryReconcile)))
 	mux.HandleFunc("GET /api/v1/snapshots", sh(s.authMiddleware(s.handleGetSnapshots)))
 	mux.HandleFunc("POST /api/v1/snapshots", sh(s.authMiddleware(s.handleCreateSnapshot)))
 	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", sh(s.authMiddleware(s.handleRestoreSnapshot)))
@@ -393,9 +393,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Check if TOTP is configured
 	if s.store != nil {
 		totpSecret, err := s.store.GetAdminTOTPSecret()
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[AUTH] Database error reading TOTP secret from %s: %v\n", ip, err)
-			s.appendAudit("auth.login_failed", ip, map[string]string{"result": "database_error"})
+		if err != nil {
+			log.Printf("[AUTH] TOTP state unavailable for login from %s: %v", ip, err)
+			s.appendAudit("auth.login_failed", ip, map[string]string{"result": "authentication_store_unavailable"})
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication service unavailable"})
@@ -915,11 +915,28 @@ func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(redactTransaction(tx))
 }
 
+func (s *Server) handleRecoveryReconcile(w http.ResponseWriter, _ *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	if err := s.engine.Reconcile(ctx); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":  err.Error(),
+			"status": s.engine.GetStatus(),
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "status": s.engine.GetStatus()})
+}
+
 // ── System Handlers ──
 
 func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
 	cfg := s.engine.GetCurrentConfig()
+	engineStatus := s.engine.GetStatus()
 	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
 	if dataDir == "" {
 		dataDir = "/var/lib/minimalrouter"
@@ -945,6 +962,11 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 		"revision":                cfg.Revision,
 		"runtime":                 runtimeStatus,
 		"update_trust_configured": updateTrustConfigured,
+		"apply_in_progress":       engineStatus.Applying,
+		"recovery_required":       engineStatus.RecoveryRequired,
+		"recovery_reason":         engineStatus.RecoveryReason,
+		"transaction_id":          engineStatus.ActiveTransactionID,
+		"transaction_state":       engineStatus.ActiveState,
 		"timestamp":               time.Now().Unix(),
 	}
 

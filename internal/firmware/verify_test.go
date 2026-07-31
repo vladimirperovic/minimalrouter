@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -42,9 +41,6 @@ func TestFirmwareUsesPinnedTrustAnchor(t *testing.T) {
 }
 
 func TestFirmwareRejectsSymlinkArtifact(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("skipping on Windows due to symlink permission model differences")
-	}
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "outside")
 	if err := os.WriteFile(outside, []byte("payload"), 0600); err != nil {

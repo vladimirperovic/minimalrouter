@@ -6,7 +6,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
@@ -29,11 +31,14 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
+	status := s.engine.GetStatus()
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"is_configured": isConfigured,
-		"wan_interface": cfg.WAN.Interface,
-		"lan_interface": cfg.LAN.Interface,
-		"lan_ip":        cfg.LAN.IPAddress,
+		"is_configured":     isConfigured,
+		"wan_interface":     cfg.WAN.Interface,
+		"lan_interface":     cfg.LAN.Interface,
+		"lan_ip":            cfg.LAN.IPAddress,
+		"recovery_required": status.RecoveryRequired,
+		"recovery_reason":   status.RecoveryReason,
 	})
 }
 
@@ -61,6 +66,15 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": "System is already configured. Use the dashboard to change settings.",
+		})
+		return
+	}
+	if status := s.engine.GetStatus(); status.RecoveryRequired {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":  "Initial setup is blocked until local recovery succeeds.",
+			"reason": status.RecoveryReason,
 		})
 		return
 	}
@@ -116,31 +130,35 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		cfg.LAN.CIDR = fmt.Sprintf("%s/24", req.LANIPAddress)
 	}
 
-	// SECURITY: Persist the hashed admin password in memory and SQLite *before* applying network changes.
-	// If the network apply fails or crashes, the router is still securely authenticated.
-	if store := s.engine.GetStore(); store != nil {
-		if err := store.SetAdminHash(hashedPassword); err != nil {
-			http.Error(w, "Failed to persist administrator credential", http.StatusInternalServerError)
-			return
-		}
+	store := s.engine.GetStore()
+	if store == nil {
+		http.Error(w, "Initial setup store unavailable", http.StatusServiceUnavailable)
+		return
 	}
-	s.mu.Lock()
-	s.adminHash = hashedPassword
-	s.mu.Unlock()
-
-	txID := fmt.Sprintf("wizard-setup-%d", cfg.Revision)
-	tx, err := s.engine.ProcessTransaction(txID, cfg)
+	txID := fmt.Sprintf("wizard-setup-%d", time.Now().UnixNano())
+	tx, err := s.engine.ProcessInitialSetup(txID, cfg, func(applied config.SystemConfig) error {
+		return store.CommitInitialSetup(applied, hashedPassword)
+	})
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
+		status := http.StatusUnprocessableEntity
+		if tx != nil && tx.CurrentState == apply.StateRecoveryRequired {
+			status = http.StatusServiceUnavailable
+		}
+		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"error": fmt.Sprintf("Wizard apply failed: %v", err),
+			"tx":    redactTransaction(tx),
 		})
 		return
 	}
 
-	// Password was already persisted above
-	
+	// The network revision and credential were committed in one SQLite
+	// transaction by CommitInitialSetup. Publish the hash in memory only now.
+	s.mu.Lock()
+	s.adminHash = hashedPassword
+	s.mu.Unlock()
+
 	log.Printf("[AUTH] Wizard completed: admin password set, system configured from %s\n", r.RemoteAddr)
 	s.appendAudit("system.setup_completed", auditActor(r.RemoteAddr), map[string]string{
 		"wan_interface": cfg.WAN.Interface,

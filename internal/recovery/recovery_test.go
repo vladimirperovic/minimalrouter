@@ -17,7 +17,7 @@ func TestResetAuthenticationChangesPasswordClearsTOTPAndSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := store.CreateSession("session", "csrf", false, now, now); err != nil {
+	if err := store.CreateSession("session", "csrf", false, 1, now, now); err != nil {
 		t.Fatal(err)
 	}
 	manager := Manager{Store: store}
@@ -37,7 +37,7 @@ func TestResetAuthenticationChangesPasswordClearsTOTPAndSessions(t *testing.T) {
 	if err != nil || secret != "" {
 		t.Fatal("TOTP was not cleared")
 	}
-	if _, _, _, _, err := store.GetSession("session"); err == nil {
+	if _, _, _, _, _, err := store.GetSession("session"); err == nil {
 		t.Fatal("session survived credential recovery")
 	}
 }

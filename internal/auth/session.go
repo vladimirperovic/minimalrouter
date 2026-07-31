@@ -21,11 +21,12 @@ var ErrUnauthorized = errors.New("unauthorized or expired session")
 
 // Session tracks an authenticated administrator session.
 type Session struct {
-	ID        string    `json:"id"`
-	CSRFToken string    `json:"csrf_token"`
-	ReadOnly  bool      `json:"read_only"`
-	CreatedAt time.Time `json:"created_at"`
-	LastSeen  time.Time `json:"last_seen"`
+	ID             string    `json:"id"`
+	CSRFToken      string    `json:"csrf_token"`
+	ReadOnly       bool      `json:"read_only"`
+	AuthGeneration uint64    `json:"-"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastSeen       time.Time `json:"last_seen"`
 }
 
 // SessionManager handles server-side session lifecycle in memory/store.

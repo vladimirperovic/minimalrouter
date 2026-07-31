@@ -18,7 +18,7 @@ func TestRecoveryResetAuthenticationRollsBackOnSessionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := store.CreateSession("session", "csrf", false, now, now); err != nil {
+	if err := store.CreateSession("session", "csrf", false, 1, now, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.db.Exec(`CREATE TRIGGER block_session_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT, 'blocked'); END`); err != nil {
@@ -36,7 +36,7 @@ func TestRecoveryResetAuthenticationRollsBackOnSessionFailure(t *testing.T) {
 	if err != nil || secret != "OLD-TOTP" {
 		t.Fatalf("TOTP changed despite rollback: secret=%q err=%v", secret, err)
 	}
-	if _, _, _, _, err := store.GetSession("session"); err != nil {
+	if _, _, _, _, _, err := store.GetSession("session"); err != nil {
 		t.Fatalf("session disappeared despite rollback: %v", err)
 	}
 }
@@ -51,7 +51,7 @@ func TestRecoverySaveConfigRollsBackSnapshotConfigAndCredentialsTogether(t *test
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if err := store.CreateSession("session", "csrf", false, now, now); err != nil {
+	if err := store.CreateSession("session", "csrf", false, 1, now, now); err != nil {
 		t.Fatal(err)
 	}
 	current, err := store.GetLatestConfig()
@@ -87,7 +87,7 @@ func TestRecoverySaveConfigRollsBackSnapshotConfigAndCredentialsTogether(t *test
 	if err != nil || hash != "old-hash" {
 		t.Fatalf("credentials changed despite rollback: hash=%q err=%v", hash, err)
 	}
-	if _, _, _, _, err := store.GetSession("session"); err != nil {
+	if _, _, _, _, _, err := store.GetSession("session"); err != nil {
 		t.Fatalf("session disappeared despite rollback: %v", err)
 	}
 }

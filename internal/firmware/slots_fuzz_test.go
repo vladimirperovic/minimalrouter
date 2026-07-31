@@ -3,14 +3,10 @@ package firmware
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
 func FuzzOperationJournalParsing(f *testing.F) {
-	if runtime.GOOS == "windows" {
-		f.Skip("skipping on Windows due to symlink permission model differences")
-	}
 	root, err := os.MkdirTemp("", "slot-journal-fuzz-*")
 	if err != nil {
 		f.Fatal(err)

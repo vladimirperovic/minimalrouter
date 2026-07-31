@@ -202,14 +202,6 @@ func (c *SystemConfig) Validate() error {
 				appendFieldError(&errs, "dhcp.range", "cannot contain the LAN gateway address")
 			}
 		}
-		
-		// Helper for checking lease overlap
-		isDynamic := func(ip net.IP) bool {
-			if ip == nil || startIP == nil || endIP == nil {
-				return false
-			}
-			return compareIPv4(ip, startIP) >= 0 && compareIPv4(ip, endIP) <= 0
-		}
 		if len(c.DHCP.DNSServers) < 1 || len(c.DHCP.DNSServers) > 3 {
 			appendFieldError(&errs, "dhcp.dns_servers", "must contain between one and three explicit upstream resolvers")
 		}
@@ -238,13 +230,33 @@ func (c *SystemConfig) Validate() error {
 			ip := parseIPv4(lease.IPAddress)
 			if ip == nil || (lanNetwork != nil && !lanNetwork.Contains(ip)) {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must be a valid address in the LAN subnet")
-			} else if isDynamic(ip) {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must not overlap with the dynamic DHCP pool")
+			} else if lanNetwork != nil {
+				networkIP := lanNetwork.IP.To4()
+				broadcast := make(net.IP, len(networkIP))
+				for j := range networkIP {
+					broadcast[j] = networkIP[j] | ^lanNetwork.Mask[j]
+				}
+				switch {
+				case lanIP != nil && ip.Equal(lanIP):
+					appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "cannot use the router LAN address")
+				case ip.Equal(networkIP):
+					appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "cannot use the network address")
+				case ip.Equal(broadcast):
+					appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "cannot use the broadcast address")
+				case startIP != nil && endIP != nil && compareIPv4(ip, startIP) >= 0 && compareIPv4(ip, endIP) <= 0:
+					appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must not overlap the dynamic DHCP pool")
+				}
 			}
-			if _, exists := seenLeaseIP[lease.IPAddress]; exists {
+			ipKey := ""
+			if ip != nil {
+				ipKey = ip.String()
+			}
+			if _, exists := seenLeaseIP[ipKey]; ipKey != "" && exists {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "duplicates another static lease")
 			}
-			seenLeaseIP[lease.IPAddress] = struct{}{}
+			if ipKey != "" {
+				seenLeaseIP[ipKey] = struct{}{}
+			}
 			if lease.Hostname != "" && !hostnamePattern.MatchString(lease.Hostname) {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].hostname", i), "must be a valid hostname")
 			}

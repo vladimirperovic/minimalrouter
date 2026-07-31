@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 var releaseVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`)
@@ -416,10 +417,10 @@ func (m SlotManager) withLock(fn func() error) error {
 		return err
 	}
 	defer lock.Close()
-	if err := lockFile(lock); err != nil {
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
 		return err
 	}
-	defer unlockFile(lock)
+	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN) //nolint:errcheck
 	return fn()
 }
 
@@ -469,14 +470,8 @@ func (m SlotManager) swapLink(name, version string) error {
 	}
 	tempLink := filepath.Join(m.Root, fmt.Sprintf(".%s-new-%d", name, os.Getpid()))
 	_ = os.Remove(tempLink)
-	if runtime.GOOS == "windows" {
-		if err := os.WriteFile(tempLink, []byte(filepath.Join("slots", version)), 0644); err != nil {
-			return err
-		}
-	} else {
-		if err := os.Symlink(filepath.Join("slots", version), tempLink); err != nil {
-			return err
-		}
+	if err := os.Symlink(filepath.Join("slots", version), tempLink); err != nil {
+		return err
 	}
 	if err := os.Rename(tempLink, filepath.Join(m.Root, name)); err != nil {
 		_ = os.Remove(tempLink)
@@ -520,17 +515,7 @@ func (m SlotManager) requireSlot(version string) error {
 }
 
 func (m SlotManager) linkVersion(name string) (string, bool, error) {
-	var target string
-	var err error
-	if runtime.GOOS == "windows" {
-		var data []byte
-		data, err = os.ReadFile(filepath.Join(m.Root, name))
-		if err == nil {
-			target = string(data)
-		}
-	} else {
-		target, err = os.Readlink(filepath.Join(m.Root, name))
-	}
+	target, err := os.Readlink(filepath.Join(m.Root, name))
 	if errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
@@ -585,8 +570,5 @@ func syncDir(path string) error {
 		return err
 	}
 	defer dir.Close()
-	if runtime.GOOS == "windows" {
-		return nil
-	}
 	return dir.Sync()
 }

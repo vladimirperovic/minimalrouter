@@ -24,18 +24,20 @@ func (s *SQLiteStore) RecoveryResetAuthentication(passwordHash string, disableTO
 	now := time.Now().UTC().Format(time.RFC3339)
 	if disableTOTP {
 		_, err = tx.Exec(`
-			INSERT INTO admin_credentials (id, password_hash, totp_secret, updated_at)
-			VALUES (1, ?, NULL, ?)
+			INSERT INTO admin_credentials (id, password_hash, totp_secret, auth_generation, updated_at)
+			VALUES (1, ?, NULL, 1, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				password_hash = excluded.password_hash,
 				totp_secret = NULL,
+				auth_generation = admin_credentials.auth_generation + 1,
 				updated_at = excluded.updated_at`, passwordHash, now)
 	} else {
 		_, err = tx.Exec(`
-			INSERT INTO admin_credentials (id, password_hash, updated_at)
-			VALUES (1, ?, ?)
+			INSERT INTO admin_credentials (id, password_hash, auth_generation, updated_at)
+			VALUES (1, ?, 1, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				password_hash = excluded.password_hash,
+				auth_generation = admin_credentials.auth_generation + 1,
 				updated_at = excluded.updated_at`, passwordHash, now)
 	}
 	if err != nil {
@@ -130,18 +132,20 @@ func (s *SQLiteStore) RecoverySaveConfig(current, next SystemConfig, passwordHas
 		now := time.Now().UTC().Format(time.RFC3339)
 		if clearTOTP {
 			_, err = tx.Exec(`
-				INSERT INTO admin_credentials (id, password_hash, totp_secret, updated_at)
-				VALUES (1, ?, NULL, ?)
+				INSERT INTO admin_credentials (id, password_hash, totp_secret, auth_generation, updated_at)
+				VALUES (1, ?, NULL, 1, ?)
 				ON CONFLICT(id) DO UPDATE SET
 					password_hash = excluded.password_hash,
 					totp_secret = NULL,
+					auth_generation = admin_credentials.auth_generation + 1,
 					updated_at = excluded.updated_at`, *passwordHash, now)
 		} else {
 			_, err = tx.Exec(`
-				INSERT INTO admin_credentials (id, password_hash, updated_at)
-				VALUES (1, ?, ?)
+				INSERT INTO admin_credentials (id, password_hash, auth_generation, updated_at)
+				VALUES (1, ?, 1, ?)
 				ON CONFLICT(id) DO UPDATE SET
 					password_hash = excluded.password_hash,
+					auth_generation = admin_credentials.auth_generation + 1,
 					updated_at = excluded.updated_at`, *passwordHash, now)
 		}
 		if err != nil {

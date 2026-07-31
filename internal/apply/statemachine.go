@@ -2,7 +2,6 @@ package apply
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -44,6 +43,7 @@ type Transaction struct {
 const (
 	confirmationTimeout     = 90 * time.Second
 	rollbackRetryDelay      = 10 * time.Second
+	maximumRollbackAttempts = 5
 	privilegedApplyTimeout  = 2 * time.Minute
 	privilegedApplyAttempts = 2
 )
@@ -57,8 +57,19 @@ type pendingChange struct {
 	canonicalCommitted bool
 }
 
+// EngineStatus is an immutable management-plane snapshot that remains
+// readable while a privileged mutation is in progress.
+type EngineStatus struct {
+	Applying            bool   `json:"apply_in_progress"`
+	RecoveryRequired    bool   `json:"recovery_required"`
+	RecoveryReason      string `json:"recovery_reason,omitempty"`
+	ActiveTransactionID string `json:"transaction_id,omitempty"`
+	ActiveState         State  `json:"transaction_state,omitempty"`
+}
+
 // Engine manages execution of configuration transactions.
 type Engine struct {
+	operationMu      sync.Mutex
 	mu               sync.RWMutex
 	activeTx         *Transaction
 	applying         bool
@@ -118,6 +129,22 @@ func (e *Engine) requireRecovery(reason string) {
 
 // ProcessTransaction executes the full state machine pipeline with snapshot and rollback.
 func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*Transaction, error) {
+	return e.processTransaction(txID, newCfg, false, nil)
+}
+
+// ProcessInitialSetup permits the one-time selection of real WAN/LAN interface
+// names. The supplied commit function must atomically persist both the verified
+// network configuration and the administrator credential.
+func (e *Engine) ProcessInitialSetup(txID string, newCfg config.SystemConfig, commit func(config.SystemConfig) error) (*Transaction, error) {
+	if commit == nil {
+		return nil, fmt.Errorf("initial setup commit function is required")
+	}
+	return e.processTransaction(txID, newCfg, true, commit)
+}
+
+func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, allowInterfaceChange bool, commit func(config.SystemConfig) error) (*Transaction, error) {
+	e.operationMu.Lock()
+	defer e.operationMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -141,18 +168,13 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		tx.Error = "another configuration is awaiting confirmation"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
-	if e.applying {
-		tx.CurrentState = StateRejected
-		tx.Error = "another configuration is currently being applied"
-		return tx, fmt.Errorf("%s", tx.Error)
-	}
 
 	if newCfg.Revision != e.currentConfig.Revision {
 		tx.CurrentState = StateRejected
 		tx.Error = fmt.Sprintf("stale revision: expected %d, received %d", e.currentConfig.Revision, newCfg.Revision)
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
-	if newCfg.LAN.Interface != e.currentConfig.LAN.Interface {
+	if !allowInterfaceChange && newCfg.LAN.Interface != e.currentConfig.LAN.Interface {
 		tx.CurrentState = StateRejected
 		tx.Error = "live LAN interface changes are unsupported; use the local recovery console"
 		return tx, fmt.Errorf("%s", tx.Error)
@@ -231,17 +253,15 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		Dnsmasq:             dnsmasqCfg,
 		Hostapd:             hostapdCfg,
 		WireGuard:           wireGuardCfg,
-		RequireConfirmation: requiresConfirmation(e.currentConfig, newCfg),
+		RequireConfirmation: !allowInterfaceChange && requiresConfirmation(e.currentConfig, newCfg),
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	defer cancel()
-	
 	e.applying = true
 	e.mu.Unlock()
 	resp, err := e.applyPrivileged(ctx, applyReq)
 	e.mu.Lock()
 	e.applying = false
-	
 	if err != nil {
 		tx.CurrentState = StateRecoveryRequired
 		tx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
@@ -282,8 +302,12 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 		e.pending = pending
 		return tx, nil
 	}
-	if e.store != nil {
-		if err := e.store.SaveConfig(newCfg); err != nil {
+	commitConfig := commit
+	if commitConfig == nil && e.store != nil {
+		commitConfig = e.store.SaveConfig
+	}
+	if commitConfig != nil {
+		if err := commitConfig(newCfg); err != nil {
 			tx.Error = fmt.Sprintf("failed to commit config store: %v", err)
 			tx.CurrentState = StateRecoveryRequired
 			rollbackReq, buildErr := buildApplyRequest(txID+"-rollback", e.currentConfig)
@@ -338,6 +362,8 @@ func (e *Engine) GetPendingTransaction() *Transaction {
 }
 
 func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
+	e.operationMu.Lock()
+	defer e.operationMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.pending == nil || e.pending.tx.ID != txID {
@@ -347,14 +373,12 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	if !pending.canonicalCommitted {
 		req := ApplyRequest{ID: txID + "-confirm-runtime", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
 		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-		
 		e.applying = true
 		e.mu.Unlock()
 		resp, err := e.applyPrivileged(ctx, req)
 		e.mu.Lock()
 		e.applying = false
 		cancel()
-		
 		if err != nil {
 			pending.tx.CurrentState = StateRecoveryRequired
 			pending.tx.Error = fmt.Sprintf("privileged runtime confirmation outcome is unknown; verified rollback or retry is required: %v", err)
@@ -385,14 +409,12 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	commitID := fmt.Sprintf("%s-commit-confirmed-%d", txID, pending.commitAttempts)
 	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-	
 	e.applying = true
 	e.mu.Unlock()
 	commitResp, commitErr := e.applyPrivileged(commitCtx, commitReq)
 	e.mu.Lock()
 	e.applying = false
 	commitCancel()
-	
 	if commitErr != nil || !commitResp.Success || !commitResp.Verified {
 		pending.tx.CurrentState = StateRecoveryRequired
 		if commitErr != nil {
@@ -416,6 +438,8 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 }
 
 func (e *Engine) rollbackExpired(txID string) {
+	e.operationMu.Lock()
+	defer e.operationMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.pending == nil || e.pending.tx.ID != txID {
@@ -426,9 +450,9 @@ func (e *Engine) rollbackExpired(txID string) {
 		return
 	}
 	pending.rollbackAttempts++
-	if pending.rollbackAttempts >= 5 {
+	if pending.rollbackAttempts > maximumRollbackAttempts {
 		pending.tx.CurrentState = StateRecoveryRequired
-		pending.tx.Error = "confirmation deadline expired and maximum rollback attempts exceeded"
+		pending.tx.Error = "confirmation deadline expired and automatic rollback attempts were exhausted"
 		e.requireRecovery(pending.tx.Error)
 		e.pending = nil
 		return
@@ -437,14 +461,12 @@ func (e *Engine) rollbackExpired(txID string) {
 	req, err := buildApplyRequest(rollbackID, pending.previous)
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-		
 		e.applying = true
 		e.mu.Unlock()
 		resp, applyErr := e.applyPrivileged(ctx, req)
 		e.mu.Lock()
 		e.applying = false
 		cancel()
-		
 		if applyErr == nil && resp.Success && resp.Verified {
 			pending.tx.CurrentState = StateRolledBack
 			pending.tx.Error = "confirmation deadline expired; previous configuration restored"
@@ -491,30 +513,29 @@ func buildApplyRequest(txID string, cfg config.SystemConfig) (ApplyRequest, erro
 }
 
 func (e *Engine) Reconcile(ctx context.Context) error {
+	e.operationMu.Lock()
+	defer e.operationMu.Unlock()
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	req, err := buildApplyRequest(fmt.Sprintf("boot-reconcile-%d", time.Now().UnixNano()), e.currentConfig)
 	if err != nil {
-		e.requireRecovery(err.Error())
 		return err
 	}
 	req.Op = OpReconcile
-	
 	e.applying = true
 	e.mu.Unlock()
 	resp, err := e.applyPrivileged(ctx, req)
 	e.mu.Lock()
 	e.applying = false
-	
 	if err != nil {
-		errStr := fmt.Sprintf("boot reconciliation failed: %v", err)
-		e.requireRecovery(errStr)
-		return errors.New(errStr)
+		reason := fmt.Sprintf("boot reconciliation failed: %v", err)
+		e.requireRecovery(reason)
+		return fmt.Errorf("%s", reason)
 	}
 	if !resp.Success || !resp.Verified {
-		errStr := fmt.Sprintf("boot reconciliation was not verified: %s", resp.Error)
-		e.requireRecovery(errStr)
-		return errors.New(errStr)
+		reason := fmt.Sprintf("boot reconciliation was not verified: %s", resp.Error)
+		e.requireRecovery(reason)
+		return fmt.Errorf("%s", reason)
 	}
 	e.recoveryRequired = false
 	e.recoveryReason = ""
@@ -525,6 +546,21 @@ func (e *Engine) GetCurrentConfig() config.SystemConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.currentConfig
+}
+
+func (e *Engine) GetStatus() EngineStatus {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	status := EngineStatus{
+		Applying:         e.applying,
+		RecoveryRequired: e.recoveryRequired,
+		RecoveryReason:   e.recoveryReason,
+	}
+	if e.activeTx != nil {
+		status.ActiveTransactionID = e.activeTx.ID
+		status.ActiveState = e.activeTx.CurrentState
+	}
+	return status
 }
 
 func (e *Engine) GetStore() *config.FileStore { return e.store }

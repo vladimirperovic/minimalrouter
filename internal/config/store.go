@@ -71,17 +71,21 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
-	// PRAGMAs are applied per-connection via DSN parameters.
-	
+	// Security and durability PRAGMAs are encoded in the DSN so every
+	// physical connection opened by database/sql receives the same policy.
+	// Ping forces SQLite to create/open the file before permissions are set.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize SQLite connection: %w", err)
+	}
+	if err := os.Chmod(dbPath, 0600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to secure SQLite database: %w", err)
+	}
 	var integrity string
 	if err := db.QueryRow("PRAGMA quick_check").Scan(&integrity); err != nil || integrity != "ok" {
 		db.Close()
 		return nil, fmt.Errorf("SQLite integrity check failed")
-	}
-	
-	if err := os.Chmod(dbPath, 0600); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to secure SQLite database: %w", err)
 	}
 
 	// Run schema migrations (idempotent with IF NOT EXISTS)
@@ -131,6 +135,7 @@ func runMigrations(db *sql.DB) error {
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		password_hash TEXT NOT NULL,
 		totp_secret TEXT,
+		auth_generation INTEGER NOT NULL DEFAULT 1,
 		updated_at DATETIME NOT NULL
 	);
 
@@ -138,6 +143,7 @@ func runMigrations(db *sql.DB) error {
 		id TEXT PRIMARY KEY,
 		csrf_token TEXT NOT NULL,
 		read_only INTEGER NOT NULL DEFAULT 0,
+		auth_generation INTEGER NOT NULL DEFAULT 1,
 		created_at DATETIME NOT NULL,
 		last_seen DATETIME NOT NULL
 	);
@@ -160,33 +166,48 @@ func runMigrations(db *sql.DB) error {
 		return err
 	}
 
-	// Migrate databases created before observer sessions were introduced.
-	rows, err := db.Query(`PRAGMA table_info(sessions)`)
-	if err != nil {
-		return err
+	// Add columns introduced after the initial public schema. SQLite lacks
+	// ADD COLUMN IF NOT EXISTS, so inspect the table before each migration.
+	for _, migration := range []struct {
+		table      string
+		column     string
+		definition string
+	}{
+		{"sessions", "read_only", "read_only INTEGER NOT NULL DEFAULT 0"},
+		{"sessions", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
+		{"admin_credentials", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
+	} {
+		exists, err := sqliteColumnExists(db, migration.table, migration.column)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := db.Exec("ALTER TABLE " + migration.table + " ADD COLUMN " + migration.definition); err != nil {
+				return err
+			}
+		}
 	}
-	hasReadOnly := false
+	return nil
+}
+
+func sqliteColumnExists(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
 	for rows.Next() {
 		var cid, notNull, primaryKey int
 		var name, columnType string
 		var defaultValue any
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			rows.Close()
-			return err
+			return false, err
 		}
-		if name == "read_only" {
-			hasReadOnly = true
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if !hasReadOnly {
-		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return err
+		if name == column {
+			return true, nil
 		}
 	}
-	return nil
+	return false, rows.Err()
 }
 
 // GetLatestConfig reads the most recent canonical configuration from SQLite.
@@ -286,9 +307,11 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 
 	hash := sha256.Sum256(data)
 	checksum := hex.EncodeToString(hash[:])
-	var randBytes [4]byte
-	rand.Read(randBytes[:])
-	id := fmt.Sprintf("snap-%d-%x", time.Now().UnixNano(), randBytes)
+	var entropy [4]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return Snapshot{}, fmt.Errorf("generate snapshot ID: %w", err)
+	}
+	id := fmt.Sprintf("snap-%d-%x", time.Now().UnixNano(), entropy)
 	createdAt := time.Now().Format(time.RFC3339)
 
 	tx, err := s.db.Begin()
@@ -461,7 +484,8 @@ func (s *SQLiteStore) ListAuditEvents(limit int) ([]AuditEvent, error) {
 }
 
 // DeleteAllSessions invalidates every authenticated session after credential
-// or second-factor changes.
+// or second-factor changes. Generation checks remain the security boundary;
+// deleting rows is bounded cleanup.
 func (s *SQLiteStore) DeleteAllSessions() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -482,28 +506,36 @@ func (s *SQLiteStore) GetAdminHash() (string, error) {
 	return hash, nil
 }
 
-// SetAdminHash stores the Argon2id admin password hash.
+// GetAuthGeneration returns the current authentication epoch. Sessions issued
+// under an older epoch are invalid even if their row remains in SQLite.
+func (s *SQLiteStore) GetAuthGeneration() (uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return getAuthGeneration(s.db)
+}
+
+func getAuthGeneration(q interface {
+	QueryRow(query string, args ...any) *sql.Row
+}) (uint64, error) {
+	var generation uint64
+	if err := q.QueryRow(`SELECT auth_generation FROM admin_credentials WHERE id = 1`).Scan(&generation); err != nil {
+		return 0, err
+	}
+	return generation, nil
+}
+
+// SetAdminHash atomically changes the credential and advances the auth epoch.
 func (s *SQLiteStore) SetAdminHash(hash string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	tx, err := s.db.Begin()
-	if err != nil {
+	return s.updateAuthentication(func(tx *sql.Tx, nextGeneration uint64, now string) error {
+		_, err := tx.Exec(`
+			INSERT INTO admin_credentials (id, password_hash, auth_generation, updated_at)
+			VALUES (1, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				password_hash = excluded.password_hash,
+				auth_generation = excluded.auth_generation,
+				updated_at = excluded.updated_at`, hash, nextGeneration, now)
 		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(
-		`INSERT INTO admin_credentials (id, password_hash, updated_at) VALUES (1, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
-		hash, time.Now().Format(time.RFC3339),
-	); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
-		return err
-	}
-	return tx.Commit()
+	})
 }
 
 // GetAdminTOTPSecret retrieves the TOTP secret for admin.
@@ -522,8 +554,49 @@ func (s *SQLiteStore) GetAdminTOTPSecret() (string, error) {
 	return secret.String, nil
 }
 
-// SetAdminTOTPSecret stores the TOTP secret for admin.
+// SetAdminTOTPSecret atomically enables TOTP and advances the auth epoch.
 func (s *SQLiteStore) SetAdminTOTPSecret(secret string) error {
+	return s.updateAuthentication(func(tx *sql.Tx, nextGeneration uint64, now string) error {
+		result, err := tx.Exec(`
+			UPDATE admin_credentials
+			SET totp_secret = ?, auth_generation = ?, updated_at = ?
+			WHERE id = 1`, secret, nextGeneration, now)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return sql.ErrNoRows
+		}
+		return nil
+	})
+}
+
+// ClearAdminTOTPSecret atomically disables TOTP and advances the auth epoch.
+func (s *SQLiteStore) ClearAdminTOTPSecret() error {
+	return s.updateAuthentication(func(tx *sql.Tx, nextGeneration uint64, now string) error {
+		result, err := tx.Exec(`
+			UPDATE admin_credentials
+			SET totp_secret = NULL, auth_generation = ?, updated_at = ?
+			WHERE id = 1`, nextGeneration, now)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return sql.ErrNoRows
+		}
+		return nil
+	})
+}
+
+func (s *SQLiteStore) updateAuthentication(update func(*sql.Tx, uint64, string) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -531,13 +604,20 @@ func (s *SQLiteStore) SetAdminTOTPSecret(secret string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
-	if _, err := tx.Exec(
-		`INSERT INTO admin_credentials (id, password_hash, totp_secret, updated_at) VALUES (1, '', ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET totp_secret = excluded.totp_secret, updated_at = excluded.updated_at`,
-		secret, time.Now().Format(time.RFC3339),
-	); err != nil {
+	generation, err := getAuthGeneration(tx)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if generation == ^uint64(0) {
+		return fmt.Errorf("authentication generation exhausted")
+	}
+	nextGeneration := generation + 1
+	if nextGeneration == 0 {
+		nextGeneration = 1
+	}
+	if err := update(tx, nextGeneration, time.Now().UTC().Format(time.RFC3339)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
@@ -546,8 +626,13 @@ func (s *SQLiteStore) SetAdminTOTPSecret(secret string) error {
 	return tx.Commit()
 }
 
-// ClearAdminTOTPSecret removes the TOTP secret for admin.
-func (s *SQLiteStore) ClearAdminTOTPSecret() error {
+// CommitInitialSetup atomically stores the first network revision and the
+// administrator credential. It is called only after the runtime configuration
+// has been verified; on error the apply engine restores the previous runtime.
+func (s *SQLiteStore) CommitInitialSetup(cfg SystemConfig, passwordHash string) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("refusing invalid initial configuration: %w", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -555,12 +640,37 @@ func (s *SQLiteStore) ClearAdminTOTPSecret() error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
-	if _, err := tx.Exec(
-		`UPDATE admin_credentials SET totp_secret = NULL, updated_at = ? WHERE id = 1`,
-		time.Now().Format(time.RFC3339),
-	); err != nil {
+	var existing int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM admin_credentials WHERE id = 1`).Scan(&existing); err != nil {
+		return err
+	}
+	if existing != 0 {
+		return fmt.Errorf("administrator is already configured")
+	}
+	var currentJSON string
+	if err := tx.QueryRow(`SELECT config_json FROM config_revisions ORDER BY revision DESC LIMIT 1`).Scan(&currentJSON); err != nil {
+		return err
+	}
+	var current SystemConfig
+	if err := json.Unmarshal([]byte(currentJSON), &current); err != nil {
+		return err
+	}
+	if cfg.Revision != current.Revision+1 {
+		return fmt.Errorf("initial configuration revision must advance exactly once")
+	}
+	cfg.UpdatedAt = time.Now().UTC()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO config_revisions (updated_at, config_json) VALUES (?, ?)`, cfg.UpdatedAt.Format(time.RFC3339), string(data)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO admin_credentials (id, password_hash, auth_generation, updated_at)
+		VALUES (1, ?, 1, ?)`, passwordHash, cfg.UpdatedAt.Format(time.RFC3339)); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
@@ -577,33 +687,39 @@ func (s *SQLiteStore) Close() error {
 // === Session Persistence ===
 
 // CreateSession stores a new session in SQLite.
-func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, readOnly bool, createdAt, lastSeen time.Time) error {
+func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, readOnly bool, authGeneration uint64, createdAt, lastSeen time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(
-		`INSERT INTO sessions (id, csrf_token, read_only, created_at, last_seen) VALUES (?, ?, ?, ?, ?)`,
-		sessionID, csrfToken, readOnly, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
+		`INSERT INTO sessions (id, csrf_token, read_only, auth_generation, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)`,
+		sessionID, csrfToken, readOnly, authGeneration, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
 	)
 	return err
 }
 
 // GetSession retrieves a session by ID.
-func (s *SQLiteStore) GetSession(sessionID string) (csrfToken string, readOnly bool, createdAt, lastSeen time.Time, err error) {
+func (s *SQLiteStore) GetSession(sessionID string) (csrfToken string, readOnly bool, authGeneration uint64, createdAt, lastSeen time.Time, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var csrf, created, lastSeenStr string
 	err = s.db.QueryRow(
-		`SELECT csrf_token, read_only, created_at, last_seen FROM sessions WHERE id = ?`, sessionID,
-	).Scan(&csrf, &readOnly, &created, &lastSeenStr)
+		`SELECT csrf_token, read_only, auth_generation, created_at, last_seen FROM sessions WHERE id = ?`, sessionID,
+	).Scan(&csrf, &readOnly, &authGeneration, &created, &lastSeenStr)
 	if err != nil {
-		return "", false, time.Time{}, time.Time{}, err
+		return "", false, 0, time.Time{}, time.Time{}, err
 	}
 
-	createdAt, _ = time.Parse(time.RFC3339, created)
-	lastSeen, _ = time.Parse(time.RFC3339, lastSeenStr)
-	return csrf, readOnly, createdAt, lastSeen, nil
+	createdAt, err = time.Parse(time.RFC3339, created)
+	if err != nil {
+		return "", false, 0, time.Time{}, time.Time{}, err
+	}
+	lastSeen, err = time.Parse(time.RFC3339, lastSeenStr)
+	if err != nil {
+		return "", false, 0, time.Time{}, time.Time{}, err
+	}
+	return csrf, readOnly, authGeneration, createdAt, lastSeen, nil
 }
 
 // UpdateSessionLastSeen updates the last_seen timestamp for a session.
