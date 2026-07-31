@@ -1,37 +1,11 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
 import DNSFilterPanel from "./components/DNSFilterPanel";
 import AuditLogPanel from "./components/AuditLogPanel";
 import { apiFetch } from "./lib/api";
+import type { PendingTransaction, RouterConfig, Snapshot, SystemStatus, WireGuardPeer } from "./api-types";
 import "./components/DNSFilterPanel.css";
 import "./DashboardApp.css";
-
-type RouterConfig = Record<string, any>;
-type Snapshot = { id: string; revision: number; created_at: string; checksum: string };
-type SystemStatus = {
-  status?: string;
-  version?: string;
-  wan_iface?: string;
-  lan_ip?: string;
-  revision?: number;
-  update_trust_configured?: boolean;
-  runtime?: {
-    available?: boolean;
-    os?: string;
-    architecture?: string;
-    wan_connected?: boolean;
-    public_ip?: string;
-    uptime_seconds?: number;
-    cpu_count?: number;
-    cpu_load_percent?: number;
-    memory_used_bytes?: number;
-    memory_total_bytes?: number;
-    disk_used_bytes?: number;
-    disk_total_bytes?: number;
-    temperature_c?: number;
-    dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
-  };
-};
 
 type SectionID = "overview" | "network" | "firewall" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs";
 
@@ -82,39 +56,75 @@ function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(false);
-  const [pendingID, setPendingID] = useState("");
+  const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
+  const [countdown, setCountdown] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const pollSequence = useRef(0);
+  const pollController = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
+    const sequence = ++pollSequence.current;
+    pollController.current?.abort();
+    const controller = new AbortController();
+    pollController.current = controller;
     try {
-      const [configResponse, systemResponse, snapshotsResponse, pendingResponse] = await Promise.all([
-        apiFetch("/api/v1/config"),
-        apiFetch("/api/v1/system"),
-        apiFetch("/api/v1/snapshots"),
-        apiFetch("/api/v1/transactions/pending"),
+      const [configResult, systemResult, snapshotsResult, pendingResult] = await Promise.allSettled([
+        apiFetch("/api/v1/config", { signal: controller.signal }),
+        apiFetch("/api/v1/system", { signal: controller.signal }),
+        apiFetch("/api/v1/snapshots", { signal: controller.signal }),
+        apiFetch("/api/v1/transactions/pending", { signal: controller.signal }),
       ]);
-      if (!configResponse.ok) throw new Error(`Configuration unavailable (${configResponse.status})`);
-      if (!systemResponse.ok) throw new Error(`System status unavailable (${systemResponse.status})`);
-      setConfig(await configResponse.json());
-      setSystem(await systemResponse.json());
-      if (snapshotsResponse.ok) {
-        const body = await snapshotsResponse.json();
+      if (sequence !== pollSequence.current) return;
+      if (configResult.status === "fulfilled" && configResult.value.ok) {
+        setConfig((await configResult.value.json()) as RouterConfig);
+      } else {
+        throw new Error("Configuration unavailable");
+      }
+      if (systemResult.status === "fulfilled" && systemResult.value.ok) {
+        setSystem((await systemResult.value.json()) as SystemStatus);
+      }
+      if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
+        const body = await snapshotsResult.value.json();
         setSnapshots(Array.isArray(body) ? body : Array.isArray(body.snapshots) ? body.snapshots : []);
       }
-      if (pendingResponse.ok) {
-        const body = await pendingResponse.json();
-        setPendingID(body?.id || "");
+      if (pendingResult.status === "fulfilled" && pendingResult.value.ok) {
+        const body = (await pendingResult.value.json()) as PendingTransaction;
+        setPendingTx(body?.id ? body : null);
       }
+      setLastRefresh(new Date());
       setError("");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Router API unavailable");
+      if ((loadError as Error).name !== "AbortError" && sequence === pollSequence.current) {
+        setError(loadError instanceof Error ? loadError.message : "Router API unavailable");
+      }
     }
   }, []);
 
   useEffect(() => {
-    void load();
-    const timer = window.setInterval(() => void load(), 15000);
-    return () => window.clearInterval(timer);
+    let active = true;
+    let timer = 0;
+    const poll = async () => {
+      await load();
+      if (active) timer = window.setTimeout(poll, 15000);
+    };
+    void poll();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      pollController.current?.abort();
+    };
   }, [load]);
+
+  useEffect(() => {
+    if (!pendingTx?.confirmation_deadline) {
+      setCountdown(0);
+      return;
+    }
+    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(pendingTx.confirmation_deadline!).getTime() - Date.now()) / 1000)));
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [pendingTx]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -127,7 +137,7 @@ function Dashboard() {
     try {
       const response = await apiFetch("/api/v1/config");
       if (!response.ok) throw new Error(`Configuration reload failed (${response.status})`);
-      const next = await response.json();
+      const next = (await response.json()) as RouterConfig;
       mutate(next);
       const applyResponse = await apiFetch("/api/v1/config", {
         method: "PUT",
@@ -136,7 +146,7 @@ function Dashboard() {
       });
       const body = await applyResponse.json().catch(() => ({}));
       if (!applyResponse.ok) throw new Error(body.error || `Apply failed (${applyResponse.status})`);
-      if (body.state === "AwaitingConfirmation" && body.id) setPendingID(body.id);
+      if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
       setNotice(body.state === "AwaitingConfirmation" ? "Promjena je privremeno aktivna i čeka potvrdu pristupa." : success);
       await load();
     } catch (applyError) {
@@ -224,12 +234,12 @@ function Dashboard() {
   };
 
   const confirmPending = async () => {
-    if (!pendingID) return;
+    if (!pendingTx?.id) return;
     setBusy(true);
     try {
-      const response = await apiFetch(`/api/v1/transactions/${encodeURIComponent(pendingID)}/confirm`, { method: "POST" });
+      const response = await apiFetch(`/api/v1/transactions/${encodeURIComponent(pendingTx.id)}/confirm`, { method: "POST" });
       if (!response.ok) throw new Error(`Confirmation failed (${response.status})`);
-      setPendingID("");
+      setPendingTx(null);
       setNotice("Connectivity confirmed; configuration committed.");
       await load();
     } catch (confirmationError) {
@@ -260,7 +270,7 @@ function Dashboard() {
       const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(id)}/restore`, { method: "POST" });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Restore failed (${response.status})`);
-      if (body.state === "AwaitingConfirmation" && body.id) setPendingID(body.id);
+      if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
       setNotice("Snapshot restore applied.");
       await load();
     } catch (restoreError) {
@@ -334,10 +344,11 @@ function Dashboard() {
 
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
-        {pendingID && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
+        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
+        {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
         {active === "overview" && <section className="dashboard-section" id="overview">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2></div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
+          <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2>{lastRefresh && <small>Updated {lastRefresh.toLocaleTimeString()}</small>}</div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
           <div className="metric-grid">
             <article><span>Uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong><small>{runtime.os || "Runtime unavailable"}</small></article>
             <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
@@ -363,13 +374,13 @@ function Dashboard() {
 
         {active === "firewall" && <section className="dashboard-section" id="firewall">
           <div className="dashboard-section-heading"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2></div></div>
-          <div className="status-list"><article><div><strong>WAN input</strong><span>Unsolicited WAN input remains denied.</span></div><b>DENY</b></article><article><div><strong>State tracking</strong><span>Established and related traffic is accepted after security schedules.</span></div><b>{config.firewall.stateful_firewall ? "ON" : "INVALID"}</b></article><article><div><strong>Remote entry</strong><span>WireGuard is the only supported WAN entry point.</span></div><b>{config.firewall.wan_ingress_mode || "wireguard_only"}</b></article><article><div><strong>WAN port forwards</strong><span>The secure profile rejects enabled port forwards.</span></div><b>{(config.firewall.port_forwards || []).filter((item: any) => item.enabled).length}</b></article></div>
+          <div className="status-list"><article><div><strong>WAN input</strong><span>Unsolicited WAN input remains denied.</span></div><b>DENY</b></article><article><div><strong>State tracking</strong><span>Established and related traffic is accepted after security schedules.</span></div><b>{config.firewall.stateful_firewall ? "ON" : "INVALID"}</b></article><article><div><strong>Remote entry</strong><span>WireGuard is the only supported WAN entry point.</span></div><b>{config.firewall.wan_ingress_mode || "wireguard_only"}</b></article><article><div><strong>WAN port forwards</strong><span>The secure profile rejects enabled port forwards.</span></div><b>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</b></article></div>
         </section>}
 
         {active === "wireguard" && <section className="dashboard-section" id="wireguard">
           <div className="dashboard-section-heading"><div><p className="eyebrow">Remote access</p><h2>WireGuard</h2></div><button className="button secondary" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable" : "Enable"}</button></div>
-          <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: any) => peer.enabled).length}</strong></article></div>
-          <article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Name</th><th>Allowed IPs</th><th>Endpoint</th><th>Status</th></tr></thead><tbody>{(config.wireguard.peers || []).length === 0 ? <tr><td className="empty-state" colSpan={4}>No peers configured.</td></tr> : config.wireguard.peers.map((peer: any) => <tr key={peer.id}><td>{peer.name}</td><td><code>{(peer.allowed_ips || []).join(", ")}</code></td><td>{peer.endpoint || "Dynamic"}</td><td>{peer.enabled ? "Enabled" : "Disabled"}</td></tr>)}</tbody></table></div></article>
+          <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
+          <article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Name</th><th>Allowed IPs</th><th>Endpoint</th><th>Status</th></tr></thead><tbody>{(config.wireguard.peers || []).length === 0 ? <tr><td className="empty-state" colSpan={4}>No peers configured.</td></tr> : config.wireguard.peers.map((peer: WireGuardPeer) => <tr key={peer.id}><td>{peer.name}</td><td><code>{(peer.allowed_ips || []).join(", ")}</code></td><td>{peer.endpoint || "Dynamic"}</td><td>{peer.enabled ? "Enabled" : "Disabled"}</td></tr>)}</tbody></table></div></article>
         </section>}
 
         {active === "cloudflare" && <section className="dashboard-section" id="cloudflare"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Cloudflare Dynamic DNS</h2></div></div><form className="settings-form" key={`cf-${config.revision}`} onSubmit={submitCloudflare}><label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable DDNS</span></label><div className="form-grid two"><label className="field"><span>Hostname</span><input defaultValue={config.cloudflare.domain} name="domain" /></label><label className="field"><span>Zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" /></label><label className="field form-span"><span>New scoped API token</span><input autoComplete="new-password" name="token" placeholder="Leave blank to keep stored secret" type="password" /></label></div><p className="form-note">Cloudflare Tunnel remains unavailable; WireGuard is the only accepted remote-entry path.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply DDNS configuration</button></div></form></section>}

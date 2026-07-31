@@ -94,3 +94,29 @@ func TestNftablesWANHasOnlyWireGuardNewIngress(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomDenyRulesPrecedeEstablishedAcceptance(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Firewall.CustomRules = []config.FirewallRule{
+		{ID: "input-deny", Name: "block-admin", Direction: "input", Action: "deny", Protocol: "tcp", DstPort: 8443, Enabled: true},
+		{ID: "forward-deny", Name: "block-web", Direction: "forward", Action: "deny", Protocol: "tcp", DstPort: 443, Enabled: true},
+	}
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputDeny := strings.Index(rules, "Custom LAN input deny rule: block-admin")
+	forwardDeny := strings.Index(rules, "Custom LAN forward deny rule: block-web")
+	firstEstablished := strings.Index(rules, "ct state established,related accept")
+	secondEstablishedRel := strings.Index(rules[firstEstablished+1:], "ct state established,related accept")
+	if inputDeny < 0 || firstEstablished < 0 || inputDeny > firstEstablished {
+		t.Fatalf("input deny does not precede established acceptance:\n%s", rules)
+	}
+	if secondEstablishedRel < 0 {
+		t.Fatal("forward established rule missing")
+	}
+	secondEstablished := firstEstablished + 1 + secondEstablishedRel
+	if forwardDeny < 0 || forwardDeny > secondEstablished {
+		t.Fatalf("forward deny does not precede established acceptance:\n%s", rules)
+	}
+}

@@ -72,16 +72,21 @@ func (psm *PersistentSessionManager) CreateSessionWithMode(readOnly bool) *auth.
 	if err != nil {
 		return nil
 	}
+	generation, err := psm.store.GetAuthGeneration()
+	if err != nil {
+		return nil
+	}
 	now := time.Now()
 	session := &auth.Session{
-		ID:        sessionID,
-		CSRFToken: csrfToken,
-		ReadOnly:  readOnly,
-		CreatedAt: now,
-		LastSeen:  now,
+		ID:             sessionID,
+		CSRFToken:      csrfToken,
+		ReadOnly:       readOnly,
+		AuthGeneration: generation,
+		CreatedAt:      now,
+		LastSeen:       now,
 	}
 
-	if err := psm.store.CreateSession(session.ID, session.CSRFToken, session.ReadOnly, session.CreatedAt, session.LastSeen); err != nil {
+	if err := psm.store.CreateSession(session.ID, session.CSRFToken, session.ReadOnly, session.AuthGeneration, session.CreatedAt, session.LastSeen); err != nil {
 		return nil
 	}
 	psm.sessions[session.ID] = session
@@ -104,10 +109,16 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	psm.mu.RUnlock()
 
 	if exists {
+		currentGeneration, err := psm.store.GetAuthGeneration()
+		if err != nil {
+			return nil, auth.ErrUnauthorized
+		}
 		psm.mu.Lock()
 		session, exists = psm.sessions[sessionID]
-		if !exists {
+		if !exists || session.AuthGeneration != currentGeneration {
+			delete(psm.sessions, sessionID)
 			psm.mu.Unlock()
+			_ = psm.store.DeleteSession(sessionID)
 			return nil, auth.ErrUnauthorized
 		}
 		now := time.Now()
@@ -125,8 +136,13 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	}
 
 	// Not in cache - load from SQLite
-	csrfToken, readOnly, createdAt, lastSeen, err := psm.store.GetSession(sessionID)
+	csrfToken, readOnly, sessionGeneration, createdAt, lastSeen, err := psm.store.GetSession(sessionID)
 	if err != nil {
+		return nil, auth.ErrUnauthorized
+	}
+	currentGeneration, err := psm.store.GetAuthGeneration()
+	if err != nil || sessionGeneration != currentGeneration {
+		_ = psm.store.DeleteSession(sessionID)
 		return nil, auth.ErrUnauthorized
 	}
 
@@ -138,11 +154,12 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 
 	// Add to cache
 	session = &auth.Session{
-		ID:        sessionID,
-		CSRFToken: csrfToken,
-		ReadOnly:  readOnly,
-		CreatedAt: createdAt,
-		LastSeen:  now,
+		ID:             sessionID,
+		CSRFToken:      csrfToken,
+		ReadOnly:       readOnly,
+		AuthGeneration: sessionGeneration,
+		CreatedAt:      createdAt,
+		LastSeen:       now,
 	}
 	psm.mu.Lock()
 	psm.sessions[sessionID] = session

@@ -224,3 +224,58 @@ func TestValidationRejectsMoreThanHourlyGridCanProduce(t *testing.T) {
 		t.Fatalf("expected a 13-window validation error, got %v", errs)
 	}
 }
+
+func TestStaticLeasesRejectReservedDynamicAndEquivalentMACs(t *testing.T) {
+	cases := []struct {
+		name string
+		ips  []string
+		macs []string
+	}{
+		{"router address", []string{"192.168.1.1"}, []string{"02:00:00:00:00:01"}},
+		{"network address", []string{"192.168.1.0"}, []string{"02:00:00:00:00:01"}},
+		{"broadcast address", []string{"192.168.1.255"}, []string{"02:00:00:00:00:01"}},
+		{"dynamic overlap", []string{"192.168.1.150"}, []string{"02:00:00:00:00:01"}},
+		{"equivalent mac formats", []string{"192.168.1.20", "192.168.1.21"}, []string{"02:00:00:00:00:01", "02-00-00-00-00-01"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			for i := range tc.ips {
+				cfg.DHCP.StaticLeases = append(cfg.DHCP.StaticLeases, StaticLease{
+					ID: "lease-" + string(rune('a'+i)), Hostname: "host", MAC: tc.macs[i], IPAddress: tc.ips[i],
+				})
+			}
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("invalid static lease configuration was accepted")
+			}
+		})
+	}
+}
+
+func validWireGuardConfigForTest(t *testing.T) SystemConfig {
+	t.Helper()
+	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Peers = []WireGuardPeer{{
+		ID: "peer-1", Name: "peer-one", PublicKey: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		AllowedIPs: []string{"10.8.0.2/32"}, Enabled: true,
+	}}
+	return cfg
+}
+
+func TestWireGuardValidationMatchesSingleHostGeneratorContract(t *testing.T) {
+	cfg := validWireGuardConfigForTest(t)
+	cfg.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.2/32", "10.8.0.3/32"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("multiple AllowedIPs passed validation even though the generator rejects them")
+	}
+	cfg = validWireGuardConfigForTest(t)
+	cfg.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.0/24"}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("non-/32 AllowedIPs passed validation even though the generator rejects it")
+	}
+}

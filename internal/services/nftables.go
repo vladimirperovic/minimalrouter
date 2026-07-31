@@ -9,6 +9,30 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, action string) {
+	for _, rule := range cfg.Firewall.CustomRules {
+		if !rule.Enabled || rule.Direction != direction || rule.Action != action {
+			continue
+		}
+		match := []string{fmt.Sprintf("iifname \"%s\"", cfg.LAN.Interface)}
+		if rule.SrcIP != "" {
+			match = append(match, "ip saddr "+rule.SrcIP)
+		}
+		if rule.Protocol != "any" {
+			match = append(match, rule.Protocol)
+		}
+		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
+			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
+		}
+		verdict := "drop"
+		if action == "allow" {
+			verdict = "accept"
+		}
+		buf.WriteString(fmt.Sprintf("    # Custom LAN %s %s rule: %s\n", direction, action, rule.Name))
+		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), verdict))
+	}
+}
+
 // GenerateNftables renders an atomic, deterministic nftables configuration string.
 func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	runtimeCfg := *cfg
@@ -46,6 +70,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	// Invalid packets must be rejected before any service-specific accept rule.
 	buf.WriteString("    # Reject invalid packets before service accepts\n")
 	buf.WriteString("    ct state invalid drop\n")
+	// Administrator deny rules precede conntrack acceptance so a newly blocked
+	// flow stops immediately, including packets from an established connection.
+	writeCustomRules(&buf, cfg, "input", "deny")
 	buf.WriteString("    # Allow established and related connections\n")
 	buf.WriteString("    ct state established,related accept\n\n")
 
@@ -95,29 +122,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.WireGuard.Interface, wgNetwork.String()))
 	}
 
-	// Optional input rules are still confined to the LAN interface. A custom
+	// Optional allow rules are still confined to the LAN interface. A custom
 	// rule can never make a router-local service reachable from WAN.
-	for _, rule := range cfg.Firewall.CustomRules {
-		if !rule.Enabled || rule.Direction != "input" {
-			continue
-		}
-		action := "drop"
-		if rule.Action == "allow" {
-			action = "accept"
-		}
-		match := []string{fmt.Sprintf("iifname \"%s\"", cfg.LAN.Interface)}
-		if rule.SrcIP != "" {
-			match = append(match, "ip saddr "+rule.SrcIP)
-		}
-		if rule.Protocol != "any" {
-			match = append(match, rule.Protocol)
-		}
-		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
-			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
-		}
-		buf.WriteString(fmt.Sprintf("    # Custom LAN input rule: %s\n", rule.Name))
-		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), action))
-	}
+	writeCustomRules(&buf, cfg, "input", "allow")
 
 	buf.WriteString("    # Reject WAN unsolicited input\n")
 	buf.WriteString("    drop\n")
@@ -144,6 +151,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("    # Device schedules run before established acceptance so expired streams are cut\n")
 		buf.WriteString("    jump device_profiles\n")
 	}
+	writeCustomRules(&buf, cfg, "forward", "deny")
 	buf.WriteString("    # Allow established/related\n")
 	buf.WriteString("    ct state established,related accept\n\n")
 
@@ -162,28 +170,8 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n")
 	}
 
-	// Custom rules can only govern traffic originating on the LAN.
-	for _, rule := range cfg.Firewall.CustomRules {
-		if !rule.Enabled || rule.Direction != "forward" {
-			continue
-		}
-		action := "drop"
-		if rule.Action == "allow" {
-			action = "accept"
-		}
-		match := []string{fmt.Sprintf("iifname \"%s\"", cfg.LAN.Interface)}
-		if rule.SrcIP != "" {
-			match = append(match, "ip saddr "+rule.SrcIP)
-		}
-		if rule.Protocol != "any" {
-			match = append(match, rule.Protocol)
-		}
-		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
-			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
-		}
-		buf.WriteString(fmt.Sprintf("    # Custom LAN forward rule: %s\n", rule.Name))
-		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), action))
-	}
+	// Custom allow rules can only govern traffic originating on the LAN.
+	writeCustomRules(&buf, cfg, "forward", "allow")
 
 	if cfg.WAN.Enabled && cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow LAN (%s) out to WAN\n", cfg.LAN.Interface))

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page }) => {
+test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page, isMobile }) => {
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/v1/auth/session") {
@@ -31,8 +31,12 @@ test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page }) =
   });
 
   await page.goto("/");
-  await expect(page.getByRole("link", { name: /DNS Filter/i })).toBeVisible();
-  await page.getByRole("link", { name: /DNS Filter/i }).click();
+  const dnsFilterLink = page.getByRole("link", { name: /DNS Filter/i });
+  if (isMobile) {
+    await page.getByRole("button", { name: "Open navigation" }).click();
+  }
+  await expect(dnsFilterLink).toBeVisible();
+  await dnsFilterLink.click();
   await expect(page.getByRole("heading", { name: "Scheduled service access" })).toBeVisible();
   await page.getByRole("button", { name: "Add device profile" }).click();
   await expect(page.getByRole("heading", { name: "Device profile", exact: true })).toBeVisible();

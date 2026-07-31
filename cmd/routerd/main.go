@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -54,6 +56,8 @@ func main() {
 	if hash, err := store.GetAdminHash(); err == nil {
 		adminHash = hash
 		log.Println("[AUTH] Loaded persisted administrator password hash from SQLite store")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		log.Fatalf("Refusing startup because administrator state is unavailable: %v", err)
 	}
 
 	previewMode := os.Getenv("MINIMALROUTER_PREVIEW_MODE") == "1"
@@ -71,12 +75,17 @@ func main() {
 	} else {
 		engine = apply.NewEngine(initialCfg, store)
 	}
-	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
-	if err := engine.Reconcile(reconcileCtx); err != nil {
+	// A factory-fresh appliance has only placeholder interface names. Start the
+	// wizard before reconciliation so the administrator can select the real
+	// interfaces (ens18, enp2s0, and similar). Configured appliances reconcile
+	// before accepting mutations, but the read-only status plane remains online.
+	if adminHash != "" {
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
+		if err := engine.Reconcile(reconcileCtx); err != nil {
+			log.Printf("[RECOVERY] Canonical state reconciliation failed: %v", err)
+		}
 		reconcileCancel()
-		log.Fatalf("Refusing management startup because canonical state could not be reconciled: %v", err)
 	}
-	reconcileCancel()
 
 	// Setup persistent session manager and rate limiter
 	sessionMgr := persistent.NewPersistentSessionManagerWithSecureCookies(store, !previewHTTP)
@@ -161,9 +170,12 @@ func main() {
 		TLSConfig:         tlsConfig,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       15 * time.Second,
-		MaxHeaderBytes:    32 << 10,
+		// Configuration handlers have their own bounded operation contexts. A
+		// server-wide write deadline would make a successful apply look failed to
+		// the browser after the response socket is closed.
+		WriteTimeout:   0,
+		IdleTimeout:    15 * time.Second,
+		MaxHeaderBytes: 32 << 10,
 	}
 
 	if previewHTTP {
