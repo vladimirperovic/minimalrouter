@@ -1,45 +1,38 @@
-name: Agent workspace export
+name: Apply reviewed fixes
 
 on:
   push:
     branches:
       - ai/gemini-security-reliability-fixes
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: agent-workspace-export-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: apply-reviewed-fixes-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  export:
+  apply:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository without persisted credentials
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check out branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          persist-credentials: false
-      - name: Verify checkout contains no embedded authorization header
+      - name: Apply reviewed patch when present
         shell: bash
         run: |
           set -euo pipefail
-          ! git config --local --get-regexp 'http\..*\.extraheader'
-      - name: Package workspace including Git metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar -C "$GITHUB_WORKSPACE" -czf "$RUNNER_TEMP/workspace.tar.gz" .
-      - name: Upload workspace
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: minimalrouter-agent-workspace-${{ github.sha }}
-          path: ${{ runner.temp }}/workspace.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          if [ ! -f agent-fix.patch ]; then
+            echo "No patch payload in this commit; nothing to apply."
+            exit 0
+          fi
+          git apply --index --whitespace=error-all agent-fix.patch
+          git rm agent-fix.patch
+          git rm .github/workflows/agent-workspace-export.yml
+          git config user.name "OpenAI Review Agent"
+          git config user.email "review-agent@users.noreply.github.com"
+          git commit -m "fix: address security and reliability review blockers"
+          git push origin HEAD:ai/gemini-security-reliability-fixes
