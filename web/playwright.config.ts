@@ -15,6 +15,10 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
     },
+    {
+      name: "Mobile Safari",
+      use: { ...devices["iPhone 12"] },
+    },
   ],
   webServer: {
     command: "pnpm preview --host 127.0.0.1 --port 4173",

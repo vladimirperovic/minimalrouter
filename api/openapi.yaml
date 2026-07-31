@@ -276,6 +276,61 @@ paths:
                     type: string
                     format: date-time
 
+  /auth/totp/enable:
+    post:
+      summary: Enable TOTP for administrator
+      operationId: enableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200':
+          description: TOTP enabled
+
+  /auth/totp/disable:
+    post:
+      summary: Disable TOTP for administrator
+      operationId: disableTOTP
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        '200':
+          description: TOTP disabled
+
+  /auth/password:
+    post:
+      summary: Change administrator password
+      operationId: changePassword
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '200':
+          description: Password changed
+
   /setup/interfaces:
     get:
       summary: Discover candidate interfaces during first-run setup
@@ -341,6 +396,21 @@ paths:
                             hostname:
                               type: string
 
+  /system/diagnostics:
+    get:
+      summary: Download system diagnostics archive
+      operationId: getDiagnostics
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Diagnostics archive
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+
   /system/interfaces:
     get:
       summary: Discover current Linux interface candidates
@@ -391,6 +461,29 @@ paths:
           description: CSRF failure or read-only session
         '422':
           description: Validation or preflight check failed
+
+  /config/confirm:
+    post:
+      summary: Confirm a provisionally applied configuration
+      operationId: confirmConfig
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transaction_id]
+              properties:
+                transaction_id:
+                  type: string
+      responses:
+        '200':
+          description: Configuration confirmed and committed
+        '404':
+          description: Transaction not found or expired
 
   /snapshots:
     get:

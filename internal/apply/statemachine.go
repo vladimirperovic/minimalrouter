@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -58,8 +59,9 @@ type pendingChange struct {
 
 // Engine manages execution of configuration transactions.
 type Engine struct {
-	mu               sync.Mutex
+	mu               sync.RWMutex
 	activeTx         *Transaction
+	applying         bool
 	currentConfig    config.SystemConfig
 	store            *config.FileStore
 	client           Client
@@ -137,6 +139,11 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	if e.pending != nil {
 		tx.CurrentState = StateRejected
 		tx.Error = "another configuration is awaiting confirmation"
+		return tx, fmt.Errorf("%s", tx.Error)
+	}
+	if e.applying {
+		tx.CurrentState = StateRejected
+		tx.Error = "another configuration is currently being applied"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 
@@ -228,7 +235,13 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	defer cancel()
+	
+	e.applying = true
+	e.mu.Unlock()
 	resp, err := e.applyPrivileged(ctx, applyReq)
+	e.mu.Lock()
+	e.applying = false
+	
 	if err != nil {
 		tx.CurrentState = StateRecoveryRequired
 		tx.Error = fmt.Sprintf("privileged apply outcome remained unknown after retry; recovery or reboot reconciliation is required: %v", err)
@@ -276,7 +289,11 @@ func (e *Engine) ProcessTransaction(txID string, newCfg config.SystemConfig) (*T
 			rollbackReq, buildErr := buildApplyRequest(txID+"-rollback", e.currentConfig)
 			if buildErr == nil {
 				rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+				e.applying = true
+				e.mu.Unlock()
 				rollbackResp, rollbackErr := e.applyPrivileged(rollbackCtx, rollbackReq)
+				e.mu.Lock()
+				e.applying = false
 				rollbackCancel()
 				if rollbackErr == nil && rollbackResp.Success && rollbackResp.Verified && !rollbackResp.RecoveryRequired {
 					tx.CurrentState = StateRolledBack
@@ -311,8 +328,8 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 }
 
 func (e *Engine) GetPendingTransaction() *Transaction {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	if e.pending == nil || e.pending.tx == nil {
 		return nil
 	}
@@ -330,8 +347,14 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	if !pending.canonicalCommitted {
 		req := ApplyRequest{ID: txID + "-confirm-runtime", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
 		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+		
+		e.applying = true
+		e.mu.Unlock()
 		resp, err := e.applyPrivileged(ctx, req)
+		e.mu.Lock()
+		e.applying = false
 		cancel()
+		
 		if err != nil {
 			pending.tx.CurrentState = StateRecoveryRequired
 			pending.tx.Error = fmt.Sprintf("privileged runtime confirmation outcome is unknown; verified rollback or retry is required: %v", err)
@@ -362,8 +385,14 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	commitID := fmt.Sprintf("%s-commit-confirmed-%d", txID, pending.commitAttempts)
 	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+	
+	e.applying = true
+	e.mu.Unlock()
 	commitResp, commitErr := e.applyPrivileged(commitCtx, commitReq)
+	e.mu.Lock()
+	e.applying = false
 	commitCancel()
+	
 	if commitErr != nil || !commitResp.Success || !commitResp.Verified {
 		pending.tx.CurrentState = StateRecoveryRequired
 		if commitErr != nil {
@@ -397,12 +426,25 @@ func (e *Engine) rollbackExpired(txID string) {
 		return
 	}
 	pending.rollbackAttempts++
+	if pending.rollbackAttempts >= 5 {
+		pending.tx.CurrentState = StateRecoveryRequired
+		pending.tx.Error = "confirmation deadline expired and maximum rollback attempts exceeded"
+		e.requireRecovery(pending.tx.Error)
+		e.pending = nil
+		return
+	}
 	rollbackID := fmt.Sprintf("%s-timeout-rollback-%d", txID, pending.rollbackAttempts)
 	req, err := buildApplyRequest(rollbackID, pending.previous)
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+		
+		e.applying = true
+		e.mu.Unlock()
 		resp, applyErr := e.applyPrivileged(ctx, req)
+		e.mu.Lock()
+		e.applying = false
 		cancel()
+		
 		if applyErr == nil && resp.Success && resp.Verified {
 			pending.tx.CurrentState = StateRolledBack
 			pending.tx.Error = "confirmation deadline expired; previous configuration restored"
@@ -420,7 +462,8 @@ func (e *Engine) rollbackExpired(txID string) {
 		pending.tx.CurrentState = StateRecoveryRequired
 		pending.tx.Error = "confirmation deadline expired and rollback generation failed; retry scheduled while candidate access remains available"
 	}
-	pending.timer = time.AfterFunc(rollbackRetryDelay, func() { e.rollbackExpired(txID) })
+	delay := rollbackRetryDelay * time.Duration(1<<(pending.rollbackAttempts-1))
+	pending.timer = time.AfterFunc(delay, func() { e.rollbackExpired(txID) })
 }
 
 func buildApplyRequest(txID string, cfg config.SystemConfig) (ApplyRequest, error) {
@@ -452,15 +495,26 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	defer e.mu.Unlock()
 	req, err := buildApplyRequest(fmt.Sprintf("boot-reconcile-%d", time.Now().UnixNano()), e.currentConfig)
 	if err != nil {
+		e.requireRecovery(err.Error())
 		return err
 	}
 	req.Op = OpReconcile
+	
+	e.applying = true
+	e.mu.Unlock()
 	resp, err := e.applyPrivileged(ctx, req)
+	e.mu.Lock()
+	e.applying = false
+	
 	if err != nil {
-		return fmt.Errorf("boot reconciliation failed: %w", err)
+		errStr := fmt.Sprintf("boot reconciliation failed: %v", err)
+		e.requireRecovery(errStr)
+		return errors.New(errStr)
 	}
 	if !resp.Success || !resp.Verified {
-		return fmt.Errorf("boot reconciliation was not verified: %s", resp.Error)
+		errStr := fmt.Sprintf("boot reconciliation was not verified: %s", resp.Error)
+		e.requireRecovery(errStr)
+		return errors.New(errStr)
 	}
 	e.recoveryRequired = false
 	e.recoveryReason = ""
@@ -468,8 +522,8 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 }
 
 func (e *Engine) GetCurrentConfig() config.SystemConfig {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.currentConfig
 }
 

@@ -202,6 +202,14 @@ func (c *SystemConfig) Validate() error {
 				appendFieldError(&errs, "dhcp.range", "cannot contain the LAN gateway address")
 			}
 		}
+		
+		// Helper for checking lease overlap
+		isDynamic := func(ip net.IP) bool {
+			if ip == nil || startIP == nil || endIP == nil {
+				return false
+			}
+			return compareIPv4(ip, startIP) >= 0 && compareIPv4(ip, endIP) <= 0
+		}
 		if len(c.DHCP.DNSServers) < 1 || len(c.DHCP.DNSServers) > 3 {
 			appendFieldError(&errs, "dhcp.dns_servers", "must contain between one and three explicit upstream resolvers")
 		}
@@ -220,15 +228,18 @@ func (c *SystemConfig) Validate() error {
 			mac, err := net.ParseMAC(lease.MAC)
 			if err != nil || len(mac) != 6 {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].mac", i), "must be a valid 48-bit MAC address")
+			} else {
+				macKey := mac.String()
+				if _, exists := seenMAC[macKey]; exists {
+					appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].mac", i), "duplicates another static lease")
+				}
+				seenMAC[macKey] = struct{}{}
 			}
-			macKey := strings.ToLower(lease.MAC)
-			if _, exists := seenMAC[macKey]; exists {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].mac", i), "duplicates another static lease")
-			}
-			seenMAC[macKey] = struct{}{}
 			ip := parseIPv4(lease.IPAddress)
 			if ip == nil || (lanNetwork != nil && !lanNetwork.Contains(ip)) {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must be a valid address in the LAN subnet")
+			} else if isDynamic(ip) {
+				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "must not overlap with the dynamic DHCP pool")
 			}
 			if _, exists := seenLeaseIP[lease.IPAddress]; exists {
 				appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].ip_address", i), "duplicates another static lease")
@@ -357,21 +368,18 @@ func (c *SystemConfig) Validate() error {
 			if peer.PresharedKey != "" && !validWireGuardKey(peer.PresharedKey) {
 				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].preshared_key", i), "must be a valid 32-byte WireGuard key")
 			}
-			if len(peer.AllowedIPs) == 0 || len(peer.AllowedIPs) > 16 {
-				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].allowed_ips", i), "must contain 1-16 CIDR entries")
+			if len(peer.AllowedIPs) != 1 {
+				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].allowed_ips", i), "must contain exactly one IPv4 /32 address")
 			}
 			for j, allowed := range peer.AllowedIPs {
 				ip, network, err := net.ParseCIDR(allowed)
-				allowedPrefix, wgPrefix := 0, 0
+				allowedPrefix := 0
 				if network != nil {
 					allowedPrefix, _ = network.Mask.Size()
 				}
-				if wgNetwork != nil {
-					wgPrefix, _ = wgNetwork.Mask.Size()
-				}
-				if err != nil || ip.To4() == nil ||
-					(wgNetwork != nil && (!wgNetwork.Contains(ip) || allowedPrefix < wgPrefix)) {
-					appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].allowed_ips[%d]", i, j), "must be an IPv4 CIDR inside the WireGuard subnet")
+				if err != nil || ip.To4() == nil || allowedPrefix != 32 ||
+					(wgNetwork != nil && !wgNetwork.Contains(ip)) {
+					appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].allowed_ips[%d]", i, j), "must be an IPv4 /32 address inside the WireGuard subnet")
 					continue
 				}
 				key := network.String()
