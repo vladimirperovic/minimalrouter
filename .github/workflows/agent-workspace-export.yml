@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - ai/gemini-security-reliability-fixes
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: agent-workspace-export-${{ github.ref }}
+  group: agent-workspace-export-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,10 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check out repository
+      - name: Check out repository without persisted credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
+          persist-credentials: false
+      - name: Verify checkout contains no embedded authorization header
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! git config --local --get-regexp 'http\..*\.extraheader'
       - name: Package workspace including Git metadata
         shell: bash
         run: |
