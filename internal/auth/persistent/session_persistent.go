@@ -146,10 +146,10 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	}
 	psm.mu.Lock()
 	psm.sessions[sessionID] = session
+	copy := *session
 	psm.mu.Unlock()
 
 	_ = psm.store.UpdateSessionLastSeen(sessionID, now)
-	copy := *session
 	return &copy, nil
 }
 

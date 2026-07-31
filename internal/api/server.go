@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -391,6 +393,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Check if TOTP is configured
 	if s.store != nil {
 		totpSecret, err := s.store.GetAdminTOTPSecret()
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[AUTH] Database error reading TOTP secret from %s: %v\n", ip, err)
+			s.appendAudit("auth.login_failed", ip, map[string]string{"result": "database_error"})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication service unavailable"})
+			return
+		}
 		if err == nil && totpSecret != "" {
 			// TOTP is configured - require code
 			if req.TOTPCode == "" {

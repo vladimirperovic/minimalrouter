@@ -59,8 +59,9 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to secure data directory: %w", err)
 	}
 	dbPath := filepath.Join(dirPath, "minimalrouter.db")
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)&_pragma=foreign_keys(ON)&_pragma=trusted_schema(OFF)&_pragma=secure_delete(ON)&_pragma=busy_timeout(5000)&_pragma=cache_size(-2000)"
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database at %s: %w", dbPath, err)
 	}
@@ -70,28 +71,17 @@ func NewStore(dirPath string) (*SQLiteStore, error) {
 	db.SetMaxIdleConns(2)
 	db.SetConnMaxIdleTime(5 * time.Minute)
 
-	// Prefer durability over throughput: configuration commits are rare and
-	// must survive abrupt power loss.
-	if _, err := db.Exec(`
-		PRAGMA journal_mode=WAL;
-		PRAGMA synchronous=FULL;
-		PRAGMA foreign_keys=ON;
-		PRAGMA trusted_schema=OFF;
-		PRAGMA secure_delete=ON;
-		PRAGMA busy_timeout=5000;
-		PRAGMA cache_size=-2000;
-	`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to harden SQLite connection: %w", err)
-	}
-	if err := os.Chmod(dbPath, 0600); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to secure SQLite database: %w", err)
-	}
+	// PRAGMAs are applied per-connection via DSN parameters.
+	
 	var integrity string
 	if err := db.QueryRow("PRAGMA quick_check").Scan(&integrity); err != nil || integrity != "ok" {
 		db.Close()
 		return nil, fmt.Errorf("SQLite integrity check failed")
+	}
+	
+	if err := os.Chmod(dbPath, 0600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to secure SQLite database: %w", err)
 	}
 
 	// Run schema migrations (idempotent with IF NOT EXISTS)
@@ -497,12 +487,23 @@ func (s *SQLiteStore) SetAdminHash(hash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
 		`INSERT INTO admin_credentials (id, password_hash, updated_at) VALUES (1, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = excluded.updated_at`,
 		hash, time.Now().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // GetAdminTOTPSecret retrieves the TOTP secret for admin.
@@ -526,12 +527,23 @@ func (s *SQLiteStore) SetAdminTOTPSecret(secret string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
 		`INSERT INTO admin_credentials (id, password_hash, totp_secret, updated_at) VALUES (1, '', ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET totp_secret = excluded.totp_secret, updated_at = excluded.updated_at`,
 		secret, time.Now().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ClearAdminTOTPSecret removes the TOTP secret for admin.
@@ -539,11 +551,22 @@ func (s *SQLiteStore) ClearAdminTOTPSecret() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(
 		`UPDATE admin_credentials SET totp_secret = NULL, updated_at = ? WHERE id = 1`,
 		time.Now().Format(time.RFC3339),
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Close closes the underlying SQLite database connection.

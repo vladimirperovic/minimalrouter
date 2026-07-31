@@ -116,6 +116,18 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		cfg.LAN.CIDR = fmt.Sprintf("%s/24", req.LANIPAddress)
 	}
 
+	// SECURITY: Persist the hashed admin password in memory and SQLite *before* applying network changes.
+	// If the network apply fails or crashes, the router is still securely authenticated.
+	if store := s.engine.GetStore(); store != nil {
+		if err := store.SetAdminHash(hashedPassword); err != nil {
+			http.Error(w, "Failed to persist administrator credential", http.StatusInternalServerError)
+			return
+		}
+	}
+	s.mu.Lock()
+	s.adminHash = hashedPassword
+	s.mu.Unlock()
+
 	txID := fmt.Sprintf("wizard-setup-%d", cfg.Revision)
 	tx, err := s.engine.ProcessTransaction(txID, cfg)
 	if err != nil {
@@ -127,17 +139,8 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SECURITY: Persist the hashed admin password in memory and SQLite
-	if store := s.engine.GetStore(); store != nil {
-		if err := store.SetAdminHash(hashedPassword); err != nil {
-			http.Error(w, "Router applied but administrator credential could not be persisted", http.StatusInternalServerError)
-			return
-		}
-	}
-	s.mu.Lock()
-	s.adminHash = hashedPassword
-	s.mu.Unlock()
-
+	// Password was already persisted above
+	
 	log.Printf("[AUTH] Wizard completed: admin password set, system configured from %s\n", r.RemoteAddr)
 	s.appendAudit("system.setup_completed", auditActor(r.RemoteAddr), map[string]string{
 		"wan_interface": cfg.WAN.Interface,

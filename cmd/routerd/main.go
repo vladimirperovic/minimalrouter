@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -54,6 +56,8 @@ func main() {
 	if hash, err := store.GetAdminHash(); err == nil {
 		adminHash = hash
 		log.Println("[AUTH] Loaded persisted administrator password hash from SQLite store")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		log.Fatalf("Failed to read administrator password hash from store: %v", err)
 	}
 
 	previewMode := os.Getenv("MINIMALROUTER_PREVIEW_MODE") == "1"
@@ -73,8 +77,7 @@ func main() {
 	}
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
 	if err := engine.Reconcile(reconcileCtx); err != nil {
-		reconcileCancel()
-		log.Fatalf("Refusing management startup because canonical state could not be reconciled: %v", err)
+		log.Printf("Warning: Failed to reconcile canonical state (engine entered recovery mode): %v", err)
 	}
 	reconcileCancel()
 
@@ -161,7 +164,7 @@ func main() {
 		TLSConfig:         tlsConfig,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		WriteTimeout:      3 * time.Minute,
 		IdleTimeout:       15 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
