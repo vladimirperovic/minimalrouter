@@ -29,6 +29,9 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 		Architecture: runtime.GOARCH,
 		CPUCount:     runtime.NumCPU(),
 	}
+	var timex unix.Timex
+	clockState, clockErr := unix.Adjtimex(&timex)
+	status.TimeSynchronized = clockErr == nil && clockState != unix.TIME_ERROR
 	if data, err := os.ReadFile("/proc/uptime"); err == nil {
 		fields := strings.Fields(string(data))
 		if len(fields) > 0 {
@@ -99,6 +102,14 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 	status.TXBytes = readUint("/sys/class/net/" + statsInterface + "/statistics/tx_bytes")
 	if raw := readUint("/sys/class/thermal/thermal_zone0/temp"); raw > 0 {
 		status.TemperatureC = float64(raw) / 1000
+	}
+	status.ConntrackCount = readUint("/proc/sys/net/netfilter/nf_conntrack_count")
+	status.ConntrackMax = readUint("/proc/sys/net/netfilter/nf_conntrack_max")
+	if status.ConntrackMax > 0 {
+		status.ConntrackUsagePercent = float64(status.ConntrackCount) / float64(status.ConntrackMax) * 100
+		if status.ConntrackUsagePercent > 100 {
+			status.ConntrackUsagePercent = 100
+		}
 	}
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
 	return status
