@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -171,6 +172,9 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	defer handle.Close()
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	return handle.Sync()
 }
 
