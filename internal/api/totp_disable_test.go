@@ -44,6 +44,9 @@ func TestTOTPDisableDecodesPasswordBeforeVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := server.store.SetAdminHash(hash); err != nil {
+		t.Fatal(err)
+	}
 	server.adminHash = hash
 
 	const secret = "JBSWY3DPEHPK3PXP"
