@@ -55,11 +55,16 @@ The project aims to:
 - validate configuration at multiple trust boundaries;
 - generate deterministic service configuration rather than executing arbitrary
   shell fragments;
+- journal privileged intent before side effects and persist a validated result
+  afterward;
+- make ambiguous outcomes block later mutations instead of guessing commit or
+  rollback;
 - snapshot and roll back disruptive changes;
 - avoid default credentials and require an administrator password during setup;
 - redact secrets from normal API responses, logs, diagnostics, and audit events;
 - keep optional network-facing features disabled until explicitly configured;
-- fail closed when a feature or required runtime adapter is unavailable.
+- fail closed when a feature, state record, or required runtime adapter is
+  unavailable.
 
 These are design objectives and tested properties in specific environments, not
 a guarantee that the software contains no vulnerabilities.
@@ -71,9 +76,10 @@ a guarantee that the software contains no vulnerabilities.
 | WAN | Untrusted | Default deny; no web management |
 | LAN clients | Partially trusted | Only required DHCP, DNS, ICMP, and authenticated management paths |
 | Admin browser | Authenticated but exposed to hostile web content | HTTPS, secure cookies, same-origin checks, CSRF protection, bounded sessions |
-| `routerd` | Network-facing and potentially compromisable | Runs unprivileged; no arbitrary command execution or direct service-file writes |
-| `router-applyd` | Highly privileged local helper | No network listener; typed, bounded, allowlisted operations over a protected Unix socket |
-| SQLite state | Sensitive local state | Restrictive ownership, transactions, bounded access, secret-aware exports |
+| `routerd` | Network-facing and potentially compromisable | Runs unprivileged; no arbitrary command execution or direct service-file writes; blocks mutations after ambiguous privileged outcomes |
+| `router-applyd` | Highly privileged local helper | No network listener; typed, bounded, allowlisted operations over a protected Unix socket; durable intent/result records and fail-closed replay |
+| SQLite state | Sensitive canonical state | Restrictive ownership, transactions, bounded access, secret-aware exports, canonical source for reconciliation |
+| Helper journals | Sensitive recovery metadata | Restrictive ownership, structural validation, hashes, atomic replacement, never treated as authoritative over SQLite canonical state |
 | Build and release pipeline | High trust | Pinned dependencies, CI, static analysis, secret scanning, checksums, and future signed releases |
 
 ## Secure defaults
@@ -124,13 +130,49 @@ All configuration changes must follow the typed pipeline:
 
 ```text
 input → validation → model → generation → preflight → snapshot
-      → apply → verification → commit or rollback
+      → durable intent → apply → verification → durable result
+      → SQLite canonical commit or verified rollback
+      → helper last-good acknowledgement
 ```
+
+For disruptive changes, runtime confirmation and durable commit are separate:
+
+1. `CONFIRM` verifies that the candidate management path and runtime are active.
+2. `routerd` commits the exact candidate revision to SQLite.
+3. `COMMIT_CONFIRMED` verifies runtime again, records helper `last-good`, and
+   clears pending state.
+
+An incomplete privileged intent, unreadable journal, contradictory RPC outcome,
+unverified rollback, or failed helper acknowledgement produces
+`RecoveryRequired`. Ordinary mutations remain blocked until typed canonical
+`RECONCILE` applies and verifies the SQLite configuration. Unknown state must not
+be converted into a successful rollback or commit.
+
+Transport retries for one logical operation reuse the same transaction ID so the
+helper can replay its idempotent result. A later explicit retry after a recorded
+final helper storage failure uses a fresh ID so the failure is not permanently
+cached.
 
 `router-applyd` currently runs as root because it configures interfaces,
 firewall rules, sysctls, and system services. Its authority is reduced at the
 application boundary, but a complete capability, namespace, or seccomp profile
 is not yet a finished release feature.
+
+## Privileged persistence rules
+
+The helper's transaction journal, pending-confirmation state, and `last-good`
+configuration are security-sensitive recovery metadata.
+
+- The transaction intent must be durably written before side effects.
+- Completed results must include a matching request fingerprint, valid
+  timestamps, a matching response ID, and a valid non-contradictory outcome.
+- Pending-confirmation state must validate and its hash must match the complete
+  configuration.
+- Corrupt, valid-but-empty, unreadable, or incomplete records fail closed.
+- Helper `last-good` must not advance before SQLite canonical commit.
+- Only `RECONCILE` may supersede unresolved journal state, and it may apply only
+  the canonical configuration generated by `routerd`.
+- Recovery metadata must use restrictive permissions and atomic file replacement.
 
 ## Secret handling
 
@@ -143,7 +185,7 @@ Never commit or publish:
 - Cloudflare or other provider tokens;
 - Wi-Fi or Squid passwords;
 - encrypted-backup passwords or plaintext backups;
-- runtime SQLite databases, configuration files, or snapshots;
+- runtime SQLite databases, configuration files, journals, or snapshots;
 - real pfSense XML exports;
 - packet captures containing private traffic;
 - screenshots or logs containing public IPs, hostnames, MAC addresses, device
@@ -211,8 +253,8 @@ The current project does not claim complete protection against:
 - undiscovered implementation defects.
 
 Disk encryption, Secure Boot enforcement, signed recovery media, production
-update rollback, stronger `router-applyd` confinement, and independent
-penetration testing remain release work.
+update rollback qualification, stronger `router-applyd` confinement, and
+independent penetration testing remain release work.
 
 ## Public repository release gates
 
@@ -241,11 +283,14 @@ Public source availability does not make the router production-ready. Before a
 future release is recommended as a household production router, the project must
 also:
 
-- verify PPPoE, DHCP, DNS, NAT, WireGuard, reboot reconciliation, backup restore,
+- verify PPPoE, DHCP, DNS, NAT, WireGuard, boot reconciliation, backup restore,
   rollback, and recovery on supported physical hardware;
 - perform independent external IPv4 and IPv6 scanning from an unrelated network;
-- run fault injection for full disk, read-only filesystem, service crash,
-  interrupted transaction, and corrupted snapshot;
+- run fault injection for full disk, inode exhaustion, read-only filesystem,
+  service crash, helper-process crash, interrupted transaction, corrupted helper
+  metadata, and corrupted snapshot;
+- interrupt apply, confirmation, SQLite commit, final helper commit, and reconcile
+  at controlled power-loss boundaries;
 - publish measured sustained throughput, latency, memory, thermals, and failure
   behavior on reference hardware;
 - boot and verify signed recovery media;
