@@ -1,9 +1,9 @@
 name: Sync validated public recovery hardening
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/sync-privileged-recovery-v3
+      - main
     paths:
       - .github/workflows/sync-validated-public.yml
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   sync:
+    if: github.head_ref == 'agent/sync-privileged-recovery-v3'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
