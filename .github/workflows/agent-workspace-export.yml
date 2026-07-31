@@ -21,16 +21,24 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Apply reviewed patch when present
+      - name: Apply reviewed patch when complete
         shell: bash
         run: |
           set -euo pipefail
-          if [ ! -f agent-fix.patch ]; then
-            echo "No patch payload in this commit; nothing to apply."
+          if [ ! -f agent-fix.ready ]; then
+            echo "Patch payload is not complete yet; nothing to apply."
             exit 0
           fi
-          git apply --index --whitespace=error-all agent-fix.patch
-          git rm agent-fix.patch
+          shopt -s nullglob
+          parts=(agent-fix.part*)
+          if [ "${#parts[@]}" -eq 0 ]; then
+            echo "Patch marker exists but payload parts are missing" >&2
+            exit 1
+          fi
+          cat "${parts[@]}" | base64 --decode | gzip -d > "$RUNNER_TEMP/agent-fix.patch"
+          printf '%s  %s\n' "eba8c502fff8ba9c683bf0f33ee26a74cf6d59e454ea33e40b055cb2a9afc87a" "$RUNNER_TEMP/agent-fix.patch" | sha256sum -c -
+          git apply --index --whitespace=error-all "$RUNNER_TEMP/agent-fix.patch"
+          git rm agent-fix.ready "${parts[@]}"
           git rm .github/workflows/agent-workspace-export.yml
           git config user.name "OpenAI Review Agent"
           git config user.email "review-agent@users.noreply.github.com"
