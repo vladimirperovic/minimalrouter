@@ -104,6 +104,7 @@ func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
 		successfulScenarioStep(),
 		{err: errors.New("confirmation response lost")},
 		successfulScenarioStep(),
+		successfulScenarioStep(),
 	}}
 	engine := NewEngineWithClient(initial, nil, client)
 
@@ -124,11 +125,22 @@ func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
 	if confirmed.CurrentState != StateCommitted {
 		t.Fatalf("expected committed confirmation, got %s", confirmed.CurrentState)
 	}
-	if len(client.requests) != 3 {
-		t.Fatalf("expected apply plus two confirmation attempts, got %d requests", len(client.requests))
+	if len(client.requests) != 4 {
+		t.Fatalf("expected apply, two runtime-confirm attempts, and canonical commit, got %d requests", len(client.requests))
+	}
+	if client.requests[1].Op != OpConfirm || client.requests[2].Op != OpConfirm {
+		t.Fatalf("runtime confirmation retry used unexpected operations: %s, %s", client.requests[1].Op, client.requests[2].Op)
 	}
 	if client.requests[1].ID != client.requests[2].ID {
 		t.Fatalf("confirmation retry changed transaction ID: %q != %q", client.requests[1].ID, client.requests[2].ID)
+	}
+	if client.requests[3].Op != OpCommitConfirmed {
+		t.Fatalf("final helper operation=%s, want %s", client.requests[3].Op, OpCommitConfirmed)
+	}
+	for i := 1; i < len(client.requests); i++ {
+		if client.requests[i].Revision != client.requests[0].Revision {
+			t.Fatalf("request %d changed confirmed revision", i)
+		}
 	}
 }
 

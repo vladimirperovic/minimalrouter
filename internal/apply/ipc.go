@@ -27,6 +27,8 @@ type OperationType string
 const (
 	OpApplyAll        OperationType = "APPLY_ALL"
 	OpConfirm         OperationType = "CONFIRM"
+	OpCommitConfirmed OperationType = "COMMIT_CONFIRMED"
+	OpReconcile       OperationType = "RECONCILE"
 	OpLoadNftables    OperationType = "LOAD_NFTABLES"
 	OpReloadService   OperationType = "RELOAD_SERVICE"
 	OpRestoreSnapshot OperationType = "RESTORE_SNAPSHOT"
@@ -59,6 +61,31 @@ type ApplyResponse struct {
 	RolledBack       bool   `json:"rolled_back,omitempty"`
 	RecoveryRequired bool   `json:"recovery_required,omitempty"`
 	Timestamp        int64  `json:"timestamp"`
+}
+
+// Validate rejects contradictory privileged outcomes. The management plane must
+// never interpret a malformed or internally inconsistent response as proof that
+// either the candidate or the previous runtime is active.
+func (r ApplyResponse) Validate() error {
+	if r.Success {
+		if !r.Verified {
+			return fmt.Errorf("successful response is not verified")
+		}
+		if r.RolledBack {
+			return fmt.Errorf("successful response also reports rollback")
+		}
+		if r.RecoveryRequired {
+			return fmt.Errorf("successful response also requires recovery")
+		}
+		return nil
+	}
+	if r.Verified {
+		return fmt.Errorf("failed response cannot report verified success")
+	}
+	if r.RolledBack && r.RecoveryRequired {
+		return fmt.Errorf("response cannot report both rollback and recovery required")
+	}
+	return nil
 }
 
 // Client is the only interface the unprivileged control plane uses to request

@@ -3,12 +3,16 @@
 ## Principle
 
 Router tests must prove failure behavior, not only the happy path. Every mutation
-must end in exactly one of two states:
+must end in exactly one of three states:
 
-- the complete new configuration is active and recorded; or
-- the complete previous known-good configuration is restored.
+- the complete new configuration is active and recorded as `Committed`;
+- the complete previous known-good configuration is positively verified as
+  restored and recorded as `RolledBack`; or
+- the outcome cannot be proven, the router reports `RecoveryRequired`, blocks
+  further mutation, and requires canonical reconciliation or local recovery.
 
-Partial success is a defect.
+Partial success, inferred rollback, and unknown state reported as success are
+defects.
 
 The latest repository-wide result is summarized in
 [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md). Dated hardware evidence remains
@@ -26,7 +30,9 @@ govulncheck ./...
 
 Coverage includes validation, authorization, configuration generation,
 transaction state, snapshots, recovery, migrations, interface selection,
-device-profile schedules, signed manifests, and A/B slot transitions.
+device-profile schedules, signed manifests, A/B slot transitions, privileged RPC
+outcome invariants, durable intent/result records, idempotent retries,
+commit-confirm ordering, and canonical reconciliation.
 
 ### Dashboard tests
 
@@ -58,9 +64,34 @@ environment:
 - explicit rollback to the previous verified slot.
 
 This is a packaging and lifecycle smoke test. It does not replace real Proxmox,
-physical NIC, PPPoE, external scan, sustained load, or abrupt host-power tests.
+physical NIC, PPPoE, external scan, sustained load, storage-failure, process-kill,
+or abrupt host-power tests.
 
-### Crash recovery and fuzzing
+### Configuration crash and IPC tests
+
+Deterministic tests cover:
+
+- lost apply and confirmation responses;
+- identical-ID retry without duplicate privileged side effects;
+- transaction-ID reuse with different content;
+- durable intent written before side effects;
+- incomplete intent after a simulated interruption;
+- result-journal persistence failure;
+- corrupt or structurally invalid transaction, pending, and last-good metadata;
+- contradictory privileged RPC outcomes;
+- blocking new mutations after `RecoveryRequired`;
+- canonical `RECONCILE` as the only allowed override for unresolved helper state;
+- WireGuard-only management changes that require confirmation;
+- failed automatic rollback and fresh rollback IDs;
+- SQLite commit failure with verified versus unverified restoration;
+- two-phase confirmation ordering: runtime verification, SQLite commit, helper
+  `last-good` commit, and pending cleanup;
+- fresh final-commit IDs for explicit retry after a helper storage failure.
+
+These tests prove protocol behavior in-process. They do not prove filesystem,
+kernel, service-manager, or power-loss behavior on the target appliance.
+
+### Update crash recovery and fuzzing
 
 The Deep validation workflow runs:
 
@@ -158,7 +189,7 @@ Component tests run in pinned Alpine containers or disposable VMs and cover:
 - signature, checksum, path, symlink, and manifest rejection.
 
 Containers validate generators and lifecycle contracts but do not replace boot,
-kernel, hypervisor, or physical-network tests.
+kernel, hypervisor, physical-network, or persistent-storage tests.
 
 ## Manual Proxmox and appliance tests
 
@@ -173,42 +204,55 @@ Required order:
 4. Stable WAN/LAN role reconciliation.
 5. DHCP, DNS, NAT, and default-deny WAN validation.
 6. HTTPS management boundary, login/logout, CSRF, and recovery-console access.
-7. Update activation, service restart/reboot, verification, and rollback.
-8. Backup restore into a fresh VM.
-9. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss, and
-   management responsiveness.
-10. Controlled service crash, disk pressure, read-only, corrupt-state, and abrupt
+7. Disruptive change with successful confirmation, timeout rollback, and failed
+   rollback recovery.
+8. Process termination at durable-intent, runtime-confirmation, SQLite-commit,
+   final-helper-commit, and reconcile boundaries.
+9. Update activation, service restart/reboot, verification, and rollback.
+10. Backup restore into a fresh VM.
+11. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss,
+    and management responsiveness.
+12. Full disk, inode exhaustion, read-only filesystem, corrupt-state, and abrupt
     power-loss tests on a disposable target.
-11. Real PPPoE only during a maintenance window after rollback is proven.
-12. External IPv4/IPv6 scan and WireGuard from an unrelated network.
-13. At least seven days of continuous operation.
+13. Real PPPoE only during a maintenance window after rollback is proven.
+14. External IPv4/IPv6 scan and WireGuard from an unrelated network.
+15. At least seven days of continuous operation.
 
 ## Failure-injection matrix
 
 Inject at least:
 
-- invalid or oversized API input;
+- invalid or oversized API and IPC input;
 - stale revision;
-- generator/preflight/apply/verification failure;
+- generator, preflight, apply, verification, and confirmation failure;
+- failed durable-intent and completed-result writes;
+- unreadable, corrupt, incomplete, or contradictory privileged journal records;
+- lost IPC response after each privileged phase;
+- explicit final helper commit failure followed by retry;
+- SQLite commit failure before and after runtime confirmation;
 - full disk and inode exhaustion;
 - read-only filesystem;
 - snapshot write failure;
 - nftables or dnsmasq validation failure;
-- service timeout or crash;
+- service timeout, crash, and process kill;
 - lost route or management address;
 - missing administrator confirmation;
-- interrupted update before/after every durable marker;
-- corrupted current snapshot, database, manifest, or journal;
+- power loss before and after every durable configuration and update marker;
+- corrupted current snapshot, database, manifest, pending record, or journal;
 - unsupported backup, database, or release version.
 
 For every case assert:
 
 - active Linux state;
-- database revision;
+- SQLite canonical revision;
+- helper `last-good`, pending, and transaction-journal state;
 - service health;
-- update slot and journal state;
+- update slot and update-journal state;
 - audit result;
-- recovery or rollback outcome.
+- exact terminal state: `Committed`, verified `RolledBack`, or
+  `RecoveryRequired`;
+- whether new mutations are correctly accepted or blocked;
+- recovery or canonical reconcile outcome.
 
 ## Security test matrix
 
@@ -220,7 +264,10 @@ Verify:
 - login and expensive-operation rate limits;
 - rejection of invalid UTF-8, unknown fields, traversal, metacharacters, and large
   bodies;
-- privileged helper peer, operation, path, flag, and message bounds;
+- privileged helper peer, operation, path, flag, message, and outcome bounds;
+- incomplete or corrupt privileged state cannot be treated as fresh state;
+- only the canonical `RECONCILE` operation may supersede unresolved helper
+  journal state;
 - `router-applyd` no-new-privileges, fixed executable path, bounded resources, and
   sanitized loader environment;
 - logs, diagnostics, backups, public files, and artifacts contain no unapproved
@@ -245,7 +292,7 @@ Record:
 - WireGuard throughput and CPU cost;
 - QoS behavior under load;
 - packet loss, latency, jitter, and management responsiveness;
-- log, snapshot, and disk growth.
+- log, snapshot, helper-journal, and disk growth.
 
 Do not use the Go control plane as the forwarding benchmark path.
 

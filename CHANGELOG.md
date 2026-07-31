@@ -9,15 +9,21 @@ alpha, compatibility may change between commits.
 ### Added
 
 - Durable update-operation journal for crash-safe A/B activation and rollback.
+- Durable privileged-operation intent and completed-result records written around
+  each `router-applyd` side-effect boundary.
 - Recovery-safe bootstrap executables independent of the candidate firmware slot.
 - Failure-injection coverage for interrupted activation, rollback, corrupt
   journals, state-write failures, and concurrent update operations.
 - Deterministic router failure scenarios covering lost privileged responses,
   confirmation-response loss, simulated power loss during pending changes,
   WireGuard-only management changes, failed automatic rollback, SQLite commit
-  failure, unverified helper results, and boot reconciliation.
+  failure, unverified helper results, boot reconciliation, incomplete helper
+  intents, corrupt helper metadata, and two-phase confirmation ordering.
 - Explicit `RecoveryRequired` transaction and RPC outcome for runtime states whose
-  rollback has not been verified.
+  commit or rollback has not been verified.
+- Allowlisted `RECONCILE` privileged operation that may supersede unresolved
+  helper journal state only by applying and verifying SQLite canonical state.
+- Separate `COMMIT_CONFIRMED` phase after runtime confirmation and SQLite commit.
 - Failure-scenario matrix for IPC, power, process, storage, firewall, DHCP/DNS,
   PPPoE, WireGuard, update, backup, restore, and target-Proxmox testing.
 - Fuzz targets for malformed unauthenticated API requests and update journals.
@@ -45,8 +51,17 @@ alpha, compatibility may change between commits.
 
 - Ambiguous `routerd` to `router-applyd` transport failures retry the exact same
   transaction ID so the helper can return its persisted idempotent result.
+- Privileged mutations write an intent record before side effects and a validated
+  final result afterward; an incomplete intent blocks ordinary mutation.
+- Privileged transaction, pending-confirmation, and last-good records are
+  structurally validated and fail closed when unreadable or inconsistent.
 - WireGuard key, port, address, peer, and route changes require commit-confirm
   while management is WireGuard-only.
+- Commit-confirm now follows a two-phase persistence order: verify candidate
+  runtime, commit the exact candidate revision to SQLite, then record helper
+  `last-good` and clear pending state.
+- A failed explicit final helper commit retry uses a fresh transaction ID while
+  transport retries inside the same attempt retain the same ID.
 - A failed automatic commit-confirm rollback retains pending/candidate access,
   blocks overlapping configuration, schedules another attempt, and uses a fresh
   rollback transaction ID rather than replaying a cached failed response.
@@ -78,12 +93,23 @@ alpha, compatibility may change between commits.
 
 - Lost IPC responses after a completed apply or confirmation no longer force an
   unnecessary unknown outcome when the helper can return the saved result.
+- A helper restart after an incomplete privileged operation can no longer treat
+  the same request as fresh and repeat side effects.
+- A different transaction can no longer bypass an unresolved helper intent or
+  `RecoveryRequired` result.
+- Corrupt or valid-but-empty helper metadata is no longer treated as absent state.
+- Privileged RPC responses with contradictory success, verification, rollback, or
+  recovery flags are rejected.
 - Privileged confirmation now recognizes WireGuard control-plane changes that can
   break a WireGuard-only management path.
 - A rollback that fails verification is no longer falsely reported as
   `RolledBack`; it is reported as `RecoveryRequired`.
 - SQLite commit failure reports `RolledBack` only after a successful, verified
   privileged restoration of the previous configuration.
+- Helper `last-good` no longer advances before the corresponding SQLite canonical
+  commit during disruptive confirmation.
+- Failure to acknowledge helper `last-good` after SQLite commit no longer enables
+  timeout rollback of the now-canonical candidate.
 - A crash between update pointer changes can no longer silently lose the intended
   activation/rollback transition; journal reconciliation restores consistency.
 - Corrupt state no longer leaves a blocking partially staged version.
@@ -106,6 +132,11 @@ alpha, compatibility may change between commits.
   files, hash mismatches, duplicate versions, and package-supplied hooks.
 - The verify-to-copy window is closed by re-verification of staged files.
 - Update/recovery dispatchers use a fixed PATH and remove loader/environment hooks.
+- Privileged side effects are never started without a durable intent marker.
+- Unknown privileged outcomes block future mutation until canonical
+  reconciliation succeeds.
+- Only the typed `RECONCILE` path may override unresolved helper journal state;
+  ordinary apply and confirmation operations remain blocked.
 - Runtime data, credentials, private keys, backups, packet captures, databases,
   VM images, and private network inventory are rejected by repository hygiene.
 - Recovery has no network endpoint and credential changes revoke sessions.
@@ -116,8 +147,9 @@ alpha, compatibility may change between commits.
 
 - Early alpha; not supported as an unattended production firewall.
 - No stable signed ISO or owner-qualified recovery media.
-- Real target Proxmox, NIC, PPPoE, external scan, long-duration, and destructive
-  recovery evidence is still required.
+- Real target Proxmox, NIC, PPPoE, external scan, long-duration, full-disk,
+  read-only-filesystem, process-kill, and destructive power-loss evidence is still
+  required.
 - IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
   ecosystem are not current stable features.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.

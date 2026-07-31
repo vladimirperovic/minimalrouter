@@ -40,6 +40,7 @@ const (
 )
 
 var applyMu sync.Mutex
+var lastTransactionMemory *transactionRecord
 var transactionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 var interfaceNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
 
@@ -59,8 +60,9 @@ type previousFile struct {
 type transactionRecord struct {
 	ID          string              `json:"id"`
 	ConfigHash  string              `json:"config_hash"`
-	Response    apply.ApplyResponse `json:"response"`
-	CompletedAt time.Time           `json:"completed_at"`
+	Response    apply.ApplyResponse `json:"response,omitempty"`
+	StartedAt   time.Time           `json:"started_at"`
+	CompletedAt time.Time           `json:"completed_at,omitempty"`
 }
 
 type pendingConfirmation struct {
@@ -153,7 +155,9 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "invalid transaction ID"})
 		return
 	}
-	if req.Op != apply.OpApplyAll && req.Op != apply.OpConfirm {
+	switch req.Op {
+	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile:
+	default:
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "operation is not allowlisted"})
 		return
 	}
@@ -166,27 +170,44 @@ func handleConnection(conn net.Conn) {
 		writeResponse(conn, failure(req.ID, "could not fingerprint request", false))
 		return
 	}
-	if previous, err := loadLastTransaction(); err == nil && previous.ID == req.ID {
-		if previous.ConfigHash != configHash {
-			writeResponse(conn, failure(req.ID, "transaction ID was already used for different content", false))
+	canonicalReconcile := req.Op == apply.OpReconcile
+	if lastTransactionMemory != nil {
+		if replay, handled := replayTransactionResponseWithOverride(req.ID, configHash, lastTransactionMemory, nil, canonicalReconcile); handled {
+			writeResponse(conn, *replay)
 			return
 		}
-		writeResponse(conn, previous.Response)
+	}
+	previous, loadErr := loadLastTransaction()
+	if replay, handled := replayTransactionResponseWithOverride(req.ID, configHash, previous, loadErr, canonicalReconcile); handled {
+		writeResponse(conn, *replay)
 		return
 	}
 
+	intent := transactionRecord{
+		ID: req.ID, ConfigHash: configHash, StartedAt: time.Now(),
+	}
+	if err := saveLastTransaction(intent); err != nil {
+		writeResponse(conn, failure(req.ID, "privileged transaction intent could not be persisted", false))
+		return
+	}
+	lastTransactionMemory = &intent
+
 	log.Printf("apply transaction %q revision %d", req.ID, req.Revision)
 	var resp apply.ApplyResponse
-	if req.Op == apply.OpConfirm {
+	switch req.Op {
+	case apply.OpConfirm:
 		resp = confirmApply(req)
-	} else {
+	case apply.OpCommitConfirmed:
+		resp = commitConfirmedApply(req)
+	default:
 		resp = applyAll(req)
 	}
-	if err := saveLastTransaction(transactionRecord{
-		ID: req.ID, ConfigHash: configHash, Response: resp, CompletedAt: time.Now(),
-	}); err != nil {
-		resp = failure(req.ID, "transaction result could not be persisted", resp.RolledBack)
+	record := transactionRecord{
+		ID: req.ID, ConfigHash: configHash, Response: resp,
+		StartedAt: intent.StartedAt, CompletedAt: time.Now(),
 	}
+	record, resp = persistTransactionOutcome(record, saveLastTransaction)
+	lastTransactionMemory = &record
 	writeResponse(conn, resp)
 }
 
@@ -241,7 +262,11 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
-	previousConfig, _ := loadLastGood()
+	loadedPrevious, previousErr := loadLastGood()
+	previousConfig, previousErr := normalizeLastGood(loadedPrevious, previousErr)
+	if previousErr != nil {
+		return recoveryFailure(req.ID, "last-good configuration could not be read; canonical reconciliation is required")
+	}
 	if req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
 		return failure(req.ID, "confirmation mode is invalid for this change", false)
 	}
@@ -302,26 +327,46 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	pending, err := loadPendingConfirmation()
 	if err != nil {
-		return failure(req.ID, "no configuration is awaiting confirmation", false)
+		return pendingLoadFailure(req.ID, err)
 	}
 	hash, err := hashConfig(req.Config)
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmation does not match pending configuration", false)
 	}
 	if err := configureRuntimeLAN(req.Config); err != nil {
-		return failure(req.ID, "could not finalize LAN address", false)
-	}
-	if err := saveLastGood(req.Config); err != nil {
-		return failure(req.ID, "could not persist confirmed configuration", false)
-	}
-	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return failure(req.ID, "could not clear pending confirmation", false)
+		return recoveryFailure(req.ID, "could not finalize LAN address; verified rollback is required")
 	}
 	if err := verifyActive(req.Config); err != nil {
-		return failure(req.ID, "confirmed configuration verification failed", false)
+		return recoveryFailure(req.ID, "confirmed runtime verification failed; verified rollback is required")
 	}
 	return apply.ApplyResponse{
-		ID: req.ID, Success: true, Verified: true, Logs: "configuration confirmed",
+		ID: req.ID, Success: true, Verified: true, Logs: "runtime confirmation verified; canonical commit pending",
+	}
+}
+
+func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
+	if err := req.Config.Validate(); err != nil {
+		return failure(req.ID, "confirmed commit configuration is invalid", false)
+	}
+	pending, err := loadPendingConfirmation()
+	if err != nil {
+		return pendingLoadFailure(req.ID, err)
+	}
+	hash, err := hashConfig(req.Config)
+	if err != nil || hash != pending.ConfigHash {
+		return failure(req.ID, "confirmed commit does not match pending configuration", false)
+	}
+	if err := verifyActive(req.Config); err != nil {
+		return recoveryFailure(req.ID, "confirmed runtime is no longer active; canonical reconciliation is required")
+	}
+	if err := saveLastGood(req.Config); err != nil {
+		return recoveryFailure(req.ID, "could not persist canonical last-good configuration")
+	}
+	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return recoveryFailure(req.ID, "could not clear pending confirmation; canonical reconciliation is required")
+	}
+	return apply.ApplyResponse{
+		ID: req.ID, Success: true, Verified: true, Logs: "confirmed configuration committed as canonical last-good",
 	}
 }
 
@@ -1215,11 +1260,44 @@ func loadLastGood() (*config.SystemConfig, error) {
 }
 
 func saveLastGood(cfg config.SystemConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid last-good configuration: %w", err)
+	}
 	data, err := json.Marshal(cfg)
 	if err != nil {
 		return err
 	}
 	return atomicWrite(lastGoodPath, data, 0600)
+}
+
+func validateTransactionRecord(record transactionRecord) error {
+	if !transactionIDPattern.MatchString(record.ID) {
+		return errors.New("transaction record has an invalid ID")
+	}
+	digest, err := hex.DecodeString(record.ConfigHash)
+	if err != nil || len(digest) != sha256.Size {
+		return errors.New("transaction record has an invalid configuration fingerprint")
+	}
+	if record.StartedAt.IsZero() {
+		return errors.New("transaction record has no start time")
+	}
+	if record.CompletedAt.IsZero() {
+		if record.Response.ID != "" || record.Response.Success || record.Response.Verified ||
+			record.Response.RolledBack || record.Response.RecoveryRequired || record.Response.Error != "" {
+			return errors.New("incomplete transaction record contains a final response")
+		}
+		return nil
+	}
+	if record.CompletedAt.Before(record.StartedAt) {
+		return errors.New("transaction record completion precedes start")
+	}
+	if record.Response.ID != record.ID {
+		return errors.New("transaction record response ID does not match")
+	}
+	if err := record.Response.Validate(); err != nil {
+		return fmt.Errorf("transaction record response is invalid: %w", err)
+	}
+	return nil
 }
 
 func loadLastTransaction() (*transactionRecord, error) {
@@ -1231,10 +1309,16 @@ func loadLastTransaction() (*transactionRecord, error) {
 	if err := json.Unmarshal(data, &record); err != nil {
 		return nil, err
 	}
+	if err := validateTransactionRecord(record); err != nil {
+		return nil, err
+	}
 	return &record, nil
 }
 
 func saveLastTransaction(record transactionRecord) error {
+	if err := validateTransactionRecord(record); err != nil {
+		return err
+	}
 	data, err := json.Marshal(record)
 	if err != nil {
 		return err
@@ -1251,7 +1335,24 @@ func hashConfig(cfg config.SystemConfig) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func validatePendingConfirmation(pending pendingConfirmation) error {
+	if err := pending.Config.Validate(); err != nil {
+		return fmt.Errorf("pending configuration is invalid: %w", err)
+	}
+	expected, err := hashConfig(pending.Config)
+	if err != nil {
+		return err
+	}
+	if pending.ConfigHash == "" || pending.ConfigHash != expected {
+		return errors.New("pending configuration fingerprint does not match")
+	}
+	return nil
+}
+
 func savePendingConfirmation(pending pendingConfirmation) error {
+	if err := validatePendingConfirmation(pending); err != nil {
+		return err
+	}
 	data, err := json.Marshal(pending)
 	if err != nil {
 		return err
@@ -1266,6 +1367,9 @@ func loadPendingConfirmation() (*pendingConfirmation, error) {
 	}
 	var pending pendingConfirmation
 	if err := json.Unmarshal(data, &pending); err != nil {
+		return nil, err
+	}
+	if err := validatePendingConfirmation(pending); err != nil {
 		return nil, err
 	}
 	return &pending, nil
