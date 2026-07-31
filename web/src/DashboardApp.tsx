@@ -1,16 +1,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
-import DNSFilterPanel from "./components/DNSFilterPanel";
-import AuditLogPanel from "./components/AuditLogPanel";
 import { apiFetch } from "./lib/api";
-import type { PendingTransaction, RouterConfig, Snapshot, SystemStatus, WireGuardPeer } from "./api-types";
-import "./components/DNSFilterPanel.css";
+import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
+import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import "./DashboardApp.css";
-
-type SectionID = "overview" | "network" | "firewall" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs";
 
 const navigation: Array<[SectionID, string]> = [
   ["overview", "Overview"],
+  ["gateway", "Gateway Quality"],
   ["network", "WAN, LAN & DHCP"],
   ["firewall", "Firewall"],
   ["wireguard", "WireGuard"],
@@ -23,25 +20,6 @@ const navigation: Array<[SectionID, string]> = [
   ["logs", "Logs"],
 ];
 
-function formatBytes(value = 0) {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let amount = Math.max(0, value);
-  let unit = 0;
-  while (amount >= 1024 && unit < units.length - 1) {
-    amount /= 1024;
-    unit += 1;
-  }
-  return `${amount.toFixed(unit < 2 ? 0 : 1)} ${units[unit]}`;
-}
-
-function formatUptime(seconds = 0) {
-  if (seconds <= 0) return "Unavailable";
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
-}
-
 function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
@@ -50,6 +28,8 @@ function Dashboard() {
   const [active, setActive] = useState<SectionID>("overview");
   const [config, setConfig] = useState<RouterConfig | null>(null);
   const [system, setSystem] = useState<SystemStatus>({});
+  const [gatewaySummary, setGatewaySummary] = useState<GatewaySummary | null>(null);
+  const [gatewaySettings, setGatewaySettings] = useState<GatewaySettings>({ enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 });
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -68,9 +48,11 @@ function Dashboard() {
     const controller = new AbortController();
     pollController.current = controller;
     try {
-      const [configResult, systemResult, snapshotsResult, pendingResult] = await Promise.allSettled([
+      const [configResult, systemResult, gatewayResult, gatewaySettingsResult, snapshotsResult, pendingResult] = await Promise.allSettled([
         apiFetch("/api/v1/config", { signal: controller.signal }),
         apiFetch("/api/v1/system", { signal: controller.signal }),
+        apiFetch("/api/v1/gateway/summary", { signal: controller.signal }),
+        apiFetch("/api/v1/gateway/settings", { signal: controller.signal }),
         apiFetch("/api/v1/snapshots", { signal: controller.signal }),
         apiFetch("/api/v1/transactions/pending", { signal: controller.signal }),
       ]);
@@ -82,6 +64,12 @@ function Dashboard() {
       }
       if (systemResult.status === "fulfilled" && systemResult.value.ok) {
         setSystem((await systemResult.value.json()) as SystemStatus);
+      }
+      if (gatewayResult.status === "fulfilled" && gatewayResult.value.ok) {
+        setGatewaySummary((await gatewayResult.value.json()) as GatewaySummary);
+      }
+      if (gatewaySettingsResult.status === "fulfilled" && gatewaySettingsResult.value.ok) {
+        setGatewaySettings((await gatewaySettingsResult.value.json()) as GatewaySettings);
       }
       if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
         const body = await snapshotsResult.value.json();
@@ -185,6 +173,30 @@ function Dashboard() {
         dns_servers: field(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean),
       };
     }, "Network configuration applied.");
+  };
+
+  const applyGatewayMonitoring = (settings: GatewaySettings) => {
+    void (async () => {
+      setBusy(true);
+      setNotice("");
+      setError("");
+      try {
+        const response = await apiFetch("/api/v1/gateway/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(settings),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || `Gateway settings update failed (${response.status})`);
+        setGatewaySettings(body as GatewaySettings);
+        setNotice("Gateway monitoring settings applied.");
+        await load();
+      } catch (settingsError) {
+        setError(settingsError instanceof Error ? settingsError.message : "Gateway settings update failed");
+      } finally {
+        setBusy(false);
+      }
+    })();
   };
 
   const submitCloudflare = (event: FormEvent<HTMLFormElement>) => {
@@ -347,54 +359,31 @@ function Dashboard() {
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <section className="dashboard-section" id="overview">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2>{lastRefresh && <small>Updated {lastRefresh.toLocaleTimeString()}</small>}</div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
-          <div className="metric-grid">
-            <article><span>Uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong><small>{runtime.os || "Runtime unavailable"}</small></article>
-            <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
-            <article><span>Memory</span><strong>{memoryPercent}%</strong><small>{formatBytes(runtime.memory_used_bytes)} / {formatBytes(runtime.memory_total_bytes)}</small></article>
-            <article><span>Disk</span><strong>{diskPercent}%</strong><small>{formatBytes(runtime.disk_used_bytes)} / {formatBytes(runtime.disk_total_bytes)}</small></article>
-            <article><span>LAN</span><strong>{system.lan_ip || config.lan.ip_address}</strong><small>{config.lan.interface}</small></article>
-            <article><span>Update trust</span><strong>{system.update_trust_configured ? "Pinned" : "Disabled"}</strong><small>{system.update_trust_configured ? "Ed25519 key installed" : "No signing key"}</small></article>
-          </div>
-          <article className="card table-card">
-            <div className="card-title-row"><div><h3>Connected DHCP devices</h3><p>Runtime lease view; names and addresses stay local.</p></div><span className="quiet-meta">{leases.length} leases</span></div>
-            <div className="table-scroll"><table><thead><tr><th>Host</th><th>IP</th><th>MAC</th><th>Expires</th></tr></thead><tbody>{leases.length === 0 ? <tr><td className="empty-state" colSpan={4}>No active leases reported.</td></tr> : leases.map((lease) => <tr key={`${lease.mac}-${lease.ip_address}`}><td>{lease.hostname || "Unknown"}</td><td><code>{lease.ip_address}</code></td><td><code>{lease.mac}</code></td><td>{new Date(lease.expires_at * 1000).toLocaleString()}</td></tr>)}</tbody></table></div>
-          </article>
-        </section>}
-
-        {active === "network" && <section className="dashboard-section" id="network">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2></div></div>
-          <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetwork}>
-            <fieldset><legend>WAN / PPPoE</legend><label className="checkbox-row"><input defaultChecked={config.wan.enabled} name="wan_enabled" type="checkbox" /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
-            <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><select defaultValue={String(config.lan.cidr || "").split("/")[1] || "24"} name="lan_prefix"><option value="24">/24</option><option value="16">/16</option></select></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div><label className="checkbox-row"><input defaultChecked={config.dhcp.enabled} name="dhcp_enabled" type="checkbox" /><span>Enable DHCP server</span></label></fieldset>
-            <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply network configuration</button></div>
-          </form>
-        </section>}
-
-        {active === "firewall" && <section className="dashboard-section" id="firewall">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2></div></div>
-          <div className="status-list"><article><div><strong>WAN input</strong><span>Unsolicited WAN input remains denied.</span></div><b>DENY</b></article><article><div><strong>State tracking</strong><span>Established and related traffic is accepted after security schedules.</span></div><b>{config.firewall.stateful_firewall ? "ON" : "INVALID"}</b></article><article><div><strong>Remote entry</strong><span>WireGuard is the only supported WAN entry point.</span></div><b>{config.firewall.wan_ingress_mode || "wireguard_only"}</b></article><article><div><strong>WAN port forwards</strong><span>The secure profile rejects enabled port forwards.</span></div><b>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</b></article></div>
-        </section>}
-
-        {active === "wireguard" && <section className="dashboard-section" id="wireguard">
-          <div className="dashboard-section-heading"><div><p className="eyebrow">Remote access</p><h2>WireGuard</h2></div><button className="button secondary" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable" : "Enable"}</button></div>
-          <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
-          <article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Name</th><th>Allowed IPs</th><th>Endpoint</th><th>Status</th></tr></thead><tbody>{(config.wireguard.peers || []).length === 0 ? <tr><td className="empty-state" colSpan={4}>No peers configured.</td></tr> : config.wireguard.peers.map((peer: WireGuardPeer) => <tr key={peer.id}><td>{peer.name}</td><td><code>{(peer.allowed_ips || []).join(", ")}</code></td><td>{peer.endpoint || "Dynamic"}</td><td>{peer.enabled ? "Enabled" : "Disabled"}</td></tr>)}</tbody></table></div></article>
-        </section>}
-
-        {active === "cloudflare" && <section className="dashboard-section" id="cloudflare"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Cloudflare Dynamic DNS</h2></div></div><form className="settings-form" key={`cf-${config.revision}`} onSubmit={submitCloudflare}><label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable DDNS</span></label><div className="form-grid two"><label className="field"><span>Hostname</span><input defaultValue={config.cloudflare.domain} name="domain" /></label><label className="field"><span>Zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" /></label><label className="field form-span"><span>New scoped API token</span><input autoComplete="new-password" name="token" placeholder="Leave blank to keep stored secret" type="password" /></label></div><p className="form-note">Cloudflare Tunnel remains unavailable; WireGuard is the only accepted remote-entry path.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply DDNS configuration</button></div></form></section>}
-
-        {active === "squid" && <section className="dashboard-section" id="squid"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Squid forward proxy</h2></div></div><form className="settings-form" key={`squid-${config.revision}`} onSubmit={submitSquid}><label className="checkbox-row"><input defaultChecked={config.squid_proxy.enabled} name="enabled" type="checkbox" /><span>Enable non-caching proxy</span></label><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} name="username" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" name="password" placeholder="Leave blank to keep stored secret" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply proxy configuration</button></div></form></section>}
-
-        {active === "dns-filter" && <DNSFilterPanel apiConnected onError={setError} />}
-
-        {active === "wifi" && <section className="dashboard-section" id="wifi"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional hardware</p><h2>Wi-Fi access point</h2></div></div><form className="settings-form" key={`wifi-${config.revision}`} onSubmit={submitWiFi}><label className="checkbox-row"><input defaultChecked={config.wifi.enabled} name="enabled" type="checkbox" /><span>Enable access point</span></label><div className="form-grid two"><label className="field"><span>Radio interface</span><input defaultValue={config.wifi.interface} name="interface" /></label><label className="field"><span>SSID</span><input defaultValue={config.wifi.ssid} name="ssid" /></label><label className="field"><span>Band</span><select defaultValue={config.wifi.band} name="band"><option value="2.4ghz">2.4 GHz</option><option value="5ghz">5 GHz</option></select></label><label className="field"><span>Channel</span><input defaultValue={config.wifi.channel} name="channel" type="number" /></label><label className="field form-span"><span>New passphrase</span><input autoComplete="new-password" name="passphrase" placeholder="Leave blank to keep stored secret" type="password" /></label></div><label className="checkbox-row"><input defaultChecked={config.wifi.hide_ssid} name="hide_ssid" type="checkbox" /><span>Hide SSID</span></label><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Wi-Fi configuration</button></div></form></section>}
-
-        {active === "recovery" && <section className="dashboard-section" id="recovery"><div className="dashboard-section-heading"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div><article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article></section>}
-
-        {active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button></div></form></section>}
-        {active === "logs" && <AuditLogPanel />}
+        <DashboardSections
+          active={active}
+          applyConfig={applyConfig}
+          applyGatewayMonitoring={applyGatewayMonitoring}
+          busy={busy}
+          changePassword={changePassword}
+          config={config}
+          createSnapshot={createSnapshot}
+          diskPercent={diskPercent}
+          gatewaySummary={gatewaySummary}
+          gatewaySettings={gatewaySettings}
+          lastRefresh={lastRefresh}
+          leases={leases}
+          load={load}
+          memoryPercent={memoryPercent}
+          restoreSnapshot={restoreSnapshot}
+          setError={setError}
+          snapshots={snapshots}
+          submitCloudflare={submitCloudflare}
+          submitNetwork={submitNetwork}
+          submitSquid={submitSquid}
+          submitWiFi={submitWiFi}
+          system={system}
+          runtime={runtime}
+        />
       </main>
     </div>
   );
