@@ -1,0 +1,201 @@
+name: Signed release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, attest and publish
+    runs-on: ubuntu-latest
+    environment: production-release
+    timeout-minutes: 45
+    steps:
+      - name: Check out signed tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate SSH-signed release tag
+        env:
+          RELEASE_ALLOWED_SIGNERS: ${{ secrets.MINIMALROUTER_RELEASE_ALLOWED_SIGNERS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag --points-at "$GITHUB_SHA" | grep -qx "$GITHUB_REF_NAME"
+          git cat-file -t "$GITHUB_REF_NAME" | grep -qx tag
+          printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$'
+          test -n "$RELEASE_ALLOWED_SIGNERS" || {
+            echo "MINIMALROUTER_RELEASE_ALLOWED_SIGNERS is not configured" >&2
+            exit 1
+          }
+          install -d -m 0700 "$RUNNER_TEMP/minimalrouter-signing"
+          printf '%s\n' "$RELEASE_ALLOWED_SIGNERS" > "$RUNNER_TEMP/minimalrouter-signing/allowed_signers"
+          chmod 0600 "$RUNNER_TEMP/minimalrouter-signing/allowed_signers"
+          git config gpg.format ssh
+          git config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/minimalrouter-signing/allowed_signers"
+          git verify-tag "$GITHUB_REF_NAME"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Run release checks
+        run: |
+          go test -race ./...
+          go vet ./...
+          pnpm --dir web lint
+          pnpm --dir web test
+          pnpm --dir web build
+
+      - name: Build AMD64 and ARM64 distributions
+        run: make dist
+
+      - name: Load GitHub Actions protected firmware signing secret
+        env:
+          RELEASE_PRIVATE_KEY_B64: ${{ secrets.MINIMALROUTER_RELEASE_PRIVATE_KEY_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_PRIVATE_KEY_B64" || {
+            echo "MINIMALROUTER_RELEASE_PRIVATE_KEY_B64 is not configured" >&2
+            exit 1
+          }
+          install -d -m 0700 "$RUNNER_TEMP/minimalrouter-signing"
+          printf '%s' "$RELEASE_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/minimalrouter-signing/release.key"
+          chmod 0600 "$RUNNER_TEMP/minimalrouter-signing/release.key"
+          test "$(wc -c < "$RUNNER_TEMP/minimalrouter-signing/release.key")" -eq 64
+
+      - name: Sign extracted update payloads and embed trust anchor
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/minimalrouter-signing/release.key"
+          version="${GITHUB_REF_NAME#v}"
+          go run ./cmd/firmware-sign \
+            --dir build/dist/minimalrouter-linux-amd64 \
+            --key "$key" \
+            --version "$version" \
+            --commit "$GITHUB_SHA" \
+            --public-key-output build/dist/minimalrouter-linux-amd64/firmware-signing.pub \
+            --output build/minimalrouter-linux-amd64.manifest.json
+          go run ./cmd/firmware-sign \
+            --dir build/dist/minimalrouter-linux-arm64 \
+            --key "$key" \
+            --version "$version" \
+            --commit "$GITHUB_SHA" \
+            --public-key-output build/dist/minimalrouter-linux-arm64/firmware-signing.pub \
+            --output build/minimalrouter-linux-arm64.manifest.json
+          rm -f "$key"
+
+      - name: Repack signed install archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
+          tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
+          sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
+          sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
+          tar tzf build/minimalrouter-linux-amd64.tar.gz | grep -qx 'minimalrouter-linux-amd64/firmware-signing.pub'
+          tar tzf build/minimalrouter-linux-arm64.tar.gz | grep -qx 'minimalrouter-linux-arm64/firmware-signing.pub'
+
+      - name: Generate AMD64 SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: build/dist/minimalrouter-linux-amd64
+          format: spdx-json
+          output-file: build/minimalrouter-linux-amd64.spdx.json
+          artifact-name: minimalrouter-linux-amd64-sbom
+          syft-version: v1.44.0
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate ARM64 SPDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: build/dist/minimalrouter-linux-arm64
+          format: spdx-json
+          output-file: build/minimalrouter-linux-arm64.spdx.json
+          artifact-name: minimalrouter-linux-arm64-sbom
+          syft-version: v1.44.0
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate SHA-256 checksums
+        working-directory: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum \
+            minimalrouter-linux-amd64.tar.gz \
+            minimalrouter-linux-arm64.tar.gz \
+            minimalrouter-linux-amd64.manifest.json \
+            minimalrouter-linux-arm64.manifest.json \
+            minimalrouter-linux-amd64.spdx.json \
+            minimalrouter-linux-arm64.spdx.json \
+            > SHA256SUMS
+
+      - name: Attest AMD64 artifact and SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: build/minimalrouter-linux-amd64.tar.gz
+          sbom-path: build/minimalrouter-linux-amd64.spdx.json
+
+      - name: Attest ARM64 artifact and SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: build/minimalrouter-linux-arm64.tar.gz
+          sbom-path: build/minimalrouter-linux-arm64.spdx.json
+
+      - name: Attest signed manifests and checksums
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: |
+            build/minimalrouter-linux-amd64.manifest.json
+            build/minimalrouter-linux-arm64.manifest.json
+            build/SHA256SUMS
+
+      - name: Publish immutable GitHub release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "Minimal Router OS $GITHUB_REF_NAME" \
+            --generate-notes \
+            build/minimalrouter-linux-amd64.tar.gz \
+            build/minimalrouter-linux-arm64.tar.gz \
+            build/minimalrouter-linux-amd64.manifest.json \
+            build/minimalrouter-linux-arm64.manifest.json \
+            build/minimalrouter-linux-amd64.spdx.json \
+            build/minimalrouter-linux-arm64.spdx.json \
+            build/SHA256SUMS
