@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - agent/gateway-quality-monitoring
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 jobs:
   export:
+    if: github.head_ref == 'agent/gateway-quality-monitoring' || github.ref_name == 'agent/gateway-quality-monitoring'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
