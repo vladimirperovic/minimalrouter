@@ -8,7 +8,12 @@ path.
 
 - [`../README.md`](../README.md) — project overview and current status.
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest automated validation,
-  benchmark ranges, and remaining manual gates.
+  target-host evidence, benchmark ranges, and remaining manual gates.
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) — first
+  successful owner-Proxmox Internet/performance/load/fallback pilot and its open
+  WireGuard/DDNS items.
+- [`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md) — Cloudflare-only DDNS contract,
+  dashboard field meanings, apply lifecycle, and safe diagnostics.
 - [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md) — central Healthy / Warning /
   Degraded / Recovery required appliance status and its evidence sources.
 - [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md) — bounded local state, 80%/90%
@@ -34,6 +39,8 @@ path.
 
 - [`INSTALLATION.md`](INSTALLATION.md)
 - [`PROXMOX.md`](PROXMOX.md)
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md)
 - [`RECOVERY.md`](RECOVERY.md)
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
 - [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md)
@@ -57,8 +64,8 @@ rollback and begin on an isolated LAN plus a test/NAT WAN.
   status for disruptive scenarios.
 - [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md) — storage
   threshold, full-filesystem, history shedding, log rotation, and recovery checks.
-- [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest CI/deep-validation
-  result and control-plane benchmark ranges.
+- [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest CI/deep-validation,
+  target-host results, and control-plane benchmark ranges.
 - [`../api/openapi.yaml`](../api/openapi.yaml) — REST API contract.
 - [`MCP.md`](MCP.md) — MCP boundary and security requirements.
 
@@ -70,6 +77,9 @@ and performance benchmarks.
 
 ## Evidence and comparisons
 
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) — dated
+  owner-target Proxmox comparison with pfSense, load test, memory observation,
+  rollback evidence, and unresolved WireGuard/DDNS validation.
 - [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md) — dated historical
   VM, memory, power-loss, and virtual network measurements.
 - [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) — dated security review and remaining
