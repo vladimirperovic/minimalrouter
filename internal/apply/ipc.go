@@ -12,7 +12,7 @@ import (
 )
 
 // DefaultSocketPath defines the location of the privileged Unix domain socket.
-const DefaultSocketPath = "/run/minimalrouter/applyd.sock"
+const DefaultSocketPath = "/run/minimalrouter/apply.sock"
 
 const (
 	ProtocolVersion    = 1

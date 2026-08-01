@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,6 +11,17 @@ import (
 	"testing"
 	"time"
 )
+
+func TestDefaultSocketPathMatchesOpenRCReadinessGate(t *testing.T) {
+	initScript := filepath.Join("..", "..", "packaging", "alpine", "router-applyd.initd")
+	data, err := os.ReadFile(initScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("[ -S "+DefaultSocketPath+" ]")) {
+		t.Fatalf("OpenRC readiness gate does not use apply socket %q", DefaultSocketPath)
+	}
+}
 
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
 	socketDir, err := os.MkdirTemp("", "mr-ipc-")
