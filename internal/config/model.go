@@ -43,12 +43,17 @@ type WireGuardPeer struct {
 	Enabled      bool     `json:"enabled"`
 }
 
+// CloudflareConfig retains its historical JSON key so existing backups remain
+// compatible. The DDNS fields now support both No-IP and Cloudflare; the tunnel
+// fields remain Cloudflare-specific.
 type CloudflareConfig struct {
 	DDNSEnabled   bool   `json:"ddns_enabled"`
-	APIToken      string `json:"api_token,omitempty"`
-	ZoneID        string `json:"zone_id,omitempty"` // Legacy field retained for import compatibility
-	ZoneName      string `json:"zone_name,omitempty"`
-	Domain        string `json:"domain"`
+	DDNSProvider  string `json:"ddns_provider,omitempty"` // noip or cloudflare; empty is legacy Cloudflare
+	DDNSUser      string `json:"ddns_username,omitempty"` // No-IP DDNS Key username/email
+	APIToken      string `json:"api_token,omitempty"`      // DDNS credential secret: No-IP key password or Cloudflare API token
+	ZoneID        string `json:"zone_id,omitempty"`        // Legacy field retained for import compatibility
+	ZoneName      string `json:"zone_name,omitempty"`      // Cloudflare zone name only
+	Domain        string `json:"domain"`                   // Hostname updated by the selected DDNS provider
 	TunnelEnabled bool   `json:"tunnel_enabled"`
 	TunnelToken   string `json:"tunnel_token,omitempty"`
 }
@@ -249,7 +254,7 @@ func DefaultConfig() SystemConfig {
 			PortForwards: []PortForwardRule{}, CustomRules: []FirewallRule{},
 		},
 		WireGuard:  WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
-		Cloudflare: CloudflareConfig{},
+		Cloudflare: CloudflareConfig{DDNSProvider: "noip"},
 		SquidProxy: SquidProxyConfig{Enabled: false, Port: 3128, Username: "proxyadmin", RestrictedIPs: []RestrictedIPItem{}},
 		AdGuard: DNSFilterConfig{
 			Enabled: false, LastUpdated: "Never", FilterDevices: []FilterDeviceRule{}, DeviceProfiles: []DeviceProfile{},
