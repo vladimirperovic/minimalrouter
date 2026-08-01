@@ -1,0 +1,70 @@
+name: Service supervision
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/service-supervision.yml"
+      - "cmd/routerd/**"
+      - "cmd/router-applyd/**"
+      - "internal/apply/**"
+      - "internal/api/**"
+      - "internal/config/**"
+      - "packaging/alpine/**"
+      - "scripts/ci-service-supervision-smoke.sh"
+      - "Makefile"
+      - "go.mod"
+      - "go.sum"
+  pull_request:
+    paths:
+      - ".github/workflows/service-supervision.yml"
+      - "cmd/routerd/**"
+      - "cmd/router-applyd/**"
+      - "internal/apply/**"
+      - "internal/api/**"
+      - "internal/config/**"
+      - "packaging/alpine/**"
+      - "scripts/ci-service-supervision-smoke.sh"
+      - "Makefile"
+      - "go.mod"
+      - "go.sum"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-supervision-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alpine-supervision:
+    name: OpenRC crash recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.9.0
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Install dashboard dependencies
+        run: pnpm --dir web install --frozen-lockfile
+      - name: Build clean AMD64 distribution
+        run: make dist-amd64
+      - name: Validate supervision smoke syntax
+        run: sh -n scripts/ci-service-supervision-smoke.sh
+      - name: Kill and recover supervised services on Alpine
+        run: sh scripts/ci-service-supervision-smoke.sh
