@@ -1,6 +1,6 @@
 # Current validation status — 2026-08-01
 
-This document is the private repository source of truth for imported public validation evidence, `minimalrouterhome` parity, and the remaining owner-Proxmox / hardware gates.
+This document is the private repository source of truth for public validation evidence, `minimalrouterhome` parity, private CI evidence, and the remaining owner-Proxmox / hardware gates.
 
 ## Current synchronized public baseline
 
@@ -16,6 +16,18 @@ That baseline contains:
 - all previously synchronized recovery, gateway-quality, security, update, OpenRC supervision, and appliance-hardening work.
 
 `minimalrouterhome` remains a private production/deployment repository. Shared engine code follows public `minimalrouter`; live Proxmox/PPPoE/household values remain outside Git.
+
+## Current private baseline
+
+Private sync PR #12 final head:
+
+`f254b44bf0a4a4002384f9866af69ebed61fd6af`
+
+Squash merge to `minimalrouterhome/main`:
+
+`1d029eaf70551db5583bf3dd37a752b85709ec08`
+
+The private PR also corrected two older recovery tests that had not followed the previously synchronized session-generation API. Both corrected test files now match the public `main` blobs.
 
 ## PR #28 — bounded storage
 
@@ -112,13 +124,45 @@ The docs-only public commit recording the merged state is:
 
 `df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
 
-## Private repository evidence boundary
+## Private automated evidence
 
-The private repository imports the same shared runtime source and tests. Public CI evidence is valid evidence for bit-identical shared files, but it is not a substitute for target-Proxmox execution.
+Private sync PR #12 final head `f254b44bf0a4a4002384f9866af69ebed61fd6af` executed and passed all three private pull-request workflow groups:
 
-Do not claim a private CI pass unless GitHub Actions for the exact private head actually execute and report success.
+### CI — run #67
 
-Private deployment values, credentials, runtime databases, bridge assignments, backups, and household inventory are intentionally not stored in Git.
+- repository hygiene;
+- Go formatting;
+- `go test -race ./...`;
+- `go vet ./...`;
+- `govulncheck`;
+- frontend dependency audit;
+- frontend lint/unit tests/TypeScript production build;
+- Playwright browser E2E;
+- clean AMD64 distribution build and checksum verification;
+- clean Alpine install, first-run setup, signed update activation and rollback.
+
+### Deep validation — run #46
+
+- interrupted-update stress testing;
+- malformed unauthenticated API fuzzing;
+- update-journal fuzzing;
+- slot-state benchmarks and coverage;
+- isolated WAN-router-LAN namespace laboratory;
+- high-confidence Go security analysis;
+- shell/workflow validation and Linux binary inspection;
+- ARM64 build and QEMU recovery-safe smoke test.
+
+### Performance — run #46
+
+- concurrent management API benchmarks;
+- update-state benchmarks;
+- required measurement/artifact validation.
+
+This is direct private CI evidence for the exact pre-merge PR head, not merely an inference from public parity.
+
+## Private-data boundary
+
+Private deployment values, credentials, runtime databases, bridge assignments, backups, packet captures, and household inventory are intentionally not stored in Git. Their absence from repository CI is intentional; they must be discovered or entered locally in the trusted Proxmox/appliance environment.
 
 ## What automated validation does not prove
 
@@ -147,7 +191,7 @@ The current tree is suitable for a controlled Proxmox pilot with:
 - existing pfSense/router fallback ready for immediate restoration;
 - encrypted backup plus known-good Proxmox snapshot before destructive tests.
 
-It is not yet documented as an unattended production replacement solely on GitHub Actions evidence.
+It is not yet documented as an unattended production replacement solely on automated evidence.
 
 Before touching the existing VM, follow:
 
