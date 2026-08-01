@@ -411,13 +411,30 @@ func (c *SystemConfig) Validate() error {
 			appendFieldError(&errs, "cloudflare.ddns_enabled", "requires an enabled WAN connection")
 		}
 		if !domainPattern.MatchString(c.Cloudflare.Domain) || !strings.Contains(c.Cloudflare.Domain, ".") {
-			appendFieldError(&errs, "cloudflare.domain", "must be a valid fully qualified domain")
+			appendFieldError(&errs, "cloudflare.domain", "must be a valid fully qualified DDNS hostname")
 		}
-		if !domainPattern.MatchString(c.Cloudflare.ZoneName) || !strings.Contains(c.Cloudflare.ZoneName, ".") {
-			appendFieldError(&errs, "cloudflare.zone_name", "must be the Cloudflare zone name, for example example.com")
+
+		provider := strings.ToLower(strings.TrimSpace(c.Cloudflare.DDNSProvider))
+		if provider == "" {
+			provider = "cloudflare"
 		}
-		if !cloudflareTokenPattern.MatchString(c.Cloudflare.APIToken) {
-			appendFieldError(&errs, "cloudflare.api_token", "must be a valid API token")
+		switch provider {
+		case "noip":
+			if strings.TrimSpace(c.Cloudflare.DDNSUser) == "" || len(c.Cloudflare.DDNSUser) > 255 || hasUnsafeControl(c.Cloudflare.DDNSUser) {
+				appendFieldError(&errs, "cloudflare.ddns_username", "No-IP username or DDNS Key username is required and must not contain control characters")
+			}
+			if c.Cloudflare.APIToken == "" || c.Cloudflare.APIToken == "[REDACTED]" || len(c.Cloudflare.APIToken) > 1024 || hasUnsafeControl(c.Cloudflare.APIToken) {
+				appendFieldError(&errs, "cloudflare.api_token", "No-IP DDNS Key/account password is required and must not contain control characters")
+			}
+		case "cloudflare":
+			if !domainPattern.MatchString(c.Cloudflare.ZoneName) || !strings.Contains(c.Cloudflare.ZoneName, ".") {
+				appendFieldError(&errs, "cloudflare.zone_name", "must be the Cloudflare zone name, for example example.com")
+			}
+			if !cloudflareTokenPattern.MatchString(c.Cloudflare.APIToken) {
+				appendFieldError(&errs, "cloudflare.api_token", "must be a valid Cloudflare API token")
+			}
+		default:
+			appendFieldError(&errs, "cloudflare.ddns_provider", "must be noip or cloudflare")
 		}
 	}
 	if c.Cloudflare.TunnelEnabled {

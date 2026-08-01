@@ -15,92 +15,110 @@
   <a href="docs/PROXMOX.md">Proxmox</a> ·
   <a href="docs/PROXMOX_AI_HANDOFF.md">AI VM handoff</a> ·
   <a href="docs/CURRENT_VALIDATION.md">Current validation</a> ·
+  <a href="docs/DYNAMIC_DNS.md">Dynamic DNS</a> ·
   <a href="docs/README.md">Documentation</a>
 </p>
 
 <a id="project-status"></a>
 
 > **Development status: early alpha.** This private repository contains the
-> owner's active home-development line. It is suitable for an isolated,
-> console-accessible Proxmox pilot with pfSense ready for rollback. It is not yet
-> an unattended production replacement.
+> owner's active home-development line. A real owner-Proxmox pilot has now passed
+> basic PPPoE/Internet, external WireGuard dashboard access and pfSense fallback,
+> but the system remains a guarded pilot rather than an unattended production
+> replacement.
 
-Minimal Router OS is a focused Alpine Linux router appliance with a Go control
-plane and a static React dashboard. Packet forwarding remains in the Linux
-kernel through `nftables`, `pppd`, `dnsmasq`, WireGuard, and optional supporting
-services.
+Minimal Router OS is an Alpine Linux router appliance with a Go control plane and
+static React dashboard. Packet forwarding remains in the Linux kernel through
+`nftables`, `pppd`, `dnsmasq`, WireGuard and optional supporting services.
 
 ## Current baseline
 
-The current tree includes:
+The tree includes:
 
 - unprivileged `routerd` plus narrow privileged `router-applyd`;
-- SQLite canonical configuration state and migrations;
-- typed validation and deterministic configuration generation;
-- snapshot, preflight, apply, verification, commit-confirm, and rollback;
-- default-deny WAN policy and LAN-to-WAN NAT;
-- PPPoE, DHCP, DNS, WireGuard, DNS Filter profiles, QoS, DDNS, and Wi-Fi paths;
-- Argon2id authentication, secure sessions, CSRF, rate limiting, and optional TOTP;
-- encrypted backup export, configuration snapshots, and local recovery console;
-- crash-safe A/B activation and rollback using a durable operation journal;
-- signed manifests, SHA-256 verification, checksums, SPDX SBOMs, and provenance;
-- bounded local storage with explicit 80% Warning / 90% Critical pressure states;
-- HTTP 507 fail-closed rejection of durable management writes when storage can no
-  longer safely persist them;
-- bounded config, snapshot, audit and gateway history plus passive SQLite WAL
-  maintenance and bounded router service log rotation;
-- one authenticated central appliance-health model covering recovery, storage,
-  memory, conntrack, time, WAN/gateway, supervised services, DNS/DHCP, PPPoE,
-  WireGuard, update state, and backup age;
-- an Overview health banner with Healthy / Warning / Degraded / Recovery required /
-  Unknown states and independent 15-second refresh;
-- frontend unit tests and Playwright browser E2E tests;
-- clean Alpine install, wizard, update activation, and rollback CI;
-- race tests, `vet`, `govulncheck`, secret scanning, `gosec`, `shellcheck`, and
-  `actionlint`;
-- API/update benchmarks, fuzzing, ARM64 QEMU smoke tests, and isolated
-  WAN-router-LAN network tests.
+- SQLite canonical state, typed validation and deterministic generation;
+- preflight/apply/verification/commit-confirm/rollback;
+- default-deny WAN policy and NAT;
+- PPPoE, DHCP, DNS, WireGuard, DNS Filter, QoS and Wi-Fi paths;
+- **No-IP Dynamic DNS through native Alpine `inadyn`**, default for new configs;
+- Cloudflare DDNS retained for legacy/backward compatibility;
+- provider-specific DDNS credential validation and provider-switch secret reset;
+- Argon2id auth, secure sessions, CSRF, rate limiting and optional TOTP;
+- encrypted backup/snapshots/local recovery;
+- crash-safe A/B updates and signed-manifest verification;
+- bounded storage/log/history behavior;
+- central authenticated appliance health;
+- Go/frontend/E2E/security/fuzz/ARM64/network-namespace/performance tests.
 
-The synchronized shared public baseline is:
+## 2026-08-01 owner-Proxmox pilot
 
-`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
+Recorded target-host evidence:
 
-The dashboard build uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
-Node.js remains a build-time dependency only.
+- real PPPoE and Internet forwarding;
+- 570 Mbps download / 327 Mbps upload in the recorded sample;
+- 0% loss in 600 packets;
+- DNS 200/200;
+- dashboard 30/30 during the recorded CPU-load sample;
+- 172 MB RAM after the exercised workload;
+- external phone WireGuard handshake and dashboard access through the tunnel;
+- successful fallback to pfSense in approximately 93 seconds.
 
-See [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for the dated
-validation summary and remaining manual gates.
+### Alpine kernel finding
+
+The first real PPPoE attempt used `linux-virt`, whose running kernel did not
+provide the PPPoE module required by the appliance. Switching to **Alpine
+`linux-lts`** supplied the module and PPPoE succeeded. The clean LTS boot used
+approximately 73 MB RAM in that session.
+
+The private and public installers now fail closed unless:
+
+```sh
+modprobe pppoe
+```
+
+succeeds. `linux-lts` is the validated Proxmox path.
+
+### No-IP status
+
+The actual deployment uses **No-IP**. During the successful WireGuard test, DDNS
+was provisioned manually on the Proxmox side. That proved the external endpoint
+and WireGuard path but not an appliance-managed updater.
+
+This branch implements No-IP inside MinimalRouter via `inadyn`. The next target
+proof is to configure it through the dashboard, verify external resolution and
+WireGuard through that hostname, remove the host-side workaround, and later
+prove automatic propagation after a real public-IP change.
+
+See:
+
+- [`docs/PROXMOX_TEST_REPORT_2026-08-01.md`](docs/PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md)
+- [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md)
 
 ## Existing Proxmox VM
 
-The owner has already created a Proxmox VM, but the VM ID, node, bridge names,
-addresses, and credentials are intentionally not stored in Git.
-
-A future AI operator must start with the private handoff:
+The VM ID, node, bridge names, addresses and credentials are intentionally not
+stored in Git. Any future operator must start with:
 
 - [`docs/PROXMOX_AI_HANDOFF.md`](docs/PROXMOX_AI_HANDOFF.md)
 
-That document requires read-only discovery before any start, rewire, update, or
-destructive test. It explains how to preserve pfSense rollback, verify the VM
-boundary, boot safely, update through the verified path, validate storage pressure
-and appliance health, run tests in the correct order, redact evidence, and stop
-when the topology is ambiguous.
+That guide requires read-only discovery, `linux-lts`/`modprobe pppoe` validation,
+independent pfSense rollback, and private handling of all live credentials.
 
 ## What remains unproven
 
-The following still require target-host evidence:
+Still required before unattended production use:
 
-- stable Proxmox WAN/LAN identity across repeated reboots;
-- real ISP PPPoE connection, reconnect, MTU, and authentication;
-- actual VirtIO or passed-through NIC throughput, packet rate, CPU, IRQ, latency,
-  jitter, and thermals;
-- real WireGuard throughput and recovery from an unrelated network;
+- repeated Proxmox/guest reboot and interface identity;
+- repeated real PPPoE disconnect/reconnect/reboot recovery;
+- MinimalRouter-managed No-IP update and later public-IP-change propagation;
+- WireGuard recovery after PPPoE reconnect/reboot;
+- sustained packet-rate/CPU/IRQ/latency/jitter/thermal testing;
 - external IPv4/IPv6 scanning;
 - backup restore into a fresh VM;
-- full-disk and inode-exhaustion behavior on a disposable target;
-- read-only-filesystem and abrupt power-loss behavior on a disposable target;
-- sustained operation with bounded logs/WAL/history and stable memory;
-- owner-signed install/recovery media and independent security review.
+- full-disk/inode/read-only/service-crash/power-loss tests on disposable state;
+- at least seven days continuous operation;
+- owner-qualified signed recovery media and independent security review.
 
 ## Controlled development build
 
@@ -116,39 +134,21 @@ cd build
 sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
 ```
 
-A development archive is not a signed stable firmware release. Do not overwrite
-live router binaries manually; follow the installation or A/B update procedures.
-
-## Development validation
-
-```sh
-go test -race ./...
-go vet ./...
-
-pnpm --dir web install --frozen-lockfile
-pnpm --dir web lint
-pnpm --dir web test
-pnpm --dir web build
-pnpm --dir web exec playwright install chromium
-pnpm --dir web test:e2e
-```
-
-Additional automated suites are defined in the CI, Deep validation, Performance,
-and security workflows.
+Do not overwrite live router binaries manually; use the documented install/A-B
+update path.
 
 ## Safety and privacy
 
 Never commit or publish:
 
-- Proxmox hostnames, node names, VM IDs, bridge inventory, or raw VM configs;
+- Proxmox host/node/VM/bridge inventory or raw VM configs;
 - PPPoE credentials or administrator credentials;
-- WireGuard keys, profiles, or QR codes;
-- provider tokens or signing private keys;
-- backups, databases, snapshots, packet captures, or runtime logs;
-- real addresses, hostnames, MAC addresses, or household device inventory.
+- WireGuard private/preshared keys, profiles or QR codes;
+- No-IP DDNS Keys/passwords, Cloudflare tokens or signing private keys;
+- backups, databases, snapshots, packet captures or runtime logs;
+- real addresses/private hostnames, MACs or household inventory.
 
-Keep the existing pfSense VM/appliance available until the Minimal Router VM has
-passed the private Proxmox test report and sustained pilot period.
+Keep pfSense available until the remaining private target-host gates are closed.
 
 ## Documentation
 
@@ -159,21 +159,10 @@ Start with:
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
 - [`docs/PROXMOX_AI_HANDOFF.md`](docs/PROXMOX_AI_HANDOFF.md)
-- [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
-- [`docs/STORAGE_PRESSURE_TEST_PLAN.md`](docs/STORAGE_PRESSURE_TEST_PLAN.md)
-- [`docs/APPLIANCE_HEALTH.md`](docs/APPLIANCE_HEALTH.md)
-- [`docs/TESTING.md`](docs/TESTING.md)
+- [`docs/PROXMOX_TEST_REPORT_2026-08-01.md`](docs/PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
-- [`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md)
-- [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)
-- [`ROADMAP.md`](ROADMAP.md)
-- [`CHANGELOG.md`](CHANGELOG.md)
-
-## Releases
-
-There is no stable signed release yet. Official releases must follow the release
-process and security documentation, use an owner-controlled signing identity,
-and publish exact supported deployment claims.
+- [`docs/TESTING.md`](docs/TESTING.md)
 
 ## License
 

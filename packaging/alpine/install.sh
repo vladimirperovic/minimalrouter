@@ -17,6 +17,16 @@ apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certi
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc logrotate
 
+# A real Proxmox PPPoE pilot on 2026-08-01 exposed that the candidate
+# linux-virt kernel did not provide the PPPoE kernel module required by pppd.
+# linux-lts supplied the module and completed the real WAN test. Validate the
+# running kernel capability rather than silently completing an unusable install.
+if ! modprobe pppoe >/dev/null 2>&1; then
+    echo "ERROR: running Alpine kernel does not provide the required pppoe module." >&2
+    echo "On the validated Proxmox path, install/boot Alpine linux-lts, confirm 'modprobe pppoe', then rerun the installer." >&2
+    exit 1
+fi
+
 # The router depends on accurate time for TOTP, TLS, schedules, audit ordering,
 # and signed-update checks. Chrony is deliberately client-only and exposes no
 # LAN/WAN NTP listener or remote command socket.

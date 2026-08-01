@@ -1,39 +1,59 @@
 # Proxmox VE deployment and existing VM pilot
 
-Minimal Router OS targets a QEMU/KVM virtual machine on Proxmox VE. An
-unprivileged LXC container is not a supported router boundary because it shares
-the host kernel and cannot provide the same nftables, interface, and device
-isolation.
+Minimal Router OS targets a QEMU/KVM virtual machine on Proxmox VE. The owner has
+an existing candidate VM; live node/VM IDs, bridge names, addresses and credentials
+are intentionally not stored in Git.
 
-The owner has already created a candidate Proxmox VM. Its node, VM ID, bridge
-names, addresses, and credentials are intentionally not stored in Git.
-
-Another AI agent or engineer must use the private operational handoff before
-starting or changing the VM:
+Another operator must start with the private handoff:
 
 - [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md)
 
 Also read [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md),
-[`INSTALLATION.md`](INSTALLATION.md), [`TESTING.md`](TESTING.md), and
+[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md),
+[`DYNAMIC_DNS.md`](DYNAMIC_DNS.md), [`INSTALLATION.md`](INSTALLATION.md) and
 [`RECOVERY.md`](RECOVERY.md).
 
 ## Current status
 
-There is no signed stable ISO. Automated clean-Alpine, update/rollback,
-crash/fuzz, ARM64, security, network-namespace, and performance validation passes,
-but target-host evidence is still missing.
+The 2026-08-01 owner-Proxmox pilot already demonstrated real PPPoE/Internet,
+570/327 Mbps in the recorded throughput sample, 0% loss in a 600-packet test,
+200/200 DNS queries, external phone WireGuard access to the dashboard and a
+successful fallback to pfSense in approximately 93 seconds.
 
-The current recommendation is a guarded Proxmox pilot with:
+This is controlled-pilot evidence, not production readiness.
 
-- console access;
-- an isolated LAN;
-- a test/NAT WAN during initial testing;
-- pfSense ready for immediate rollback.
+## Validated guest baseline
+
+- Alpine Linux 3.22 x86_64;
+- **Alpine `linux-lts` for the validated PPPoE path**;
+- QEMU/KVM VM, not LXC;
+- 1 vCPU to begin, CPU type `host` on a fixed homelab node;
+- 1 GiB RAM;
+- 8 GiB reliable virtual disk;
+- two VirtIO NICs;
+- QEMU Guest Agent installed/enabled;
+- reliable host/guest time synchronization.
+
+The initial real-WAN attempt used `linux-virt`, whose running kernel did not
+provide the PPPoE module required by this appliance. `linux-lts` did, and PPPoE
+then succeeded.
+
+Before any real-WAN work:
+
+```sh
+uname -a
+modprobe pppoe
+```
+
+If `modprobe pppoe` fails, stop. Boot/install `linux-lts` on the validated path
+and repeat the check. Current installers enforce this capability check.
+
+Observed RAM during the pilot was approximately 73 MB after a clean `linux-lts`
+boot and 172 MB after the exercised workload.
 
 ## Existing VM rule
 
-Do not recreate or rewire the VM before read-only discovery. Identify exactly one
-candidate with:
+Do not recreate or rewire the VM before read-only discovery:
 
 ```sh
 pvesh get /cluster/resources --type vm --output-format json-pretty
@@ -42,71 +62,40 @@ qm status <VMID>
 qm config <VMID>
 ```
 
-Proceed only when the candidate and the purpose of both NIC bridges are
-unambiguous. Never publish raw `qm config` output because it may expose real
-network identifiers.
-
-## Recommended VM baseline
-
-- Alpine Linux 3.22 x86_64;
-- QEMU/KVM VM, not LXC;
-- 1 vCPU to begin, CPU type `host` on a fixed homelab node;
-- 1 GiB RAM;
-- 8 GiB reliable virtual disk;
-- two VirtIO NICs;
-- QEMU Guest Agent installed and enabled;
-- reliable host and guest time synchronization.
-
-The measured 512 MiB minimum is test evidence, not a production sizing promise.
-
-## Network boundary
-
-During initial tests:
-
-- candidate WAN connects to a test/NAT bridge;
-- candidate LAN connects to an isolated bridge;
-- candidate LAN does not share the active pfSense LAN;
-- only one DHCP server exists on each broadcast domain;
-- the production ISP is not connected until isolated validation and rollback
-  rehearsal pass.
-
-Guest interface numbering must not be assumed from Proxmox `net0`/`net1`. Confirm
-roles using bridge mapping, carrier, addresses, and routes.
+Keep raw output local. Proceed only when candidate identity and both NIC bridge
+roles are unambiguous.
 
 ## Preserve rollback
 
-Before any update or destructive test:
+Before a real gateway cutover:
 
-1. Confirm pfSense can be restored or started independently.
-2. Confirm no configuration commit-confirm or firmware operation is pending.
-3. Export an encrypted application backup when possible.
-4. Record the installed commit and `router-update status` privately.
-5. Shut down gracefully before taking a known-good snapshot unless guest-agent
-   filesystem freeze has been explicitly verified.
+1. prove pfSense/current router can be restored independently;
+2. confirm no config/update transaction is pending;
+3. export an encrypted application backup when possible;
+4. record installed commit/update slot privately;
+5. take a consistent known-good Proxmox snapshot;
+6. arm an independent **host-side failsafe** before removing the active router.
+
+The 2026-08-01 pilot showed the management connection can disappear during the
+cutover while a Proxmox-host systemd timer still executes independently.
+
+Use graceful shutdown for routine work:
 
 ```sh
 qm shutdown <VMID> --timeout 60
 qm status <VMID>
-qm snapshot <VMID> pre-test-YYYYMMDD-HHMM --description "Known-good Minimal Router pilot state"
 ```
 
-Do not use `qm stop` as routine shutdown. Use it only for an explicitly planned
-power-loss test after safe scenarios pass.
+Reserve forced stop for intentional destructive/fallback actions.
 
-## Safe boot baseline
-
-Start only the identified VM and open its console:
-
-```sh
-qm start <VMID>
-qm status <VMID>
-```
+## Guest baseline
 
 Inside the guest:
 
 ```sh
 cat /etc/alpine-release
 uname -a
+modprobe pppoe
 ip -brief link
 ip -brief address
 ip route
@@ -115,85 +104,54 @@ df -h
 df -i
 rc-service router-applyd status
 rc-service routerd status
-rc-update show | grep -E 'routerd|router-applyd'
+rc-service inadyn status 2>/dev/null || true
 router-update status
-readlink -f /var/lib/minimalrouter-update/current 2>/dev/null || true
-readlink -f /var/lib/minimalrouter-update/previous 2>/dev/null || true
 ```
 
-Confirm WAN/LAN mapping, management boundary, time, storage, service health, and
-absence of pending operations before applying changes.
+Confirm WAN/LAN mapping, management boundary, time sync, writable storage,
+service health and absence of ambiguous recovery state.
 
-## Bring the VM to the current private build
+## Dynamic DNS / No-IP
 
-Build an exact private-repository commit on a trusted machine:
+The deployment uses **No-IP**. MinimalRouter now supports No-IP natively through
+Alpine `inadyn`. During the original successful WireGuard test, DDNS was run
+manually on the Proxmox side. That was useful diagnosis, but it is not the
+intended final configuration.
 
-```sh
-git clone <trusted-private-repository-url>
-cd minimalrouterhome
-git checkout main
-git pull --ff-only
-git rev-parse HEAD
-pnpm --dir web install --frozen-lockfile
-make dist-amd64
-cd build
-sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
-```
+The next target-host test must configure No-IP through MinimalRouter itself and
+prove:
 
-Verify the checksum again after transfer. Follow `INSTALLATION.md` for a fresh
-installation. Do not overwrite live binaries manually.
+- config check and bounded one-shot update;
+- healthy OpenRC `inadyn` service;
+- external DNS resolution to the current public IPv4;
+- WireGuard via the No-IP hostname without host-side DDNS;
+- later automatic propagation after a real public-IP change.
 
-For an already-installed system, use the signed A/B path only:
+See [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md).
 
-```sh
-router-update status
-router-update stage --dir <EXTRACTED_SIGNED_PAYLOAD> --manifest <SIGNED_MANIFEST>
-router-update activate --version <VERSION> --confirm ACTIVATE-UPDATE
-```
+## Required next tests
 
-After health verification, retain the previous slot. Explicit rollback is:
+The first pilot already closed basic real PPPoE and basic external WireGuard
+handshake/dashboard access. Extend rather than repeat the evidence:
 
-```sh
-router-update rollback --confirm ROLLBACK-UPDATE
-```
+1. five graceful guest reboots and multiple Proxmox stop/start cycles;
+2. stable WAN/LAN identity and `modprobe pppoe` on every boot;
+3. repeated PPPoE disconnect/reconnect/authentication/reboot recovery;
+4. MinimalRouter-managed No-IP plus public-IP-change propagation;
+5. WireGuard recovery after PPPoE reconnect/reboot;
+6. backup restore into a fresh VM;
+7. longer CPU/RAM/throughput/packet-rate/IRQ/latency/jitter/thermal testing;
+8. external IPv4/IPv6 scans;
+9. storage/read-only/process-crash/power-loss tests on disposable state;
+10. at least seven days continuous operation.
 
-A locally generated development signing key must not be presented as an
-owner-trusted production key.
+## Evidence and production boundary
 
-## Required test order
+Record new sanitized evidence in
+`docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md`. Never commit live identifiers or
+credentials.
 
-1. Repeated graceful boot and service reconciliation.
-2. DHCP, DNS, HTTPS management, NAT, and default-deny WAN checks on isolated
-   topology.
-3. Unconfirmed LAN-change rollback and recovery-console access.
-4. Update activation, reboot, health verification, and rollback.
-5. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss,
-   and management responsiveness.
-6. Backup restore into a fresh VM.
-7. Controlled service, disk-pressure, read-only, corrupt-state, and power-loss
-   tests on a disposable target.
-8. Real PPPoE only during a maintenance window with pfSense rollback proven.
-9. External IPv4/IPv6 scan and WireGuard from an unrelated network.
-10. At least seven days of stable operation before guarded production use.
-
-The full command order, stop conditions, redaction rules, and report format are in
-`PROXMOX_AI_HANDOFF.md`.
-
-## Evidence
-
-Create a new private dated report such as:
-
-```text
-docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md
-```
-
-Include exact commits, versions, resources, synthetic topology labels, commands,
-measurements, failures, recovery steps, limitations, and a final recommendation.
-Do not commit VM IDs, hostnames, bridge inventory, MAC addresses, public or
-household addresses, credentials, tokens, keys, or backups.
-
-## Production boundary
-
-Do not remove pfSense solely because the VM boots or a synthetic test is fast.
-Real Proxmox, PPPoE, external scan, restore, sustained operation, power-loss, and
-recovery evidence remain mandatory.
+Do not remove pfSense solely because the first pilot succeeded. Repeated recovery,
+No-IP appliance integration, restore, external scans, destructive fault tests,
+soak, signed recovery media and independent review remain mandatory before an
+unattended production recommendation.

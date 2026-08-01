@@ -1,92 +1,98 @@
 # Documentation
 
-Minimal Router OS is early-alpha networking software. This private repository is the owner's active home-development line. Use it only in a controlled lab or guarded pilot with local console access and pfSense ready for rollback.
+Minimal Router OS is early-alpha networking software. This private repository is
+the owner's active deployment-development line. Use it only in a controlled lab
+or guarded pilot with local console access and pfSense ready for rollback.
 
 ## Start here
 
-- [`../README.md`](../README.md) — private project overview and current status.
-- [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — exact synchronized public baseline and remaining owner-Proxmox gates.
-- [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md) — required continuation guide for another AI agent operating the existing Proxmox VM.
-- [`PROXMOX.md`](PROXMOX.md) — Proxmox VM preparation and pilot rules.
-- [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md) — bounded local state, 80% warning, 90% critical pressure, HTTP 507 behavior, WAL maintenance and log rotation.
-- [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md) — destructive/non-destructive validation plan for storage pressure.
-- [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md) — central Healthy / Warning / Degraded / Recovery required / Unknown health model.
-- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — durable intent, IPC, power, storage, commit-confirm, firewall, PPPoE, WireGuard, update, and restore failure contract.
-- [`INSTALLATION.md`](INSTALLATION.md) — controlled Alpine installation.
+- [`../README.md`](../README.md) — private project overview.
+- [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — current shared-engine and
+  owner-Proxmox evidence plus remaining gates.
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) —
+  sanitized real PPPoE/Internet/performance/WireGuard/fallback pilot.
+- [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md) — required continuation guide
+  for another operator working with the existing Proxmox VM.
+- [`PROXMOX.md`](PROXMOX.md) — current Proxmox baseline and next test order.
+- [`INSTALLATION.md`](INSTALLATION.md) — Alpine `linux-lts` and PPPoE kernel
+  preflight plus controlled install steps.
+- [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md) — No-IP default, Cloudflare compatibility,
+  apply lifecycle and safe diagnostics.
+- [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md) — bounded local state and pressure
+  behavior.
+- [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md) — aggregate appliance health.
+- [`RECOVERY.md`](RECOVERY.md) — local recovery and rollback.
 - [`../SECURITY.md`](../SECURITY.md) — threat model and secure defaults.
-- [`RECOVERY.md`](RECOVERY.md) — local recovery, `RecoveryRequired`, canonical reconcile, and rollback procedures.
-- [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — local-console-first diagnostics.
 
-## Existing Proxmox pilot
+## Current owner-Proxmox state
 
-An owner-created Proxmox VM already exists, but its node, VM ID, bridges, addresses, and credentials are deliberately not stored in Git. Any future AI or engineer must begin with `PROXMOX_AI_HANDOFF.md`, perform read-only discovery, and stop when VM identity or bridge purpose is ambiguous.
+The 2026-08-01 pilot demonstrated real PPPoE/Internet through Minimal Router,
+570/327 Mbps in the recorded throughput sample, 0% loss across 600 packets,
+200/200 DNS queries, 172 MB post-load RAM, external phone WireGuard handshake
+plus dashboard access, and successful pfSense fallback in approximately 93
+seconds.
 
-Do not start every VM, do not place a second DHCP server on production LAN, and do not connect the candidate directly to the ISP until isolated tests and rollback rehearsal pass.
+The real PPPoE attempt also established that the tested Alpine `linux-virt`
+kernel did not provide the required PPPoE module; switching the guest to
+**`linux-lts`** solved it. A clean LTS boot used approximately 73 MB RAM in the
+recorded session. Current installers fail closed unless `modprobe pppoe` works.
 
-Never delete `last-transaction.json`, `pending-confirmation.json`, or `last-good.json` merely to clear an error. Preserve evidence, correct the underlying failure, and use typed canonical reconciliation or local recovery.
+The deployment uses **No-IP**. MinimalRouter now supports No-IP natively through
+`inadyn`; the remaining DDNS gate is a fresh target-host proof that the appliance
+itself updates the No-IP record and follows a later public-IP change without the
+manual Proxmox-host workaround used during the initial WireGuard test.
 
-## Architecture and product direction
+## Existing VM rule
 
-- [`../PROJECT.md`](../PROJECT.md)
-- [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
-- [`../DESIGN.md`](../DESIGN.md)
-- [`../ROADMAP.md`](../ROADMAP.md)
-- [`adr/README.md`](adr/README.md)
+The live Proxmox node, VM ID, bridge names, addresses and credentials are not in
+Git. Any future operator must begin with `PROXMOX_AI_HANDOFF.md`, perform
+read-only discovery and stop when VM identity or bridge purpose is ambiguous.
 
-## Installation, operation, and recovery
+Do not start every VM, do not place a second DHCP server on the production LAN,
+and do not perform a real gateway cutover without an independent rollback path.
+
+## Installation, operation and recovery
 
 - [`INSTALLATION.md`](INSTALLATION.md)
 - [`PROXMOX.md`](PROXMOX.md)
 - [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md)
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md)
 - [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md)
 - [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md)
 - [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md)
 - [`RECOVERY.md`](RECOVERY.md)
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
-- [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md)
-- [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md)
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
-- [`../SUPPORT.md`](../SUPPORT.md)
-- [`../PRIVACY.md`](../PRIVACY.md)
 
 ## Development and testing
 
 - [`DEVELOPMENT.md`](DEVELOPMENT.md)
 - [`TESTING.md`](TESTING.md)
-- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md)
 - [`../api/openapi.yaml`](../api/openapi.yaml)
 - [`MCP.md`](MCP.md)
 
-The synchronized shared application/runtime baseline is:
-
-`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
-
-That public baseline includes PR #28 and PR #29 and passed their final triggered Go, frontend, Playwright, clean-Alpine, Deep validation, CodeQL, secret-scan, performance, and OpenRC supervision workflows. See `CURRENT_VALIDATION.md` for exact commit IDs and the evidence boundary.
-
-Public CI evidence does not replace real owner-Proxmox, PPPoE, NIC, full-disk/inode, read-only-filesystem, external-scan, restore, power-loss, or soak testing.
+Automated evidence does not replace the remaining repeated PPPoE/reboot,
+MinimalRouter-managed No-IP, backup/restore, external-scan, destructive fault,
+thermal and seven-day soak tests.
 
 ## Evidence and comparisons
 
-- [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md) — dated historical VM, memory, power-loss, and virtual network measurements.
-- [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) — dated security review.
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) —
+  current sanitized target-host evidence.
+- [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md) — historical
+  VM/memory/power-loss/network measurements.
+- [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md) — security review.
 - [`COMPARISON.md`](COMPARISON.md) — scope comparison.
-
-Dated reports are preserved as historical evidence. New Proxmox evidence must be written as a new private dated report and redacted before commit. Repository-wide current status belongs in `CURRENT_VALIDATION.md`.
-
-## Community and project process
-
-- [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
-- [`../GOVERNANCE.md`](../GOVERNANCE.md)
-- [`../MAINTAINERS.md`](../MAINTAINERS.md)
-- [`../CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md)
-- [`../CHANGELOG.md`](../CHANGELOG.md)
-- [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md)
 
 ## Documentation rules
 
 - Use synthetic examples and documentation-reserved addresses.
-- Never include Proxmox hostnames, node names, VM IDs, raw VM configs, credentials, keys, tokens, backups, packet captures, real addresses, MAC addresses, or household device inventory.
-- Mark measurements with date, environment, method, units, and limitations.
-- Distinguish implementation, imported automated evidence, private target-host evidence, planned work, and unsupported features.
+- Never include Proxmox host/node names, VM IDs, raw VM configs, live credentials,
+  keys, tokens, backups, packet captures, real addresses/hostnames, MACs or
+  household inventory.
+- Mark measurements with date, environment, method, units and limitations.
+- Distinguish implementation, automated evidence, private target-host evidence,
+  planned work and unsupported features.
 - Keep recovery and rollback instructions beside disruptive operations.

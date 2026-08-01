@@ -142,7 +142,15 @@ echo "[6/7] Loading router kernel modules and sysctls..."
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
     grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
-    modprobe "$module"
+    if ! modprobe "$module"; then
+        if [ "$module" = "pppoe" ]; then
+            echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
+            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
+        else
+            echo "ERROR: required kernel module '$module' could not be loaded." >&2
+        fi
+        exit 1
+    fi
 done < modules/minimalrouter.conf
 
 sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
