@@ -27,6 +27,11 @@
 /snapshots/
 alpine-standard-3.21.3-x86_64.iso
 
+# Minimal Router Home private deployment overlay
+/private/runtime/
+/private/secrets/
+/private/backups/
+
 # Build artifacts
 /build/
 /tools/macos-vm/minimalrouter-alpine-vm
