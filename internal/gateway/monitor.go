@@ -91,7 +91,7 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 			m.connectedSince = previous.Timestamp.Add(-time.Duration(previous.PPPoEUptime) * time.Second)
 		} else if linkStatus.Connected {
 			m.connectedSince = now
-			if previousErr == nil && ok && !previous.Link.Connected && now.Sub(previous.Timestamp) <= recentLimit {
+			if previousErr == nil && ok && !previous.Link.Connected && now.Sub(previous.Timestamp) <= recentLimit && m.store.nonessentialWritesAllowed() {
 				if err := m.store.AddReconnect(now); err != nil {
 					m.mu.Unlock()
 					return Summary{}, err
@@ -102,9 +102,11 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 		m.initialized = true
 	} else if linkStatus.Connected && !m.lastConnected {
 		m.connectedSince = now
-		if err := m.store.AddReconnect(now); err != nil {
-			m.mu.Unlock()
-			return Summary{}, err
+		if m.store.nonessentialWritesAllowed() {
+			if err := m.store.AddReconnect(now); err != nil {
+				m.mu.Unlock()
+				return Summary{}, err
+			}
 		}
 	} else if !linkStatus.Connected {
 		m.connectedSince = time.Time{}
@@ -159,8 +161,11 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 		Timestamp: now, State: state, Link: linkStatus, Targets: targetResults, PeerProbe: peerProbe,
 		LatencyMS: latency, JitterMS: jitter, PacketLossPercent: loss, PPPoEUptime: uptime,
 	}
-	if err := m.store.SaveSample(sample); err != nil {
-		return Summary{}, err
+	if m.store.nonessentialWritesAllowed() {
+		if err := m.store.SaveSample(sample); err != nil {
+			return Summary{}, err
+		}
+		m.store.checkpointIfPressured()
 	}
 	summary := Summary{
 		Available: true, Enabled: true, State: state, Timestamp: now, Link: linkStatus,
@@ -185,9 +190,13 @@ func (m *Monitor) UpdateSettings(settings Settings) error {
 	if m == nil || m.store == nil {
 		return fmt.Errorf("gateway monitor is unavailable")
 	}
+	if err := m.store.requireDurableWrite(); err != nil {
+		return err
+	}
 	if err := m.store.SaveSettings(settings); err != nil {
 		return err
 	}
+	m.store.checkpointIfPressured()
 	if !settings.Enabled {
 		m.mu.Lock()
 		m.latest = Summary{Available: true, Enabled: false, State: StateUnknown, Timestamp: m.now().UTC()}
