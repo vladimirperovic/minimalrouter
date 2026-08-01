@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vladimirperovic/minimalrouter/internal/storage"
 	"golang.org/x/sys/unix"
 )
 
@@ -76,11 +77,9 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 			status.MemoryUsedBytes = (totalKB - availableKB) * 1024
 		}
 	}
-	var stat unix.Statfs_t
-	if dataDir != "" && unix.Statfs(dataDir, &stat) == nil {
-		status.DiskTotalBytes = stat.Blocks * uint64(stat.Bsize)
-		status.DiskUsedBytes = (stat.Blocks - stat.Bavail) * uint64(stat.Bsize)
-	}
+	status.Storage = storage.Inspect(dataDir)
+	status.DiskTotalBytes = status.Storage.TotalBytes
+	status.DiskUsedBytes = status.Storage.UsedBytes
 	pppName := "ppp0"
 	iface, err := net.InterfaceByName(pppName)
 	if err == nil && iface.Flags&net.FlagUp != 0 {
