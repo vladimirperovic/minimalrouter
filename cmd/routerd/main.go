@@ -45,6 +45,8 @@ func main() {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer store.Close()
+	stopStorageMaintenance := startStorageMaintenance(store)
+	defer stopStorageMaintenance()
 
 	initialCfg, err := store.GetLatestConfig()
 	if err != nil {
