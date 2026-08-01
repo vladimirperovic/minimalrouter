@@ -50,10 +50,10 @@ type CloudflareConfig struct {
 	DDNSEnabled   bool   `json:"ddns_enabled"`
 	DDNSProvider  string `json:"ddns_provider,omitempty"` // noip or cloudflare; empty is legacy Cloudflare
 	DDNSUser      string `json:"ddns_username,omitempty"` // No-IP DDNS Key username/email
-	APIToken      string `json:"api_token,omitempty"`      // DDNS credential secret: No-IP key password or Cloudflare API token
-	ZoneID        string `json:"zone_id,omitempty"`        // Legacy field retained for import compatibility
-	ZoneName      string `json:"zone_name,omitempty"`      // Cloudflare zone name only
-	Domain        string `json:"domain"`                   // Hostname updated by the selected DDNS provider
+	APIToken      string `json:"api_token,omitempty"`     // DDNS credential secret: No-IP key password or Cloudflare API token
+	ZoneID        string `json:"zone_id,omitempty"`       // Legacy field retained for import compatibility
+	ZoneName      string `json:"zone_name,omitempty"`     // Cloudflare zone name only
+	Domain        string `json:"domain"`                  // Hostname updated by the selected DDNS provider
 	TunnelEnabled bool   `json:"tunnel_enabled"`
 	TunnelToken   string `json:"tunnel_token,omitempty"`
 }
