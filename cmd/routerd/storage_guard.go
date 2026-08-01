@@ -34,12 +34,11 @@ func mutationNeedsDurableWrite(method, path string) bool {
 		return false
 	}
 
-	// POST endpoints below are read-like, memory-only, or are specifically
-	// needed to recover/export state while the appliance is under pressure.
+	// These POST endpoints do not commit appliance state. Keep them available so
+	// operators can export/inspect state and end a browser session under pressure.
 	if path == "/api/v1/auth/logout" ||
 		path == "/api/v1/backup/export" ||
 		path == "/api/v1/firmware/verify" ||
-		path == "/api/v1/recovery/reconcile" ||
 		path == "/api/v1/auth/totp/enroll" ||
 		strings.HasSuffix(path, "/preview") {
 		return false
