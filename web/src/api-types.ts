@@ -116,6 +116,17 @@ export type PendingTransaction = {
   error?: string;
 };
 
+export type StorageStatus = {
+  available: boolean;
+  total_bytes: number;
+  used_bytes: number;
+  free_bytes: number;
+  usage_percent: number;
+  level: "unknown" | "normal" | "warning" | "critical";
+  nonessential_writes_allowed: boolean;
+  durable_writes_allowed: boolean;
+};
+
 export type SystemStatus = {
   status?: string;
   version?: string;
@@ -141,6 +152,7 @@ export type SystemStatus = {
     memory_total_bytes?: number;
     disk_used_bytes?: number;
     disk_total_bytes?: number;
+    storage?: StorageStatus;
     temperature_c?: number;
     time_synchronized?: boolean;
     conntrack_count?: number;
@@ -195,4 +207,20 @@ export type GatewayHistoryPoint = {
   jitter_ms?: number;
   packet_loss_percent: number;
   pppoe_uptime_seconds: number;
+};
+
+export type ApplianceHealthState = "healthy" | "warning" | "degraded" | "recovery_required" | "unknown";
+
+export type ApplianceHealthCheck = {
+  id: string;
+  label: string;
+  state: ApplianceHealthState;
+  summary: string;
+};
+
+export type ApplianceHealth = {
+  state: ApplianceHealthState;
+  headline: string;
+  checks: ApplianceHealthCheck[];
+  generated_at: string;
 };

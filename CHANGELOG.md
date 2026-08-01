@@ -8,6 +8,19 @@ alpha, compatibility may change between commits.
 
 ### Added
 
+- Bounded storage-pressure policy with explicit 80% warning and 90% critical
+  thresholds, authenticated runtime telemetry, and HTTP 507 rejection of durable
+  management mutations when safe persistence cannot be guaranteed.
+- Periodic SQLite retention maintenance and passive WAL checkpoints without
+  `VACUUM` or forwarding-plane interruption.
+- Bounded `routerd` and `router-applyd` log rotation (1 MiB active logs, four
+  compressed rotations) in Alpine installation and distribution paths.
+- Central authenticated appliance-health model with Healthy, Warning, Degraded,
+  Recovery required, and Unknown states covering recovery, storage, memory,
+  conntrack, time, WAN/gateway, core supervision, DNS/DHCP, PPPoE, WireGuard,
+  update state, and encrypted-backup age.
+- Overview appliance-health banner with independent 15-second refresh and concise
+  explanations for non-healthy signals.
 - Durable update-operation journal for crash-safe A/B activation and rollback.
 - Durable privileged-operation intent before network side effects and a validated
   completed-result journal for idempotent response replay.
@@ -24,6 +37,8 @@ alpha, compatibility may change between commits.
   confirmation ordering.
 - Clean-Alpine destructive smoke coverage that removes volatile nftables, LAN,
   and WireGuard runtime and verifies reconstruction from confirmed state.
+- Gateway-quality/PPPoE monitoring with bounded history, latency, jitter, packet
+  loss, reconnect history, and flapping detection.
 - Fuzz targets for malformed unauthenticated API requests and update journals.
 - Isolated WAN-router-LAN network namespace laboratory covering DHCP, DNS, NAT,
   firewall, TCP, UDP, parallel flows, packet loss, latency, and WAN port checks.
@@ -32,8 +47,9 @@ alpha, compatibility may change between commits.
 - ARM64 QEMU smoke testing for recovery-safe commands.
 - High-confidence `gosec`, `shellcheck`, `actionlint`, Linux binary inspection,
   and executable-stack rejection.
-- Private `PROXMOX_AI_HANDOFF.md` with durable interruption points, stop
-  conditions, evidence format, and rollback rules for the owner-created VM.
+- Private `PROXMOX_AI_HANDOFF.md` with current storage/health behavior, durable
+  interruption points, stop conditions, evidence format, and rollback rules for
+  the owner-created VM.
 - Local recovery console for credential reset, LAN repair, snapshot restore, and
   factory reset with session revocation and undo snapshots.
 - DNS Filter device profiles and scheduled Kids profile workflow.
@@ -43,10 +59,14 @@ alpha, compatibility may change between commits.
 
 ### Changed
 
-- Private source, tests, OpenRC startup readiness, Alpine smoke coverage, and
-  technical recovery documentation were synchronized as bit-identical Git blobs
-  from validated public baseline
-  `vladimirperovic/minimalrouter@1eda8073b6d005dfa5bdb5673c227a991442cdb6`.
+- Shared application/runtime code is synchronized with public baseline
+  `vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`,
+  including public PR #28, PR #29, and their final validation documentation.
+- Nonessential gateway sample/reconnect history is shed under critical storage
+  pressure while live probing and in-memory gateway health continue.
+- Recovery and configuration writes remain fail-closed under critical storage
+  pressure; read-only status, previews, verification and encrypted backup export
+  stay available where no durable mutation is required.
 - Ambiguous transport failures retry the exact same transaction ID so the helper
   can return a persisted idempotent result without repeating side effects.
 - Disruptive confirmation now proceeds in order: verify candidate runtime,
@@ -61,8 +81,7 @@ alpha, compatibility may change between commits.
 - `router-applyd` exposes its Unix socket only after startup reconciliation has
   completed successfully.
 - Private documentation now distinguishes fully green public automated evidence,
-  exact private blob parity, unavailable private GitHub Actions, and remaining
-  target-Proxmox gates.
+  synchronized shared-source parity, and remaining target-Proxmox gates.
 - CI and tagged-release `checkout`, `setup-go`, and `setup-node` actions use v7;
   evidence-upload workflows use `upload-artifact` v7.
 - Dashboard development uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
@@ -79,6 +98,8 @@ alpha, compatibility may change between commits.
 
 ### Fixed
 
+- Malformed/partial `/api/v1/health` payloads no longer crash the dashboard; the
+  Overview banner fails closed to an unavailable/unknown display.
 - A helper restart after an incomplete privileged operation can no longer treat
   the request as fresh and repeat side effects.
 - A different transaction can no longer bypass unresolved helper intent or
@@ -108,6 +129,11 @@ alpha, compatibility may change between commits.
 
 ### Security
 
+- Critical disk pressure blocks durable management mutations rather than allowing
+  runtime changes to be reported successful without persistent evidence.
+- Health collection is read-only and does not inspect or return PPPoE passwords,
+  WireGuard private keys, provider tokens, administrator credentials, backups, or
+  other secret material.
 - Privileged side effects never begin without a durable intent marker.
 - Unknown privileged outcomes block future mutation until canonical
   reconciliation succeeds.
@@ -122,11 +148,15 @@ alpha, compatibility may change between commits.
 
 ### Validation note
 
-- The exact public baseline above passed standard CI, clean-Alpine lifecycle,
-  Deep validation, CodeQL, secret scan, and Performance.
-- Private GitHub Actions currently terminate before their first executable step
-  and provide no job logs. They are neither a private code failure nor a private
-  pass; no successful private CI claim is made.
+- Public PR #28 final head `e3f6b983b189e6418cbd1711abf32e4a29d98107`
+  and PR #29 final head `f56807a4bbad09bc3565f66de2b3b18aeb5c87b4`
+  passed their full triggered workflow suites.
+- The final public documentation baseline is
+  `df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`.
+- Public automated evidence is not a substitute for the owner's real Proxmox,
+  PPPoE, NIC, destructive storage, external scan, restore, or long-duration tests.
+- A private CI pass must not be claimed unless Actions for the exact private head
+  actually execute and report success.
 
 ### Known limitations
 
@@ -134,6 +164,6 @@ alpha, compatibility may change between commits.
 - The owner-created Proxmox VM still needs the dated private test report described
   in `docs/PROXMOX_AI_HANDOFF.md`.
 - No stable signed ISO or owner-qualified recovery media.
-- Real NIC, PPPoE, WireGuard, external scan, full-disk/read-only/process-kill,
+- Real NIC, PPPoE, WireGuard, external scan, full-disk/inode/read-only/process-kill,
   abrupt power-loss, backup-restore, and long-duration evidence is still required.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.

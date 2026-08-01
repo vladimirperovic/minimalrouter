@@ -15,7 +15,7 @@ fi
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
-    chrony chrony-openrc
+    chrony chrony-openrc logrotate
 
 # The router depends on accurate time for TOTP, TLS, schedules, audit ordering,
 # and signed-update checks. Chrony is deliberately client-only and exposes no
@@ -52,7 +52,7 @@ install -d -m 0750 -o root -g routerd /run/minimalrouter
 install -d -m 0750 -o root -g inadyn /etc/inadyn
 install -d -m 0755 -o root -g root /usr/share/minimalrouter/web /etc/minimalrouter
 install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
-install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
+install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d /etc/logrotate.d
 
 # Binaries are architecture-specific so a stale artifact from another target
 # can never be installed accidentally.
@@ -81,8 +81,9 @@ cp packaging/alpine/routerd.initd /etc/init.d/routerd
 cp packaging/alpine/pppoe-wan.initd /etc/init.d/pppoe-wan
 cp packaging/alpine/99-minimalrouter.conf /etc/sysctl.d/99-minimalrouter.conf
 cp packaging/alpine/minimalrouter.modules /etc/modules-load.d/minimalrouter.conf
+cp packaging/alpine/minimalrouter.logrotate /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
-chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
+chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
 # Alpine's OpenRC modules service reads /etc/modules. Keep this fallback for
 # installed systems that do not process modules-load.d directly.

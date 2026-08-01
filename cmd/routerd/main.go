@@ -45,6 +45,8 @@ func main() {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer store.Close()
+	stopStorageMaintenance := startStorageMaintenance(store)
+	defer stopStorageMaintenance()
 
 	initialCfg, err := store.GetLatestConfig()
 	if err != nil {
@@ -108,6 +110,7 @@ func main() {
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	server.RegisterGatewayRoutes(mux)
+	server.RegisterHealthRoutes(mux)
 	if webDir := os.Getenv("MINIMALROUTER_WEB_DIR"); webDir != "" {
 		mux.Handle("/", staticHandler(webDir))
 		log.Printf("Serving dashboard from %s", webDir)
@@ -169,7 +172,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              serverAddr,
-		Handler:           managementDestinationHandler(engine, mux),
+		Handler:           managementDestinationHandler(engine, storagePressureHandler(absDir, mux)),
 		TLSConfig:         tlsConfig,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,

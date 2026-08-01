@@ -92,7 +92,8 @@ dist-arm64: build-linux-arm64 web-build
 		build/dist/minimalrouter-linux-arm64/web/dist \
 		build/dist/minimalrouter-linux-arm64/init.d \
 		build/dist/minimalrouter-linux-arm64/sysctl \
-		build/dist/minimalrouter-linux-arm64/modules
+		build/dist/minimalrouter-linux-arm64/modules \
+		build/dist/minimalrouter-linux-arm64/logrotate
 	@cp bin/routerd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/routerd-arm64
 	@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64
 	@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64
@@ -104,6 +105,7 @@ dist-arm64: build-linux-arm64 web-build
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-arm64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-arm64/modules/minimalrouter.conf
+	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-arm64/logrotate/minimalrouter
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install.sh
 	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/slot-exec
 	@tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
@@ -120,7 +122,8 @@ dist-amd64: build-linux-amd64 web-build
 		build/dist/minimalrouter-linux-amd64/web/dist \
 		build/dist/minimalrouter-linux-amd64/init.d \
 		build/dist/minimalrouter-linux-amd64/sysctl \
-		build/dist/minimalrouter-linux-amd64/modules
+		build/dist/minimalrouter-linux-amd64/modules \
+		build/dist/minimalrouter-linux-amd64/logrotate
 	@cp bin/routerd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/routerd-amd64
 	@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64
 	@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64
@@ -132,6 +135,7 @@ dist-amd64: build-linux-amd64 web-build
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-amd64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-amd64/modules/minimalrouter.conf
+	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-amd64/logrotate/minimalrouter
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install.sh
 	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/slot-exec
 	@tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64

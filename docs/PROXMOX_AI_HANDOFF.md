@@ -1,219 +1,152 @@
 # Proxmox VM continuation guide for an AI operator
 
-This document is an operational handoff for another AI agent or engineer who has
-access to the owner's Proxmox host and must continue testing the **existing**
-Minimal Router VM safely.
+This is the private operational handoff for continuing the owner's existing Minimal Router VM on Proxmox.
 
-It is intentionally stored only in the private `minimalrouterhome` repository.
-Do not copy hostnames, VM IDs, bridge names, MAC addresses, public addresses,
-credentials, tokens, backups, packet captures, or real household inventory into
-this file or into a public issue.
+It is intentionally stored only in `minimalrouterhome`. It must remain useful without storing real credentials, addresses, MAC addresses, VM IDs, bridge names, hostnames, tokens, backups, packet captures, or household inventory in Git.
 
-## Mission
+## Current repository baseline
 
-Continue from the already-created Proxmox VM. Do not recreate, delete, clone,
-rewire, or promote the VM to production until its identity and current network
-connections have been confirmed read-only.
+Shared application/runtime code is synchronized with:
 
-The immediate goal is a controlled pilot, not an unattended pfSense replacement.
-Keep the existing pfSense VM/appliance available for immediate rollback.
+`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
+
+That public baseline includes:
+
+- PR #28 — bounded storage and disk-pressure behavior;
+- PR #29 — central appliance-health aggregation and Overview banner;
+- the follow-up documentation synchronization;
+- earlier privileged recovery, gateway quality, OpenRC supervision, SQLite durability, security, and update/recovery hardening.
+
+`minimalrouterhome` is the production/private deployment repository. Shared engine code follows public `minimalrouter`; owner-specific runtime values stay outside Git.
+
+## Private overlay boundary
+
+Tracked repository files must never contain the live installation values below:
+
+- PPPoE username or password;
+- administrator password, password hash, session state, or TOTP secret;
+- WireGuard private/preshared keys;
+- Cloudflare/provider tokens;
+- real public or household IP addresses;
+- MAC addresses or household device inventory;
+- Proxmox node name, VM ID, live bridge assignments, or raw `qm config` output;
+- SQLite/WAL runtime state;
+- `/var/lib/minimalrouter-applyd/` recovery metadata;
+- generated PPPoE, dnsmasq, nftables, WireGuard, or service configuration;
+- backup archives, VM disks, packet captures, or raw logs.
+
+If a trusted local checkout needs temporary deployment material, use ignored paths:
+
+```text
+private/runtime/
+private/secrets/
+private/backups/
+```
+
+These directories are not a Git-based secret store and must not be required for building the shared engine.
+
+## What the operator must discover locally
+
+Do not ask the owner to paste secrets into chat if they already exist on the appliance or Proxmox host.
+
+The exact live values are intentionally not in Git. Before modifying anything, discover locally and privately:
+
+- Proxmox node containing the candidate VM;
+- exact candidate VM ID/name;
+- current vCPU, RAM, disk, guest-agent, boot order, and NIC model;
+- which Proxmox bridge/NIC is intended WAN;
+- which bridge/NIC is intended LAN;
+- whether WAN currently uses a test/NAT path or the real ISP;
+- guest WAN/LAN interface identity;
+- installed Minimal Router commit/update slot;
+- current LAN address/subnet;
+- whether PPPoE, WireGuard, DDNS, Squid, Wi-Fi, or other optional services are enabled;
+- whether a pending configuration transaction or update operation exists.
+
+PPPoE credentials and other secrets should be read or entered only inside the trusted local environment when needed. Never echo them into evidence files.
 
 ## Non-negotiable safety rules
 
-1. **Inventory first.** Never guess the Proxmox node, VM ID, VM name, disk, WAN
-   bridge, LAN bridge, or guest interface order.
-2. **Do not start every VM.** Identify exactly one candidate Minimal Router VM.
-3. **Do not attach the candidate WAN directly to the ISP during the first test.**
-   Use the existing test/NAT WAN path until basic validation passes.
-4. **Keep the candidate LAN isolated.** It must not share the production LAN with
-   the active pfSense DHCP server.
-5. **Never run two active DHCP servers on the same LAN.**
-6. **Keep Proxmox console access open** before changing networking, applying an
-   update, rebooting, or testing rollback.
-7. **Do not paste secrets into chat, GitHub, logs, or reports.** PPPoE credentials,
-   administrator passwords, WireGuard keys, Cloudflare tokens, session values,
-   public addresses, MAC addresses, and backups remain local.
-8. **Do not use `qm stop` as a normal shutdown.** Use a graceful guest shutdown;
-   force-stop only as an explicitly recorded power-loss test after a known-good
-   snapshot/backup and with pfSense ready.
-9. **Do not delete the previous update slot** until the new slot has survived
-   service restart, guest reboot, management login, DHCP/DNS/NAT validation, and
-   an explicit rollback rehearsal.
-10. **Stop on ambiguity.** If more than one VM looks like the candidate, or bridge
-    purpose is unclear, do not change anything.
-11. **Never delete helper recovery metadata merely to clear an error.** Preserve
-    `last-transaction.json`, `pending-confirmation.json`, and `last-good.json`
-    until their meaning has been recorded and canonical reconciliation has been
-    attempted. Removing evidence can cause duplicate privileged side effects or
-    make stale state appear authoritative.
-12. **Unknown is not rollback.** Accept only `Committed`, positively verified
-    `RolledBack`, or blocking `RecoveryRequired`. Do not reinterpret an ambiguous
-    response as success.
+1. Inventory first. Never guess VM identity, WAN/LAN bridge roles, guest NIC order, or current update slot.
+2. Do not recreate, delete, clone, rewire, or promote the VM until one candidate is identified unambiguously.
+3. Keep the existing pfSense/router fallback independently available until the Minimal Router pilot completes.
+4. Initial validation uses an isolated LAN and test/NAT WAN. Do not create two DHCP servers on the same production broadcast domain.
+5. Keep Proxmox console access available before networking changes, update activation, rollback, or reboot tests.
+6. Use graceful shutdown for normal lifecycle work. `qm stop` is reserved for an explicitly planned destructive power-loss test.
+7. Preserve the previous A/B software slot until the new slot survives reboot, management login, DHCP/DNS/NAT checks, and an explicit rollback rehearsal.
+8. Preserve helper recovery metadata. Do not delete `last-transaction.json`, `pending-confirmation.json`, `last-good.json`, or related recovery evidence merely to clear an error.
+9. Unknown is not success. Accept only positively verified committed/rolled-back state or explicit `RecoveryRequired`.
+10. Stop when VM identity, bridge purpose, management reachability, or rollback behavior becomes ambiguous.
 
-## Known project state
+## Phase 0 — read-only Proxmox discovery
 
-At the time of this handoff:
-
-- an existing Proxmox VM has already been created by the owner;
-- the exact Proxmox node, VM ID, VM name, bridges, guest addresses, and installed
-  commit are intentionally not stored in Git;
-- public recovery candidate `vladimirperovic/minimalrouter@1eda8073b6d005dfa5bdb5673c227a991442cdb6`
-  passed standard CI, clean Alpine install/update/rollback, Deep validation,
-  CodeQL, secret scan, and Performance;
-- the private tree imports the same durable transaction protocol, deterministic
-  tests, OpenRC readiness gate, and clean-Alpine power-loss smoke;
-- private GitHub Actions currently terminate before the first job step and
-  provide no logs, so they are **not** evidence that this private commit passed;
-- crash-safe A/B update journaling, durable privileged intents, idempotent result
-  replay, typed canonical reconciliation, two-phase disruptive confirmation,
-  fuzzing, ARM64 smoke tests, isolated WAN-router-LAN tests, and performance
-  baselines exist;
-- real Proxmox, real PPPoE, real NIC, external scan, long-duration, and target-host
-  destructive recovery evidence are still required.
-
-Read [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md), [`PROXMOX.md`](PROXMOX.md),
-[`TESTING.md`](TESTING.md), [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md), and
-[`RECOVERY.md`](RECOVERY.md) before execution.
-
-## Current configuration transaction protocol
-
-Every privileged mutation must follow this durable order:
-
-```text
-validate and generate
-        ↓
-create snapshot
-        ↓
-write durable privileged intent
-        ↓
-apply runtime side effects
-        ↓
-verify runtime
-        ↓
-write durable privileged result
-        ↓
-commit SQLite canonical state or positively verify rollback
-```
-
-A disruptive change adds three separate phases:
-
-```text
-CONFIRM runtime and management reachability
-        ↓
-commit exact candidate revision to SQLite
-        ↓
-COMMIT_CONFIRMED: verify runtime again, write helper last-good, clear pending
-```
-
-Important boundaries:
-
-- Before SQLite commit, the previous SQLite configuration remains canonical and
-  timeout rollback may restore it.
-- After SQLite commit, the candidate is canonical. A missing helper
-  acknowledgement must not cause timeout rollback to the older helper file.
-- A transport retry for one logical phase reuses the same transaction ID so the
-  helper can replay the persisted result without repeating side effects.
-- A later explicit retry after a recorded final helper storage failure uses a
-  fresh final-commit ID.
-- `RECONCILE` is the only operation permitted to supersede an incomplete or
-  `RecoveryRequired` helper journal. It may apply only the configuration loaded
-  from SQLite canonical state.
-- While `RecoveryRequired` is active, ordinary configuration changes must remain
-  blocked.
-
-## Phase 0 — establish access without exposing secrets
-
-The operator needs:
-
-- read/write access to the correct Proxmox node through a trusted shell or API;
-- Proxmox console access to the candidate guest;
-- access to this private repository;
-- a separate LAN test client or disposable VM;
-- the existing pfSense rollback path.
-
-Credentials must be entered directly into the trusted execution environment. Do
-not request that the owner paste them into GitHub documentation or a public chat.
-
-## Phase 1 — read-only Proxmox inventory
-
-Run read-only commands first:
+Run read-only inventory first:
 
 ```sh
 pvesh get /cluster/resources --type vm --output-format json-pretty
 qm list
 ```
 
-For each plausible candidate, inspect without changing it:
+For plausible candidates:
 
 ```sh
 qm status <VMID>
 qm config <VMID>
 ```
 
-Record locally, outside Git:
+Keep raw output local. Record only sanitized facts in Git documentation.
 
-- Proxmox node and VM ID;
-- VM name and notes/tags;
-- current state;
-- CPU type and vCPU count;
-- RAM and ballooning state;
-- disk/storage and boot order;
-- guest-agent setting;
-- each NIC model, bridge, firewall flag, VLAN tag, and link state;
-- whether any passthrough device exists.
+Proceed only after identifying exactly one Minimal Router candidate and understanding both NIC roles.
 
-Do not publish raw `qm config` output because it may contain real network
-identifiers.
+## Recommended VM baseline
 
-### Candidate acceptance rule
+Use the existing VM when reasonable; do not rebuild merely to match these recommendations.
 
-Proceed only when one VM is unambiguously the Minimal Router candidate and it has
-exactly the expected router boundary:
+Reference baseline:
 
-- one intended WAN NIC;
-- one intended LAN NIC;
-- a test/NAT WAN bridge during initial testing;
-- an isolated LAN bridge;
-- no accidental connection that would place a second DHCP server on production
-  LAN.
+- QEMU/KVM VM, not LXC;
+- Alpine Linux 3.22 x86_64;
+- CPU type `host` on the fixed homelab node;
+- start with 1 vCPU;
+- 1 GiB RAM for comfortable pilot headroom;
+- 8 GiB reliable virtual disk;
+- two VirtIO NICs unless hardware testing specifically requires passthrough;
+- QEMU Guest Agent enabled;
+- reliable Proxmox and guest time synchronization.
 
-## Phase 2 — preserve rollback before boot
+Any different live configuration should be documented, not silently changed.
 
-Before changing or updating the guest:
+## Phase 1 — preserve rollback
 
-1. Confirm pfSense can be restored or started without depending on the candidate.
-2. Confirm the candidate is not in the middle of a configuration commit-confirm
-   window or firmware activation.
-3. Export an encrypted Minimal Router backup through the dashboard when available.
-4. Record the current repository commit and installed update-slot state.
-5. Record checksums and metadata for the SQLite store and helper recovery files
-   without copying secrets into Git.
-6. Take a Proxmox snapshot only from a known consistent state. Prefer graceful
-   shutdown before the snapshot unless guest-agent filesystem freeze has been
-   explicitly verified.
-7. Do not treat a Proxmox snapshot as a substitute for the application backup.
+Before updating or testing:
 
-Useful host actions:
+1. Confirm pfSense/current router can be restored independently.
+2. Confirm no configuration confirmation window is pending.
+3. Confirm no firmware operation journal is pending.
+4. Export an encrypted Minimal Router backup when available.
+5. Record the installed commit and `router-update status` privately.
+6. Take a known-good Proxmox snapshot from a consistent state.
+
+Preferred host sequence:
 
 ```sh
 qm shutdown <VMID> --timeout 60
 qm status <VMID>
-qm snapshot <VMID> pre-test-YYYYMMDD-HHMM --description "Known-good state before controlled Minimal Router tests"
+qm snapshot <VMID> pre-test-YYYYMMDD-HHMM --description "Known-good Minimal Router pilot state"
 ```
 
-If shutdown does not complete, inspect the console and guest-agent state. Do not
-force-stop automatically.
+A Proxmox snapshot is not a substitute for an application-level encrypted backup.
 
-## Phase 3 — safe start and guest baseline
+## Phase 2 — safe guest baseline
 
-Start only the identified candidate:
+Start only the identified candidate and open the console:
 
 ```sh
 qm start <VMID>
 qm status <VMID>
 ```
 
-Open the Proxmox console immediately. In the guest, run read-only baseline checks:
+Inside the guest, run read-only checks:
 
 ```sh
 cat /etc/alpine-release
@@ -221,49 +154,34 @@ uname -a
 ip -brief link
 ip -brief address
 ip route
-mount
 findmnt /
 df -h
 df -i
 rc-service router-applyd status
 rc-service routerd status
-rc-update show | grep -E 'routerd|router-applyd'
+rc-service dnsmasq status 2>/dev/null || true
+rc-update show | grep -E 'routerd|router-applyd|dnsmasq|chronyd'
 router-update status
 readlink -f /var/lib/minimalrouter-update/current 2>/dev/null || true
 readlink -f /var/lib/minimalrouter-update/previous 2>/dev/null || true
 ```
 
-Also inspect locally, without publishing file contents:
+Also confirm privately:
 
-```sh
-stat /var/lib/minimalrouter-applyd/last-good.json 2>/dev/null || true
-stat /var/lib/minimalrouter-applyd/last-transaction.json 2>/dev/null || true
-stat /var/lib/minimalrouter-applyd/pending-confirmation.json 2>/dev/null || true
-```
+- WAN and LAN guest interfaces match intended Proxmox NICs;
+- management is reachable only from the intended LAN/WireGuard path;
+- system time is synchronized;
+- persistent storage is writable;
+- no core service is crash-looping;
+- recovery state is not ambiguous.
 
-Verify:
+## Phase 3 — build and update from the current private repository
 
-- WAN and LAN guest interfaces match the intended Proxmox NIC order;
-- management listens only on the intended LAN/WireGuard path;
-- there is no unexpected default route through the isolated LAN;
-- services are not crash-looping;
-- system time is correct;
-- persistent storage is writable and has adequate free space;
-- `router-applyd` exposes its Unix socket only after startup reconciliation;
-- no unexplained transaction or pending-confirmation record remains.
-
-Record kernel, Alpine version, vCPU, RAM, NIC model, bridge type, offload settings,
-and exact repository/installed commit in the private test report. Redact real
-addresses and identifiers.
-
-## Phase 4 — bring the VM to the current repository build
-
-Use the private repository and an exact commit:
+Use an exact `minimalrouterhome` commit:
 
 ```sh
 git clone <trusted-private-repository-url>
 cd minimalrouterhome
-git fetch --all --tags
 git checkout main
 git pull --ff-only
 git rev-parse HEAD
@@ -273,14 +191,9 @@ cd build
 sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
 ```
 
-Transfer the archive and checksum over a trusted local path. Verify the checksum
-again inside the guest before extracting.
+Verify the checksum again after transfer.
 
-For a fresh installation, follow [`INSTALLATION.md`](INSTALLATION.md). For an
-already-installed system, do not overwrite live binaries manually. Use the
-verified A/B update path only with a signed payload and the pinned public key.
-
-The update CLI is deliberately explicit:
+For an already-installed appliance, do not overwrite live binaries manually. Use the supported signed A/B path when a trusted signed payload exists:
 
 ```sh
 router-update status
@@ -288,195 +201,212 @@ router-update stage --dir <EXTRACTED_SIGNED_PAYLOAD> --manifest <SIGNED_MANIFEST
 router-update activate --version <VERSION> --confirm ACTIVATE-UPDATE
 ```
 
-After activation, restart the services or reboot, then verify health. To return to
-the previous verified slot:
+After verification, retain the previous slot. Explicit rollback:
 
 ```sh
 router-update rollback --confirm ROLLBACK-UPDATE
 ```
 
-Never fabricate a signing key and call that a trusted production update. A local
-unsigned development archive is suitable for a controlled reinstall only, not for
-claiming the signed-update release gate passed.
+A locally generated development signing key is not equivalent to the owner's production trust anchor.
 
-## Phase 5 — test order
+## PR #28 — storage-pressure behavior to verify on Proxmox
 
-Run tests in this order and stop at the first unexplained failure.
+The synchronized engine treats appliance storage as finite.
 
-### A. Boot and service reconciliation
+Expected states:
+
+- below 80% used: `Normal`;
+- 80% to below 90%: `Warning`;
+- 90% or above: `Critical`.
+
+At `Critical` pressure:
+
+- existing routing/firewall/PPPoE/DHCP/DNS state must continue;
+- durable management mutations must return HTTP 507 rather than claiming false success;
+- recovery mutations that require persistence are also blocked;
+- read-only status and backup export remain available where no new durable mutation is required;
+- gateway probing continues, but nonessential gateway-history writes are shed.
+
+Bounded state includes:
+
+- latest 100 config revisions;
+- latest 20 snapshots;
+- latest 5,000 audit events;
+- gateway samples bounded by seven days / 41,000 rows;
+- gateway reconnect events bounded by seven days / 2,048 rows;
+- routerd/router-applyd logs rotated at 1 MiB with four compressed rotations;
+- periodic passive SQLite WAL checkpointing.
+
+Do not perform destructive full-disk/inode/read-only tests on the only candidate VM. Use a disposable clone or dedicated test disk after backup/snapshot/rollback is proven.
+
+Relevant docs:
+
+- `STORAGE_PRESSURE.md`
+- `STORAGE_PRESSURE_TEST_PLAN.md`
+
+## PR #29 — central appliance health to verify on Proxmox
+
+Authenticated endpoint:
+
+```text
+GET /api/v1/health
+```
+
+Aggregate states:
+
+- `Healthy`;
+- `Warning`;
+- `Degraded`;
+- `Recovery required`;
+- `Unknown`.
+
+The health model observes:
+
+- recovery/transaction state;
+- storage pressure;
+- memory pressure;
+- conntrack pressure;
+- time synchronization;
+- WAN/PPPoE and gateway quality;
+- routerd/router-applyd supervision and apply socket;
+- dnsmasq DNS/DHCP state;
+- PPPoE service state when configured;
+- WireGuard interface state when configured;
+- signed-update trust/pending update state;
+- age of the last successful encrypted backup export visible in retained audit state.
+
+Rules:
+
+- `Recovery required` has highest severity;
+- missing evidence remains `Unknown`, never invented as Healthy;
+- health collection is read-only;
+- health collection does not restart services, reconnect PPPoE, modify firewall state, or expose secrets.
+
+The Overview dashboard health banner refreshes independently every 15 seconds.
+
+Relevant doc: `APPLIANCE_HEALTH.md`.
+
+## Phase 4 — required functional test order
+
+Run in this order and stop at the first unexplained failure.
+
+### A. Boot and reconciliation
 
 - five graceful guest reboot cycles;
-- at least two Proxmox stop/start lifecycle cycles using graceful shutdown;
+- at least two graceful Proxmox shutdown/start cycles;
 - WAN/LAN roles stable after every boot;
-- `routerd`, `router-applyd`, dnsmasq, nftables, and enabled services healthy;
-- dashboard reachable only from isolated LAN;
-- no pending transaction or update operation after boot;
-- canonical SQLite state is re-applied before the helper socket/management plane
-  is considered ready;
-- stale unconfirmed runtime does not survive reboot.
+- `routerd`, `router-applyd`, dnsmasq, nftables, chronyd, and configured services healthy;
+- no unexpected `RecoveryRequired` state;
+- dashboard and `/api/v1/health` available from the intended management path.
 
-### B. LAN services and management boundary
+### B. LAN and management boundary
 
 From an isolated client:
 
-- acquire a DHCP lease;
+- receive DHCP lease;
 - resolve DNS through the router;
-- log in and log out through HTTPS;
-- verify WAN cannot reach dashboard/API ports;
-- verify direct WAN-to-LAN unsolicited traffic is denied;
-- verify an unconfirmed disruptive LAN change rolls back;
-- verify recovery console access remains available.
+- authenticate through HTTPS;
+- verify dashboard/API are not reachable from WAN;
+- verify unsolicited WAN-to-LAN traffic is denied;
+- verify an unconfirmed disruptive management/LAN change rolls back;
+- verify local recovery remains available.
 
 ### C. NAT and forwarding
 
-Using a test WAN, not the production ISP:
+With test/NAT WAN:
 
-- confirm outbound IPv4 through NAT;
-- test TCP and UDP in both practical directions permitted by policy;
-- test 1, 64, and a larger controlled number of parallel connections;
-- record connection failures, retransmits, latency, and packet loss;
-- confirm management remains responsive during load.
+- outbound IPv4 NAT;
+- practical TCP and UDP flows;
+- parallel connection load;
+- management responsiveness under load;
+- no unexplained loss/retransmission spikes.
 
-### D. Target-host performance
+### D. Storage and health
 
-Record every command and environment detail. Measure:
+- verify Normal/Warning/Critical thresholds against a disposable test filesystem;
+- verify HTTP 507 for durable writes under Critical pressure;
+- verify routing and existing services remain active;
+- verify gateway history stops growing while live health continues;
+- verify logrotate policy;
+- verify WAL/history/snapshot growth remains bounded;
+- verify central health severity changes correctly for injected non-destructive conditions.
 
-- boot-to-forwarding-ready and boot-to-management-ready;
-- idle CPU and RAM;
-- loaded CPU and RAM;
-- LAN-to-WAN and WAN-to-LAN throughput where policy permits;
-- packets per second with small and large frames;
-- latency and jitter without load and under load;
-- VirtIO multiqueue/offload configuration;
-- disk and helper-journal growth during tests;
-- management API responsiveness during traffic.
+### E. Update and recovery
 
-Use at least two traffic-generator endpoints. Do not use the Go control plane as
-the forwarding path. Treat same-host VirtIO results separately from physical NIC
-or passthrough results.
-
-### E. Recovery and failure tests
-
-After a known-good snapshot and backup, use a disposable clone where storage or
-power is intentionally damaged.
-
-Test each configuration boundary separately:
-
-1. **Before durable intent** — request must be side-effect free.
-2. **After durable intent, before runtime apply completes** — restart must find an
-   incomplete intent, block normal mutation, and require canonical reconcile.
-3. **After runtime apply, before completed-result journal** — the same transaction
-   must not be executed again after restart.
-4. **After completed-result journal, before IPC response** — retry with the same
-   ID must return the stored result without repeating side effects.
-5. **After runtime confirmation, before SQLite commit** — old SQLite state remains
-   canonical; timeout/boot recovery may restore it.
-6. **After SQLite commit, before `COMMIT_CONFIRMED`** — candidate remains
-   canonical; old helper `last-good` must not win.
-7. **After helper `last-good`, before pending cleanup** — restart/reconcile must
-   converge on the candidate and safely clear stale pending state.
-8. **During canonical `RECONCILE`** — failure must keep readiness/mutations
-   blocked; success must restore the exact SQLite configuration.
-
-For each boundary record:
-
-- SQLite revision and checksum;
-- helper journal existence, timestamps, and checksum only;
-- active interfaces, addresses, routes, nftables table, and service health;
-- transaction state returned to the administrator;
-- whether a new mutation was correctly blocked;
-- exact recovery action and final state.
-
-Also execute:
-
-- update activation and explicit rollback;
-- reboot after activation and after rollback;
-- service crash and automatic restart behavior;
-- full-disk and inode-exhaustion simulation on a disposable clone/test disk;
-- read-only filesystem simulation only on a disposable target;
-- corrupt/valid-but-empty helper metadata tests;
+- signed A/B activation;
+- service restart/reboot;
+- health verification;
+- explicit rollback;
 - backup restore into a fresh VM;
-- incorrect/unconfirmed LAN and WireGuard-only changes;
-- abrupt power-loss tests only after graceful and process-kill scenarios pass.
+- service crash/restart tests;
+- destructive disk/read-only/power-loss tests only on a disposable target.
 
-Never run destructive disk tests on the only candidate copy.
+### F. Real PPPoE maintenance window
 
-### F. Real PPPoE maintenance-window test
+Only after A–E pass and pfSense rollback is proven:
 
-Run only after A–E pass and the owner has a tested rollback plan:
+- enter PPPoE credentials locally;
+- establish the real ISP session;
+- record negotiated MTU, route, DNS, reconnect time, and CPU without logging secrets;
+- disconnect/reconnect repeatedly;
+- reboot and verify automatic reconnection;
+- verify gateway quality and central health behavior;
+- immediately restore the known-good router if authentication, MTU, routing, or management recovery is unclear.
 
-- disconnect the candidate test WAN;
-- ensure pfSense can be restored immediately;
-- enter PPPoE credentials locally without logging them;
-- establish session;
-- record negotiated MTU, route, DNS, reconnect time, CPU, and logs with secrets
-  redacted;
-- disconnect and reconnect repeatedly;
-- reboot the guest and verify automatic reconnection;
-- verify WAN loss never prevents LAN console/dashboard recovery;
-- restore pfSense immediately if authentication, MTU, routing, or management
-  recovery is unclear.
+### G. External and soak validation
 
-### G. External validation and soak
-
-- scan IPv4 and IPv6 from an unrelated external host;
-- verify no WAN management exposure;
-- test WireGuard from an unrelated mobile/external network;
-- rotate a WireGuard-only management key/port/peer in commit-confirm mode while
-  console access is open;
-- run at least seven continuous days before any production recommendation;
-- monitor memory, CPU, disk, journal/log growth, connection stability, and
-  reconnects;
-- repeat update/rollback and backup/restore after the soak period.
+- external IPv4 scan;
+- external IPv6 scan or explicit documented fail-closed behavior;
+- WireGuard from an unrelated external/mobile network;
+- at least seven continuous days of operation;
+- record CPU, RAM, storage, WAL/log/history growth, gateway quality, reconnects, and service restarts;
+- repeat backup/restore and update/rollback after the soak.
 
 ## Evidence format
 
-Create a new private dated report, for example:
+Create a new private dated report:
 
 ```text
 docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md
 ```
 
-The report must include:
+Include sanitized evidence for:
 
 - exact repository commit;
-- public source baseline commit used for parity;
-- Proxmox version and kernel;
-- guest Alpine/kernel version;
-- vCPU, RAM, disk, NIC model, bridge mode, and offload settings;
-- test topology described with synthetic labels;
+- Proxmox version/kernel;
+- guest Alpine/kernel;
+- vCPU/RAM/disk/NIC model;
+- topology using synthetic labels only;
 - commands used;
-- raw measurement summaries or attached private artifacts;
-- pass/fail for every durable boundary and release gate;
+- boot/reboot results;
+- DHCP/DNS/NAT/firewall results;
+- appliance-health results;
+- storage-pressure results;
+- throughput/packet-rate/latency/jitter/loss results;
+- update/rollback and backup/restore results;
+- PPPoE/WireGuard results when tested;
 - failures and recovery steps;
-- explicit limitations;
+- remaining limitations;
 - final recommendation: isolated pilot, guarded production pilot, or reject.
 
-Redact VM IDs, hostnames, MAC addresses, public/private household addresses,
-credentials, tokens, keys, device names, and backup contents before committing.
+Never commit the raw Proxmox inventory or secrets as evidence.
 
 ## Stop conditions
 
-Stop testing and restore pfSense when any of these occurs:
+Stop and restore the known-good router when any of these occurs:
 
 - WAN/LAN identity changes unexpectedly;
 - management becomes unreachable and console recovery is unclear;
-- two DHCP servers appear on one LAN;
+- a second DHCP server appears on the production LAN;
 - default-deny WAN behavior fails;
-- rollback does not restore the previous known-good slot/configuration;
-- `RecoveryRequired` disappears without a successful canonical reconcile or
-  positively verified rollback;
-- a duplicate transaction repeats privileged side effects;
-- helper `last-good` overrides a newer SQLite canonical revision;
+- durable mutation appears successful while persistence failed;
+- rollback cannot positively restore the previous known-good state;
+- `RecoveryRequired` cannot be explained and reconciled;
+- storage pressure causes forwarding/service teardown contrary to policy;
 - persistent state becomes corrupt;
-- unexplained packet loss, CPU saturation, memory growth, disk/journal growth, or
-  service restarts occur;
-- the operator cannot prove which bridge or NIC is being modified.
+- unexplained packet loss, CPU saturation, memory growth, disk growth, or repeated service restarts occur;
+- the operator cannot prove which bridge/NIC/VM is being modified.
 
 ## Completion criterion
 
-The handoff is complete only when another operator can reproduce the VM inventory,
-boot, update, rollback, DHCP/DNS/NAT, security-boundary, every durable
-configuration interruption point, throughput, reboot, backup/restore, PPPoE,
-external scan, and soak results from the private dated report without relying on
-undocumented chat context.
+The Proxmox handoff is complete only when another operator can reproduce the sanitized inventory, boot, health, storage-pressure, DHCP/DNS/NAT/firewall, update/rollback, backup/restore, PPPoE, WireGuard, external scan, and soak results from a private dated report without relying on undocumented chat history.

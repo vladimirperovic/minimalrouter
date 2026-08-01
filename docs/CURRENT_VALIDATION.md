@@ -1,177 +1,170 @@
-# Current validation status — 2026-07-31
+# Current validation status — 2026-08-01
 
-This document is the private repository source of truth for imported automated
-evidence, private-tree parity, and the remaining Proxmox/hardware release gates.
-Dated hardware reports remain historical evidence.
+This document is the private repository source of truth for imported public validation evidence, `minimalrouterhome` parity, and the remaining owner-Proxmox / hardware gates.
 
-## Validated public baseline
+## Current synchronized public baseline
 
-The recovery-hardening source baseline is:
+Shared application/runtime code is synchronized with:
+
+`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
+
+That baseline contains:
+
+- PR #28 — bounded storage and disk-pressure safety;
+- PR #29 — central appliance-health aggregation and Overview banner;
+- docs-only PR #30 recording their final validation;
+- all previously synchronized recovery, gateway-quality, security, update, OpenRC supervision, and appliance-hardening work.
+
+`minimalrouterhome` remains a private production/deployment repository. Shared engine code follows public `minimalrouter`; live Proxmox/PPPoE/household values remain outside Git.
+
+## PR #28 — bounded storage
+
+Implemented behavior:
+
+- storage `Warning` at 80% used;
+- storage `Critical` at 90% used;
+- durable API mutations rejected with HTTP 507 under Critical pressure;
+- existing forwarding/runtime state is not deliberately torn down because storage is full;
+- read-only status/preview/verification and encrypted backup export remain available where no new durable state is required;
+- gateway probes continue while nonessential gateway history writes are shed;
+- latest 100 canonical revisions retained;
+- latest 20 configuration snapshots retained;
+- latest 5,000 audit events retained;
+- gateway samples bounded to seven days / 41,000 rows;
+- gateway reconnect events bounded to seven days / 2,048 rows;
+- passive SQLite WAL checkpoint at startup and every 15 minutes;
+- routerd/router-applyd logs rotated at 1 MiB with four compressed rotations;
+- logrotate packaged into direct and distributable Alpine installation paths.
+
+Automated tests cover pressure thresholds and durable-write classification.
+
+## PR #29 — central appliance health
+
+Implemented authenticated read-only health states:
+
+- `Healthy`;
+- `Warning`;
+- `Degraded`;
+- `Recovery required`;
+- `Unknown`.
+
+The health model aggregates:
+
+- recovery/transaction state;
+- storage pressure;
+- memory pressure;
+- conntrack pressure;
+- time synchronization;
+- WAN/PPPoE and gateway quality;
+- routerd/router-applyd supervision and protected apply socket;
+- dnsmasq service state;
+- PPPoE service state when configured;
+- WireGuard interface state when configured;
+- signed-update trust/pending update state;
+- age of the latest successful encrypted backup export visible in retained audit state.
+
+`Recovery required` has highest severity. Missing evidence remains `Unknown`. Health collection is observational only and performs no automatic remediation.
+
+Overview contains a central health banner that refreshes every 15 seconds.
+
+## Public automated evidence
+
+Public `minimalrouter` PR #28 final head:
+
+`e3f6b983b189e6418cbd1711abf32e4a29d98107`
+
+Squash merge:
+
+`818f8ed3b68a9d6edd8635b8729ddf36dba59c36`
+
+Public `minimalrouter` PR #29 final head:
+
+`f56807a4bbad09bc3565f66de2b3b18aeb5c87b4`
+
+Squash merge:
+
+`120c7b4704ba9de2505b8e043c2544ce2d2cd6db`
+
+The final public #29 head passed the complete triggered workflow suite, including:
+
+- Go formatting;
+- `go test -race ./...`;
+- `go vet ./...`;
+- `govulncheck`;
+- repository hygiene;
+- frontend dependency audit;
+- frontend lint/unit tests/TypeScript production build;
+- Playwright browser E2E after the malformed-health-payload regression was fixed;
+- clean Alpine install/setup/update/rollback;
+- Deep validation;
+- interrupted-update stress tests;
+- both fuzz targets;
+- coverage generation;
+- isolated WAN-router-LAN namespace laboratory;
+- ARM64/QEMU smoke;
+- security/binary inspection;
+- CodeQL for Go and JavaScript/TypeScript;
+- Performance;
+- Secret scan;
+- OpenRC service supervision.
+
+The docs-only public commit recording the merged state is:
+
+`df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
+
+## Private repository evidence boundary
+
+The private repository imports the same shared runtime source and tests. Public CI evidence is valid evidence for bit-identical shared files, but it is not a substitute for target-Proxmox execution.
+
+Do not claim a private CI pass unless GitHub Actions for the exact private head actually execute and report success.
+
+Private deployment values, credentials, runtime databases, bridge assignments, backups, and household inventory are intentionally not stored in Git.
+
+## What automated validation does not prove
+
+The following still require the owner's real Proxmox environment or disposable target:
+
+1. Exact VM and WAN/LAN bridge identity.
+2. Stable guest WAN/LAN identity across repeated Proxmox/guest reboots.
+3. Real ISP PPPoE authentication, MTU, disconnect/reconnect, and reboot recovery.
+4. Real VirtIO/passthrough NIC throughput, packet rate, CPU, IRQ behavior, latency, jitter, and loss.
+5. Real WireGuard throughput and recovery from an unrelated external network.
+6. External IPv4 scan and IPv6 scan/fail-closed verification.
+7. Encrypted backup restore into a fresh VM.
+8. Full-disk and inode-exhaustion behavior on a disposable target.
+9. Read-only-filesystem behavior on a disposable target.
+10. Service-crash and abrupt power-loss exercises on persistent storage.
+11. Seven-day continuous operation with bounded logs/WAL/history and stable memory.
+12. Owner-qualified installation/recovery media and an independent focused security review.
+
+## Current deployment recommendation
+
+The current tree is suitable for a controlled Proxmox pilot with:
+
+- console access;
+- an isolated LAN;
+- test/NAT WAN during first validation;
+- existing pfSense/router fallback ready for immediate restoration;
+- encrypted backup plus known-good Proxmox snapshot before destructive tests.
+
+It is not yet documented as an unattended production replacement solely on GitHub Actions evidence.
+
+Before touching the existing VM, follow:
+
+- `PROXMOX_AI_HANDOFF.md`;
+- `PROXMOX.md`;
+- `STORAGE_PRESSURE.md`;
+- `STORAGE_PRESSURE_TEST_PLAN.md`;
+- `APPLIANCE_HEALTH.md`;
+- `TESTING.md`;
+- `RECOVERY.md`.
+
+## Next target-host evidence
+
+The next private test report should be created as:
 
 ```text
-vladimirperovic/minimalrouter@1eda8073b6d005dfa5bdb5673c227a991442cdb6
+docs/PROXMOX_TEST_REPORT_YYYY-MM-DD.md
 ```
 
-Its final pull-request head completed successfully on 2026-07-31 for:
-
-- standard CI, including Go race tests, formatting, `vet`, `govulncheck`,
-  dashboard lint/unit/build/Playwright E2E, repository hygiene, public-root
-  validation, and clean Alpine install/setup/signed update/rollback;
-- Deep validation, including ARM64 QEMU, WAN-router-LAN namespace networking,
-  actionlint, shellcheck, high-confidence `gosec`, binary inspection,
-  interrupted-update stress, fuzzing, benchmarks, and coverage;
-- CodeQL;
-- secret scanning; and
-- Performance.
-
-This evidence belongs to the exact public baseline above. It is not a claim that
-private GitHub Actions ran successfully.
-
-## Private-tree parity
-
-The private sync branch imports the public baseline's reviewed recovery files as
-bit-identical Git blobs, including:
-
-- `cmd/router-applyd/main.go`, startup reconciliation, confirmation, outcome, and
-  persistence logic;
-- `internal/apply/ipc.go` and `internal/apply/statemachine.go`;
-- deterministic durable-intent, lost-response, corrupt-journal,
-  `RecoveryRequired`, rollback, boot-reconcile, and two-phase confirmation tests;
-- the OpenRC startup-readiness gate;
-- the clean-Alpine install/update/rollback and destructive power-loss smoke test;
-- architecture, security, recovery, testing, and failure-scenario documentation.
-
-The imported implementation provides:
-
-- durable privileged intent before side effects;
-- validated, persisted, idempotent completed outcomes;
-- exact-ID retry for ambiguous transport loss;
-- fail-closed handling of incomplete, unreadable, corrupt, or contradictory
-  privileged metadata and RPC outcomes;
-- mutation blocking while `RecoveryRequired` is active;
-- allowlisted canonical `RECONCILE` as the only override for unresolved helper
-  journal state;
-- startup restoration of SQLite canonical runtime before helper readiness;
-- WireGuard-only management confirmation boundaries;
-- disruptive confirmation ordered as runtime verification, SQLite canonical
-  commit, helper `last-good` commit, and pending cleanup;
-- fresh final-helper-commit IDs for later explicit retry after a recorded storage
-  failure;
-- rollback reported only when restoration is successful and verified.
-
-Private-only `docs/PROXMOX_AI_HANDOFF.md`, private release workflow, and household
-runtime/configuration material were preserved rather than replaced by public
-files.
-
-## Private GitHub Actions limitation
-
-Private pull-request workflows currently terminate before the first job step and
-return no executable job log. This has occurred for standard CI, Deep validation,
-Performance, and the attempted one-time sync workflow.
-
-Therefore:
-
-- those private workflow results are **not** test failures in the imported code;
-- they are also **not** evidence of a successful private build;
-- no private CI pass is claimed;
-- confidence in the imported implementation comes from exact Git-blob parity with
-  the fully green public baseline;
-- private-only documentation changes do not have public automated evidence and
-  require normal review;
-- target-Proxmox validation remains mandatory before deployment promotion.
-
-The temporary one-time sync workflow was removed and is not part of the candidate.
-
-## Automated behavior represented by the imported tests
-
-The exact imported tests cover:
-
-- ambiguous apply and confirmation response loss without duplicate side effects;
-- durable intent persistence before privileged mutation;
-- incomplete intent after interruption;
-- result-journal write/read failure;
-- corrupt or structurally invalid transaction, pending, and last-good state;
-- contradictory helper outcomes;
-- `RecoveryRequired` mutation blocking and canonical reconciliation;
-- WireGuard-only management key, port, address, peer, and route changes;
-- failed timeout rollback with fresh retry IDs;
-- SQLite commit failure with verified versus unverified restoration;
-- runtime confirmation before SQLite commit;
-- SQLite commit before helper `last-good` advancement;
-- failed final helper acknowledgement retried without repeating runtime
-  confirmation or canonical commit;
-- boot restoration of confirmed state and cleanup of stale unconfirmed state;
-- clean Alpine install, first-run setup, signed A/B update activation, rollback,
-  and simulated loss of volatile firewall/LAN/WireGuard runtime.
-
-These are deterministic and virtualized tests. They do not replace destructive
-persistent-storage, hypervisor, physical-NIC, ISP, or external-network testing.
-
-## Release and signing state
-
-No release tag was created during this sync. The private tagged-release workflow
-remains private and unchanged. A real tag still requires the configured offline
-release-signing secret and the repository's release gates.
-
-## Recorded control-plane baseline
-
-On the public GitHub-hosted AMD EPYC runner, the previously recorded range was
-approximately:
-
-| Operation | Result |
-|---|---:|
-| Setup-status API | 4.8–5.4 microseconds |
-| Normal update-state read | about 26 microseconds |
-| Update-state read while recovering a journal | 44.6–45.1 microseconds |
-| Rejected protected request with durable audit write | 4.27–4.40 milliseconds |
-
-These are control-plane measurements. Packet forwarding remains in the Linux
-kernel and must be measured separately on the target Proxmox host and NIC
-configuration.
-
-## What remains unproven
-
-The following remain private Proxmox or hardware gates:
-
-1. Stable WAN/LAN identity across repeated Proxmox and guest reboots.
-2. Real ISP PPPoE establishment, disconnect, reconnect, MTU, authentication, and
-   LAN recovery during WAN loss.
-3. Real VirtIO or passed-through NIC throughput, packet rate, CPU/IRQ load,
-   latency, jitter, and packet loss.
-4. Real WireGuard throughput, external reconnection after reboot, and guarded
-   WireGuard-only management changes.
-5. External IPv4 and IPv6 scanning from an unrelated host.
-6. Backup export and restore into a fresh VM.
-7. Full-disk, inode-exhaustion, read-only-filesystem, service-crash,
-   helper-process-crash, corrupt-state, and persistent-storage recovery.
-8. Controlled interruption after durable intent, runtime apply, result journal,
-   runtime confirmation, SQLite commit, helper `last-good`, pending cleanup, and
-   canonical reconcile.
-9. Abrupt guest/host power-loss tests on a disposable clone.
-10. At least seven days of sustained operation with bounded memory, logs,
-    journals, snapshots, and disk growth.
-11. Owner-signed installation/recovery media on the target platform.
-12. An independent focused security review.
-
-## Deployment recommendation
-
-The candidate is appropriate only for a controlled Proxmox pilot with:
-
-- local console access;
-- isolated LAN and test/NAT WAN initially;
-- a known-good application backup and Proxmox snapshot;
-- pfSense or another established router ready for immediate rollback;
-- execution of [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md) and a private dated
-  test report.
-
-It is not yet documented as an unattended, drop-in pfSense replacement.
-
-See also:
-
-- [`PROXMOX.md`](PROXMOX.md)
-- [`PROXMOX_AI_HANDOFF.md`](PROXMOX_AI_HANDOFF.md)
-- [`TESTING.md`](TESTING.md)
-- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
-- [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md)
-- [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)
-- [`RECOVERY.md`](RECOVERY.md)
+It should record sanitized evidence for VM inventory, boot/reboot behavior, DHCP/DNS/NAT/firewall, `/api/v1/health`, storage-pressure behavior, update/rollback, backup/restore, performance, PPPoE, WireGuard, external scans, failures, recovery actions, and remaining limitations.

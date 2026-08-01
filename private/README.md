@@ -41,4 +41,8 @@ When public `minimalrouter` changes, sync the shared application code from publi
 
 Do not resolve upstream differences by embedding production values into shared Go, TypeScript, Alpine packaging, API, firewall or test files.
 
-Current public core baseline for this synchronization: `vladimirperovic/minimalrouter@7e832da8e6b3a461924e0e94112746597fd0d8c5`.
+The current synchronized public baseline is:
+
+`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
+
+That baseline includes public PR #28 (bounded storage / disk pressure), PR #29 (central appliance health), and the follow-up documentation synchronization. Any future public-core sync should start by comparing against that commit, not by copying production values out of the appliance.

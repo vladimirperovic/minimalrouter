@@ -44,12 +44,26 @@ The current tree includes:
 - encrypted backup export, configuration snapshots, and local recovery console;
 - crash-safe A/B activation and rollback using a durable operation journal;
 - signed manifests, SHA-256 verification, checksums, SPDX SBOMs, and provenance;
+- bounded local storage with explicit 80% Warning / 90% Critical pressure states;
+- HTTP 507 fail-closed rejection of durable management writes when storage can no
+  longer safely persist them;
+- bounded config, snapshot, audit and gateway history plus passive SQLite WAL
+  maintenance and bounded router service log rotation;
+- one authenticated central appliance-health model covering recovery, storage,
+  memory, conntrack, time, WAN/gateway, supervised services, DNS/DHCP, PPPoE,
+  WireGuard, update state, and backup age;
+- an Overview health banner with Healthy / Warning / Degraded / Recovery required /
+  Unknown states and independent 15-second refresh;
 - frontend unit tests and Playwright browser E2E tests;
 - clean Alpine install, wizard, update activation, and rollback CI;
 - race tests, `vet`, `govulncheck`, secret scanning, `gosec`, `shellcheck`, and
   `actionlint`;
 - API/update benchmarks, fuzzing, ARM64 QEMU smoke tests, and isolated
   WAN-router-LAN network tests.
+
+The synchronized shared public baseline is:
+
+`vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`
 
 The dashboard build uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
 Node.js remains a build-time dependency only.
@@ -68,8 +82,9 @@ A future AI operator must start with the private handoff:
 
 That document requires read-only discovery before any start, rewire, update, or
 destructive test. It explains how to preserve pfSense rollback, verify the VM
-boundary, boot safely, update through the verified path, run tests in the correct
-order, redact evidence, and stop when the topology is ambiguous.
+boundary, boot safely, update through the verified path, validate storage pressure
+and appliance health, run tests in the correct order, redact evidence, and stop
+when the topology is ambiguous.
 
 ## What remains unproven
 
@@ -82,8 +97,9 @@ The following still require target-host evidence:
 - real WireGuard throughput and recovery from an unrelated network;
 - external IPv4/IPv6 scanning;
 - backup restore into a fresh VM;
-- destructive fault injection on a disposable target;
-- sustained operation and bounded disk/log growth;
+- full-disk and inode-exhaustion behavior on a disposable target;
+- read-only-filesystem and abrupt power-loss behavior on a disposable target;
+- sustained operation with bounded logs/WAL/history and stable memory;
 - owner-signed install/recovery media and independent security review.
 
 ## Controlled development build
@@ -143,6 +159,9 @@ Start with:
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
 - [`docs/PROXMOX_AI_HANDOFF.md`](docs/PROXMOX_AI_HANDOFF.md)
+- [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
+- [`docs/STORAGE_PRESSURE_TEST_PLAN.md`](docs/STORAGE_PRESSURE_TEST_PLAN.md)
+- [`docs/APPLIANCE_HEALTH.md`](docs/APPLIANCE_HEALTH.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
 - [`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md)
