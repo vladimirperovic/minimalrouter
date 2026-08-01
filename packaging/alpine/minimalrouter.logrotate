@@ -1,0 +1,10 @@
+/var/log/routerd.log /var/log/routerd.err /var/log/router-applyd.log /var/log/router-applyd.err {
+    size 1M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    create 0600 root root
+}
