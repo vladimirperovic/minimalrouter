@@ -12,7 +12,7 @@ const navigation: Array<[SectionID, string]> = [
   ["network", "WAN, LAN & DHCP"],
   ["firewall", "Firewall"],
   ["wireguard", "WireGuard"],
-  ["cloudflare", "Cloudflare DDNS"],
+  ["cloudflare", "Dynamic DNS"],
   ["squid", "Squid Proxy"],
   ["dns-filter", "DNS Filter"],
   ["wifi", "Wi-Fi AP"],
@@ -204,15 +204,20 @@ function Dashboard() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void applyConfig((next) => {
+      const provider = field(form, "provider") || "noip";
+      const previousProvider = next.cloudflare.ddns_provider || "cloudflare";
+      const newCredential = field(form, "credential");
       next.cloudflare = {
         ...next.cloudflare,
         ddns_enabled: form.get("enabled") === "on",
+        ddns_provider: provider,
+        ddns_username: field(form, "username"),
         domain: field(form, "domain"),
         zone_name: field(form, "zone"),
-        api_token: field(form, "token") || next.cloudflare.api_token,
+        api_token: newCredential || (provider === previousProvider ? next.cloudflare.api_token : ""),
         tunnel_enabled: false,
       };
-    }, "Cloudflare DDNS configuration applied.");
+    }, "Dynamic DNS configuration applied.");
   };
 
   const submitSquid = (event: FormEvent<HTMLFormElement>) => {
