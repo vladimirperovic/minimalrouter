@@ -23,10 +23,11 @@
 <a id="project-status"></a>
 
 > **Development status: early alpha.** Minimal Router OS is a research and
-> homelab project. It is suitable for an isolated, console-accessible Proxmox or
-> hardware pilot with a known-good router ready for rollback. It is not yet a
-> drop-in unattended replacement for pfSense, OpenWrt, or a commercially
-> supported firewall.
+> homelab project. It has completed an initial owner-Proxmox Internet/performance
+> pilot with successful pfSense fallback, but remains suitable only for a
+> console-accessible controlled pilot with a known-good router ready for
+> rollback. It is not yet a drop-in unattended replacement for pfSense, OpenWrt,
+> or a commercially supported firewall.
 
 Minimal Router OS is a focused Alpine Linux router appliance with a Go control
 plane and a static React dashboard. Packet forwarding remains in the Linux
@@ -48,7 +49,7 @@ Implemented and covered in the development environment:
 - typed validation and deterministic configuration generation;
 - snapshot, preflight, apply, verification, commit-confirm, and rollback;
 - default-deny WAN policy and LAN-to-WAN NAT;
-- PPPoE, DHCP, DNS, WireGuard, DNS Filter profiles, QoS, DDNS, and Wi-Fi paths;
+- PPPoE, DHCP, DNS, WireGuard, DNS Filter profiles, QoS, Cloudflare DDNS, and Wi-Fi paths;
 - Argon2id authentication, secure sessions, CSRF, rate limiting, and optional TOTP;
 - encrypted backup export, configuration snapshots, and local recovery console;
 - crash-safe A/B update activation and rollback using a durable operation journal;
@@ -66,23 +67,35 @@ Implemented and covered in the development environment:
 - API/update benchmarks, fuzzing, ARM64 QEMU smoke tests, and an isolated
   WAN-router-LAN namespace laboratory.
 
+The 2026-08-01 owner-Proxmox pilot additionally demonstrated real Internet
+forwarding, 570/327 Mbps in the recorded download/upload sample, zero loss in a
+600-packet test, 200/200 DNS queries, dashboard responsiveness under the recorded
+CPU stress test, 172 MB observed post-test RAM use, and successful operational
+fallback to pfSense in approximately 93 seconds. WireGuard did not complete a
+phone handshake and Cloudflare DDNS was not yet confirmed, so both remain open
+target-host validation items.
+
 The current dashboard build uses TypeScript 6.0.3 and Node.js type definitions
 26.1.2. Node.js is a build-time dependency only; it is not installed or running
 on the router.
 
 See [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for the exact dated
-automated evidence, benchmark ranges, and remaining manual gates.
+automated evidence, target-host evidence, benchmark ranges, and remaining manual
+gates. The complete pilot record is
+[`docs/PROXMOX_TEST_REPORT_2026-08-01.md`](docs/PROXMOX_TEST_REPORT_2026-08-01.md).
 
 ## What remains unproven
 
-GitHub Actions cannot establish target-host production readiness. The project
-still requires recorded evidence for:
+The first target-host pilot closed part of the earlier Proxmox uncertainty, but
+production readiness still requires recorded evidence for:
 
-- the owner's actual Proxmox VM and bridge/NIC configuration;
-- stable WAN/LAN identity across repeated reboots;
-- real ISP PPPoE connection and reconnect;
-- physical or VirtIO NIC throughput, packet rate, CPU, IRQ, latency, and thermals;
-- real WireGuard throughput and recovery from an unrelated network;
+- stable WAN/LAN identity across repeated Proxmox and guest reboots;
+- repeated real ISP PPPoE disconnect/reconnect and reboot recovery;
+- sustained/repeated physical or VirtIO NIC packet rate, CPU, IRQ, jitter, and
+  thermal behavior beyond the first throughput sample;
+- a successful real WireGuard handshake, traffic test, throughput, and recovery
+  from an unrelated external network;
+- a successful Cloudflare DDNS update and later public-IP-change propagation;
 - external IPv4/IPv6 scanning;
 - backup restore into a fresh VM;
 - destructive full-disk, inode-exhaustion, read-only-filesystem, service-crash,
@@ -133,6 +146,8 @@ Start with:
 
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
+- [`docs/PROXMOX_TEST_REPORT_2026-08-01.md`](docs/PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`docs/CLOUDFLARE_DDNS.md`](docs/CLOUDFLARE_DDNS.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
 - [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
@@ -209,6 +224,8 @@ The complete index is [`docs/README.md`](docs/README.md). Key documents:
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md)
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md)
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
+- [`docs/PROXMOX_TEST_REPORT_2026-08-01.md`](docs/PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`docs/CLOUDFLARE_DDNS.md`](docs/CLOUDFLARE_DDNS.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
 - [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
