@@ -1,16 +1,25 @@
 #!/sbin/openrc-run
-# Minimal Router OS — privileged execution helper
+# OpenRC service script for Minimal Router OS router-applyd (privileged helper)
 
 name="router-applyd"
 description="Minimal Router OS privileged execution helper"
-daemon="/usr/sbin/router-applyd"
-pidfile="/run/router-applyd.pid"
+supervisor="supervise-daemon"
+command="/usr/sbin/router-applyd"
+pidfile="/run/${RC_SVCNAME}.supervisor.pid"
 output_log="/var/log/router-applyd.log"
 error_log="/var/log/router-applyd.err"
 
-# Opt in only for the installed appliance. Developer tests and ad-hoc host builds
-# must never reconcile or mutate the host network merely by loading the package.
+# Opt in only for the installed appliance. Every initial start and supervised
+# respawn reconciles the verified canonical configuration before the privileged
+# socket is made available again.
 export MINIMALROUTER_APPLYD_STARTUP_RECONCILE=1
+
+# Restart isolated process crashes, but stop after a bounded crash burst instead
+# of repeatedly applying state when a persistent fault is present.
+respawn_delay=2
+respawn_max=5
+respawn_period=60
+retry="SIGTERM/10/SIGKILL/5"
 
 depend() {
     before routerd
@@ -23,9 +32,8 @@ start_pre() {
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
 }
 
-# The daemon is backgrounded by OpenRC, but routerd must not be released merely
-# because the process was forked. The Unix socket appears only after startup
-# reconciliation has completed successfully.
+# routerd must not be released merely because the supervisor was forked. The
+# socket appears only after startup reconciliation has completed successfully.
 start_post() {
     attempts=0
     while [ "$attempts" -lt 120 ]; do
@@ -37,7 +45,5 @@ start_post() {
     return 1
 }
 
-command="/usr/sbin/router-applyd"
-command_background="yes"
 umask="0077"
 rc_ulimit="-c 0 -n 1024"

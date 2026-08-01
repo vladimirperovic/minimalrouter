@@ -13,8 +13,31 @@ fi
 
 # 2. Install system dependencies from the pinned repository.
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
+    chrony chrony-openrc
+
+# The router depends on accurate time for TOTP, TLS, schedules, audit ordering,
+# and signed-update checks. Chrony is deliberately client-only and exposes no
+# LAN/WAN NTP listener or remote command socket.
+install -d -m 0755 -o root -g root /etc/chrony
+cat > /etc/chrony/chrony.conf <<'CHRONY_CONFIG'
+pool pool.ntp.org iburst maxsources 4
+driftfile /var/lib/chrony/chrony.drift
+makestep 1.0 3
+rtcsync
+port 0
+cmdport 0
+noclientlog
+CHRONY_CONFIG
+chmod 0644 /etc/chrony/chrony.conf
+if [ -f /etc/conf.d/chronyd ]; then
+    if grep -q '^FAST_STARTUP=' /etc/conf.d/chronyd; then
+        sed -i 's/^FAST_STARTUP=.*/FAST_STARTUP=yes/' /etc/conf.d/chronyd
+    else
+        printf '\nFAST_STARTUP=yes\n' >> /etc/conf.d/chronyd
+    fi
+fi
 
 # 3. Create unprivileged routerd user/group
 if ! id -u routerd >/dev/null 2>&1; then
@@ -75,8 +98,9 @@ for unused_service in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
+rc-update add chronyd default
 rc-update add router-applyd default
 rc-update add routerd default
 
 echo "=== Installation complete on Alpine $ALPINE_VERSION ==="
-echo "Start services with: rc-service router-applyd start && rc-service routerd start"
+echo "Start services with: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"

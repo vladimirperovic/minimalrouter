@@ -50,8 +50,31 @@ fi
 
 echo "[1/7] Installing dependencies..."
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 ca-certificates \
-    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
+    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
+    chrony chrony-openrc
+
+# Router authentication, TLS, schedules, audit ordering, and signed-update
+# verification all depend on a trustworthy clock. Run chronyd as a client only:
+# no NTP server socket and no remote command socket are exposed.
+install -d -m 0755 -o root -g root /etc/chrony
+cat > /etc/chrony/chrony.conf <<'CHRONY_CONFIG'
+pool pool.ntp.org iburst maxsources 4
+driftfile /var/lib/chrony/chrony.drift
+makestep 1.0 3
+rtcsync
+port 0
+cmdport 0
+noclientlog
+CHRONY_CONFIG
+chmod 0644 /etc/chrony/chrony.conf
+if [ -f /etc/conf.d/chronyd ]; then
+    if grep -q '^FAST_STARTUP=' /etc/conf.d/chronyd; then
+        sed -i 's/^FAST_STARTUP=.*/FAST_STARTUP=yes/' /etc/conf.d/chronyd
+    else
+        printf '\nFAST_STARTUP=yes\n' >> /etc/conf.d/chronyd
+    fi
+fi
 
 echo "[2/7] Creating user..."
 if ! id -u routerd >/dev/null 2>&1; then
@@ -125,18 +148,27 @@ sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
     echo "ERROR: IPv4 forwarding did not activate" >&2
     exit 1
 }
+[ "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "2" ] || {
+    echo "ERROR: loose reverse-path filtering did not activate" >&2
+    exit 1
+}
+[ "$(sysctl -n net.netfilter.nf_conntrack_max)" = "131072" ] || {
+    echo "ERROR: conntrack state ceiling did not activate" >&2
+    exit 1
+}
 
 echo "[7/7] Enabling services..."
 for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done
+rc-update add chronyd default
 rc-update add router-applyd default
 rc-update add routerd default
 
 echo "=== Installation complete ==="
-echo "Start now: rc-service router-applyd start && rc-service routerd start"
-echo "Or reboot once; both services are enabled for the default runlevel."
+echo "Start now: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
+echo "Or reboot once; all three services are enabled for the default runlevel."
 LAN_IP="$(ip -4 addr show 2>/dev/null | grep -o 'inet [0-9.]*' | grep -v '127.0.0.1' | head -1 | cut -d' ' -f2)"
 [ -n "$LAN_IP" ] && echo "Current management candidate: https://${LAN_IP}:8443"
 echo "Default first-run management address after routerd reconciliation: https://192.168.1.1:8443"
