@@ -26,6 +26,30 @@ func TestDefaultSocketPathMatchesOpenRCReadinessGate(t *testing.T) {
 	}
 }
 
+func TestAlpineModuleManifestIncludesPPPoE(t *testing.T) {
+	manifest := filepath.Join("..", "..", "packaging", "alpine", "minimalrouter.modules")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(append([]byte("\n"), data...), []byte("\npppoe\n")) {
+		t.Fatal("Alpine kernel module manifest omits pppoe; pppd cannot create a PPPoE socket")
+	}
+}
+
+func TestPPPoEServiceRaisesWANInterfaceBeforeStartingPPPD(t *testing.T) {
+	initScript := filepath.Join("..", "..", "packaging", "alpine", "pppoe-wan.initd")
+	data, err := os.ReadFile(initScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`$1 == "plugin" && $2 == "pppoe.so" { print $3; exit }`)) {
+		t.Fatal("PPPoE service does not derive the WAN interface from the generated peer config")
+	}
+	if !bytes.Contains(data, []byte(`/sbin/ip link set dev "$wan_interface" up`)) {
+		t.Fatal("PPPoE service starts pppd without first raising the WAN interface")
+	}
+}
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
 	socketDir, err := os.MkdirTemp("", "mr-ipc-")
 	if err != nil {

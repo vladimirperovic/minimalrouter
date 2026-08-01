@@ -51,6 +51,12 @@ func TestGeneratePPPoE(t *testing.T) {
 	if !strings.Contains(bundle.ChapSecrets, "secretpass") {
 		t.Errorf("Expected chap-secrets to contain password")
 	}
+	if !strings.Contains(bundle.PeerConfig, "\nnoipv6\n") {
+		t.Errorf("Expected peer config to disable IPv6CP when appliance IPv6 is disabled")
+	}
+	if !strings.Contains(bundle.PeerConfig, "\nnoipdefault\n") {
+		t.Errorf("Expected peer config to obtain the dynamic local IPv4 address from the ISP")
+	}
 }
 
 func TestGenerateDnsmasq(t *testing.T) {
