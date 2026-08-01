@@ -2,6 +2,7 @@
 nf_conntrack
 ppp_generic
 pppox
+pppoe
 wireguard
 bridge
 sch_cake
