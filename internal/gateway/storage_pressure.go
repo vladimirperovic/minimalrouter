@@ -26,7 +26,10 @@ func (s *Store) storageDirectory() (string, error) {
 			return filepath.Dir(path), nil
 		}
 	}
-	return "", rows.Err()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("gateway database path is unavailable")
 }
 
 func (s *Store) StorageStatus() storage.Status {
