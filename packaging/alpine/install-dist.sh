@@ -34,7 +34,8 @@ for required in \
     "init.d/router-applyd" \
     "init.d/pppoe-wan" \
     "sysctl/99-minimalrouter.conf" \
-    "modules/minimalrouter.conf"
+    "modules/minimalrouter.conf" \
+    "logrotate/minimalrouter"
 do
     [ -f "$required" ] || {
         echo "ERROR: Missing distribution file: $required" >&2
@@ -52,7 +53,7 @@ echo "[1/7] Installing dependencies..."
 apk update
 apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
-    chrony chrony-openrc
+    chrony chrony-openrc logrotate
 
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:
@@ -95,7 +96,7 @@ install -d -m 0755 -o root -g root \
     /var/lib/minimalrouter-update \
     /var/lib/minimalrouter-update/slots
 install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
-install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d
+install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d /etc/logrotate.d
 
 install -m 0755 "bin/routerd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"
 install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"
@@ -133,8 +134,9 @@ cp init.d/router-applyd /etc/init.d/router-applyd
 cp init.d/pppoe-wan /etc/init.d/pppoe-wan
 cp sysctl/99-minimalrouter.conf /etc/sysctl.d/99-minimalrouter.conf
 cp modules/minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
+cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
-chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
+chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
 echo "[6/7] Loading router kernel modules and sysctls..."
 while IFS= read -r module; do
