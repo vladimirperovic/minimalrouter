@@ -12,15 +12,17 @@ names, and other private deployment data are intentionally omitted.
 
 Minimal Router successfully became the active router, provided Internet access,
 remained stable during the observed test window, completed load and network
-checks without packet loss, and was then returned to the existing pfSense router
-through the planned automatic rollback path.
+checks without packet loss, accepted a real WireGuard connection from a phone,
+and was then returned to the existing pfSense router through the planned
+automatic rollback path.
 
 Observed continuous Minimal Router runtime during this pilot was approximately
 **27 minutes**.
 
 This is meaningful target-host evidence, but it is not a production-readiness
-claim. WireGuard client connectivity and Cloudflare DDNS were not successfully
-validated in this run, and longer soak/fault/security tests remain outstanding.
+claim. The appliance-managed Dynamic DNS path still requires a fresh target-host
+validation after the No-IP implementation, and longer soak/fault/security tests
+remain outstanding.
 
 ## Environment labels
 
@@ -31,7 +33,26 @@ local Proxmox VM IDs because those IDs are part of the supplied benchmark record
 - pfSense fallback/baseline: VM 106
 
 Do not copy additional private Proxmox inventory, bridge assignments, MAC
-addresses, ISP credentials, or public addresses into this repository.
+addresses, ISP credentials, public addresses, or DDNS credentials into this
+repository.
+
+## Kernel finding: linux-lts required for the validated PPPoE path
+
+The initial Alpine candidate used `linux-virt`. During the real PPPoE bring-up,
+that running kernel did not provide the PPPoE kernel module required by the
+appliance. The guest was switched to Alpine `linux-lts`; the required PPPoE
+module became available and the real WAN test succeeded.
+
+Observed memory data also showed that moving to `linux-lts` did not imply RAM
+usage proportional to the larger kernel package on disk:
+
+- clean `linux-lts` boot measurement: approximately **73 MB** RAM used;
+- post-load/test measurement: **172 MB** RAM used.
+
+For the validated Proxmox installation path, `linux-lts` is therefore the
+recommended guest kernel. Installers now also require the actual `pppoe` module
+to load successfully, so a future kernel with equivalent support can pass based
+on capability rather than package name alone.
 
 ## Performance and connectivity comparison
 
@@ -68,56 +89,74 @@ vendor-wide performance claims without repeated controlled runs.
 Confirmed during this pilot:
 
 - the Minimal Router VM booted in the target Proxmox environment;
-- real Internet access worked through the candidate router;
+- Alpine `linux-lts` supplied the PPPoE kernel support needed by the tested
+  guest;
+- real PPPoE/Internet access worked through the candidate router;
 - packet forwarding remained functional during the observed load test;
 - DNS completed 200/200 recorded queries;
 - dashboard responsiveness remained available during the CPU stress check;
 - no packet loss was observed in the 600-packet comparison test;
 - memory remained modest after the exercised workload;
+- a real WireGuard phone connection reached the Minimal Router dashboard;
 - the planned automatic fallback to pfSense completed successfully.
 
-## WireGuard result
+## WireGuard result — PASS for external handshake and dashboard access
 
-WireGuard was enabled on Minimal Router, but **no handshake with the phone was
-observed** during this test window.
+WireGuard was enabled on Minimal Router. After Dynamic DNS was provisioned
+manually on the Proxmox side for the test, the phone successfully connected from
+the external network and the Minimal Router dashboard was opened through the
+WireGuard tunnel.
 
-Therefore this run proves only that the configured WireGuard service/interface
-could be enabled; it does **not** prove:
+This validates, for this pilot:
 
-- Internet-origin UDP reachability to the WireGuard port;
-- correctness of the phone peer configuration;
-- endpoint/DDNS correctness;
-- successful cryptographic handshake;
-- tunnel routing, DNS, LAN access, or full-tunnel Internet access;
-- recovery of a working tunnel after PPPoE reconnect or reboot.
+- Internet-origin reachability to the configured WireGuard UDP endpoint;
+- a successful cryptographic handshake with the phone peer;
+- the relevant WAN/firewall path for WireGuard;
+- tunnel routing sufficient to reach the router management dashboard;
+- management access through WireGuard rather than exposing the dashboard on the
+  WAN.
 
-WireGuard remains an open target-host validation item.
+Still not proven by this one session are long-term tunnel stability, recovery
+after repeated PPPoE reconnects/reboots, and all possible LAN/full-tunnel client
+routing cases.
 
-## Cloudflare DDNS result
+## Dynamic DNS result and No-IP correction
 
-DDNS was **not confirmed working** in this pilot.
+The user deployment uses **No-IP**. The earlier Cloudflare-only appliance DDNS
+implementation did not match that deployment.
 
-Minimal Router currently implements Cloudflare DDNS through Alpine `inadyn`; it
-is not a generic DynDNS/No-IP/redirectme.net client. The dashboard fields are:
+During the successful WireGuard check, Dynamic DNS was provisioned manually on
+the Proxmox side. With that working DDNS endpoint in place, the phone WireGuard
+connection succeeded and the dashboard was reachable. This is useful evidence
+that the external hostname/endpoint concept and WireGuard path work, but it is
+not evidence that the old appliance-managed Cloudflare-only path worked.
 
-- `Hostname`: the full DNS record, for example `router.example.com`;
-- `Zone`: the DNS **zone name**, for example `example.com`, not the hexadecimal
-  Cloudflare Zone ID;
-- `API token`: a scoped Cloudflare API token permitted to read the selected zone
-  and edit its DNS records.
+Minimal Router has now been changed to support provider-aware Dynamic DNS via
+Alpine `inadyn`:
 
-A successful target-host DDNS validation still needs to record all of the
-following without exposing secrets:
+- **No-IP** via the native `no-ip.com` inadyn provider;
+- **Cloudflare** retained for backward compatibility;
+- new configurations default to No-IP while old configurations with an empty
+  provider value retain legacy Cloudflare semantics;
+- provider credentials remain redacted through the existing secret field;
+- changing provider requires a new credential;
+- the apply pipeline still performs config check, one-shot real update, service
+  restart/health verification, and transaction rollback on failure.
+
+A fresh target-host validation of **MinimalRouter-managed No-IP** still needs to
+record, without exposing secrets:
 
 1. `inadyn --check-config` succeeds;
 2. the bounded one-shot update succeeds;
 3. the OpenRC `inadyn` service remains healthy;
-4. an external DNS lookup returns the current public IPv4 address after the
-   update/TTL window;
-5. a later public-IP change is reflected automatically.
+4. an external DNS lookup resolves the expected No-IP hostname/current public
+   IPv4 after the update window;
+5. WireGuard connects using that hostname without any host-side manual DDNS
+   workaround;
+6. a later public-IP change is reflected automatically.
 
-See [`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md) for the configuration contract and
-safe local-console diagnostics.
+See [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md) for the No-IP/Cloudflare configuration
+contract and safe diagnostics.
 
 ## Automatic rollback / pfSense fallback
 
@@ -126,6 +165,11 @@ The rollback exercise succeeded:
 - pfSense returned to the active routing role and had Internet connectivity;
 - Minimal Router VM 108 was shut down and isolated;
 - the measured transition took approximately **93 seconds**.
+
+The failsafe timer was armed on the Proxmox host before the gateway cutover, so
+its execution did not depend on the ChatGPT/Codex management connection. The
+management connection did in fact drop during the routing transition while the
+host-side timer remained independent.
 
 This is the first recorded target-host evidence for the intended operational
 fallback path. It does not replace transaction-level rollback, A/B software
@@ -137,11 +181,13 @@ failure modes.
 This run materially reduces uncertainty for:
 
 - basic target-Proxmox boot and routing;
-- real Internet forwarding in the owner's environment;
+- real PPPoE and Internet forwarding in the owner's environment;
+- `linux-lts` as the validated Alpine PPPoE kernel path;
 - a first real target-host throughput/latency/DNS comparison with pfSense;
 - packet-loss behavior in the recorded 600-packet sample;
 - management responsiveness during the recorded CPU stress test;
 - observed post-test memory use;
+- real external WireGuard handshake and management dashboard access;
 - operational fallback from Minimal Router to the known-good pfSense VM.
 
 ## Gates still open
@@ -150,9 +196,9 @@ The following are still required before an unattended production recommendation:
 
 1. repeated guest/Proxmox reboot cycles with stable WAN/LAN identity;
 2. longer PPPoE stability and explicit disconnect/reconnect/reboot recovery;
-3. successful WireGuard handshake and traffic from an unrelated external
-   network;
-4. successful Cloudflare DDNS update and later public-IP-change verification;
+3. appliance-managed No-IP update plus automatic public-IP-change verification;
+4. WireGuard recovery after repeated PPPoE reconnect/reboot and broader traffic
+   checks where required;
 5. independent external IPv4 and IPv6 scans;
 6. encrypted backup restore into a fresh VM;
 7. full-disk, inode-exhaustion, and read-only-filesystem tests;
@@ -170,5 +216,6 @@ The following are still required before an unattended production recommendation:
 
 The successful pilot supports continuing controlled target-host validation. It
 does not yet justify removing the pfSense fallback. Keep console access and the
-known-good rollback path available while WireGuard, Cloudflare DDNS, recovery,
-external scanning, destructive storage tests, and soak testing remain open.
+known-good rollback path available while the new appliance-managed No-IP path,
+reboot/reconnect recovery, external scanning, destructive storage tests, backup
+restore, and soak testing remain open.
