@@ -1,43 +1,38 @@
 # Current validation status — 2026-08-01
 
 This document is the current source of truth for automated validation, recorded
-target-host evidence, and the remaining manual release gates. Dated hardware
-reports remain historical evidence; this file records the latest repository and
-owner-Proxmox results without turning a successful pilot into an unsupported
-production claim.
+target-host evidence, and remaining manual release gates. Dated hardware reports
+remain historical evidence; successful pilot results must not be generalized
+beyond the environment and duration in which they were observed.
 
 ## Repository baseline
 
-The current public baseline includes:
+The current tree includes:
 
 - crash-safe A/B activation and rollback with a durable update-operation journal;
 - independent bootstrap executables for update and recovery;
-- durable privileged-operation intent before network side effects and validated
-  completed-result persistence afterward;
-- exact-ID idempotent transport retry and fail-closed handling of incomplete,
-  corrupt, unreadable, or contradictory privileged outcomes;
-- explicit `RecoveryRequired` state that blocks ordinary mutations until typed
-  canonical `RECONCILE` succeeds;
-- two-phase disruptive confirmation: runtime verification, SQLite canonical
-  commit, helper `last-good` acknowledgement, and pending cleanup;
-- WireGuard-only management confirmation coverage;
-- supervised `routerd` and `router-applyd` with bounded crash respawn;
+- durable privileged-operation intent before network side effects;
+- explicit `RecoveryRequired` behavior and typed canonical reconciliation;
+- disruptive-change confirmation with automatic rollback;
+- supervised `routerd` and `router-applyd`;
+- default-deny WAN policy, nftables NAT/firewall, PPPoE, DHCP/DNS and WireGuard;
+- provider-aware Dynamic DNS through Alpine `inadyn`, with **No-IP as the default
+  for new configurations** and Cloudflare retained for backward compatibility;
 - bounded gateway quality / PPPoE monitoring and seven-day history;
-- loose reverse-path filtering, bounded conntrack state, and client-only Chrony;
-- signed update manifests, SHA-256 verification, checksums, SBOM generation, and
-  release provenance support;
-- bounded local storage and disk-pressure fail-closed behavior;
+- bounded local storage and fail-closed behavior under disk pressure;
 - central authenticated appliance health on the Overview dashboard;
-- TypeScript 6 dashboard, Playwright browser coverage, Go race/vet/vulnerability
-  checks, CodeQL, secret scanning, high-confidence gosec, shellcheck, actionlint,
-  ARM64 QEMU, namespace networking, fuzzing, and performance benchmarks.
+- signed update manifests, SHA-256 verification, checksums, SBOM generation and
+  release provenance support;
+- TypeScript dashboard, Playwright browser coverage, Go race/vet/vulnerability
+  checks, CodeQL, secret scanning, gosec, shellcheck, actionlint, ARM64 QEMU,
+  network-namespace tests, fuzzing and performance benchmarks.
 
 ## Owner Proxmox pilot — 2026-08-01
 
-A controlled owner-Proxmox run successfully carried real Internet traffic through
-Minimal Router for approximately **27 minutes**, compared the candidate with the
-existing pfSense fallback, exercised a CPU-load condition, and then completed the
-planned operational rollback to pfSense.
+A controlled owner-Proxmox run carried real Internet traffic through Minimal
+Router for approximately **27 minutes**, compared it directly with the existing
+pfSense fallback, exercised a CPU-load condition, validated external WireGuard
+access, and then completed the planned fallback to pfSense.
 
 | Test | Minimal Router VM 108 | pfSense VM 106 |
 |---|---:|---:|
@@ -50,198 +45,143 @@ planned operational rollback to pfSense.
 | CPU 100% load test | **0% loss; dashboard 30/30** | Not recorded |
 | RAM after test | **172 MB** | Guest agent unavailable |
 
-The operational fallback succeeded: pfSense returned with Internet connectivity,
-Minimal Router VM 108 was shut down and isolated, and the transition took
-approximately **93 seconds**.
+The operational fallback also succeeded: pfSense returned with Internet
+connectivity, Minimal Router VM 108 was shut down and isolated, and the measured
+transition took approximately **93 seconds**.
 
-This closes part of the previous target-host uncertainty around basic Proxmox
-routing, Internet forwarding, a first real throughput/latency/DNS comparison,
-load-time management responsiveness, observed memory use, and fallback to the
-known-good router.
+### Alpine kernel / PPPoE finding
 
-It does **not** close all production gates. WireGuard was enabled but no phone
-handshake was observed. Cloudflare DDNS was not confirmed working. The current
-DDNS implementation is Cloudflare-only through Alpine `inadyn`; the dashboard
-`Zone` field expects the DNS zone name such as `example.com`, not a Cloudflare
-Zone ID. Repeated reboot/reconnect, external scanning, backup restore,
-destructive storage/power tests, and long-duration soak testing remain open.
+The initial Alpine guest used `linux-virt`. During the real PPPoE bring-up that
+running kernel did not provide the PPPoE module required by the appliance. After
+switching the guest to **Alpine `linux-lts`**, the required PPPoE support was
+available and the real WAN test succeeded.
 
-Full dated evidence and limitations are in
-[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md). DDNS
-configuration and diagnostics are documented in
-[`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md).
+Observed RAM use was approximately **73 MB after a clean `linux-lts` boot** and
+**172 MB after the exercised test workload**. The larger kernel package therefore
+did not translate into proportional resident-memory use in this pilot.
 
-## Bounded storage — PR #28
+The validated Proxmox path now recommends `linux-lts`, and both Alpine installers
+also fail closed unless `modprobe pppoe` succeeds. This capability check is the
+actual requirement; a future kernel can qualify if it provides the same required
+module.
 
-PR #28, `Bound local storage and fail safely under disk pressure`, was validated
-on head `e3f6b983b189e6418cbd1711abf32e4a29d98107` and squash-merged to `main` as
-`818f8ed3b68a9d6edd8635b8729ddf36dba59c36` on 2026-08-01.
+### WireGuard result — PASS for external handshake and dashboard access
 
-The final PR head passed all workflows triggered for the candidate:
+WireGuard is no longer an unvalidated basic-connectivity item for this pilot.
+After Dynamic DNS was provisioned manually on the Proxmox side, a phone on the
+external network successfully established the WireGuard connection and opened
+the Minimal Router dashboard through the tunnel.
 
-- CI;
-- Deep validation;
-- Performance;
-- CodeQL;
-- Secret scan; and
-- Service supervision on a clean Alpine 3.22 environment.
+This demonstrates, for this test session:
 
-The merged behavior adds:
+- Internet-origin reachability to the WireGuard UDP endpoint;
+- successful peer authentication/handshake;
+- WAN/firewall handling for the WireGuard entry path;
+- tunnel routing sufficient to reach management;
+- dashboard access over WireGuard without exposing the dashboard directly on
+  WAN.
 
-- Normal storage below 80%, Warning from 80% to below 90%, and Critical at 90%
-  or higher;
-- HTTP 507 rejection for management mutations that require durable persistence at
-  Critical pressure, including recovery writes;
-- no deliberate interruption of already-active forwarding, nftables, PPPoE, or
-  DHCP/DNS state when the management plane enters pressure mode;
-- nonessential gateway sample/reconnect history shedding while live probing and
-  the in-memory gateway summary continue;
-- latest 100 canonical revisions, 20 snapshots, 5,000 audit events, 41,000 /
-  seven-day gateway samples, and 2,048 / seven-day reconnect events;
-- passive SQLite WAL checkpoint and retention maintenance at startup and every
-  15 minutes;
-- Alpine log rotation for routerd/router-applyd at 1 MiB with four compressed
-  rotations.
+Repeated reconnect/reboot recovery, longer-term tunnel stability and broader
+traffic/throughput cases remain separate gates.
 
-The automated threshold and policy tests do **not** replace destructive target
-filesystem tests. Full disk, inode exhaustion, and read-only filesystem behavior
-remain manual gates.
+### Dynamic DNS result — No-IP implemented; appliance-managed proof still open
 
-## Central appliance health — PR #29
+The deployment uses **No-IP**. The earlier appliance implementation was
+Cloudflare-only, so it did not match the actual deployment. The manually
+provisioned Proxmox-side DDNS used during the successful WireGuard check proves
+that the external hostname/endpoint concept works, but it does not prove the old
+appliance-managed DDNS path.
 
-PR #29, `Add central appliance health aggregation and overview status`, was
-validated on final head `f56807a4bbad09bc3565f66de2b3b18aeb5c87b4` and
-squash-merged to `main` as `120c7b4704ba9de2505b8e043c2544ce2d2cd6db`
-on 2026-08-01.
+The repository now supports provider-aware DDNS through `inadyn`:
 
-The final PR head passed all workflows triggered for the candidate:
+- No-IP through the native `no-ip.com` provider;
+- Cloudflare through the existing `cloudflare.com` provider;
+- No-IP is the default for new configurations;
+- configurations created before provider support, where the provider value is
+  absent, retain legacy Cloudflare semantics;
+- provider-specific validation prevents a No-IP credential from being treated as
+  a Cloudflare token and vice versa;
+- switching providers requires a new secret;
+- the existing transactional apply flow still performs config validation,
+  bounded one-shot update, service restart/health verification and rollback.
 
-- CI, including Go race tests, vet, `govulncheck`, repository hygiene, dashboard
-  dependency audit/lint/unit/type-build, Playwright E2E, and clean Alpine
-  install/update/rollback;
-- Deep validation, including crash recovery stress, both fuzz targets, coverage,
-  ARM64/QEMU, isolated WAN-router-LAN networking, and security/binary inspection;
-- Performance;
-- CodeQL for Go and JavaScript/TypeScript;
-- Secret scan; and
-- Service supervision.
+The remaining DDNS target-host gate is to deploy this build and prove that
+**MinimalRouter itself**, not a host-side workaround, updates No-IP, stays
+healthy, resolves externally to the current public IPv4, and later follows a
+real public-IP change.
 
-The merged health model provides these aggregate states:
+See [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md) and
+[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md).
 
-- `Healthy`;
-- `Warning`;
-- `Degraded`;
-- `Recovery required`; and
-- `Unknown` when evidence cannot be measured reliably.
+## Automated validation baseline
 
-The aggregate includes configuration recovery, storage, memory, conntrack, kernel
-time synchronization, WAN/gateway quality, supervised core processes, the
-protected apply socket, configured DNS/DHCP and PPPoE services, configured
-WireGuard interface state, signed-update state, and encrypted-backup age.
+Recent merged hardening work has passed the repository's CI, Deep validation,
+Performance, CodeQL, Secret scan and service-supervision workflows. The automated
+suite covers, among other things:
 
-Health collection is observational only. It does not restart services, reconnect
-PPPoE, change firewall state, apply WireGuard changes, or read/return passwords,
-private keys, provider tokens, backup payloads, or other secrets.
+- Go race tests, vet, `govulncheck`, fuzz targets and coverage;
+- TypeScript lint/unit/build and Playwright E2E;
+- clean Alpine installation, update activation and rollback;
+- crash recovery and privileged-operation interruption cases;
+- ARM64/QEMU execution and isolated WAN-router-LAN namespace networking;
+- DHCP, DNS, NAT, stateful firewall, TCP, UDP and parallel-flow regression tests;
+- no response on tested synthetic WAN management/service ports;
+- signed update handling and binary/security inspection;
+- bounded storage thresholds, history retention, WAL maintenance and rotated
+  service logs;
+- appliance-health aggregation and malformed-response dashboard handling.
 
-The final Playwright run also covers the regression found during development:
-a malformed or partial `/api/v1/health` response is validated and degrades to an
-unavailable health banner instead of crashing the React dashboard.
-
-## Previously demonstrated automated behavior
-
-The broader automated suite has demonstrated:
-
-- deterministic failure behavior for lost privileged responses, durable-intent
-  interruption, corrupt helper records, contradictory RPC outcomes, failed
-  rollback, SQLite commit failure, and canonical reconciliation;
-- ordered disruptive confirmation where helper `last-good` cannot advance before
-  SQLite canonical commit;
-- retry of a failed final helper acknowledgement without repeating runtime
-  confirmation or canonical commit;
-- DHCP, DNS, NAT, stateful firewall, TCP, UDP, and parallel-flow operation in an
-  isolated Linux namespace laboratory;
-- no response on the tested synthetic WAN management and service ports;
-- successful ARM64 execution of recovery-safe commands;
-- successful update crash recovery, fuzz targets, coverage generation, binary
-  inspection, and high-confidence static security analysis;
-- successful TypeScript production builds, browser E2E execution, clean Alpine
-  installation, first-run setup, update activation, rollback, and supervised
-  process recovery.
-
-The virtual network result is a same-kernel regression test, not a physical-router
-throughput claim. It must not be presented as VirtIO, physical NIC, PPPoE,
-WireGuard, thermal, or ISP performance evidence. The dated owner-Proxmox pilot
-above is separate target-host evidence and must likewise retain its stated scope.
-
-## Recorded control-plane baseline
-
-On a GitHub-hosted AMD EPYC runner, the historical recorded range was approximately:
-
-| Operation | Result |
-|---|---:|
-| Setup-status API | 4.8–5.4 microseconds |
-| Normal update-state read | about 26 microseconds |
-| Update-state read while recovering a journal | 44.6–45.1 microseconds |
-| Rejected protected request with durable audit write | 4.27–4.40 milliseconds |
-
-These are control-plane measurements. Packet forwarding stays in the Linux kernel
-and must be measured separately on the target Proxmox host and NIC configuration.
-The 2026-08-01 target-host report is the first such recorded owner-environment
-sample, not a replacement for repeated or sustained measurements.
+These automated tests are regression and control-plane evidence. They do not
+replace target-host PPPoE, NIC, thermal, ISP, power-loss or long-duration tests.
 
 ## What remains unproven after the target-host pilot
 
-The 2026-08-01 pilot closed some earlier manual gates, but the following remain
-required before an unattended production recommendation:
+Before an unattended production recommendation, recorded evidence is still
+required for:
 
-1. Stable WAN/LAN identity across repeated Proxmox and guest reboots.
-2. Explicit real ISP PPPoE disconnect/reconnect, MTU, authentication, and reboot
-   recovery evidence over repeated cycles.
-3. Repeated target-host VirtIO or passed-through NIC throughput, packet rate, CPU
-   use, IRQ load, latency, jitter, packet loss, and thermal behavior over longer
-   runs.
-4. Successful WireGuard handshake, traffic, throughput, and recovery from an
-   unrelated external network.
-5. Successful Cloudflare DDNS one-shot update, service health, external DNS
-   resolution, and later public-IP-change propagation.
-6. External IPv4 and IPv6 scanning from a host outside the test network.
-7. Backup export and restore into a fresh VM.
-8. Full-disk, inode-exhaustion, read-only-filesystem, service-crash,
-   helper-process-crash, corrupt-state, and abrupt host power-loss exercises on
-   persistent storage.
-9. Verification that >90% real filesystem pressure returns HTTP 507 while the
-   already-active forwarding plane remains functional, followed by recovery after
-   freeing storage without a reboot.
-10. Controlled interruption specifically between privileged intent, runtime
-    apply, runtime confirmation, SQLite commit, helper `last-good` commit, and
-    pending cleanup.
-11. Sustained operation with bounded logs, WAL, history and snapshots plus stable
-    memory/thermal behavior over at least seven days.
-12. Owner-signed installation and recovery media booted on the target platform.
-13. An independent focused security review before an unattended production claim.
+1. stable WAN/LAN identity across repeated Proxmox and guest reboots;
+2. repeated real ISP PPPoE disconnect/reconnect, authentication, MTU and reboot
+   recovery;
+3. repeated/sustained VirtIO or passed-through NIC throughput, packet rate, CPU,
+   IRQ, latency, jitter, loss and thermal behavior;
+4. MinimalRouter-managed No-IP one-shot update, daemon health, external
+   resolution and later public-IP-change propagation;
+5. WireGuard recovery after PPPoE reconnect/reboot plus any broader traffic or
+   throughput cases required by the deployment;
+6. independent external IPv4 and IPv6 scanning;
+7. encrypted backup export and restore into a fresh VM;
+8. full-disk, inode-exhaustion, read-only-filesystem, service/helper crash,
+   corrupt-state and abrupt host power-loss exercises on persistent storage;
+9. controlled interruption between privileged intent, runtime apply, runtime
+   confirmation, SQLite commit, helper `last-good` commit and pending cleanup;
+10. sustained operation with bounded logs, WAL, history and snapshots plus stable
+    memory/thermal behavior for at least seven days;
+11. owner-qualified signed installation/recovery media;
+12. an independent focused security review before an unattended production
+    claim.
 
 ## Current deployment recommendation
 
-The current tree is suitable for continued controlled Proxmox pilot use with
-console access and the existing pfSense VM or appliance ready for immediate
-rollback. The 2026-08-01 run provides real target-host evidence that Internet
-forwarding, the recorded performance/load checks, and operational fallback can
-work in the owner's environment.
+The current tree is suitable for continued **controlled Proxmox pilot use** with
+console access and the known-good pfSense router ready for rollback. The dated
+pilot provides real evidence for PPPoE/Internet forwarding on `linux-lts`, the
+recorded performance/load sample, an external WireGuard phone handshake with
+dashboard access, and operational fallback.
 
 It is not yet documented as a drop-in unattended production replacement for
-pfSense. Promotion to production still depends on closing the remaining
-WireGuard, Cloudflare DDNS, recovery, external-scan, destructive-storage,
-reboot/reconnect, soak, signed-media, and independent-review gates.
+pfSense. The next highest-value target test is the newly implemented
+MinimalRouter-managed No-IP path, followed by repeated PPPoE/reboot recovery and
+longer soak/fault/security validation.
 
 See also:
 
 - [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md)
-- [`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md)
+- [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md)
 - [`PROXMOX.md`](PROXMOX.md)
+- [`INSTALLATION.md`](INSTALLATION.md)
 - [`TESTING.md`](TESTING.md)
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
 - [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md)
-- [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md)
 - [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md)
 - [`RESOURCE_AND_HARDWARE_TEST.md`](RESOURCE_AND_HARDWARE_TEST.md)
 - [`SECURITY_REVIEW.md`](SECURITY_REVIEW.md)
