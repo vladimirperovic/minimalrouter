@@ -138,6 +138,7 @@ func TestValidationAcceptsSupportedWiFiAndCloudflareDDNS(t *testing.T) {
 	cfg.WiFi.Band = "5ghz"
 	cfg.WiFi.Channel = 36
 	cfg.Cloudflare.DDNSEnabled = true
+	cfg.Cloudflare.DDNSProvider = "cloudflare"
 	cfg.Cloudflare.Domain = "router.example.com"
 	cfg.Cloudflare.ZoneName = "example.com"
 	cfg.Cloudflare.APIToken = "abcdefghijklmnopqrstuvwxyz_123456"
