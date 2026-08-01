@@ -22,6 +22,12 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 - [x] encrypted backup export and restore validation
 - [x] crash-safe A/B update activation and rollback with durable journal
 - [x] signed manifests, SHA-256 checks, SPDX SBOMs, and provenance support
+- [x] bounded local storage retention, passive SQLite WAL maintenance, and bounded
+      router service log rotation
+- [x] 80% storage warning and 90% critical fail-closed durable-write pressure mode
+      while the active forwarding plane remains untouched
+- [x] central authenticated appliance health with Healthy / Warning / Degraded /
+      Recovery required / Unknown aggregation and Overview banner
 - [x] Go race/vet/vulnerability tests, CodeQL, secret scan, and repository hygiene
 - [x] frontend lint, unit, TypeScript 6 build, dependency audit, and Playwright E2E
 - [x] clean Alpine install, wizard, update activation, and rollback CI
@@ -72,7 +78,7 @@ Goal: replace same-kernel CI ceilings with reproducible Proxmox and NIC results.
 - [ ] measure QoS behavior under load
 - [ ] measure 1 GbE and, where available, 2.5 GbE
 - [ ] investigate 10 GbE only after lower-speed evidence is stable
-- [ ] record log, snapshot, and disk growth
+- [ ] record bounded log, SQLite WAL, snapshot, gateway-history, and disk growth
 
 Exit criterion: every published number links to exact hardware, commands,
 configuration, duration, raw summary, and limitations.
@@ -82,13 +88,17 @@ configuration, duration, raw summary, and limitations.
 - [x] automated interrupted update/rollback journal reconciliation
 - [x] automated corrupt journal and malformed API fuzzing
 - [x] automated signed package and clean-install rollback tests
+- [x] automated storage-pressure threshold and durable-write classification tests
+- [x] automated central health severity and recovery precedence tests
 - [ ] service-crash tests on the target VM
 - [ ] full-disk and inode-exhaustion test on a disposable clone
 - [ ] read-only-filesystem test on a disposable clone
+- [ ] verify HTTP 507 pressure mode on a real full test filesystem while existing
+      routing, DHCP/DNS, PPPoE and firewall state remains active
 - [ ] corrupt state/snapshot restore rehearsal
 - [ ] abrupt Proxmox host/guest power-loss test after graceful tests pass
 - [ ] backup restore into a completely new VM
-- [ ] seven-day continuous pilot with bounded logs and stable memory
+- [ ] seven-day continuous pilot with bounded logs/WAL/history and stable memory
 
 Exit criterion: every failure returns to a documented known-good state and pfSense
 can be restored immediately.

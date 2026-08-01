@@ -1,0 +1,90 @@
+.appliance-health {
+  margin: 0 0 24px;
+  padding: 20px 22px;
+  border: 1px solid var(--line, rgba(127, 127, 127, 0.2));
+  border-radius: 18px;
+  background: var(--panel, rgba(127, 127, 127, 0.06));
+}
+
+.appliance-health-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.appliance-health-heading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.appliance-health-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  opacity: 0.62;
+}
+
+.appliance-health-heading strong {
+  font-size: 1.2rem;
+}
+
+.appliance-health-heading > b {
+  white-space: nowrap;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.appliance-health > p,
+.appliance-health-checks p {
+  margin: 8px 0 0;
+  opacity: 0.72;
+}
+
+.appliance-health-checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.appliance-health-checks article {
+  padding: 12px 14px;
+  border: 1px solid currentColor;
+  border-radius: 12px;
+  opacity: 0.82;
+}
+
+.appliance-health-checks article span,
+.appliance-health-checks article strong {
+  display: block;
+}
+
+.appliance-health-checks article span {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.appliance-health-checks article strong {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.appliance-health-checks article p {
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.appliance-health.is-healthy { border-color: rgba(44, 160, 90, 0.42); }
+.appliance-health.is-warning { border-color: rgba(205, 143, 35, 0.52); }
+.appliance-health.is-degraded,
+.appliance-health.is-recovery_required { border-color: rgba(196, 61, 61, 0.58); }
+.appliance-health.is-unknown { border-color: rgba(127, 127, 127, 0.42); }
+
+@media (max-width: 760px) {
+  .appliance-health-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .appliance-health-checks { grid-template-columns: 1fr; }
+}

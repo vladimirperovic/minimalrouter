@@ -8,6 +8,19 @@ alpha, compatibility may change between commits.
 
 ### Added
 
+- Bounded storage-pressure policy with explicit 80% warning and 90% critical
+  thresholds, authenticated runtime telemetry, and HTTP 507 rejection of durable
+  management mutations when safe persistence cannot be guaranteed.
+- Periodic SQLite retention maintenance and passive WAL checkpoints without
+  `VACUUM` or forwarding-plane interruption.
+- Bounded `routerd` and `router-applyd` log rotation (1 MiB active logs, four
+  compressed rotations) in Alpine installation and distribution paths.
+- Central authenticated appliance-health model with Healthy, Warning, Degraded,
+  Recovery required, and Unknown states covering recovery, storage, memory,
+  conntrack, time, WAN/gateway, core supervision, DNS/DHCP, PPPoE, WireGuard,
+  update state, and encrypted-backup age.
+- Overview appliance-health banner with independent 15-second refresh and concise
+  explanations for non-healthy signals.
 - Durable update-operation journal for crash-safe A/B activation and rollback.
 - Durable privileged-operation intent and completed-result records written around
   each `router-applyd` side-effect boundary.
@@ -49,6 +62,11 @@ alpha, compatibility may change between commits.
 
 ### Changed
 
+- Nonessential gateway sample/reconnect history is shed under critical storage
+  pressure while live probing and in-memory gateway health continue.
+- Recovery and configuration writes remain fail-closed under critical storage
+  pressure; read-only status, previews, verification and encrypted backup export
+  stay available.
 - Ambiguous `routerd` to `router-applyd` transport failures retry the exact same
   transaction ID so the helper can return its persisted idempotent result.
 - Privileged mutations write an intent record before side effects and a validated
@@ -128,6 +146,11 @@ alpha, compatibility may change between commits.
 
 ### Security
 
+- Critical disk pressure blocks durable management mutations rather than allowing
+  runtime changes to be reported successful without persistent evidence.
+- Health collection is read-only and does not inspect or return PPPoE passwords,
+  WireGuard private keys, provider tokens, administrator credentials, backups, or
+  other secret material.
 - Signed staging rejects untrusted keys, unsafe paths, symlinks, non-regular
   files, hash mismatches, duplicate versions, and package-supplied hooks.
 - The verify-to-copy window is closed by re-verification of staged files.
@@ -148,8 +171,8 @@ alpha, compatibility may change between commits.
 - Early alpha; not supported as an unattended production firewall.
 - No stable signed ISO or owner-qualified recovery media.
 - Real target Proxmox, NIC, PPPoE, external scan, long-duration, full-disk,
-  read-only-filesystem, process-kill, and destructive power-loss evidence is still
-  required.
+  inode-exhaustion, read-only-filesystem, process-kill, and destructive power-loss
+  evidence is still required.
 - IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
   ecosystem are not current stable features.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.
