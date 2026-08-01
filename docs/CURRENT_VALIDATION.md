@@ -1,9 +1,10 @@
 # Current validation status — 2026-08-01
 
-This document is the current source of truth for automated validation and the
-remaining manual release gates. Dated hardware reports remain historical evidence;
-this file records the latest repository candidates without turning CI results into
-unsupported production claims.
+This document is the current source of truth for automated validation, recorded
+target-host evidence, and the remaining manual release gates. Dated hardware
+reports remain historical evidence; this file records the latest repository and
+owner-Proxmox results without turning a successful pilot into an unsupported
+production claim.
 
 ## Repository baseline
 
@@ -30,6 +31,45 @@ The current public baseline includes:
 - TypeScript 6 dashboard, Playwright browser coverage, Go race/vet/vulnerability
   checks, CodeQL, secret scanning, high-confidence gosec, shellcheck, actionlint,
   ARM64 QEMU, namespace networking, fuzzing, and performance benchmarks.
+
+## Owner Proxmox pilot — 2026-08-01
+
+A controlled owner-Proxmox run successfully carried real Internet traffic through
+Minimal Router for approximately **27 minutes**, compared the candidate with the
+existing pfSense fallback, exercised a CPU-load condition, and then completed the
+planned operational rollback to pfSense.
+
+| Test | Minimal Router VM 108 | pfSense VM 106 |
+|---|---:|---:|
+| Download | **570 Mbps** | 543 Mbps |
+| Upload | **327 Mbps** | 318 Mbps |
+| Packet loss, 600 packets | **0%** | **0%** |
+| Ping to 1.1.1.1 | 2.77 ms | **1.94 ms** |
+| Ping to 8.8.8.8 | 8.54 ms | **7.61 ms** |
+| DNS, 200 queries | **12.65 ms, 200/200** | 13.00 ms, 200/200 |
+| CPU 100% load test | **0% loss; dashboard 30/30** | Not recorded |
+| RAM after test | **172 MB** | Guest agent unavailable |
+
+The operational fallback succeeded: pfSense returned with Internet connectivity,
+Minimal Router VM 108 was shut down and isolated, and the transition took
+approximately **93 seconds**.
+
+This closes part of the previous target-host uncertainty around basic Proxmox
+routing, Internet forwarding, a first real throughput/latency/DNS comparison,
+load-time management responsiveness, observed memory use, and fallback to the
+known-good router.
+
+It does **not** close all production gates. WireGuard was enabled but no phone
+handshake was observed. Cloudflare DDNS was not confirmed working. The current
+DDNS implementation is Cloudflare-only through Alpine `inadyn`; the dashboard
+`Zone` field expects the DNS zone name such as `example.com`, not a Cloudflare
+Zone ID. Repeated reboot/reconnect, external scanning, backup restore,
+destructive storage/power tests, and long-duration soak testing remain open.
+
+Full dated evidence and limitations are in
+[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md). DDNS
+configuration and diagnostics are documented in
+[`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md).
 
 ## Bounded storage — PR #28
 
@@ -130,7 +170,8 @@ The broader automated suite has demonstrated:
 
 The virtual network result is a same-kernel regression test, not a physical-router
 throughput claim. It must not be presented as VirtIO, physical NIC, PPPoE,
-WireGuard, thermal, or ISP performance evidence.
+WireGuard, thermal, or ISP performance evidence. The dated owner-Proxmox pilot
+above is separate target-host evidence and must likewise retain its stated scope.
 
 ## Recorded control-plane baseline
 
@@ -145,44 +186,57 @@ On a GitHub-hosted AMD EPYC runner, the historical recorded range was approximat
 
 These are control-plane measurements. Packet forwarding stays in the Linux kernel
 and must be measured separately on the target Proxmox host and NIC configuration.
+The 2026-08-01 target-host report is the first such recorded owner-environment
+sample, not a replacement for repeated or sustained measurements.
 
-## What automated validation does not prove
+## What remains unproven after the target-host pilot
 
-The following remain manual Proxmox or hardware gates:
+The 2026-08-01 pilot closed some earlier manual gates, but the following remain
+required before an unattended production recommendation:
 
 1. Stable WAN/LAN identity across repeated Proxmox and guest reboots.
-2. Real ISP PPPoE establishment, disconnect, reconnect, MTU, and authentication.
-3. Real VirtIO or passed-through NIC throughput, packet rate, CPU use, IRQ load,
-   latency, jitter, packet loss, and thermal behavior.
-4. Real WireGuard throughput and recovery from an unrelated external network.
-5. External IPv4 and IPv6 scanning from a host outside the test network.
-6. Backup export and restore into a fresh VM.
-7. Full-disk, inode-exhaustion, read-only-filesystem, service-crash,
+2. Explicit real ISP PPPoE disconnect/reconnect, MTU, authentication, and reboot
+   recovery evidence over repeated cycles.
+3. Repeated target-host VirtIO or passed-through NIC throughput, packet rate, CPU
+   use, IRQ load, latency, jitter, packet loss, and thermal behavior over longer
+   runs.
+4. Successful WireGuard handshake, traffic, throughput, and recovery from an
+   unrelated external network.
+5. Successful Cloudflare DDNS one-shot update, service health, external DNS
+   resolution, and later public-IP-change propagation.
+6. External IPv4 and IPv6 scanning from a host outside the test network.
+7. Backup export and restore into a fresh VM.
+8. Full-disk, inode-exhaustion, read-only-filesystem, service-crash,
    helper-process-crash, corrupt-state, and abrupt host power-loss exercises on
    persistent storage.
-8. Verification that >90% real filesystem pressure returns HTTP 507 while the
+9. Verification that >90% real filesystem pressure returns HTTP 507 while the
    already-active forwarding plane remains functional, followed by recovery after
    freeing storage without a reboot.
-9. Controlled interruption specifically between privileged intent, runtime
-   apply, runtime confirmation, SQLite commit, helper `last-good` commit, and
-   pending cleanup.
-10. Sustained operation with bounded logs, WAL, history and snapshots plus stable
+10. Controlled interruption specifically between privileged intent, runtime
+    apply, runtime confirmation, SQLite commit, helper `last-good` commit, and
+    pending cleanup.
+11. Sustained operation with bounded logs, WAL, history and snapshots plus stable
     memory/thermal behavior over at least seven days.
-11. Owner-signed installation and recovery media booted on the target platform.
-12. An independent focused security review before an unattended production claim.
+12. Owner-signed installation and recovery media booted on the target platform.
+13. An independent focused security review before an unattended production claim.
 
 ## Current deployment recommendation
 
-The current tree is suitable for a controlled Proxmox pilot with console access,
-an isolated LAN, a non-production WAN during initial testing, and the existing
-pfSense VM or appliance ready for immediate rollback.
+The current tree is suitable for continued controlled Proxmox pilot use with
+console access and the existing pfSense VM or appliance ready for immediate
+rollback. The 2026-08-01 run provides real target-host evidence that Internet
+forwarding, the recorded performance/load checks, and operational fallback can
+work in the owner's environment.
 
 It is not yet documented as a drop-in unattended production replacement for
-pfSense. Promotion to production must be based on recorded target-host evidence,
-not only GitHub Actions results.
+pfSense. Promotion to production still depends on closing the remaining
+WireGuard, Cloudflare DDNS, recovery, external-scan, destructive-storage,
+reboot/reconnect, soak, signed-media, and independent-review gates.
 
 See also:
 
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`CLOUDFLARE_DDNS.md`](CLOUDFLARE_DDNS.md)
 - [`PROXMOX.md`](PROXMOX.md)
 - [`TESTING.md`](TESTING.md)
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
