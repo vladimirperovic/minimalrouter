@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ApplianceHealth } from "../api-types";
+import type { ApplianceHealth, ApplianceHealthState } from "../api-types";
 import { apiFetch } from "../lib/api";
 import "./ApplianceHealthBanner.css";
 
-const labels: Record<ApplianceHealth["state"], string> = {
+const labels: Record<ApplianceHealthState, string> = {
   healthy: "Healthy",
   warning: "Warning",
   degraded: "Degraded",
@@ -11,13 +11,31 @@ const labels: Record<ApplianceHealth["state"], string> = {
   unknown: "Unknown",
 };
 
+const validStates = new Set<ApplianceHealthState>(Object.keys(labels) as ApplianceHealthState[]);
+
+function parseHealth(value: unknown): ApplianceHealth {
+  if (!value || typeof value !== "object") throw new Error("Invalid health response");
+  const candidate = value as Partial<ApplianceHealth>;
+  if (!candidate.state || !validStates.has(candidate.state) || typeof candidate.headline !== "string" || !Array.isArray(candidate.checks)) {
+    throw new Error("Invalid health response");
+  }
+  for (const check of candidate.checks) {
+    if (!check || typeof check !== "object") throw new Error("Invalid health check");
+    const item = check as Partial<ApplianceHealth["checks"][number]>;
+    if (typeof item.id !== "string" || typeof item.label !== "string" || typeof item.summary !== "string" || !item.state || !validStates.has(item.state)) {
+      throw new Error("Invalid health check");
+    }
+  }
+  return candidate as ApplianceHealth;
+}
+
 export default function ApplianceHealthBanner() {
   const [health, setHealth] = useState<ApplianceHealth | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     const response = await apiFetch("/api/v1/health", { signal });
     if (!response.ok) throw new Error(`Health summary unavailable (${response.status})`);
-    setHealth((await response.json()) as ApplianceHealth);
+    setHealth(parseHealth(await response.json()));
   }, []);
 
   useEffect(() => {
