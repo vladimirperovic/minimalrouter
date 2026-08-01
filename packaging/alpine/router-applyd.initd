@@ -30,6 +30,7 @@ depend() {
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
+    rm -f /run/minimalrouter/apply.sock
 }
 
 # routerd must not be released merely because the supervisor was forked. The

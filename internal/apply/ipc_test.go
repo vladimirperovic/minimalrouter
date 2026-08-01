@@ -21,6 +21,9 @@ func TestDefaultSocketPathMatchesOpenRCReadinessGate(t *testing.T) {
 	if !bytes.Contains(data, []byte("[ -S "+DefaultSocketPath+" ]")) {
 		t.Fatalf("OpenRC readiness gate does not use apply socket %q", DefaultSocketPath)
 	}
+	if !bytes.Contains(data, []byte("rm -f "+DefaultSocketPath)) {
+		t.Fatalf("OpenRC startup does not clear stale apply socket %q", DefaultSocketPath)
+	}
 }
 
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
