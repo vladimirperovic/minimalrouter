@@ -32,7 +32,8 @@ Coverage includes validation, authorization, configuration generation,
 transaction state, snapshots, recovery, migrations, interface selection,
 device-profile schedules, signed manifests, A/B slot transitions, privileged RPC
 outcome invariants, durable intent/result records, idempotent retries,
-commit-confirm ordering, and canonical reconciliation.
+commit-confirm ordering, canonical reconciliation, bounded-storage thresholds,
+durable-write classification, and central appliance-health severity ordering.
 
 ### Dashboard tests
 
@@ -47,7 +48,9 @@ pnpm --dir web test:e2e
 
 The dashboard currently builds with TypeScript 6.0.3 and Node.js type definitions
 26.1.2. Unit tests must not use a real router API or developer browser state.
-Playwright fixtures must use synthetic addresses, devices, and credentials.
+Playwright fixtures must use synthetic addresses, devices, and credentials. The
+Overview health banner must remain usable on desktop, Mobile Safari/WebKit, and
+Android/Chromium layouts.
 
 ### Clean Alpine installation
 
@@ -59,13 +62,37 @@ environment:
 - OpenRC services;
 - first-run HTTPS wizard;
 - nftables, dnsmasq, and dashboard availability;
+- bounded router-service logrotate policy;
 - signed update staging and explicit activation;
 - service execution from the active slot;
 - explicit rollback to the previous verified slot.
 
 This is a packaging and lifecycle smoke test. It does not replace real Proxmox,
-physical NIC, PPPoE, external scan, sustained load, storage-failure, process-kill,
-or abrupt host-power tests.
+physical NIC, PPPoE, external scan, sustained load, destructive full-disk/inode
+exhaustion, read-only-filesystem, process-kill, or abrupt host-power tests.
+
+### Storage pressure and appliance health
+
+Automated tests cover the deterministic policy layer:
+
+- storage is Normal below 80%, Warning from 80% to below 90%, and Critical at
+  90% or higher;
+- Critical storage disables nonessential history and durable configuration writes;
+- management mutations that require durable state are classified for HTTP 507
+  rejection while read-only/export/preview paths remain available;
+- recovery mutations are not exempt from durable-write protection;
+- central health severity preserves `Recovery required` above Degraded, Warning,
+  Unknown, and Healthy;
+- critical storage, stale backup, unsynchronized time, memory pressure, and
+  conntrack pressure feed the aggregate health model deterministically;
+- Linux service facts use OpenRC started state, supervised child processes, the
+  protected apply socket, configured PPPoE/dnsmasq services, WireGuard interface
+  state, and update-slot metadata without reading secrets.
+
+The detailed storage target-appliance checklist is
+[`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md). Real filesystem
+exhaustion must additionally prove that existing nftables, PPPoE, DHCP/DNS and
+forwarding state stay active while durable management mutations fail closed.
 
 ### Configuration crash and IPC tests
 
@@ -184,7 +211,8 @@ Component tests run in pinned Alpine containers or disposable VMs and cover:
 - QoS lifecycle and live qdisc inspection;
 - DDNS and Wi-Fi capability/preflight/rollback behavior;
 - OpenRC service lifecycle;
-- SQLite locking and corruption detection;
+- SQLite locking, retention, passive WAL checkpoint, and corruption detection;
+- bounded logrotate configuration;
 - recovery commands and undo snapshots;
 - signature, checksum, path, symlink, and manifest rejection.
 
@@ -212,11 +240,14 @@ Required order:
 10. Backup restore into a fresh VM.
 11. Target-host CPU, RAM, disk, throughput, packet rate, latency, jitter, loss,
     and management responsiveness.
-12. Full disk, inode exhaustion, read-only filesystem, corrupt-state, and abrupt
+12. Fill a disposable filesystem beyond 80% and 90%; verify health transitions,
+    HTTP 507 durable-write rejection, history shedding, bounded logs/WAL, recovery
+    after freeing space, and uninterrupted existing forwarding state.
+13. Full disk, inode exhaustion, read-only filesystem, corrupt-state, and abrupt
     power-loss tests on a disposable target.
-13. Real PPPoE only during a maintenance window after rollback is proven.
-14. External IPv4/IPv6 scan and WireGuard from an unrelated network.
-15. At least seven days of continuous operation.
+14. Real PPPoE only during a maintenance window after rollback is proven.
+15. External IPv4/IPv6 scan and WireGuard from an unrelated network.
+16. At least seven days of continuous operation with bounded disk growth.
 
 ## Failure-injection matrix
 
@@ -230,6 +261,7 @@ Inject at least:
 - lost IPC response after each privileged phase;
 - explicit final helper commit failure followed by retry;
 - SQLite commit failure before and after runtime confirmation;
+- warning and critical storage pressure;
 - full disk and inode exhaustion;
 - read-only filesystem;
 - snapshot write failure;
@@ -246,7 +278,7 @@ For every case assert:
 - active Linux state;
 - SQLite canonical revision;
 - helper `last-good`, pending, and transaction-journal state;
-- service health;
+- service and aggregate appliance health;
 - update slot and update-journal state;
 - audit result;
 - exact terminal state: `Committed`, verified `RolledBack`, or
@@ -268,6 +300,8 @@ Verify:
 - incomplete or corrupt privileged state cannot be treated as fresh state;
 - only the canonical `RECONCILE` operation may supersede unresolved helper
   journal state;
+- critical storage cannot produce false-success durable mutations;
+- health telemetry is read-only and contains no secret material;
 - `router-applyd` no-new-privileges, fixed executable path, bounded resources, and
   sanitized loader environment;
 - logs, diagnostics, backups, public files, and artifacts contain no unapproved
@@ -292,7 +326,7 @@ Record:
 - WireGuard throughput and CPU cost;
 - QoS behavior under load;
 - packet loss, latency, jitter, and management responsiveness;
-- log, snapshot, helper-journal, and disk growth.
+- log, snapshot, helper-journal, gateway-history, SQLite WAL, and disk growth.
 
 Do not use the Go control plane as the forwarding benchmark path.
 

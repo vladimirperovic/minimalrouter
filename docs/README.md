@@ -9,6 +9,10 @@ path.
 - [`../README.md`](../README.md) — project overview and current status.
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest automated validation,
   benchmark ranges, and remaining manual gates.
+- [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md) — central Healthy / Warning /
+  Degraded / Recovery required appliance status and its evidence sources.
+- [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md) — bounded local state, 80%/90%
+  disk-pressure behavior, WAL maintenance, and fail-closed durable writes.
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — power, process, storage, IPC,
   network, update, backup, and recovery failure contract.
 - [`INSTALLATION.md`](INSTALLATION.md) — controlled Alpine installation.
@@ -32,6 +36,9 @@ path.
 - [`PROXMOX.md`](PROXMOX.md)
 - [`RECOVERY.md`](RECOVERY.md)
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)
+- [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md)
+- [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md)
+- [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md)
 - [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md)
 - [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md)
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
@@ -48,6 +55,8 @@ rollback and begin on an isolated LAN plus a test/NAT WAN.
   and manual Proxmox gates.
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — expected outcomes and evidence
   status for disruptive scenarios.
+- [`STORAGE_PRESSURE_TEST_PLAN.md`](STORAGE_PRESSURE_TEST_PLAN.md) — storage
+  threshold, full-filesystem, history shedding, log rotation, and recovery checks.
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — latest CI/deep-validation
   result and control-plane benchmark ranges.
 - [`../api/openapi.yaml`](../api/openapi.yaml) — REST API contract.
@@ -56,7 +65,8 @@ rollback and begin on an isolated LAN plus a test/NAT WAN.
 The current automated baseline includes Go race/vet/vulnerability checks,
 frontend lint/unit/build/E2E, clean Alpine installation and update rollback,
 crash recovery, fuzzing, security analysis, ARM64 QEMU smoke tests, network
-namespace validation, and performance benchmarks.
+namespace validation, bounded storage regression tests, central health aggregation,
+and performance benchmarks.
 
 ## Evidence and comparisons
 

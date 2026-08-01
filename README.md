@@ -53,6 +53,12 @@ Implemented and covered in the development environment:
 - encrypted backup export, configuration snapshots, and local recovery console;
 - crash-safe A/B update activation and rollback using a durable operation journal;
 - signed manifests, SHA-256 verification, checksums, SPDX SBOMs, and provenance;
+- bounded local storage with 80% warning / 90% critical pressure, HTTP 507
+  fail-closed durable writes, bounded gateway/audit/snapshot history, passive WAL
+  maintenance, and rotated router service logs;
+- one authenticated central appliance-health model covering recovery, storage,
+  memory, conntrack, time, WAN/gateway, supervised services, DNS/DHCP, PPPoE,
+  WireGuard, update state, and encrypted-backup age;
 - frontend unit tests and Playwright browser E2E tests;
 - clean Alpine install, first-run wizard, signed update, activation, and rollback CI;
 - race tests, `vet`, `govulncheck`, CodeQL, secret scan, `gosec`, `shellcheck`, and
@@ -79,7 +85,8 @@ still requires recorded evidence for:
 - real WireGuard throughput and recovery from an unrelated network;
 - external IPv4/IPv6 scanning;
 - backup restore into a fresh VM;
-- destructive fault injection on a disposable target;
+- destructive full-disk, inode-exhaustion, read-only-filesystem, service-crash,
+  and power-loss fault injection on a disposable target;
 - at least seven days of sustained operation;
 - owner-signed install/recovery media and independent security review.
 
@@ -128,6 +135,8 @@ Start with:
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
+- [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
+- [`docs/APPLIANCE_HEALTH.md`](docs/APPLIANCE_HEALTH.md)
 
 Keep the existing router available. Initial testing must use an isolated LAN and
 a test/NAT WAN path. Never run two DHCP servers on the same production LAN.
@@ -202,6 +211,8 @@ The complete index is [`docs/README.md`](docs/README.md). Key documents:
 - [`docs/PROXMOX.md`](docs/PROXMOX.md)
 - [`docs/TESTING.md`](docs/TESTING.md)
 - [`docs/RECOVERY.md`](docs/RECOVERY.md)
+- [`docs/STORAGE_PRESSURE.md`](docs/STORAGE_PRESSURE.md)
+- [`docs/APPLIANCE_HEALTH.md`](docs/APPLIANCE_HEALTH.md)
 - [`docs/RESOURCE_AND_HARDWARE_TEST.md`](docs/RESOURCE_AND_HARDWARE_TEST.md)
 - [`docs/SECURITY_REVIEW.md`](docs/SECURITY_REVIEW.md)
 - [`ROADMAP.md`](ROADMAP.md)

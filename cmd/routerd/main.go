@@ -110,6 +110,7 @@ func main() {
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	server.RegisterGatewayRoutes(mux)
+	server.RegisterHealthRoutes(mux)
 	if webDir := os.Getenv("MINIMALROUTER_WEB_DIR"); webDir != "" {
 		mux.Handle("/", staticHandler(webDir))
 		log.Printf("Serving dashboard from %s", webDir)

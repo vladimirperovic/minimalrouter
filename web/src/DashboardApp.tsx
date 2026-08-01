@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
+import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
@@ -358,6 +359,7 @@ function Dashboard() {
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
+        {active === "overview" && <ApplianceHealthBanner />}
 
         <DashboardSections
           active={active}
