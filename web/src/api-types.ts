@@ -74,6 +74,8 @@ export type RouterConfig = {
   };
   cloudflare: {
     ddns_enabled: boolean;
+    ddns_provider?: "noip" | "cloudflare" | string;
+    ddns_username?: string;
     api_token?: string;
     zone_id?: string;
     zone_name?: string;
