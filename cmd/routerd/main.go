@@ -169,7 +169,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              serverAddr,
-		Handler:           managementDestinationHandler(engine, mux),
+		Handler:           managementDestinationHandler(engine, storagePressureHandler(absDir, mux)),
 		TLSConfig:         tlsConfig,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
