@@ -25,6 +25,8 @@ The current public baseline includes:
 - loose reverse-path filtering, bounded conntrack state, and client-only Chrony;
 - signed update manifests, SHA-256 verification, checksums, SBOM generation, and
   release provenance support;
+- bounded local storage and disk-pressure fail-closed behavior;
+- central authenticated appliance health on the Overview dashboard;
 - TypeScript 6 dashboard, Playwright browser coverage, Go race/vet/vulnerability
   checks, CodeQL, secret scanning, high-confidence gosec, shellcheck, actionlint,
   ARM64 QEMU, namespace networking, fuzzing, and performance benchmarks.
@@ -65,9 +67,26 @@ The automated threshold and policy tests do **not** replace destructive target
 filesystem tests. Full disk, inode exhaustion, and read-only filesystem behavior
 remain manual gates.
 
-## Central appliance health — PR #29 candidate
+## Central appliance health — PR #29
 
-PR #29 adds one authenticated, read-only aggregate health model with these states:
+PR #29, `Add central appliance health aggregation and overview status`, was
+validated on final head `f56807a4bbad09bc3565f66de2b3b18aeb5c87b4` and
+squash-merged to `main` as `120c7b4704ba9de2505b8e043c2544ce2d2cd6db`
+on 2026-08-01.
+
+The final PR head passed all workflows triggered for the candidate:
+
+- CI, including Go race tests, vet, `govulncheck`, repository hygiene, dashboard
+  dependency audit/lint/unit/type-build, Playwright E2E, and clean Alpine
+  install/update/rollback;
+- Deep validation, including crash recovery stress, both fuzz targets, coverage,
+  ARM64/QEMU, isolated WAN-router-LAN networking, and security/binary inspection;
+- Performance;
+- CodeQL for Go and JavaScript/TypeScript;
+- Secret scan; and
+- Service supervision.
+
+The merged health model provides these aggregate states:
 
 - `Healthy`;
 - `Warning`;
@@ -84,9 +103,9 @@ Health collection is observational only. It does not restart services, reconnect
 PPPoE, change firewall state, apply WireGuard changes, or read/return passwords,
 private keys, provider tokens, backup payloads, or other secrets.
 
-The clean PR #29 branch is based directly on the merged #28 `main`. Merge requires
-the complete final-head workflow suite to pass; intermediate or cancelled
-concurrency runs are not treated as evidence.
+The final Playwright run also covers the regression found during development:
+a malformed or partial `/api/v1/health` response is validated and degrades to an
+unavailable health banner instead of crashing the React dashboard.
 
 ## Previously demonstrated automated behavior
 
