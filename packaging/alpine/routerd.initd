@@ -27,6 +27,11 @@ start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
 }
 
+start_post() {
+    chgrp routerd "$pidfile"
+    chmod 0640 "$pidfile"
+}
+
 umask="0077"
 rc_ulimit="-c 0 -n 4096"
 

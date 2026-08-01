@@ -26,6 +26,20 @@ func TestDefaultSocketPathMatchesOpenRCReadinessGate(t *testing.T) {
 	}
 }
 
+func TestAlpineSupervisorsExposePIDFilesToHealthChecks(t *testing.T) {
+	for _, service := range []string{"routerd", "router-applyd"} {
+		initScript := filepath.Join("..", "..", "packaging", "alpine", service+".initd")
+		data, err := os.ReadFile(initScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(`chgrp routerd "$pidfile"`)) ||
+			!bytes.Contains(data, []byte(`chmod 0640 "$pidfile"`)) {
+			t.Errorf("%s does not expose its supervisor PID file to routerd health checks", service)
+		}
+	}
+}
+
 func TestAlpineModuleManifestIncludesPPPoE(t *testing.T) {
 	manifest := filepath.Join("..", "..", "packaging", "alpine", "minimalrouter.modules")
 	data, err := os.ReadFile(manifest)
