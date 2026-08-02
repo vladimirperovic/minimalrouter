@@ -699,17 +699,14 @@ func verifyActive(cfg config.SystemConfig, requireWAN bool) error {
 	if cfg.WAN.Enabled && requireWAN {
 		deadline := time.Now().Add(20 * time.Second)
 		for {
-			if err := runFixed("/sbin/ip", "link", "show", "dev", "ppp0"); err == nil {
+			pppAddress, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", "ppp0")
+			if err == nil && strings.Contains(pppAddress, "inet ") {
 				break
 			}
 			if time.Now().After(deadline) {
-				return errors.New("PPPoE interface did not become ready")
+				return errors.New("PPPoE interface has no assigned IPv4 address")
 			}
 			time.Sleep(500 * time.Millisecond)
-		}
-		pppAddress, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", "ppp0")
-		if err != nil || !strings.Contains(pppAddress, "inet ") {
-			return errors.New("PPPoE interface has no assigned IPv4 address")
 		}
 		pppDefaultRoute, err := runFixedOutput("/sbin/ip", "-4", "route", "show", "default", "dev", "ppp0")
 		if err != nil || strings.TrimSpace(pppDefaultRoute) == "" {
