@@ -4,10 +4,10 @@ package telemetry
 
 import (
 	"bufio"
-	"filepath"
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
