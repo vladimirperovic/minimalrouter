@@ -54,6 +54,7 @@ func TestGenerateDynamicDNSUsesNativeNoIPProvider(t *testing.T) {
 		`password = "S3cret!with:special#chars"`,
 		`hostname = "all.ddnskey.com"`,
 		"period = 300",
+		"forced-update = 2592000",
 		"secure-ssl = true",
 	} {
 		if !strings.Contains(out, expected) {
