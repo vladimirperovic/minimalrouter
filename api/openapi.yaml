@@ -655,3 +655,35 @@ paths:
           csrfToken: []
       responses:
         '200': { description: Firmware signature verified }
+
+  /network/wol:
+    post:
+      summary: Send a Wake-on-LAN magic packet to a LAN device
+      operationId: wakeOnLAN
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200': { description: Magic packet sent }
+
+  /qos/speedtest:
+    post:
+      summary: Measure real WAN download and upload speed, and suggest 90% QoS limits
+      description: Rejected with 409 while QoS shaping is enabled, because an active shaper reports its own limit rather than the line speed.
+      operationId: runSpeedTest
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Speed test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  download_mbps: { type: number }
+                  upload_mbps: { type: number }
+                  suggested_download_mbps: { type: integer }
+                  suggested_upload_mbps: { type: integer }
+        '409': { description: QoS must be disabled before measuring }

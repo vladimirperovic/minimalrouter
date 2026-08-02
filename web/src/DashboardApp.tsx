@@ -300,6 +300,27 @@ function Dashboard() {
     }, "QoS configuration applied.");
   };
 
+  const [speedTest, setSpeedTest] = useState<{ download_mbps: number; upload_mbps: number; suggested_download_mbps: number; suggested_upload_mbps: number } | null>(null);
+  const [speedTesting, setSpeedTesting] = useState(false);
+
+  const runSpeedTest = async () => {
+    setSpeedTesting(true);
+    setSpeedTest(null);
+    setNotice("");
+    setError("");
+    try {
+      const response = await apiFetch("/api/v1/qos/speedtest", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Speed test failed (${response.status})`);
+      setSpeedTest(body);
+      setNotice("Measured. Suggested limits are 90% of the result — apply to enable QoS.");
+    } catch (speedTestError) {
+      setError(speedTestError instanceof Error ? speedTestError.message : "Speed test failed");
+    } finally {
+      setSpeedTesting(false);
+    }
+  };
+
   const confirmPending = async () => {
     if (!pendingTx?.id) return;
     setBusy(true);
@@ -456,6 +477,9 @@ function Dashboard() {
             submitSquid={submitSquid}
             submitWiFi={submitWiFi}
             submitQoS={submitQoS}
+            runSpeedTest={runSpeedTest}
+            speedTest={speedTest}
+            speedTesting={speedTesting}
             system={system}
             runtime={runtime}
           />
