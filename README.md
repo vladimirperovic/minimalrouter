@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#status"><img alt="Status: Early Alpha" src="https://img.shields.io/badge/status-early%20alpha-orange" /></a>
+  <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
@@ -28,8 +28,20 @@
 
 <a id="status"></a>
 
-> **Early alpha.** Use only in a controlled lab/pilot with local console access
-> and a known-good router ready for rollback. There is no stable signed ISO yet.
+> **Beta — core routing validated.** Minimal Router is carrying real PPPoE traffic
+> in a validated Proxmox deployment, with DHCP/DNS, NAT, WireGuard, Dynamic DNS,
+> Squid, gateway monitoring, snapshots/recovery, security controls and audit logs
+> working end to end. Remaining gaps are mostly management UI or hardware-specific:
+> firewall/port-forward editing, dashboard DHCP reservations, TOTP and Cloudflare
+> Tunnel UI, QoS dashboard controls and target-host shaping validation, DNS-filter
+> device/guest selection, Wi-Fi on systems with a supported radio, and signing-key
+> management. Local-console recovery remains the deliberate safety path while the
+> final release/update workflow is completed.
+
+**Lightweight by design.** The validated Proxmox appliance runs the core routing
+stack with **512 MiB RAM and 2 vCPUs**, handling real PPPoE traffic, WireGuard,
+DHCP/DNS, Dynamic DNS, monitoring and recovery. **1 GiB RAM is recommended** when
+enabling more optional services or scaling peer/device counts.
 
 Minimal Router OS is a small Alpine Linux router appliance with a Go control
 plane and React dashboard. Linux handles packet forwarding; the project builds on
@@ -42,8 +54,10 @@ new network stack.
 - WireGuard remote access and peer provisioning
 - No-IP and Cloudflare Dynamic DNS
 - gateway latency/loss/reconnect monitoring and live bandwidth view
-- connected-device search, static lease visibility and Wake-on-LAN
-- DNS filtering/device profiles, optional Squid, QoS and Wi-Fi AP
+- connected-device search, DHCP lease visibility and Wake-on-LAN
+- DNS filtering/device profiles and non-caching Squid
+- QoS/SQM backend with CAKE or fq_codel traffic shaping
+- optional Wi-Fi AP on supported hardware
 - transactional config apply with confirmation, rollback and recovery
 - unprivileged `routerd` plus narrow privileged `router-applyd`
 - encrypted backups, snapshots and crash-safe A/B updates
@@ -63,6 +77,9 @@ for about 27 minutes and successfully fell back to pfSense.
 | CPU stress | **0% loss, dashboard 30/30** | — |
 | RAM after test | **172 MB** | — |
 
+The current Proxmox VM allocation is **2 vCPUs and 512 MiB RAM**. The full core
+routing stack remains operational within that allocation.
+
 External WireGuard handshake/dashboard access also passed. Operational fallback
 to pfSense took about 93 seconds.
 
@@ -77,6 +94,8 @@ See [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for the exact
 validated scope and remaining gates.
 
 ## Quick start
+
+Validated Proxmox baseline: **2 vCPUs, 512 MiB RAM minimum; 1 GiB recommended**.
 
 Build a development archive:
 
