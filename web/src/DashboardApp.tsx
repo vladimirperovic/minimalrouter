@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import AuthGate from "./components/AuthGate";
 import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import ClassicOverview from "./components/ClassicOverview";
+import SecuritySettings from "./components/SecuritySettings";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
@@ -352,10 +353,6 @@ function Dashboard() {
             <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><span>{String(index + 1).padStart(2, "0")}</span>{label}</a>
           ))}
         </nav>
-        <div className="dashboard-sidebar-actions">
-          <button className="quiet-button" onClick={() => setDark((value) => !value)} type="button">{dark ? "Light mode" : "Dark mode"}</button>
-          <button className="quiet-button" onClick={() => void logout()} type="button">Sign out</button>
-        </div>
       </aside>
 
       <main className="dashboard-main">
@@ -372,7 +369,7 @@ function Dashboard() {
           <div className="classic-topbar-actions">
             <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
             <span className="classic-setup-pill">Setup complete</span>
-            <button className="classic-avatar" onClick={() => void logout()} type="button" title="Sign out">VP</button>
+            <button className="classic-avatar" onClick={() => { setActive("security"); setMenuOpen(false); }} type="button" title="Security Settings">VP</button>
           </div>
         </header>
 
@@ -384,31 +381,35 @@ function Dashboard() {
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
-        <DashboardSections
-          active={active}
-          applyConfig={applyConfig}
-          applyGatewayMonitoring={applyGatewayMonitoring}
-          busy={busy}
-          changePassword={changePassword}
-          config={config}
-          createSnapshot={createSnapshot}
-          diskPercent={diskPercent}
-          gatewaySummary={gatewaySummary}
-          gatewaySettings={gatewaySettings}
-          lastRefresh={lastRefresh}
-          leases={leases}
-          load={load}
-          memoryPercent={memoryPercent}
-          restoreSnapshot={restoreSnapshot}
-          setError={setError}
-          snapshots={snapshots}
-          submitCloudflare={submitCloudflare}
-          submitNetwork={submitNetwork}
-          submitSquid={submitSquid}
-          submitWiFi={submitWiFi}
-          system={system}
-          runtime={runtime}
-        />
+        {active === "security" && <SecuritySettings changePassword={changePassword} logout={logout} />}
+
+        {active !== "security" && (
+          <DashboardSections
+            active={active}
+            applyConfig={applyConfig}
+            applyGatewayMonitoring={applyGatewayMonitoring}
+            busy={busy}
+            changePassword={changePassword}
+            config={config}
+            createSnapshot={createSnapshot}
+            diskPercent={diskPercent}
+            gatewaySummary={gatewaySummary}
+            gatewaySettings={gatewaySettings}
+            lastRefresh={lastRefresh}
+            leases={leases}
+            load={load}
+            memoryPercent={memoryPercent}
+            restoreSnapshot={restoreSnapshot}
+            setError={setError}
+            snapshots={snapshots}
+            submitCloudflare={submitCloudflare}
+            submitNetwork={submitNetwork}
+            submitSquid={submitSquid}
+            submitWiFi={submitWiFi}
+            system={system}
+            runtime={runtime}
+          />
+        )}
       </main>
     </div>
   );

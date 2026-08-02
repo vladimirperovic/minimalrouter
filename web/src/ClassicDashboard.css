@@ -58,8 +58,10 @@
 .classic-dot.is-bad, .classic-state-pill.is-bad { color: #d9382e; }
 .classic-hero-heading h1 { margin: 24px 0 15px; font-size: clamp(33px, 4vw, 44px); font-weight: 650; letter-spacing: -0.052em; line-height: 0.98; }
 .classic-state-pill { align-self: flex-start; min-height: 34px; gap: 8px; border: 1px solid var(--classic-border); border-radius: 999px; padding: 0 14px; background: var(--classic-panel); color: var(--classic-muted); font-size: 11px; font-weight: 600; }
-.classic-meta-row { flex-wrap: wrap; gap: 0; margin-bottom: 28px; color: var(--classic-muted); font-size: 10px; }
+.classic-meta-row { flex-wrap: wrap; gap: 0; margin-bottom: 16px; color: var(--classic-muted); font-size: 12px; }
 .classic-meta-row span { padding-right: 13px; }
+.classic-chips-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 28px; }
+.classic-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--classic-soft); border: 1px solid var(--classic-border); color: var(--classic-text); font-size: 11px; font-weight: 550; padding: 6px 12px; border-radius: 999px; }
 .classic-meta-row span + span { border-left: 1px solid var(--classic-border); padding-left: 13px; }
 .classic-meta-row b { color: var(--classic-text); font-weight: 550; }
 .classic-meta-row .is-warning { color: var(--classic-orange); font-weight: 650; }

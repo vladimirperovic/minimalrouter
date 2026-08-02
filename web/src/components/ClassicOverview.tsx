@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { GatewayHistoryPoint, GatewaySummary, RouterConfig, SystemStatus } from "../api-types";
 import { apiFetch } from "../lib/api";
 
@@ -61,6 +61,40 @@ export default function ClassicOverview({
   lastRefresh,
 }: Props) {
   const [history, setHistory] = useState<GatewayHistoryPoint[]>([]);
+  const [bandwidthHistory, setBandwidthHistory] = useState<{rx: number, tx: number}[]>([]);
+  const lastBytesRef = useRef<{rx: number, tx: number, time: number} | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const interval = setInterval(() => {
+      void apiFetch("/api/v1/system")
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then((data: SystemStatus) => {
+          if (!active || !data.runtime) return;
+          const now = Date.now();
+          const rx = data.runtime.rx_bytes || 0;
+          const tx = data.runtime.tx_bytes || 0;
+          if (lastBytesRef.current) {
+            const dt = (now - lastBytesRef.current.time) / 1000;
+            const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * dt)); // Mbps
+            const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * dt)); // Mbps
+            setBandwidthHistory(prev => {
+              const next = [...prev, { rx: rxRate, tx: txRate }];
+              return next.length > 30 ? next.slice(next.length - 30) : next;
+            });
+          }
+          lastBytesRef.current = { rx, tx, time: now };
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const rxPath = useMemo(() => pathFor(bandwidthHistory.map((point) => point.rx), 1000, 130), [bandwidthHistory]);
+  const txPath = useMemo(() => pathFor(bandwidthHistory.map((point) => point.tx), 1000, 130), [bandwidthHistory]);
 
   useEffect(() => {
     let active = true;
@@ -104,6 +138,13 @@ export default function ClassicOverview({
         <span>Revision <b>{config.revision}</b></span>
         <span className={system.update_trust_configured ? "is-positive" : "is-warning"}>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</span>
       </div>
+      <div className="classic-chips-row">
+        {typeof runtime.temperature_c === "number" && (
+           <span className="classic-chip" title="CPU Temperature">🌡️ {runtime.temperature_c.toFixed(0)}°C</span>
+        )}
+        <span className="classic-chip" title="Active LAN leases">🟢 Trenutno zakačeno {leases.length} LAN uređaja</span>
+        <span className="classic-chip" title="Active WireGuard peers">🔵 {(config.wireguard.peers || []).filter((peer) => peer.enabled).length} WireGuard uređaja</span>
+      </div>
 
       <div className="classic-live-grid" style={{ marginBottom: "20px" }}>
         <article className="classic-live-card"><span>Gateway latency</span><strong>{metric(gatewaySummary?.latency_ms, " ms")}</strong><small>Read-only WAN quality monitor</small></article>
@@ -117,13 +158,27 @@ export default function ClassicOverview({
         <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
       </div>
 
-      <div className="classic-chart-block">
-        <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
-        <div className="classic-chart-frame">
-          <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
-          {history.length === 0 && <span className="classic-chart-empty">Waiting for gateway history…</span>}
+      <div className="classic-charts-row" style={{ display: "flex", gap: "20px" }}>
+        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
+          <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
+          <div className="classic-chart-frame">
+            <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
+            {history.length === 0 && <span className="classic-chart-empty">Waiting for gateway history…</span>}
+          </div>
+          <div className="classic-chart-axis"><span>Older</span><span>Now</span></div>
         </div>
-        <div className="classic-chart-axis"><span>Older</span><span>Now</span></div>
+        
+        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
+          <div className="classic-chart-title"><div><strong>Live Bandwidth</strong><small>WAN interface · last 60 seconds</small></div><div className="classic-chart-legend"><span><i style={{ background: "var(--classic-purple)" }} />Download</span><span><i style={{ background: "var(--classic-green)" }} />Upload</span></div></div>
+          <div className="classic-chart-frame">
+            <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Live bandwidth history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{rxPath && <path fill="none" stroke="var(--classic-purple)" strokeWidth="2" strokeLinejoin="round" d={rxPath} />}{txPath && <path fill="none" stroke="var(--classic-green)" strokeWidth="2" strokeLinejoin="round" d={txPath} />}</svg>
+            {bandwidthHistory.length === 0 && <span className="classic-chart-empty">Collecting metrics…</span>}
+          </div>
+          <div className="classic-chart-axis">
+            <span style={{ color: "var(--classic-purple)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].rx.toFixed(1) + " Mbps ↓" : "↓"}</span>
+            <span style={{ color: "var(--classic-green)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].tx.toFixed(1) + " Mbps ↑" : "↑"}</span>
+          </div>
+        </div>
       </div>
     </article>
 

@@ -152,6 +152,8 @@ export type SystemStatus = {
     cpu_load_percent?: number;
     memory_used_bytes?: number;
     memory_total_bytes?: number;
+    rx_bytes?: number;
+    tx_bytes?: number;
     disk_used_bytes?: number;
     disk_total_bytes?: number;
     storage?: StorageStatus;
