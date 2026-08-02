@@ -204,51 +204,71 @@ export default function DashboardSections({
 </section>}
 
 {active === "cloudflare" && <section className="dashboard-section" id="cloudflare">
-  <div className="dashboard-section-heading">
-    <div><p className="eyebrow">Optional</p><h2>Dynamic DNS</h2></div>
+  <div className="dashboard-section-heading ddns-heading">
+    <div>
+      <p className="eyebrow">Optional integration</p>
+      <h2>Dynamic DNS</h2>
+      <p className="ddns-lead">Keep a hostname pointing at your router, even when your public IP changes.</p>
+    </div>
   </div>
-  <div className="tabs" style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
-    <button className={`button ${ddnsTab === "noip" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("noip")}>No-IP</button>
-    <button className={`button ${ddnsTab === "cloudflare" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
+
+  <div className="ddns-provider" role="tablist" aria-label="Dynamic DNS provider">
+    <button type="button" className={ddnsTab === "noip" ? "is-active" : ""} role="tab" aria-selected={ddnsTab === "noip"} onClick={() => setDdnsTab("noip")}>No-IP</button>
+    <button type="button" className={ddnsTab === "cloudflare" ? "is-active" : ""} role="tab" aria-selected={ddnsTab === "cloudflare"} onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
   </div>
-  {config.cloudflare.ddns_enabled && (
-    <article className="card" style={{ marginBottom: "20px" }}>
-      <div className="card-title-row">
-        <div><h3>Dynamic DNS status</h3></div>
-        <span className={runtime.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info"}>{runtime.ddns?.running ? "Connected" : "Starting…"}</span>
+
+  {config.cloudflare.ddns_enabled ? (
+    <article className="ddns-status">
+      <div className="ddns-status-main">
+        <span className={`ddns-status-dot ${runtime.ddns?.running ? "is-connected" : "is-starting"}`} aria-hidden="true" />
+        <div>
+          <h3>{runtime.ddns?.running ? "Connected" : "Starting…"}</h3>
+          <p className="ddns-status-host">{runtime.ddns?.hostname || config.cloudflare.domain || "Hostname not configured"}</p>
+        </div>
       </div>
-      <div className="form-grid two">
-        <div><p className="eyebrow">Provider</p><p>{ddnsTab === "noip" ? "No-IP" : "Cloudflare"}</p></div>
-        <div><p className="eyebrow">Hostname</p><p>{runtime.ddns?.hostname || config.cloudflare.domain || "—"}</p></div>
-        {runtime.ddns?.last_ip && <div><p className="eyebrow">Registered IP</p><p>{runtime.ddns.last_ip}</p></div>}
-        <div><p className="eyebrow">Last update</p><p>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleString() : "Never"}</p></div>
+      <dl className="ddns-status-metrics">
+        <div><dt>Provider</dt><dd>{ddnsTab === "noip" ? "No-IP" : "Cloudflare"}</dd></div>
+        <div><dt>Registered IP</dt><dd className="ddns-mono">{runtime.ddns?.last_ip || "—"}</dd></div>
+        <div><dt>Last update</dt><dd>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleString() : "Never"}</dd></div>
+        <div><dt>Refresh</dt><dd>Every 5 minutes</dd></div>
+      </dl>
+    </article>
+  ) : (
+    <article className="ddns-status ddns-status-off">
+      <div className="ddns-status-main">
+        <span className="ddns-status-dot" aria-hidden="true" />
+        <div>
+          <h3>Disabled</h3>
+          <p className="ddns-status-host">Dynamic DNS is turned off for {ddnsTab === "noip" ? "No-IP" : "Cloudflare"}. Enable it below to keep your hostname in sync.</p>
+        </div>
       </div>
     </article>
   )}
-  <form className="settings-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
+
+  <form className="settings-form ddns-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
     <input type="hidden" name="provider" value={ddnsTab} />
-    <label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable Dynamic DNS ({ddnsTab === "noip" ? "No-IP" : "Cloudflare"})</span></label>
-    
+    <label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable {ddnsTab === "noip" ? "No-IP" : "Cloudflare"} Dynamic DNS</span></label>
+
     {ddnsTab === "noip" ? (
       <div className="form-grid two">
         <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain || "homelab.redirectme.net"} name="domain" placeholder="homelab.redirectme.net" /></label>
         <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || "vladimir.perovic@gmail.com"} name="username" /></label>
-        <label className="field form-span"><span>New provider credential (Password)</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret, or enter 33333333" type="password" /></label>
+        <label className="field form-span"><span>Provider credential</span><input autoComplete="new-password" name="credential" placeholder="Configured — leave blank to keep" type="password" /></label>
       </div>
     ) : (
       <div className="form-grid two">
         <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="router.example.com" /></label>
         <label className="field"><span>Cloudflare zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" placeholder="example.com" /></label>
-        <label className="field form-span"><span>New API token</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret" type="password" /></label>
+        <label className="field form-span"><span>API token</span><input autoComplete="new-password" name="credential" placeholder="Configured — leave blank to keep" type="password" /></label>
       </div>
     )}
-    
+
     <p className="form-note">
-      {ddnsTab === "noip" 
-        ? "With a No-IP DDNS Key, use the generated key username/password. Pre-filled with your saved data." 
-        : "Cloudflare requires a Zone name and API token with Edit DNS permissions."}
+      {ddnsTab === "noip"
+        ? "No-IP free hostnames must receive an update at least every 30 days. Changes are applied immediately and kept in sync automatically."
+        : "Cloudflare requires a Zone name and an API token with Edit DNS permission."}
     </p>
-    <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Dynamic DNS</button></div>
+    <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save changes</button></div>
   </form>
 </section>}
 

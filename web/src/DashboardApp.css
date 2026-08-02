@@ -470,6 +470,171 @@
   font-size: 11px;
 }
 
+/* ---- Dynamic DNS (Apple x Swiss) ---- */
+
+.ddns-heading {
+  margin-bottom: 22px;
+}
+
+.ddns-heading .eyebrow {
+  margin-bottom: 7px;
+}
+
+.ddns-lead {
+  max-width: 560px;
+  margin: 10px 0 0;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ddns-provider {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 0 20px;
+  border: 1px solid var(--separator-strong, rgba(60, 60, 67, 0.25));
+  border-radius: 12px;
+  padding: 3px;
+  background: var(--surface-muted, #f0f0f2);
+}
+
+.ddns-provider button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 9px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--text-secondary, #6e6e73);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 620;
+  transition: background 160ms var(--ease, ease), color 160ms var(--ease, ease);
+}
+
+.ddns-provider button:hover {
+  color: var(--text, #1d1d1f);
+}
+
+.ddns-provider button.is-active {
+  background: var(--surface, #fff);
+  color: var(--text, #1d1d1f);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ddns-status {
+  overflow: hidden;
+  margin-bottom: 18px;
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  border-radius: 18px;
+  background: var(--surface, #fff);
+}
+
+.ddns-status-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+.ddns-status-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #86868b);
+}
+
+.ddns-status-dot.is-connected {
+  background: var(--success, #248a3d);
+  box-shadow: 0 0 0 5px var(--success-soft, #e8f5eb);
+}
+
+.ddns-status-dot.is-starting {
+  background: var(--accent, #007aff);
+  box-shadow: 0 0 0 5px var(--accent-soft, rgba(0, 122, 255, 0.1));
+}
+
+.ddns-status-main h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.ddns-status-host {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ddns-status-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+}
+
+.ddns-status-metrics > div {
+  padding: 16px 24px;
+  border-right: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+.ddns-status-metrics > div:nth-child(2n) {
+  border-right: 0;
+}
+
+.ddns-status-metrics > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.ddns-status-metrics dt {
+  color: var(--text-tertiary, #86868b);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ddns-status-metrics dd {
+  margin: 5px 0 0;
+  color: var(--text, #1d1d1f);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.ddns-status-metrics dd.ddns-mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.ddns-status-off .ddns-status-main {
+  border-bottom: 0;
+}
+
+.ddns-form {
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+@media (max-width: 640px) {
+  .ddns-status-metrics {
+    grid-template-columns: 1fr;
+  }
+  .ddns-status-metrics > div:nth-child(2n) {
+    border-right: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  }
+  .ddns-status-metrics > div {
+    border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  }
+  .ddns-status-metrics > div:last-child {
+    border-bottom: 0;
+    border-right: 0;
+  }
+}
+
 .dashboard-loading {
   display: grid;
   min-height: 100vh;
