@@ -652,6 +652,7 @@
   gap: 9px;
   font-size: 13px;
   font-weight: 650;
+  cursor: pointer;
 }
 
 .checkbox-row input {
