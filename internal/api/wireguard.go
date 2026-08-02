@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -46,45 +47,87 @@ func validateWireGuardEndpoint(value string) error {
 	return nil
 }
 
-// nextFreeWireGuardIP returns the first IPv4 in the server's subnet after the
-// server address that no enabled peer has claimed. Reserved network and
-// broadcast addresses and the server address are skipped. Returns an error when
-// the subnet is exhausted.
+func ipv4Uint32(ip net.IP) (uint32, bool) {
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return 0, false
+	}
+	return binary.BigEndian.Uint32(ip4), true
+}
+
+func uint32IPv4(value uint32) net.IP {
+	ip := make(net.IP, net.IPv4len)
+	binary.BigEndian.PutUint32(ip, value)
+	return ip
+}
+
+// nextFreeWireGuardIP returns the first free usable IPv4 after the server
+// address, wrapping once to the start of the subnet when needed. Addresses
+// owned by disabled peers remain reserved so re-enabling a peer cannot create a
+// duplicate route. Network, broadcast and the server address are never used.
 func nextFreeWireGuardIP(serverIP net.IP, subnet string, peers []config.WireGuardPeer) (string, error) {
-	used := make(map[string]struct{})
+	used := make(map[uint32]struct{})
 	for _, p := range peers {
-		if !p.Enabled {
-			continue
-		}
-		for _, ip := range p.AllowedIPs {
-			if got := net.ParseIP(strings.TrimSuffix(ip, "/32")); got != nil {
-				used[got.String()] = struct{}{}
+		for _, allowed := range p.AllowedIPs {
+			ipText, network, err := net.ParseCIDR(strings.TrimSpace(allowed))
+			if err != nil {
+				continue
+			}
+			ones, bits := network.Mask.Size()
+			if bits != 32 || ones != 32 || ipText.To4() == nil {
+				continue
+			}
+			if value, ok := ipv4Uint32(ipText); ok {
+				used[value] = struct{}{}
 			}
 		}
 	}
 
-	if _, network, err := net.ParseCIDR(subnet); err != nil {
+	_, network, err := net.ParseCIDR(subnet)
+	if err != nil {
 		return "", fmt.Errorf("invalid WireGuard subnet %s", subnet)
-	} else {
-		net4 := network.IP.To4()
-		server4 := serverIP.To4()
-		if net4 == nil || server4 == nil {
-			return "", fmt.Errorf("WireGuard subnet is not IPv4")
+	}
+	net4 := network.IP.To4()
+	server4 := serverIP.To4()
+	if net4 == nil || server4 == nil || !network.Contains(server4) {
+		return "", fmt.Errorf("WireGuard subnet is not a valid IPv4 network for the server address")
+	}
+	ones, bits := network.Mask.Size()
+	if bits != 32 || ones > 30 {
+		return "", fmt.Errorf("no free address available in WireGuard subnet %s", subnet)
+	}
+
+	networkValue, _ := ipv4Uint32(net4)
+	serverValue, _ := ipv4Uint32(server4)
+	hostBits := uint(32 - ones)
+	broadcastValue := networkValue | uint32((uint64(1)<<hostBits)-1)
+	firstUsable := networkValue + 1
+	lastUsable := broadcastValue - 1
+
+	findFree := func(start, end uint32) (string, bool) {
+		if start > end {
+			return "", false
 		}
-		ones, bits := network.Mask.Size()
-		hosts := 1 << uint(bits-ones)
-		lastHost := int(net4[3]) + hosts - 1
-		serverHost := int(server4[3])
-		for i := 1; i < hosts-1; i++ {
-			octet := serverHost + i
-			if octet >= lastHost {
-				break
-			}
-			candidate := net.IPv4(net4[0], net4[1], net4[2], byte(octet))
-			if _, skip := used[candidate.String()]; skip {
+		for candidate := start; candidate <= end; candidate++ {
+			if candidate == serverValue {
 				continue
 			}
-			return candidate.String(), nil
+			if _, exists := used[candidate]; exists {
+				continue
+			}
+			return uint32IPv4(candidate).String(), true
+		}
+		return "", false
+	}
+
+	if serverValue < lastUsable {
+		if candidate, ok := findFree(serverValue+1, lastUsable); ok {
+			return candidate, nil
+		}
+	}
+	if serverValue > firstUsable {
+		if candidate, ok := findFree(firstUsable, serverValue-1); ok {
+			return candidate, nil
 		}
 	}
 	return "", fmt.Errorf("no free address available in WireGuard subnet %s", subnet)
@@ -134,12 +177,12 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 			req.ServerEndpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
 		}
 	}
-	if err := validateWireGuardEndpoint(req.ServerEndpoint); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
 	if req.ServerEndpoint == "" {
 		http.Error(w, "Configure Dynamic DNS or provide a server_endpoint", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := validateWireGuardEndpoint(req.ServerEndpoint); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -150,12 +193,9 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 	}
 	clientCIDR := clientIP.String() + "/32"
 	for _, existing := range candidate.WireGuard.Peers {
-		if !existing.Enabled {
-			continue
-		}
 		for _, allowed := range existing.AllowedIPs {
 			if allowed == clientCIDR {
-				http.Error(w, "client_ip_address is already assigned to another WireGuard peer", http.StatusConflict)
+				http.Error(w, "client_ip_address is already reserved by another WireGuard peer", http.StatusConflict)
 				return
 			}
 		}
@@ -205,16 +245,8 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-%d", time.Now().UnixNano()), candidate)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"error": err.Error(),
-			"tx":    redactTransaction(tx),
-		})
-		return
-	}
+	// Build all one-time private client material before changing router state.
+	// If QR/config generation fails, no unusable peer is left committed.
 	clientBundle, err := services.GenerateClientConfig(
 		clientPrivate,
 		clientCIDR,
@@ -226,9 +258,18 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		candidate.LAN.CIDR,
 	)
 	if err != nil {
-		// The peer is already active. Do not pretend provisioning completed
-		// without its one-time private material; tell the admin to delete it.
-		http.Error(w, "Peer applied but client QR generation failed; delete the peer and retry", http.StatusInternalServerError)
+		http.Error(w, "Could not generate WireGuard client configuration", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-%d", time.Now().UnixNano()), candidate)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": err.Error(),
+			"tx":    redactTransaction(tx),
+		})
 		return
 	}
 
