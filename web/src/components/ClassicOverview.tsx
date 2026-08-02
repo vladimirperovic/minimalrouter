@@ -168,12 +168,9 @@ export default function ClassicOverview({
         <span className={system.update_trust_configured ? "is-positive" : "is-warning"}>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</span>
       </div>
       <div className="classic-chips-row">
-        {typeof runtime.temperature_c === "number" && (
-           <span className="classic-chip" title="CPU Temperature">🌡️ {runtime.temperature_c.toFixed(1)}°C</span>
-        )}
-        <span className="classic-chip" title="Storage">💾 Storage {runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used` : "Unknown"}</span>
-        <span className="classic-chip" title="Conntrack">🔌 Conntrack {runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</span>
-        <span className="classic-chip" title="Time sync">🕒 Time {runtime.time_synchronized ? "Synchronized" : "Not verified"}</span>
+        <span className="classic-chip" title="Storage">Storage {runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used (${formatBytes(runtime.storage.used_bytes)} of ${formatBytes(runtime.storage.total_bytes)})` : "Unknown"}</span>
+        <span className="classic-chip" title="Conntrack">Conntrack {runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</span>
+        <span className="classic-chip" title="Time sync">Time Synchronized: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
       </div>
 
       <div className="classic-live-grid" style={{ marginBottom: "20px" }}>
@@ -185,8 +182,13 @@ export default function ClassicOverview({
       <div className="classic-resource-grid" style={{ marginBottom: "20px" }}>
         <article>
           <span>CPU</span>
-          <strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong>
-          <small>{runtime.cpu_count || 0} logical cores {typeof runtime.temperature_c === "number" ? `· ${runtime.temperature_c.toFixed(1)}°C` : ""}</small>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", width: "100%" }}>
+            <strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong>
+            {typeof runtime.temperature_c === "number" && (
+              <span style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--classic-text)" }}>{runtime.temperature_c.toFixed(1)}°C</span>
+            )}
+          </div>
+          <small>{runtime.cpu_count || 0} logical cores</small>
           <progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} />
         </article>
         <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><progress max="100" value={Math.min(100, memoryPercent)} /></article>
@@ -235,47 +237,46 @@ export default function ClassicOverview({
         </div>
       </div>
       
-      <div className="modern-device-grid">
-        {filteredLeases.length === 0 ? (
-          <div className="modern-empty-state">No devices found.</div>
-        ) : filteredLeases.map((lease) => {
-          const isStatic = staticMacs.has(lease.mac.toLowerCase());
-          return (
-            <div key={`${lease.mac}-${lease.ip_address}`} className={`modern-device-card ${isStatic ? 'is-static' : ''}`}>
-              <div className="modern-device-info">
-                <div className="modern-device-header">
-                  <h3 className="modern-device-name">{lease.hostname || "Unknown device"}</h3>
-                  {isStatic && <span className="modern-badge-static">Static IP</span>}
-                </div>
-                <div className="modern-device-details">
-                  <div className="modern-detail-item">
-                    <span className="modern-detail-label">IP Address</span>
-                    <span className="modern-detail-value">{lease.ip_address}</span>
-                  </div>
-                  <div className="modern-detail-item">
-                    <span className="modern-detail-label">MAC Address</span>
-                    <span className="modern-detail-value">{lease.mac}</span>
-                  </div>
-                  <div className="modern-detail-item">
-                    <span className="modern-detail-label">Expires</span>
-                    <span className="modern-detail-value">{isStatic ? 'Never' : new Date(lease.expires_at * 1000).toLocaleString()}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="modern-device-actions">
-                <button 
-                  type="button" 
-                  onClick={() => void wakeOnLan(lease.mac)}
-                  className="modern-btn-wol"
-                  title="Wake-on-LAN"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-                  <span>Wake Up</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
+      <div className="elegant-table-container">
+        <table className="elegant-device-table">
+          <thead>
+            <tr>
+              <th>Host Name</th>
+              <th>IP Address</th>
+              <th>MAC Address</th>
+              <th>Expires</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredLeases.length === 0 ? (
+              <tr><td colSpan={5} className="elegant-empty">No devices found.</td></tr>
+            ) : filteredLeases.map((lease) => {
+              const isStatic = staticMacs.has(lease.mac.toLowerCase());
+              return (
+                <tr key={`${lease.mac}-${lease.ip_address}`}>
+                  <td className="elegant-cell-name">
+                    {lease.hostname || "Unknown device"}
+                    {isStatic && <span className="elegant-badge-static">Static</span>}
+                  </td>
+                  <td className="elegant-cell-ip">{lease.ip_address}</td>
+                  <td className="elegant-cell-mac">{lease.mac}</td>
+                  <td className="elegant-cell-expires">{isStatic ? 'Never' : new Date(lease.expires_at * 1000).toLocaleString()}</td>
+                  <td className="elegant-cell-actions">
+                    <button 
+                      type="button" 
+                      onClick={() => void wakeOnLan(lease.mac)}
+                      className="elegant-btn-wol"
+                      title="Wake-on-LAN"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </section>
   </section>;
