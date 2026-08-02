@@ -132,11 +132,12 @@ func interfaceMAC(name string) string {
 }
 
 // inspectDDNS reads the live inadyn state so the dashboard can show the
-// pfSense-style status card. Each host gets a cache file /var/cache/inadyn/
-// <host>.cache holding "<epoch> <ip>".
+// pfSense-style status card. Alpine's inadyn runs under OpenRC
+// supervise-daemon (pidfile /run/supervise-inadyn.pid); its cache holds the
+// last registered IP (v1) or "<epoch> <ip>" (v2), one file per host.
 func inspectDDNS() DDNSStatus {
 	st := DDNSStatus{}
-	if _, err := os.Stat("/run/inadyn.pid"); err == nil {
+	if _, err := os.Stat("/run/supervise-inadyn.pid"); err == nil {
 		st.Running = true
 	}
 	entries, err := os.ReadDir("/var/cache/inadyn")
@@ -147,23 +148,45 @@ func inspectDDNS() DDNSStatus {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".cache") {
 			continue
 		}
-		st.Hostname = strings.TrimSuffix(filepath.Base(entry.Name()), ".cache")
-		data, readErr := os.ReadFile(filepath.Join("/var/cache/inadyn", entry.Name()))
+		cachePath := filepath.Join("/var/cache/inadyn", entry.Name())
+		data, readErr := os.ReadFile(cachePath)
 		if readErr != nil {
 			continue
 		}
-		fields := strings.Fields(string(data))
-		if len(fields) >= 1 {
-			if epoch, parseErr := strconv.ParseInt(fields[0], 10, 64); parseErr == nil {
+		for _, field := range strings.Fields(string(data)) {
+			if ip := net.ParseIP(field); ip != nil {
+				st.LastIP = field
+				continue
+			}
+			if epoch, parseErr := strconv.ParseInt(field, 10, 64); parseErr == nil && epoch > 1_000_000_000 {
 				st.LastUpdate = epoch
 			}
 		}
-		if len(fields) >= 2 {
-			st.LastIP = fields[1]
+		if st.LastUpdate == 0 {
+			if info, statErr := os.Stat(cachePath); statErr == nil {
+				st.LastUpdate = info.ModTime().Unix()
+			}
 		}
 		break
 	}
+	st.Hostname = inadynHostname()
 	return st
+}
+
+// inadynHostname pulls the update target from the generated configuration,
+// which is authoritative (the cache filename is "<user>@<provider>-<host>").
+func inadynHostname() string {
+	data, err := os.ReadFile("/etc/inadyn/inadyn.conf")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "hostname = ") {
+			return strings.Trim(line[len("hostname = "):], `"`)
+		}
+	}
+	return ""
 }
 
 func countActiveWireGuardPeers() int {

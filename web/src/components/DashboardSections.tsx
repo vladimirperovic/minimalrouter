@@ -215,7 +215,7 @@ export default function DashboardSections({
     <article className="card" style={{ marginBottom: "20px" }}>
       <div className="card-title-row">
         <div><h3>Dynamic DNS status</h3></div>
-        <span className={runtime.ddns?.running ? "classic-status-chip" : "classic-status-chip is-off"}>{runtime.ddns?.running ? "Connected" : "Not running"}</span>
+        <span className={runtime.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info"}>{runtime.ddns?.running ? "Connected" : "Starting…"}</span>
       </div>
       <div className="form-grid two">
         <div><p className="eyebrow">Provider</p><p>{ddnsTab === "noip" ? "No-IP" : "Cloudflare"}</p></div>

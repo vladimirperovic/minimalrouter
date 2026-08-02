@@ -43,6 +43,7 @@
 .classic-status-chip { background: rgba(40, 167, 69, 0.08); color: #21833a; --badge-bg: #21833a; }
 .classic-status-chip.is-off { background: transparent; color: var(--classic-muted); --badge-bg: var(--classic-muted); }
 .classic-status-chip.is-warning { background: rgba(181, 93, 0, 0.08); color: var(--classic-orange); --badge-bg: var(--classic-orange); }
+.classic-status-chip.is-info { background: rgba(0, 108, 214, 0.10); color: #1a6fd4; --badge-bg: #1a6fd4; }
 .classic-status-chip::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; content: ""; }
 .classic-topbar-button, .classic-setup-pill { border-color: var(--classic-border); background: var(--classic-panel); color: var(--classic-text); }
 .classic-topbar-button { cursor: pointer; }

@@ -379,7 +379,7 @@ function Dashboard() {
             <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter(p => p.enabled).length}</b>}</span>
             <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
             <span className="classic-status-chip">DNS</span>
-            <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
+            <span className={config.cloudflare.ddns_enabled ? (system.runtime?.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info") : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
             <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "Cloudflare Tunnel" : "Cloudflare Tunnel off"}</span>
             <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
           </div>
