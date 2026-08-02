@@ -4,6 +4,20 @@ import { refreshSession, setCSRFToken } from "../lib/api";
 
 type AuthState = "loading" | "setup" | "login" | "offline" | "authenticated";
 
+type LoginResult = {
+  csrf_token?: string;
+  error?: string;
+  totp_required?: string;
+};
+
+function loginFailureMessage(status: number, result: LoginResult) {
+  if (result.totp_required === "true") return "Enter your six-digit TOTP code to finish signing in.";
+  if (status === 429) return "Too many sign-in attempts. Try again shortly.";
+  if (result.error) return result.error;
+  if (status === 401) return "Incorrect password or TOTP code.";
+  return `Sign-in failed (${status}).`;
+}
+
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("loading");
   const [password, setPassword] = useState("");
@@ -59,40 +73,41 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     try {
       if (previewMode) {
         if (password.trim() !== "minimalrouter-preview") {
-          throw new Error("Incorrect preview password");
+          setError("Incorrect preview password");
+          return;
         }
         setPassword("");
         setState("authenticated");
         return;
       }
+
       const response = await fetch("/api/v1/auth/login", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password, totp_code: totpCode }),
       });
-      const result = (await response.json()) as {
-        csrf_token?: string;
-        error?: string;
-        totp_required?: string;
-      };
-      if (!response.ok || !result.csrf_token) {
-        if (result.totp_required === "true") {
-          setRequiresTOTP(true);
-        }
-        throw new Error(result.error ?? "Sign-in failed");
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        throw new Error("The router sign-in service returned an invalid response.");
       }
+      const result = (await response.json()) as LoginResult;
+      if (!response.ok || !result.csrf_token) {
+        const needsTOTP = result.totp_required === "true";
+        setRequiresTOTP(needsTOTP);
+        setError(loginFailureMessage(response.status, result));
+        return;
+      }
+
       setCSRFToken(result.csrf_token);
       setPassword("");
       setTotpCode("");
+      setRequiresTOTP(false);
       setState("authenticated");
     } catch (loginError) {
-      const message = loginError instanceof Error ? loginError.message : "";
-      setError(
-        message === "Incorrect preview password"
-          ? message
-          : "The router sign-in service is unavailable.",
-      );
+      setError(loginError instanceof Error && loginError.message
+        ? loginError.message
+        : "The router sign-in service is unavailable.");
     } finally {
       setSubmitting(false);
     }
@@ -151,12 +166,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             inputMode="numeric"
             maxLength={6}
             onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
+            required
             value={totpCode}
           />
         </label>}
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="button primary auth-submit" disabled={submitting} type="submit">
-          {submitting ? "Signing in…" : "Sign in"}
+          {submitting ? "Signing in…" : requiresTOTP ? "Verify and sign in" : "Sign in"}
         </button>
         </form>
       </section>
