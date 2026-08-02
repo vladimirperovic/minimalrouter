@@ -64,7 +64,7 @@
 .classic-meta-row b { color: var(--classic-text); font-weight: 550; }
 .classic-meta-row .is-warning { color: var(--classic-orange); font-weight: 650; }
 .classic-meta-row .is-positive { color: var(--classic-green); font-weight: 650; }
-.classic-live-grid { display: grid; grid-template-columns: 1.15fr 1.15fr 0.8fr; gap: 12px; }
+.classic-live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .classic-live-card { display: grid; min-height: 124px; align-content: center; border-radius: 16px; padding: 18px 24px; background: var(--classic-soft); }
 .classic-live-card span, .classic-resource-grid article > span, .classic-ops-grid article > span { color: var(--classic-muted); font-size: 10px; font-weight: 500; }
 .classic-live-card strong { margin: 8px 0 3px; font-size: clamp(25px, 3vw, 36px); font-weight: 620; letter-spacing: -0.04em; }
