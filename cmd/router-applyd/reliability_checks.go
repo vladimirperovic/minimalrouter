@@ -107,3 +107,29 @@ func verifyFunctionalDNS() error {
 	}
 	return fmt.Errorf("local DNS could not resolve public names: %w", lastErr)
 }
+
+func requiresDDNSVerification(previous *config.SystemConfig, candidate config.SystemConfig) bool {
+	if !candidate.WAN.Enabled || !candidate.Cloudflare.DDNSEnabled {
+		return false
+	}
+	if previous == nil {
+		return true
+	}
+	return !reflect.DeepEqual(previous.Cloudflare, candidate.Cloudflare)
+}
+
+// verifyDDNSUpdate runs a bounded one-shot provider update only when the DDNS
+// configuration itself changed. The normal daemon remains responsible for
+// later WAN-IP changes; unrelated router changes are not coupled to provider
+// availability.
+func verifyDDNSUpdate() error {
+	_, err := runCommandOutput(45*time.Second,
+		"/usr/sbin/inadyn",
+		"--once", "--force", "--foreground", "--no-pidfile",
+		"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice",
+	)
+	if err != nil {
+		return fmt.Errorf("dynamic DNS provider update failed: %w", err)
+	}
+	return nil
+}
