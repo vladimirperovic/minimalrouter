@@ -13,7 +13,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -290,6 +289,17 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		log.Printf("apply transaction %q verification failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "verification failed; previous configuration restored: "+safeError(err), true)
 	}
+	if requiresFunctionalDNSVerification(previousConfig, req.Config) {
+		if err := verifyFunctionalDNS(); err != nil {
+			rollbackErr := rollback(previousConfig, previous)
+			if rollbackErr != nil {
+				log.Printf("apply transaction %q functional DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
+				return recoveryFailure(req.ID, "functional DNS verification failed and rollback could not be verified")
+			}
+			log.Printf("apply transaction %q functional DNS verification failed and was rolled back: %s", req.ID, safeError(err))
+			return failure(req.ID, "functional DNS verification failed; previous configuration restored: "+safeError(err), true)
+		}
+	}
 	if req.RequireConfirmation {
 		hash, hashErr := hashConfig(req.Config)
 		pendingErr := savePendingConfirmation(pendingConfirmation{
@@ -562,6 +572,10 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 }
 
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
+	dnsmasqChanged, err := dnsmasqArtifactsChanged(generated, previous)
+	if err != nil {
+		return err
+	}
 	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
@@ -571,9 +585,8 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
-	// Determine deltas to avoid unnecessary network drops
+	// Determine deltas to avoid unnecessary network drops.
 	wifiChanged := previous == nil || !reflect.DeepEqual(cfg.WiFi, previous.WiFi)
-	lanChanged := previous == nil || !reflect.DeepEqual(cfg.LAN, previous.LAN) || !reflect.DeepEqual(cfg.DHCP, previous.DHCP)
 	wanChanged := previous == nil || !reflect.DeepEqual(cfg.WAN, previous.WAN)
 
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
@@ -601,7 +614,7 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		clearQoS(cfg)
 	}
 
-	if lanChanged {
+	if dnsmasqChanged {
 		if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 			return fmt.Errorf("restart dnsmasq: %w", err)
 		}
@@ -1192,26 +1205,13 @@ func applyKernelHardening(cfg config.SystemConfig) error {
 }
 
 func runFixed(binary string, args ...string) error {
-	_, err := runFixedOutput(binary, args...)
+	_, err := runCommandOutput(defaultCommandTimeout, binary, args...)
 	return err
 }
 
 func runFixedTimeout(timeout time.Duration, binary string, args ...string) error {
-	if _, err := os.Stat(binary); err != nil {
-		return fmt.Errorf("required binary unavailable: %s", filepath.Base(binary))
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = []string{"PATH=/sbin:/usr/sbin:/bin:/usr/bin", "LANG=C", "LC_ALL=C"}
-	output, err := cmd.CombinedOutput()
-	if ctx.Err() != nil {
-		return fmt.Errorf("%s timed out", filepath.Base(binary))
-	}
-	if err != nil {
-		return fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeOutput(output))
-	}
-	return nil
+	_, err := runCommandOutput(timeout, binary, args...)
+	return err
 }
 
 // runNftFile replaces the helper-owned table in one atomic nft batch. When
@@ -1254,16 +1254,7 @@ func runNftFile(path string, checkOnly bool) error {
 }
 
 func runFixedOutput(binary string, args ...string) (string, error) {
-	if _, err := os.Stat(binary); err != nil {
-		return "", fmt.Errorf("required binary unavailable: %s", filepath.Base(binary))
-	}
-	cmd := exec.Command(binary, args...)
-	cmd.Env = []string{"PATH=/sbin:/usr/sbin:/bin:/usr/bin", "LANG=C", "LC_ALL=C"}
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeOutput(output))
-	}
-	return string(output), nil
+	return runCommandOutput(defaultCommandTimeout, binary, args...)
 }
 
 func sanitizeOutput(output []byte) string {
