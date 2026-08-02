@@ -28,7 +28,10 @@ jobs:
           sh -n scripts/checksum-file.sh
           sh -n quick-test.sh
           sh -n packaging/alpine/install-dist.sh
+          sh -n packaging/alpine/install-dist_test.sh
           sh -n packaging/alpine/slot-exec
+      - name: Test offline installer dependency mode
+        run: sh packaging/alpine/install-dist_test.sh
       - name: Reject private and runtime files
         run: |
           set -eu
@@ -92,7 +95,6 @@ jobs:
             docs/DEVICE_PROFILES.md \
             docs/RELEASE_PROCESS.md \
             docs/RELEASE_SECURITY.md \
-            docs/images/dashboard-overview.png \
             web/public/favicon.svg
           do
             test -s "$required" || {
