@@ -26,6 +26,7 @@ type Props = {
   busy: boolean;
   lastRefresh: Date | null;
   load: () => Promise<void>;
+  logout: () => Promise<void>;
   applyConfig: ApplyConfig;
   applyGatewayMonitoring: (settings: GatewaySettings) => void;
   submitNetwork: (event: FormEvent<HTMLFormElement>) => void;
@@ -59,36 +60,36 @@ function formatUptime(seconds = 0) {
 
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
-  lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
+  lastRefresh, load, logout, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
   submitWiFi, createSnapshot, restoreSnapshot, changePassword, setError,
 }: Props) {
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
   const [addingPeer, setAddingPeer] = useState(false);
 
-  const handleAddPeer = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleAddPeer = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setAddingPeer(true);
     try {
-      const data = new FormData(e.currentTarget);
-      const res = await apiFetch("/api/v1/wireguard/peers", {
+      const data = new FormData(event.currentTarget);
+      const response = await apiFetch("/api/v1/wireguard/peers", {
         method: "POST",
         body: JSON.stringify({
           name: data.get("name"),
           client_ip_address: data.get("client_ip_address"),
-          server_endpoint: data.get("server_endpoint")
-        })
+          server_endpoint: data.get("server_endpoint"),
+        }),
       });
-      if (res.ok) {
-        const body = await res.json();
-        setWgConfig({name: body.peer.name, config: body.client_config, qr: body.qr_code_data});
+      if (response.ok) {
+        const body = await response.json();
+        setWgConfig({ name: body.peer.name, config: body.client_config, qr: body.qr_code_data });
         void load();
       } else {
-        const err = await res.json().catch(()=>({}));
-        setError(err.error || "Failed to add peer");
+        const errorBody = await response.json().catch(() => ({}));
+        setError(errorBody.error || "Failed to add peer");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to add peer");
+    } catch (peerError) {
+      setError(peerError instanceof Error ? peerError.message : "Failed to add peer");
     } finally {
       setAddingPeer(false);
     }
@@ -131,26 +132,26 @@ export default function DashboardSections({
 {active === "wireguard" && <section className="dashboard-section" id="wireguard">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Remote access</p><h2>WireGuard</h2></div><button className="button secondary" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable" : "Enable"}</button></div>
   <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
-  <div className="peer-cards" style={{ display: "grid", gap: "15px", marginBottom: "20px" }}>
+  <div className="wireguard-peer-cards">
     {(config.wireguard.peers || []).length === 0 ? (
-      <article className="card"><div className="empty-state" style={{ padding: "20px", textAlign: "center" }}>No peers configured.</div></article>
+      <article className="card"><div className="empty-state wireguard-empty">No peers configured.</div></article>
     ) : (
       config.wireguard.peers.map((peer: WireGuardPeer) => (
-        <article className="card" key={peer.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 20px" }}>
+        <article className="card wireguard-peer-card" key={peer.id}>
           <div>
-            <h3 style={{ margin: "0 0 5px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: peer.enabled ? "var(--success)" : "var(--border)" }}></span>
+            <h3 className="wireguard-peer-title">
+              <span className={peer.enabled ? "wireguard-peer-dot is-enabled" : "wireguard-peer-dot"} />
               {peer.name}
             </h3>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.9rem" }}>
+            <p className="wireguard-peer-meta">
               IP: <code>{(peer.allowed_ips || []).join(", ")}</code> • Endpoint: {peer.endpoint || "Dynamic"}
             </p>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <p style={{ margin: "0 0 5px 0", fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{peer.public_key.slice(0, 16)}…</p>
+          <div className="wireguard-peer-actions">
+            <p className="wireguard-key-preview">{peer.public_key.slice(0, 16)}…</p>
             <button className="button secondary small" disabled={busy} onClick={() => void applyConfig((next) => {
-              const p = next.wireguard.peers?.find((x: WireGuardPeer) => x.id === peer.id);
-              if (p) p.enabled = !p.enabled;
+              const targetPeer = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === peer.id);
+              if (targetPeer) targetPeer.enabled = !targetPeer.enabled;
             }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">
               {peer.enabled ? "Disable" : "Enable"}
             </button>
@@ -159,27 +160,28 @@ export default function DashboardSections({
       ))
     )}
   </div>
-  
+
   {wgConfig ? (
-    <div className="dashboard-callout" style={{ borderLeftColor: "var(--success)", display: "flex", gap: "20px", alignItems: "flex-start" }}>
+    <div className="dashboard-callout wireguard-config-callout">
       {wgConfig.qr && (
-        <div style={{ flexShrink: 0, padding: "10px", background: "white", borderRadius: "8px" }}>
-          <img src={wgConfig.qr} alt="QR Code" style={{ width: "150px", height: "150px", display: "block" }} />
+        <div className="wireguard-qr-wrap">
+          <img src={wgConfig.qr} alt="WireGuard configuration QR code" className="wireguard-qr" />
         </div>
       )}
       <div>
-        <strong style={{ fontSize: "1.1rem", display: "block", marginBottom: "5px" }}>Success! Configuration generated for {wgConfig.name}.</strong>
-        <p>WireGuard does not store your private key for security reasons. You MUST download this file or scan the QR code now, as it cannot be retrieved later.</p>
-        <div style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
+        <strong className="wireguard-config-title">Success! Configuration generated for {wgConfig.name}.</strong>
+        <p>WireGuard does not store your private key for security reasons. Download this file or scan the QR code now, as it cannot be retrieved later.</p>
+        <div className="wireguard-config-actions">
           <button className="button primary" onClick={() => {
             const blob = new Blob([wgConfig.config], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${wgConfig.name.replace(/[^a-zA-Z0-9]/g, "_")}.conf`;
-            a.click();
-          }}>Download .conf file</button>
-          <button className="button secondary" onClick={() => setWgConfig(null)}>Done</button>
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${wgConfig.name.replace(/[^a-zA-Z0-9]/g, "_")}.conf`;
+            link.click();
+            URL.revokeObjectURL(url);
+          }} type="button">Download .conf file</button>
+          <button className="button secondary" onClick={() => setWgConfig(null)} type="button">Done</button>
         </div>
       </div>
     </div>
@@ -191,7 +193,7 @@ export default function DashboardSections({
           <p>Generate a new WireGuard configuration to connect a laptop or phone.</p>
         </div>
       </div>
-      <form className="settings-form" onSubmit={handleAddPeer} style={{ padding: "20px" }}>
+      <form className="settings-form wireguard-add-form" onSubmit={handleAddPeer}>
         <div className="form-grid two">
           <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required /></label>
           <label className="field"><span>Client IP Address</span><input name="client_ip_address" placeholder="10.6.0.4/32" required /></label>
@@ -204,17 +206,14 @@ export default function DashboardSections({
 </section>}
 
 {active === "cloudflare" && <section className="dashboard-section" id="cloudflare">
-  <div className="dashboard-section-heading">
-    <div><p className="eyebrow">Optional</p><h2>Dynamic DNS</h2></div>
-  </div>
-  <div className="tabs" style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+  <div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Dynamic DNS</h2></div></div>
+  <div className="ddns-tabs">
     <button className={`button ${ddnsTab === "noip" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("noip")}>No-IP</button>
     <button className={`button ${ddnsTab === "cloudflare" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
   </div>
   <form className="settings-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
     <input type="hidden" name="provider" value={ddnsTab} />
     <label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable Dynamic DNS ({ddnsTab === "noip" ? "No-IP" : "Cloudflare"})</span></label>
-    
     {ddnsTab === "noip" ? (
       <div className="form-grid two">
         <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain || "homelab.redirectme.net"} name="domain" placeholder="homelab.redirectme.net" /></label>
@@ -228,12 +227,7 @@ export default function DashboardSections({
         <label className="field form-span"><span>New API token</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret" type="password" /></label>
       </div>
     )}
-    
-    <p className="form-note">
-      {ddnsTab === "noip" 
-        ? "With a No-IP DDNS Key, use the generated key username/password." 
-        : "Cloudflare requires a Zone name and API token with Edit DNS permissions."}
-    </p>
+    <p className="form-note">{ddnsTab === "noip" ? "With a No-IP DDNS Key, use the generated key username/password." : "Cloudflare requires a Zone name and API token with Edit DNS permissions."}</p>
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Dynamic DNS</button></div>
   </form>
 </section>}
@@ -246,7 +240,7 @@ export default function DashboardSections({
 
 {active === "recovery" && <section className="dashboard-section" id="recovery"><div className="dashboard-section-heading"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div><article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article></section>}
 
-{active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button></div></form></section>}
+{active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button><button className="button secondary" onClick={() => void logout()} type="button">Sign out</button></div></form></section>}
 {active === "logs" && <AuditLogPanel />}
   </>;
 }
