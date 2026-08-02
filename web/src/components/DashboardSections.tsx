@@ -218,8 +218,8 @@ export default function DashboardSections({
     {ddnsTab === "noip" ? (
       <div className="form-grid two">
         <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain || "homelab.redirectme.net"} name="domain" placeholder="homelab.redirectme.net" /></label>
-        <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || "vladimir.perovic@gmail.com"} name="username" /></label>
-        <label className="field form-span"><span>New provider credential (Password)</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret, or enter 33333333" type="password" /></label>
+        <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || ""} name="username" placeholder="No-IP username or DDNS key username" /></label>
+        <label className="field form-span"><span>New provider credential (Password)</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret" type="password" /></label>
       </div>
     ) : (
       <div className="form-grid two">
@@ -231,7 +231,7 @@ export default function DashboardSections({
     
     <p className="form-note">
       {ddnsTab === "noip" 
-        ? "With a No-IP DDNS Key, use the generated key username/password. Pre-filled with your saved data." 
+        ? "With a No-IP DDNS Key, use the generated key username/password." 
         : "Cloudflare requires a Zone name and API token with Edit DNS permissions."}
     </p>
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Dynamic DNS</button></div>
