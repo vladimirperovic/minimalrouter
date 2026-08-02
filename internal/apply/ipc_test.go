@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,6 +12,58 @@ import (
 	"time"
 )
 
+func TestDefaultSocketPathMatchesOpenRCReadinessGate(t *testing.T) {
+	initScript := filepath.Join("..", "..", "packaging", "alpine", "router-applyd.initd")
+	data, err := os.ReadFile(initScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("[ -S "+DefaultSocketPath+" ]")) {
+		t.Fatalf("OpenRC readiness gate does not use apply socket %q", DefaultSocketPath)
+	}
+	if !bytes.Contains(data, []byte("rm -f "+DefaultSocketPath)) {
+		t.Fatalf("OpenRC startup does not clear stale apply socket %q", DefaultSocketPath)
+	}
+}
+
+func TestAlpineSupervisorsExposePIDFilesToHealthChecks(t *testing.T) {
+	for _, service := range []string{"routerd", "router-applyd"} {
+		initScript := filepath.Join("..", "..", "packaging", "alpine", service+".initd")
+		data, err := os.ReadFile(initScript)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data, []byte(`chgrp routerd "$pidfile"`)) ||
+			!bytes.Contains(data, []byte(`chmod 0640 "$pidfile"`)) {
+			t.Errorf("%s does not expose its supervisor PID file to routerd health checks", service)
+		}
+	}
+}
+
+func TestAlpineModuleManifestIncludesPPPoE(t *testing.T) {
+	manifest := filepath.Join("..", "..", "packaging", "alpine", "minimalrouter.modules")
+	data, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(append([]byte("\n"), data...), []byte("\npppoe\n")) {
+		t.Fatal("Alpine kernel module manifest omits pppoe; pppd cannot create a PPPoE socket")
+	}
+}
+
+func TestPPPoEServiceRaisesWANInterfaceBeforeStartingPPPD(t *testing.T) {
+	initScript := filepath.Join("..", "..", "packaging", "alpine", "pppoe-wan.initd")
+	data, err := os.ReadFile(initScript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`$1 == "plugin" && $2 == "pppoe.so" { print $3; exit }`)) {
+		t.Fatal("PPPoE service does not derive the WAN interface from the generated peer config")
+	}
+	if !bytes.Contains(data, []byte(`/sbin/ip link set dev "$wan_interface" up`)) {
+		t.Fatal("PPPoE service starts pppd without first raising the WAN interface")
+	}
+}
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
 	socketDir, err := os.MkdirTemp("", "mr-ipc-")
 	if err != nil {

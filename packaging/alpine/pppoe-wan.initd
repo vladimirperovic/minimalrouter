@@ -18,4 +18,13 @@ depend() {
 start_pre() {
     checkpath --file --owner root:root --mode 0600 /etc/ppp/peers/wan
     checkpath --file --owner root:root --mode 0600 /etc/ppp/chap-secrets
+
+    wan_interface=$(/usr/bin/awk '$1 == "plugin" && $2 == "pppoe.so" { print $3; exit }' /etc/ppp/peers/wan)
+    case "$wan_interface" in
+        ''|*[!A-Za-z0-9_.:-]*)
+            eerror "Unable to determine a safe PPPoE WAN interface"
+            return 1
+            ;;
+    esac
+    /sbin/ip link set dev "$wan_interface" up
 }

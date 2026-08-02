@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
@@ -67,7 +68,7 @@ func inspectRuntimeFacts(cfg config.SystemConfig) RuntimeFacts {
 
 	facts.RouterdHealthy = serviceStarted("routerd") && supervisedChildHealthy("routerd")
 	facts.ApplydHealthy = serviceStarted("router-applyd") && supervisedChildHealthy("router-applyd")
-	if info, err := os.Stat("/run/minimalrouter/apply.sock"); err == nil {
+	if info, err := os.Stat(apply.DefaultSocketPath); err == nil {
 		facts.ApplySocketAvailable = info.Mode()&os.ModeSocket != 0
 	}
 	facts.DnsmasqStarted = serviceStarted("dnsmasq")

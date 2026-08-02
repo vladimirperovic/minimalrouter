@@ -33,3 +33,14 @@ func TestCorruptJournalBlocksMutationButAllowsCanonicalReconcile(t *testing.T) {
 		t.Fatalf("canonical reconcile could not replace corrupt journal: handled=%v response=%+v", handled, allowed)
 	}
 }
+
+func TestCanonicalReconcileDoesNotRequireWANAvailability(t *testing.T) {
+	if requireWANVerification(apply.OpReconcile) {
+		t.Fatal("boot reconciliation must keep the LAN management plane available during an ISP outage")
+	}
+	for _, op := range []apply.OperationType{apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed} {
+		if !requireWANVerification(op) {
+			t.Fatalf("operation %q unexpectedly skipped WAN verification", op)
+		}
+	}
+}
