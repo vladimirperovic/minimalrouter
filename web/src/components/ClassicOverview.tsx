@@ -140,17 +140,12 @@ export default function ClassicOverview({
     }
   }, []);
 
-  const headline = useMemo(() => {
-    if (runtime.os === "linux") return `${runtime.architecture} minimalrouter`;
-    return "Unsupported minimalrouter";
-  }, [runtime]);
-
   return <section className="classic-dashboard-overview" aria-label="System Overview">
     <article className="classic-hero-card">
       <div className="classic-hero-heading">
         <div>
           <div className="classic-kicker">Local appliance</div>
-          <h1>{headline}</h1>
+          <h1>{config.system.hostname}</h1>
         </div>
         {runtime.os === "linux" ? <span className="classic-state-pill is-primary">{runtime.architecture}</span> : <span className="classic-state-pill is-primary">Unsupported platform</span>}
       </div>

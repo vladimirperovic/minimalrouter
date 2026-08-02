@@ -40,9 +40,9 @@
 .classic-topbar-status, .classic-topbar-actions { display: flex; align-items: center; gap: 8px; }
 .classic-topbar-status { flex: 1; flex-wrap: wrap; }
 .classic-status-chip, .classic-topbar-button, .classic-setup-pill { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; border-radius: 999px; padding: 0 11px; border: 1px solid transparent; font-size: 11px; font-weight: 650; white-space: nowrap; }
-.classic-status-chip { background: rgba(40, 167, 69, 0.08); color: #21833a; }
-.classic-status-chip.is-off { background: transparent; color: var(--classic-muted); }
-.classic-status-chip.is-warning { background: rgba(181, 93, 0, 0.08); color: var(--classic-orange); }
+.classic-status-chip { background: rgba(40, 167, 69, 0.08); color: #21833a; --badge-bg: #21833a; }
+.classic-status-chip.is-off { background: transparent; color: var(--classic-muted); --badge-bg: var(--classic-muted); }
+.classic-status-chip.is-warning { background: rgba(181, 93, 0, 0.08); color: var(--classic-orange); --badge-bg: var(--classic-orange); }
 .classic-status-chip::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; content: ""; }
 .classic-topbar-button, .classic-setup-pill { border-color: var(--classic-border); background: var(--classic-panel); color: var(--classic-text); }
 .classic-topbar-button { cursor: pointer; }
@@ -146,7 +146,7 @@
 }
 .chip-badge {
   display: inline-block;
-  background: currentColor;
+  background: var(--badge-bg, #21833a);
   color: var(--classic-panel);
   border-radius: 10px;
   padding: 0 4px;
