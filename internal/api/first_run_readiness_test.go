@@ -26,8 +26,10 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial := config.DefaultConfig()
-	// The fresh router still contains placeholder eth0/eth1 defaults. The
-	// wizard must be able to select the actual predictable interface names.
+	// A clean installer reconciles the detected interface names before the
+	// wizard is presented. Model that state instead of changing a live LAN role.
+	initial.WAN.Interface = "enp1s0"
+	initial.LAN.Interface = "enp2s0"
 	engine := apply.NewEngineWithClient(initial, store, apiTestApplyClient{})
 	server := NewServer(engine)
 	mux := http.NewServeMux()

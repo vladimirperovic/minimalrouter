@@ -317,6 +317,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/wireguard/peers", sh(s.authMiddleware(s.handleProvisionWireGuardPeer)))
 	mux.HandleFunc("GET /api/v1/transactions/pending", sh(s.authMiddleware(s.handleGetPendingTransaction)))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", sh(s.authMiddleware(s.handleConfirmTransaction)))
+	mux.HandleFunc("POST /api/v1/network/wol", sh(s.authMiddleware(s.handleWakeOnLAN)))
 	mux.HandleFunc("POST /api/v1/recovery/reconcile", sh(s.authMiddleware(s.handleRecoveryReconcile)))
 	mux.HandleFunc("GET /api/v1/snapshots", sh(s.authMiddleware(s.handleGetSnapshots)))
 	mux.HandleFunc("POST /api/v1/snapshots", sh(s.authMiddleware(s.handleCreateSnapshot)))
@@ -941,7 +942,7 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 	if dataDir == "" {
 		dataDir = "/var/lib/minimalrouter"
 	}
-	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, dataDir)
+	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	connectionStatus := "Disconnected"
 	if cfg.WAN.Enabled && runtimeStatus.WANConnected {
 		connectionStatus = "Connected"
@@ -1233,4 +1234,34 @@ func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request)
 		w.WriteHeader(http.StatusAccepted)
 	}
 	json.NewEncoder(w).Encode(redactTransaction(tx))
+}
+
+func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MAC string `json:"mac"`
+	}
+	if err := decodeJSON(w, r, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	hwAddr, err := net.ParseMAC(req.MAC)
+	if err != nil {
+		http.Error(w, "Invalid MAC address", http.StatusBadRequest)
+		return
+	}
+	packet := make([]byte, 102)
+	for i := 0; i < 6; i++ {
+		packet[i] = 0xFF
+	}
+	for i := 1; i <= 16; i++ {
+		copy(packet[i*6:], hwAddr)
+	}
+	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:9")
+	if err == nil {
+		if conn, err := net.DialUDP("udp", nil, addr); err == nil {
+			defer conn.Close()
+			conn.Write(packet)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

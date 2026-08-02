@@ -59,8 +59,6 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			return fmt.Errorf("verify release source: %w", err)
 		}
 
-		// Validate existing state before committing a final slot. A corrupt state
-		// file must never leave a version directory that blocks a safe retry.
 		state, err := m.stateWithoutOperation()
 		if err != nil {
 			return err
@@ -89,8 +87,6 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			}
 		}
 
-		// Re-verify the private copy that will become executable. This closes the
-		// source-directory mutation window between initial verification and copy.
 		if err := VerifyFirmware(tempDir, manifest, m.TrustedKey); err != nil {
 			return fmt.Errorf("verify copied release slot: %w", err)
 		}
@@ -107,8 +103,6 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 
 		state.Pending = manifest.Version
 		if err := m.saveState(state); err != nil {
-			// Roll back the directory commit so the same verified version can be
-			// retried after the state problem is repaired.
 			removeErr := os.RemoveAll(finalDir)
 			_ = syncDir(filepath.Join(m.Root, "slots"))
 			if removeErr != nil {
@@ -238,12 +232,7 @@ func (m SlotManager) stateWithoutOperation() (SlotState, error) {
 }
 
 func (m SlotManager) commitOperation(kind string, old, next SlotState, mutate func() error) error {
-	operation := slotOperation{
-		Version: operationJournalVersion,
-		Kind:    kind,
-		Old:     old,
-		Next:    next,
-	}
+	operation := slotOperation{Version: operationJournalVersion, Kind: kind, Old: old, Next: next}
 	if err := m.beginOperation(operation); err != nil {
 		return fmt.Errorf("persist slot operation journal: %w", err)
 	}

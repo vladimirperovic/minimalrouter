@@ -59,14 +59,11 @@ func FuzzMalformedUnauthenticatedRequests(f *testing.F) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "https://attacker.invalid")
 		recorder := httptest.NewRecorder()
-
 		mux.ServeHTTP(recorder, req)
 
 		if recorder.Code < 100 || recorder.Code > 599 {
 			t.Fatalf("invalid HTTP status %d for %s %s", recorder.Code, method, endpoint)
 		}
-		// A fresh appliance intentionally returns 503 until the setup wizard has
-		// completed. Panics and generic internal errors remain test failures.
 		if recorder.Code == http.StatusInternalServerError {
 			t.Fatalf("malformed unauthenticated request caused %d for %s %s: %s", recorder.Code, method, endpoint, recorder.Body.String())
 		}

@@ -1,19 +1,20 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
 import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import ClassicOverview from "./components/ClassicOverview";
+import SecuritySettings from "./components/SecuritySettings";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import "./DashboardApp.css";
 import "./ClassicDashboard.css";
-import "./DashboardSync.css";
 
 const navigation: Array<[SectionID, string]> = [
   ["overview", "Overview"],
   ["gateway", "Gateway Quality"],
   ["network", "LAN & DHCP"],
   ["firewall", "Firewall"],
+  ["qos", "QoS / SQM"],
   ["wireguard", "WireGuard"],
   ["cloudflare", "Dynamic DNS"],
   ["squid", "Squid Proxy"],
@@ -23,6 +24,22 @@ const navigation: Array<[SectionID, string]> = [
   ["security", "Security"],
   ["logs", "Logs"],
 ];
+
+const navIcons: Record<SectionID, ReactNode> = {
+  overview: <path d="M3 3h8v8H3zM13 3h8v5h-8zM13 12h8v9h-8zM3 15h8v6H3z" />,
+  gateway: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+  network: <path d="M17 3a2 2 0 0 0-2 2c0 .56.23 1.06.6 1.42l-5.18 5.18a2 2 0 0 0-2.84 0L2 6.1M6.1 22l3.5-3.5M17 13a2 2 0 0 1 0 4" />,
+  firewall: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
+  qos: <path d="M3 12h4v3H3zM9 12h4v3H9zM15 12h4v3h-4zM3 17h4v3H3zM9 17h4v3H9zM15 17h4v3h-4z" />,
+  wireguard: <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
+  cloudflare: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />,
+  squid: <path d="M2 20h20M4 20V9h16v11M12 9V5m-4 0h8M12 20v-4h-2m2 4h-2" />,
+  "dns-filter": <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />,
+  wifi: <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />,
+  recovery: <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />,
+  security: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 11.5l2 2 4-4" />,
+  logs: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />,
+};
 
 function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
@@ -157,8 +174,8 @@ function Dashboard() {
       if (!res.ok) throw new Error(body.error || `Recovery failed (${res.status})`);
       setNotice("Recovery successful. Services reconciled.");
       await load();
-    } catch (recoveryError) {
-      setError(recoveryError instanceof Error ? recoveryError.message : "Recovery reconciliation failed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recovery reconciliation failed");
     } finally {
       setBusy(false);
     }
@@ -270,6 +287,19 @@ function Dashboard() {
     }, "Wi-Fi configuration applied.");
   };
 
+  const submitQoS = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void applyConfig((next) => {
+      next.qos = {
+        enabled: form.get("enabled") === "on",
+        algorithm: field(form, "algorithm") || "cake",
+        download_limit_mbps: Number(field(form, "download_limit_mbps")) || 100,
+        upload_limit_mbps: Number(field(form, "upload_limit_mbps")) || 20,
+      };
+    }, "QoS configuration applied.");
+  };
+
   const confirmPending = async () => {
     if (!pendingTx?.id) return;
     setBusy(true);
@@ -365,8 +395,8 @@ function Dashboard() {
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
         <div className="dashboard-brand"><span className="classic-brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><div><strong>Minimal Router</strong><small>Home gateway</small></div></div>
         <nav aria-label="Router sections">
-          {navigation.map(([id, label], index) => (
-            <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><span>{String(index + 1).padStart(2, "0")}</span>{label}</a>
+          {navigation.map(([id, label]) => (
+            <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
           ))}
         </nav>
       </aside>
@@ -376,11 +406,13 @@ function Dashboard() {
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
           <div className="classic-topbar-status" aria-label="Router service status">
             <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
-            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter((peer) => peer.enabled).length}</b>}</span>
+            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter(p => p.enabled).length}</b>}</span>
             <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
             <span className="classic-status-chip">DNS</span>
-            <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
-            <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "CF Tunnel" : "CF Tunnel off"}</span>
+            <span className={config.cloudflare.ddns_enabled ? (system.runtime?.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info") : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
+            <span className={config.squid_proxy.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>Squid Proxy {config.squid_proxy.enabled ? "on" : "off"}</span>
+            <span className={config.qos.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>QoS {config.qos.enabled ? `${config.qos.algorithm}` : "off"}</span>
+            <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "Cloudflare Tunnel" : "Cloudflare Tunnel off"}</span>
             <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
           </div>
           <div className="classic-topbar-actions">
@@ -392,38 +424,42 @@ function Dashboard() {
 
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
-        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary dashboard-alert-action" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
+        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary classic-alert-recover" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}
+        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
-        <DashboardSections
-          active={active}
-          applyConfig={applyConfig}
-          applyGatewayMonitoring={applyGatewayMonitoring}
-          busy={busy}
-          changePassword={changePassword}
-          config={config}
-          createSnapshot={createSnapshot}
-          diskPercent={diskPercent}
-          gatewaySummary={gatewaySummary}
-          gatewaySettings={gatewaySettings}
-          lastRefresh={lastRefresh}
-          leases={leases}
-          load={load}
-          logout={logout}
-          memoryPercent={memoryPercent}
-          restoreSnapshot={restoreSnapshot}
-          setError={setError}
-          snapshots={snapshots}
-          submitCloudflare={submitCloudflare}
-          submitNetwork={submitNetwork}
-          submitSquid={submitSquid}
-          submitWiFi={submitWiFi}
-          system={system}
-          runtime={runtime}
-        />
+        {active === "security" && <SecuritySettings changePassword={changePassword} logout={logout} />}
+
+        {active !== "security" && (
+          <DashboardSections
+            active={active}
+            applyConfig={applyConfig}
+            applyGatewayMonitoring={applyGatewayMonitoring}
+            busy={busy}
+            changePassword={changePassword}
+            config={config}
+            createSnapshot={createSnapshot}
+            diskPercent={diskPercent}
+            gatewaySummary={gatewaySummary}
+            gatewaySettings={gatewaySettings}
+            lastRefresh={lastRefresh}
+            leases={leases}
+            load={load}
+            memoryPercent={memoryPercent}
+            restoreSnapshot={restoreSnapshot}
+            setError={setError}
+            snapshots={snapshots}
+            submitCloudflare={submitCloudflare}
+            submitNetwork={submitNetwork}
+            submitSquid={submitSquid}
+            submitWiFi={submitWiFi}
+            submitQoS={submitQoS}
+            system={system}
+            runtime={runtime}
+          />
+        )}
       </main>
     </div>
   );

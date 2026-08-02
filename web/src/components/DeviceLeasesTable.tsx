@@ -1,0 +1,132 @@
+import { useMemo, useState } from "react";
+import type { RouterConfig } from "../api-types";
+import { apiFetch } from "../lib/api";
+
+type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
+
+function formatRelative(timestamp: number) {
+  const diff = timestamp * 1000 - Date.now();
+  if (diff <= 0) return "Expired";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `in ${Math.max(1, minutes)} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours} h`;
+  const days = Math.floor(hours / 24);
+  return `in ${days} d`;
+}
+
+export default function DeviceLeasesTable({ leases, config }: { leases: Lease[]; config: RouterConfig }) {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const staticMacs = useMemo(() => new Set((config.dhcp.static_leases || []).map((sl) => sl.mac.toLowerCase())), [config.dhcp.static_leases]);
+
+  const filteredLeases = useMemo(() => {
+    if (!searchQuery) return leases;
+    const lower = searchQuery.toLowerCase();
+    return leases.filter((l) =>
+      (l.hostname && l.hostname.toLowerCase().includes(lower)) ||
+      l.ip_address.includes(lower) ||
+      l.mac.includes(lower)
+    );
+  }, [leases, searchQuery]);
+
+  const wakeOnLan = async (mac: string) => {
+    try {
+      await apiFetch("/api/v1/network/wol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+    } catch (e) {
+      console.error("WOL failed", e);
+    }
+  };
+
+  return (
+    <section className="modern-device-section">
+      <div className="modern-section-heading">
+        <div className="modern-heading-titles">
+          <h2>DHCP leases</h2>
+          <span className="modern-heading-sub">Devices currently holding an address on the LAN</span>
+        </div>
+        <div className="modern-device-tools">
+          <div className="modern-search-wrapper">
+            <svg className="modern-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+            <input
+              type="text"
+              placeholder="Search by name, IP, or MAC..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="modern-search-input"
+            />
+            {searchQuery && (
+              <button type="button" className="modern-search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">✕</button>
+            )}
+          </div>
+          <span className="modern-device-count">{filteredLeases.length} {filteredLeases.length === 1 ? "device" : "devices"}</span>
+        </div>
+      </div>
+
+      <div className="elegant-table-container">
+        <table className="elegant-device-table">
+          <colgroup>
+            <col className="elegant-col-num" />
+            <col />
+            <col className="elegant-col-ip" />
+            <col className="elegant-col-mac" />
+            <col className="elegant-col-expires" />
+            <col className="elegant-col-actions" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th className="elegant-th-num">#</th>
+              <th>Host Name</th>
+              <th>IP Address</th>
+              <th>MAC Address</th>
+              <th>Expires</th>
+              <th className="elegant-th-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredLeases.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="elegant-empty">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg>
+                  <span>{searchQuery ? "No devices match your search." : "No devices connected yet."}</span>
+                </td>
+              </tr>
+            ) : filteredLeases.map((lease, index) => {
+              const isStatic = staticMacs.has(lease.mac.toLowerCase());
+              return (
+                <tr key={`${lease.mac}-${lease.ip_address}`}>
+                  <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>
+                  <td className="elegant-cell-name">
+                    <span className="elegant-device-identity">
+                      {lease.hostname || "Unknown device"}
+                      {isStatic && <span className="elegant-badge-static">Static</span>}
+                    </span>
+                  </td>
+                  <td className="elegant-cell-ip">{lease.ip_address}</td>
+                  <td className="elegant-cell-mac">{lease.mac}</td>
+                  <td className="elegant-cell-expires">{isStatic ? <span className="elegant-expires-static">Never</span> : <span title={new Date(lease.expires_at * 1000).toLocaleString()}>{formatRelative(lease.expires_at)}</span>}</td>
+                  <td className="elegant-cell-actions">
+                    <button
+                      type="button"
+                      onClick={() => void wakeOnLan(lease.mac)}
+                      className="elegant-btn-wol"
+                      title="Wake-on-LAN"
+                      aria-label={`Wake ${lease.hostname || lease.mac} via Wake-on-LAN`}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                      <span>Wake</span>
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}

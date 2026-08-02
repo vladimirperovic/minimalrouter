@@ -2,27 +2,15 @@
 # Minimal Router OS — Quick VM test (one command)
 # Boots Alpine VM, installs router, runs tests, leaves VM running for dashboard access.
 # Usage: sh quick-test.sh [--teardown]
-set -eu
-umask 077
+set -e
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-TMP_BASE="${TMPDIR:-/tmp}"
-VM_DIR="${MINIMALROUTER_VM_DIR:-${TMP_BASE%/}/minimalrouter-alpine-3.22.5}"
+VM_DIR="${MINIMALROUTER_VM_DIR:-/private/tmp/minimalrouter-alpine-3.22.5}"
 REPO="$SCRIPT_DIR"
 API="https://192.168.1.1:8443"
-PASSWD="${MINIMALROUTER_TEST_PASSWORD:-}"
-PASSWORD_GENERATED=0
-if [ -z "$PASSWD" ]; then
-    command -v openssl >/dev/null 2>&1 || {
-        echo "ERROR: set MINIMALROUTER_TEST_PASSWORD or install openssl" >&2
-        exit 1
-    }
-    PASSWD="$(openssl rand -hex 20)"
-    PASSWORD_GENERATED=1
-fi
+PASSWD="${MINIMALROUTER_TEST_PASSWORD:-SuperSecure12345678}"
 LOG="$VM_DIR/quick-test.log"
 PID_FILE="$VM_DIR/quick-test.pid"
-PASSWORD_FILE="$VM_DIR/admin-password"
 
 # Parse args
 TEARDOWN=0
@@ -60,12 +48,6 @@ pnpm --dir web build 2>&1 | tail -8
 
 echo "=== Step 2: Preparing VM ==="
 mkdir -p "$VM_DIR"
-if [ "$PASSWORD_GENERATED" = "1" ]; then
-    printf '%s\n' "$PASSWD" > "$PASSWORD_FILE"
-    chmod 0600 "$PASSWORD_FILE"
-else
-    rm -f "$PASSWORD_FILE"
-fi
 
 echo "=== Step 3: Booting VM ==="
 cleanup
@@ -157,16 +139,8 @@ else:
     cmd("rc-service routerd start", 5)
     cmd("sleep 2", 3)
 
-    # Disable terminal echo before commands containing the ephemeral password so
-    # the serial transcript cannot disclose it.
-    cmd("stty -echo", 1)
-
     # Run setup wizard
     cmd(f"curl -sk -X POST {API}/api/v1/setup/apply -H 'Content-Type: application/json' -d '{{\"admin_password\":\"{PASSWD}\",\"pppoe_username\":\"\", \"pppoe_password\":\"\", \"lan_ip_address\":\"192.168.1.1\", \"lan_interface\":\"eth1\", \"wan_interface\":\"eth0\"}}' -c /tmp/cookies.txt 2>&1", 10)
-
-    # Login test — no _csrf field (DisallowUnknownFields rejects it)
-    cmd(f"curl -sk -X POST {API}/api/v1/auth/login -H 'Content-Type: application/json' -d '{{\"password\":\"{PASSWD}\"}}' -c /tmp/cookies.txt -o /dev/null -w '%{{http_code}}' 2>&1", 5)
-    cmd("stty echo", 1)
 
     # ── Run tests from inside the VM using ash + jq (no python3, no node) ──
     print("\n" + "=" * 60)
@@ -174,9 +148,12 @@ else:
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
+    # Login test — no _csrf field (DisallowUnknownFields rejects it)
+    cmd(f"curl -sk -X POST {API}/api/v1/auth/login -H 'Content-Type: application/json' -d '{{\"password\":\"{PASSWD}\"}}' -c /tmp/cookies.txt -o /dev/null -w '%{{http_code}}' 2>&1", 5)
+
     # Get CSRF token from session endpoint
     cmd(f"curl -sk {API}/api/v1/auth/session -b /tmp/cookies.txt 2>/dev/null | jq -r '.csrf_token' > /tmp/csrf.txt", 3)
-    cmd("echo 'CSRF token obtained'", 2)
+    cmd("echo \"CSRF=$(cat /tmp/csrf.txt)\"", 2)
 
     # Config test (includes firewall config)
     cmd(f"curl -sk {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" 2>/dev/null | jq -r '.revision'", 3)
@@ -203,7 +180,7 @@ else:
     # New feature adapters: generated syntax/package path and fail-closed
     # behavior when the VM has no physical Wi-Fi radio or Cloudflare account.
     cmd("printf '%s\\n' 'period = 300' 'secure-ssl = true' 'provider cloudflare.com:1 {' ' username = \"example.com\"' ' password = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"' ' hostname = \"home.example.com\"' ' ttl = 300' ' proxied = false' '}' > /tmp/inadyn.conf && inadyn --check-config -f /tmp/inadyn.conf && echo 'PASS:inadyn Cloudflare config accepted'", 5)
-    cmd(f"curl -sk {API}/api/v1/config -b /tmp/cookies.txt > /tmp/wifi-base.json && jq '.wifi={{\"enabled\":true,\"interface\":\"wlan0\",\"ssid\":\"MinimalRouter-Test\",\"passphrase\":\"DocumentationOnlyWiFiPassphrase\",\"band\":\"5ghz\",\"channel\":36,\"hide_ssid\":false}}' /tmp/wifi-base.json > /tmp/wifi-test.json && curl -sk -o /tmp/wifi-result.json -w 'WIFI_HTTP:%{{http_code}}\\n' -X PUT {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" -H 'Content-Type: application/json' --data-binary @/tmp/wifi-test.json && jq -r '.error // .state' /tmp/wifi-result.json", 8)
+    cmd(f"curl -sk {API}/api/v1/config -b /tmp/cookies.txt > /tmp/wifi-base.json && jq '.wifi={{\"enabled\":true,\"interface\":\"wlan0\",\"ssid\":\"MinimalRouter-Test\",\"passphrase\":\"TestWiFiPassword123\",\"band\":\"5ghz\",\"channel\":36,\"hide_ssid\":false}}' /tmp/wifi-base.json > /tmp/wifi-test.json && curl -sk -o /tmp/wifi-result.json -w 'WIFI_HTTP:%{{http_code}}\\n' -X PUT {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" -H 'Content-Type: application/json' --data-binary @/tmp/wifi-test.json && jq -r '.error // .state' /tmp/wifi-result.json", 8)
     cmd(f"jq '.cloudflare={{\"ddns_enabled\":true,\"tunnel_enabled\":false,\"domain\":\"home.example.com\",\"zone_name\":\"example.com\",\"api_token\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"}}' /tmp/wifi-base.json > /tmp/cf-test.json && curl -sk -o /tmp/cf-result.json -w 'CLOUDFLARE_HTTP:%{{http_code}}\\n' -X PUT {API}/api/v1/config -b /tmp/cookies.txt -H \"X-CSRF-Token: $(cat /tmp/csrf.txt)\" -H 'Content-Type: application/json' --data-binary @/tmp/cf-test.json && jq -r '.error // .state' /tmp/cf-result.json", 6)
 
     # Audit events
@@ -221,6 +198,7 @@ else:
     print("\n" + "=" * 60)
     print("  TESTS COMPLETE")
     print("  Dashboard: https://192.168.1.1:8443")
+    print(f"  Password:  {PASSWD}")
     print("=" * 60 + "\n")
     sys.stdout.flush()
 
@@ -267,10 +245,6 @@ fi
 echo ""
 echo "=== VM running in background (PID: $VM_PID) ==="
 echo "Dashboard: https://192.168.1.1:8443"
-if [ "$PASSWORD_GENERATED" = "1" ]; then
-    echo "Password file: $PASSWORD_FILE (mode 600)"
-else
-    echo "Password: value supplied through MINIMALROUTER_TEST_PASSWORD"
-fi
+echo "Password:  $PASSWD"
 echo "Stop: kill \$(cat \"$PID_FILE\")"
 echo "Log:  $LOG"

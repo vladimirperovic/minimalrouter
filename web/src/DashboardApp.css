@@ -78,24 +78,39 @@
 .dashboard-sidebar nav a {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   border-radius: 10px;
-  padding: 10px 11px;
+  padding: 9px 11px;
   color: var(--text-secondary, #6e6e73);
   font-size: 13px;
   font-weight: 650;
   text-decoration: none;
+  transition: background-color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)), color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.dashboard-sidebar nav a span {
+.dashboard-nav-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
   color: var(--text-tertiary, #86868b);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
+  transition: color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.dashboard-sidebar nav a:hover,
+.dashboard-sidebar nav a:hover {
+  background: rgba(0, 0, 0, 0.045);
+  color: var(--text-primary, #1d1d1f);
+}
+
+.dashboard-sidebar nav a:hover .dashboard-nav-icon {
+  color: var(--text-secondary, #6e6e73);
+}
+
 .dashboard-sidebar nav a.is-active {
   background: rgba(0, 113, 227, 0.1);
+  color: #0071e3;
+}
+
+.dashboard-sidebar nav a.is-active .dashboard-nav-icon {
   color: #0071e3;
 }
 
@@ -225,6 +240,40 @@
 .dashboard-alert.is-warning {
   border-color: rgba(255, 149, 0, 0.3);
   background: rgba(255, 149, 0, 0.1);
+  color: #9a6b00;
+}
+
+.classic-alert-recover {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.wg-callout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  border-left: 4px solid var(--success, #28a745);
+}
+.wg-qr {
+  flex-shrink: 0;
+  padding: 10px;
+  background: white;
+  border-radius: 8px;
+}
+.wg-qr img {
+  width: 150px;
+  height: 150px;
+  display: block;
+}
+.wg-success-title {
+  font-size: 1.1rem;
+  display: block;
+  margin-bottom: 5px;
+}
+.wg-actions {
+  margin-top: 15px;
+  display: flex;
+  gap: 10px;
 }
 
 .metric-grid {
@@ -260,6 +309,167 @@
   overflow-wrap: anywhere;
   font-size: 24px;
   letter-spacing: -0.025em;
+}
+
+.wg-status-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  border: 1px solid var(--dashboard-border, rgba(0, 0, 0, 0.09));
+  border-radius: 18px;
+  padding: 17px 20px;
+  margin-bottom: 14px;
+  background: var(--dashboard-panel, #fff);
+}
+
+.wg-status-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wg-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--border, #d2d2d7);
+}
+
+.wg-status-dot.is-connected {
+  background: var(--success, #34c759);
+  box-shadow: 0 0 0 4px rgba(52, 199, 89, 0.15);
+}
+
+.wg-status-dot.is-idle {
+  background: var(--warning, #ff9f0a);
+  box-shadow: 0 0 0 4px rgba(255, 159, 10, 0.12);
+}
+
+.wg-status-main h3 {
+  margin: 0 0 2px 0;
+  font-size: 15px;
+}
+
+.wg-status-host {
+  margin: 0;
+  color: var(--text-tertiary, #86868b);
+  font-size: 12px;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.wg-status-metrics {
+  display: flex;
+  gap: 28px;
+  margin: 0;
+}
+
+.wg-status-metrics div {
+  text-align: right;
+}
+
+.wg-status-metrics dt {
+  color: var(--text-tertiary, #86868b);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.wg-status-metrics dd {
+  margin: 3px 0 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-table {
+  margin-bottom: 20px;
+}
+
+.wg-col-status { width: 60px; }
+.wg-col-peer { width: 150px; }
+.wg-col-ip { width: 130px; }
+.wg-col-endpoint { width: 240px; }
+.wg-col-handshake { width: 110px; }
+.wg-col-transfer { width: 150px; }
+.wg-col-actions { width: 100px; }
+
+.wg-cell-status {
+  vertical-align: middle;
+}
+
+.wg-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.wg-status-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.wg-status-icon.is-online svg {
+  fill: rgba(52, 199, 89, 0.14);
+  stroke: rgba(52, 199, 89, 0.85);
+  stroke-width: 1.6;
+}
+
+.wg-status-icon.is-offline svg {
+  fill: rgba(255, 69, 58, 0.10);
+  stroke: #e5484d;
+  stroke-width: 1.6;
+}
+
+.wg-cell-peer {
+  vertical-align: middle;
+}
+
+.wg-peer-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #1d1d1f);
+}
+
+.wg-peer-key {
+  display: block;
+  color: var(--text-tertiary, #86868b);
+  font-size: 11px;
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.wg-cell-endpoint, .wg-cell-handshake, .wg-cell-transfer {
+  font-size: 13px;
+  color: var(--text-secondary, #6e6e73);
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.wg-transfer-rx, .wg-transfer-tx {
+  display: block;
+  white-space: nowrap;
+}
+
+.wg-transfer-rx { color: #1e7e34; }
+.wg-transfer-tx { color: var(--text-secondary, #6e6e73); }
+
+:root[data-theme="dark"] .wg-peer-chip.is-online {
+  color: #4cd964;
+}
+
+:root[data-theme="dark"] .wg-transfer-rx {
+  color: #4cd964;
+}
+
+:root[data-theme="dark"] .wg-peer-name {
+  color: var(--text-primary, #f5f5f7);
 }
 
 .metric-grid article small {
@@ -468,6 +678,171 @@
 .button.small {
   padding: 7px 10px;
   font-size: 11px;
+}
+
+/* ---- Dynamic DNS (Apple x Swiss) ---- */
+
+.ddns-heading {
+  margin-bottom: 22px;
+}
+
+.ddns-heading .eyebrow {
+  margin-bottom: 7px;
+}
+
+.ddns-lead {
+  max-width: 560px;
+  margin: 10px 0 0;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ddns-provider {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 0 20px;
+  border: 1px solid var(--separator-strong, rgba(60, 60, 67, 0.25));
+  border-radius: 12px;
+  padding: 3px;
+  background: var(--surface-muted, #f0f0f2);
+}
+
+.ddns-provider button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 9px;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--text-secondary, #6e6e73);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 620;
+  transition: background 160ms var(--ease, ease), color 160ms var(--ease, ease);
+}
+
+.ddns-provider button:hover {
+  color: var(--text, #1d1d1f);
+}
+
+.ddns-provider button.is-active {
+  background: var(--surface, #fff);
+  color: var(--text, #1d1d1f);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ddns-status {
+  overflow: hidden;
+  margin-bottom: 18px;
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  border-radius: 18px;
+  background: var(--surface, #fff);
+}
+
+.ddns-status-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 24px;
+  border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+.ddns-status-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: var(--text-tertiary, #86868b);
+}
+
+.ddns-status-dot.is-connected {
+  background: var(--success, #248a3d);
+  box-shadow: 0 0 0 5px var(--success-soft, #e8f5eb);
+}
+
+.ddns-status-dot.is-starting {
+  background: var(--accent, #007aff);
+  box-shadow: 0 0 0 5px var(--accent-soft, rgba(0, 122, 255, 0.1));
+}
+
+.ddns-status-main h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.ddns-status-host {
+  margin: 4px 0 0;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ddns-status-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+}
+
+.ddns-status-metrics > div {
+  padding: 16px 24px;
+  border-right: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+.ddns-status-metrics > div:nth-child(2n) {
+  border-right: 0;
+}
+
+.ddns-status-metrics > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.ddns-status-metrics dt {
+  color: var(--text-tertiary, #86868b);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.ddns-status-metrics dd {
+  margin: 5px 0 0;
+  color: var(--text, #1d1d1f);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.ddns-status-metrics dd.ddns-mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.ddns-status-off .ddns-status-main {
+  border-bottom: 0;
+}
+
+.ddns-form {
+  border: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+}
+
+@media (max-width: 640px) {
+  .ddns-status-metrics {
+    grid-template-columns: 1fr;
+  }
+  .ddns-status-metrics > div:nth-child(2n) {
+    border-right: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  }
+  .ddns-status-metrics > div {
+    border-bottom: 1px solid var(--separator, rgba(60, 60, 67, 0.15));
+  }
+  .ddns-status-metrics > div:last-child {
+    border-bottom: 0;
+    border-right: 0;
+  }
 }
 
 .dashboard-loading {

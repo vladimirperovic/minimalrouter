@@ -68,10 +68,10 @@ func BenchmarkAPIProtectedEndpointParallel(b *testing.B) {
 	})
 }
 
-func BenchmarkAPIMalformedLoginParallel(b *testing.B) {
+func BenchmarkAPIMalformedRequestParallel(b *testing.B) {
 	mux, cleanup := benchmarkMux(b)
 	defer cleanup()
-	body := []byte(`{"password":`)
+	body := []byte(`{`)
 	b.ReportAllocs()
 	b.SetBytes(int64(len(body)))
 	b.RunParallel(func(pb *testing.PB) {
@@ -81,7 +81,7 @@ func BenchmarkAPIMalformedLoginParallel(b *testing.B) {
 			recorder := httptest.NewRecorder()
 			mux.ServeHTTP(recorder, req)
 			if recorder.Code == http.StatusInternalServerError {
-				b.Fatalf("malformed login caused internal error: %s", recorder.Body.String())
+				b.Fatalf("malformed request caused internal error: %s", recorder.Body.String())
 			}
 		}
 	})

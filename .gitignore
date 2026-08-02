@@ -4,7 +4,6 @@
 /web/dist/
 /coverage/
 /.pnpm-store/
-/build/
 
 # Local development
 .env
@@ -19,31 +18,26 @@
 .vscode/
 
 # Runtime state and secrets
-/data/
-/state/
-/snapshots/
 *.db
 *.db-shm
 *.db-wal
 *.pem
 *.key
-*.p12
-*.pfx
-*.age
-*.backup
-*.sqlite
-*.sqlite3
+/state/
+/snapshots/
+alpine-standard-3.21.3-x86_64.iso
 
-# Generated appliance and VM files
-*.iso
-*.img
-*.qcow2
-*.vmdk
+# Minimal Router Home private deployment overlay
+/private/runtime/
+/private/secrets/
+/private/backups/
+
+# Build artifacts
+/build/
 /tools/macos-vm/minimalrouter-alpine-vm
 
-# Test and diagnostic output
-*.pcap
-*.pcapng
-*.prof
-*.trace
-*.out
+# Runtime config + dev scratch (not for public repos)
+/data/
+/AI_HANDOFF.md
+/SESSION6_SUMMARY.md
+/implementation_plan.md

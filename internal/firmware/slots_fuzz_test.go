@@ -41,7 +41,6 @@ func FuzzOperationJournalParsing(f *testing.F) {
 			t.Fatal(err)
 		}
 		_, _ = manager.State()
-
 		target, err := os.Readlink(filepath.Join(root, "current"))
 		if err != nil {
 			t.Fatal(err)

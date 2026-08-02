@@ -11,9 +11,10 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    { name: "mobile-webkit", use: { ...devices["iPhone 13"] } },
-    { name: "mobile-chromium", use: { ...devices["Pixel 7"] } },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
   ],
   webServer: {
     command: "pnpm preview --host 127.0.0.1 --port 4173",

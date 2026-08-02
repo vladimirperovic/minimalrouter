@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -467,6 +468,12 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		return nil, fmt.Errorf("doh proxy: %w", err)
 	}
 
+	// Router's own resolver is its local dnsmasq; upstreams and the nftables
+	// output allow-list are both derived from cfg.DHCP.DNSServers, so pointing
+	// resolv.conf at 127.0.0.1 keeps router-local lookups working even when the
+	// ISP pushes broken nameservers via usepeerdns.
+	resolvConf := "nameserver 127.0.0.1\n"
+
 	return map[string]artifact{
 		"nftables":  {path: nftRuntimePath, data: []byte(nft), mode: 0600},
 		"pppoe":     {path: "/etc/ppp/peers/wan", data: []byte(pppoe.PeerConfig), mode: 0600},
@@ -486,6 +493,7 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		},
 		"squid":        {path: "/etc/squid/squid.conf", data: []byte(squidConfig), mode: 0644},
 		"squid-passwd": {path: "/etc/squid/passwd", data: squidPassword, mode: 0640},
+		"resolv-conf":  {path: "/etc/resolv.conf", data: []byte(resolvConf), mode: 0644},
 	}, nil
 }
 
@@ -554,7 +562,7 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 }
 
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "nftables"} {
+	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
@@ -563,9 +571,16 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
+	// Determine deltas to avoid unnecessary network drops
+	wifiChanged := previous == nil || !reflect.DeepEqual(cfg.WiFi, previous.WiFi)
+	lanChanged := previous == nil || !reflect.DeepEqual(cfg.LAN, previous.LAN) || !reflect.DeepEqual(cfg.DHCP, previous.DHCP)
+	wanChanged := previous == nil || !reflect.DeepEqual(cfg.WAN, previous.WAN)
+
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
 	// topology change so enabling, disabling, and rollback are deterministic.
-	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	if wifiChanged {
+		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	}
 	if provisional {
 		if err := configureProvisionalRuntimeLAN(cfg, *previous); err != nil {
 			return err
@@ -585,25 +600,37 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	} else {
 		clearQoS(cfg)
 	}
-	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
-		return fmt.Errorf("restart dnsmasq: %w", err)
+
+	if lanChanged {
+		if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
+			return fmt.Errorf("restart dnsmasq: %w", err)
+		}
 	}
+
 	if cfg.WAN.Enabled {
-		if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
-			return fmt.Errorf("restart PPPoE: %w", err)
+		if wanChanged {
+			if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
+				return fmt.Errorf("restart PPPoE: %w", err)
+			}
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+		if wanChanged {
+			_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+		}
 	}
 	if err := activateWireGuard(cfg); err != nil {
 		return err
 	}
 	if cfg.WiFi.Enabled {
-		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
-			return fmt.Errorf("restart hostapd: %w", err)
+		if wifiChanged {
+			if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
+				return fmt.Errorf("restart hostapd: %w", err)
+			}
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+		if wifiChanged {
+			_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+		}
 	}
 	if cfg.Cloudflare.DDNSEnabled {
 		group, lookupErr := user.LookupGroup("inadyn")
@@ -614,11 +641,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
-		if err := runFixedTimeout(45*time.Second, "/usr/sbin/inadyn",
-			"--once", "--force", "--foreground", "--no-pidfile",
-			"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice"); err != nil {
-			return fmt.Errorf("verify Cloudflare DDNS credentials and update: %w", err)
-		}
+
+		// Inadyn is restarted asynchronously. We do not block the pipeline verifying
+		// credentials because the network interface (e.g. PPPoE) might still be initializing.
 		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
 		}
@@ -681,17 +706,14 @@ func verifyActive(cfg config.SystemConfig, requireWAN bool) error {
 	if cfg.WAN.Enabled && requireWAN {
 		deadline := time.Now().Add(20 * time.Second)
 		for {
-			if err := runFixed("/sbin/ip", "link", "show", "dev", "ppp0"); err == nil {
+			pppAddress, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", "ppp0")
+			if err == nil && strings.Contains(pppAddress, "inet ") {
 				break
 			}
 			if time.Now().After(deadline) {
-				return errors.New("PPPoE interface did not become ready")
+				return errors.New("PPPoE interface has no assigned IPv4 address")
 			}
 			time.Sleep(500 * time.Millisecond)
-		}
-		pppAddress, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", "ppp0")
-		if err != nil || !strings.Contains(pppAddress, "inet ") {
-			return errors.New("PPPoE interface has no assigned IPv4 address")
 		}
 		pppDefaultRoute, err := runFixedOutput("/sbin/ip", "-4", "route", "show", "default", "dev", "ppp0")
 		if err != nil || strings.TrimSpace(pppDefaultRoute) == "" {
@@ -1040,6 +1062,7 @@ func configureLAN(lan config.LANSettings) error {
 	if err := runFixed("/sbin/ip", "-4", "addr", "add", lan.CIDR, "dev", lan.Interface); err != nil {
 		return fmt.Errorf("configure LAN address: %w", err)
 	}
+	sendGratuitousARP(lan.Interface, lan.CIDR)
 	return nil
 }
 
@@ -1096,6 +1119,7 @@ func configureRuntimeLAN(cfg config.SystemConfig) error {
 	if err := runFixed("/sbin/ip", "-4", "addr", "add", cfg.LAN.CIDR, "dev", bridge); err != nil {
 		return fmt.Errorf("configure LAN bridge address: %w", err)
 	}
+	sendGratuitousARP(bridge, cfg.LAN.CIDR)
 	return nil
 }
 
@@ -1112,6 +1136,17 @@ func configureProvisionalRuntimeLAN(candidate, previous config.SystemConfig) err
 		}
 	}
 	return nil
+}
+
+func sendGratuitousARP(iface, cidr string) {
+	parts := strings.Split(cidr, "/")
+	if len(parts) == 0 {
+		return
+	}
+	ip := parts[0]
+	// Send an unsolicited ARP reply (-A) or request (-U) to update peers
+	// using busybox arping (which typically supports -U for Unsolicited)
+	_ = runFixed("/usr/sbin/arping", "-U", "-c", "3", "-I", iface, ip)
 }
 
 func applyKernelHardening(cfg config.SystemConfig) error {
