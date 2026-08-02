@@ -32,4 +32,5 @@ type RuntimeStatus struct {
 	ConntrackMax          uint64         `json:"conntrack_max,omitempty"`
 	ConntrackUsagePercent float64        `json:"conntrack_usage_percent,omitempty"`
 	DHCPLeases            []DHCPLease    `json:"dhcp_leases"`
+	WireguardActivePeers  int            `json:"wireguard_active_peers,omitempty"`
 }

@@ -163,6 +163,7 @@ export type SystemStatus = {
     conntrack_max?: number;
     conntrack_usage_percent?: number;
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
+    wireguard_active_peers?: number;
   };
 };
 

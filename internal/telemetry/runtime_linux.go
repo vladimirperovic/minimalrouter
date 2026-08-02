@@ -6,9 +6,11 @@ import (
 	"bufio"
 	"net"
 	"os"
+	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 	"golang.org/x/sys/unix"
@@ -111,5 +113,28 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 		}
 	}
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
+	status.WireguardActivePeers = countActiveWireGuardPeers()
 	return status
+}
+
+func countActiveWireGuardPeers() int {
+	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg0", "latest-handshakes")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	active := 0
+	now := time.Now().Unix()
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		if len(parts) == 2 {
+			ts, err := strconv.ParseInt(parts[1], 10, 64)
+			if err == nil && ts > 0 && now-ts < 180 {
+				active++
+			}
+		}
+	}
+	return active
 }
