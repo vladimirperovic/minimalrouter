@@ -362,7 +362,7 @@ function Dashboard() {
             <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
             <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard</span>
             <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP</span>
-            <span className={config.dhcp.dns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DNS</span>
+            <span className="classic-status-chip">DNS</span>
             <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? ddnsProvider : "DDNS off"}</span>
             <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
           </div>

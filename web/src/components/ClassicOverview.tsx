@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import type { GatewayHistoryPoint, GatewaySummary, RouterConfig, SystemStatus } from "../api-types";
 import { apiFetch } from "../lib/api";
 
@@ -63,6 +63,7 @@ export default function ClassicOverview({
   const [history, setHistory] = useState<GatewayHistoryPoint[]>([]);
   const [bandwidthHistory, setBandwidthHistory] = useState<{rx: number, tx: number}[]>([]);
   const lastBytesRef = useRef<{rx: number, tx: number, time: number} | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -114,21 +115,44 @@ export default function ClassicOverview({
 
   const latencyPath = useMemo(() => pathFor(history.map((point) => point.latency_ms ?? 0), 1000, 130), [history]);
   const lossPath = useMemo(() => pathFor(history.map((point) => point.packet_loss_percent ?? 0), 1000, 130), [history]);
-  const connected = Boolean(runtime.wan_connected);
-  const healthyGateway = gatewaySummary?.state === "healthy";
-  const headline = connected && healthyGateway ? "Online and verified" : connected ? "Online with warnings" : "WAN offline";
-  const provider = config.cloudflare.ddns_provider || "cloudflare";
-  const storageLevel = runtime.storage?.level || "unknown";
-  const conntrackPercent = runtime.conntrack_usage_percent ?? (runtime.conntrack_max ? ((runtime.conntrack_count || 0) / runtime.conntrack_max) * 100 : 0);
 
-  return <section className="classic-dashboard-overview" aria-label="Router overview">
+  const staticMacs = useMemo(() => new Set((config.dhcp.static_leases || []).map(sl => sl.mac.toLowerCase())), [config.dhcp.static_leases]);
+  
+  const filteredLeases = useMemo(() => {
+    if (!searchQuery) return leases;
+    const lower = searchQuery.toLowerCase();
+    return leases.filter(l => 
+      (l.hostname && l.hostname.toLowerCase().includes(lower)) || 
+      l.ip_address.includes(lower) || 
+      l.mac.includes(lower)
+    );
+  }, [leases, searchQuery]);
+
+  const wakeOnLan = useCallback(async (mac: string) => {
+    try {
+      await apiFetch("/api/v1/network/wol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+    } catch (e) {
+      console.error("WOL failed", e);
+    }
+  }, []);
+
+  const headline = useMemo(() => {
+    if (runtime.os === "linux") return `${runtime.architecture} minimalrouter`;
+    return "Unsupported minimalrouter";
+  }, [runtime]);
+
+  return <section className="classic-dashboard-overview" aria-label="System Overview">
     <article className="classic-hero-card">
       <div className="classic-hero-heading">
         <div>
-          <div className="classic-kicker"><span className={connected ? "classic-dot is-good" : "classic-dot is-bad"} />Internet</div>
+          <div className="classic-kicker">Local appliance</div>
           <h1>{headline}</h1>
         </div>
-        <span className={`classic-state-pill ${connected ? "is-good" : "is-bad"}`}><span className="classic-dot" />{connected ? "PPPoE connected" : "PPPoE disconnected"}</span>
+        {runtime.os === "linux" ? <span className="classic-state-pill is-primary">{runtime.architecture}</span> : <span className="classic-state-pill is-primary">Unsupported platform</span>}
       </div>
 
       <div className="classic-meta-row">
@@ -140,10 +164,13 @@ export default function ClassicOverview({
       </div>
       <div className="classic-chips-row">
         {typeof runtime.temperature_c === "number" && (
-           <span className="classic-chip" title="CPU Temperature">🌡️ {runtime.temperature_c.toFixed(0)}°C</span>
+           <span className="classic-chip" title="CPU Temperature">🌡️ {runtime.temperature_c.toFixed(1)}°C</span>
         )}
         <span className="classic-chip" title="Active LAN leases">🟢 Trenutno zakačeno {leases.length} LAN uređaja</span>
         <span className="classic-chip" title="Active WireGuard peers">🔵 {(config.wireguard.peers || []).filter((peer) => peer.enabled).length} WireGuard uređaja</span>
+        <span className="classic-chip" title="Storage">💾 Storage {runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used` : "Unknown"}</span>
+        <span className="classic-chip" title="Conntrack">🔌 Conntrack {runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</span>
+        <span className="classic-chip" title="Time sync">🕒 Time {runtime.time_synchronized ? "Synchronized" : "Not verified"}</span>
       </div>
 
       <div className="classic-live-grid" style={{ marginBottom: "20px" }}>
@@ -153,7 +180,12 @@ export default function ClassicOverview({
       </div>
 
       <div className="classic-resource-grid" style={{ marginBottom: "20px" }}>
-        <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
+        <article>
+          <span>CPU</span>
+          <strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong>
+          <small>{runtime.cpu_count || 0} logical cores {typeof runtime.temperature_c === "number" ? `· ${runtime.temperature_c.toFixed(1)}°C` : ""}</small>
+          <progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} />
+        </article>
         <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><progress max="100" value={Math.min(100, memoryPercent)} /></article>
         <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
       </div>
@@ -182,23 +214,63 @@ export default function ClassicOverview({
       </div>
     </article>
 
-
-
-    <section className="classic-operations-section">
-      <div className="classic-section-heading"><div><span>OPERATIONS</span><h2>Everything important, at a glance.</h2></div><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Live state"}</small></div>
-      <div className="classic-ops-grid">
-        <article><span>Storage pressure</span><strong>{storageLevel}</strong><small>{runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used` : "Telemetry unavailable"}</small></article>
-        <article><span>Conntrack</span><strong>{Math.round(conntrackPercent)}%</strong><small>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</small></article>
-        <article><span>Time sync</span><strong>{runtime.time_synchronized ? "Synchronized" : "Not verified"}</strong><small>Kernel clock health</small></article>
-        <article><span>Dynamic DNS</span><strong>{config.cloudflare.ddns_enabled ? provider === "noip" ? "No-IP" : "Cloudflare" : "Off"}</strong><small>{config.cloudflare.domain || "No hostname configured"}</small></article>
-        <article><span>WireGuard</span><strong>{config.wireguard.enabled ? "On" : "Off"}</strong><small>{(config.wireguard.peers || []).filter((peer) => peer.enabled).length} enabled peers</small></article>
-        <article><span>DHCP</span><strong>{config.dhcp.enabled ? "On" : "Off"}</strong><small>{leases.length} active leases</small></article>
-      </div>
-    </section>
-
     <section className="classic-device-section">
-      <div className="classic-section-heading"><div><span>LAN</span><h2>Connected devices.</h2></div><small>{leases.length} active leases</small></div>
-      <div className="classic-device-table-wrap"><table className="classic-device-table"><thead><tr><th>Host</th><th>IP address</th><th>MAC</th><th>Expires</th></tr></thead><tbody>{leases.length === 0 ? <tr><td colSpan={4}>No active DHCP leases reported.</td></tr> : leases.map((lease) => <tr key={`${lease.mac}-${lease.ip_address}`}><td>{lease.hostname || "Unknown"}</td><td><code>{lease.ip_address}</code></td><td><code>{lease.mac}</code></td><td>{new Date(lease.expires_at * 1000).toLocaleString()}</td></tr>)}</tbody></table></div>
+      <div className="classic-section-heading">
+        <div>
+          <span>LAN</span>
+          <h2>Connected devices.</h2>
+        </div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <input 
+            type="text" 
+            placeholder="Search devices..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ padding: "6px 12px", borderRadius: "20px", border: "1px solid var(--classic-border)", fontSize: "12px", background: "var(--classic-panel)", color: "var(--classic-text)" }}
+          />
+          <small>{filteredLeases.length} active leases</small>
+        </div>
+      </div>
+      <div className="classic-device-table-wrap">
+        <table className="classic-device-table">
+          <thead>
+            <tr>
+              <th>Host</th>
+              <th>IP address</th>
+              <th>MAC</th>
+              <th>Expires</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredLeases.length === 0 ? <tr><td colSpan={5}>No active DHCP leases found.</td></tr> : filteredLeases.map((lease) => {
+              const isStatic = staticMacs.has(lease.mac.toLowerCase());
+              return (
+                <tr key={`${lease.mac}-${lease.ip_address}`} style={isStatic ? { background: "rgba(0,0,0,0.03)" } : {}}>
+                  <td style={{ fontWeight: isStatic ? 600 : "normal" }}>
+                    {lease.hostname || "Unknown"}
+                    {isStatic && <span style={{ marginLeft: "8px", fontSize: "10px", background: "var(--classic-purple)", color: "white", padding: "2px 6px", borderRadius: "10px" }}>Static</span>}
+                  </td>
+                  <td><code>{lease.ip_address}</code></td>
+                  <td><code>{lease.mac}</code></td>
+                  <td>{new Date(lease.expires_at * 1000).toLocaleString()}</td>
+                  <td>
+                    <button 
+                      type="button" 
+                      onClick={() => void wakeOnLan(lease.mac)}
+                      className="quiet-button"
+                      style={{ fontSize: "11px", padding: "4px 8px", background: "var(--classic-border)", borderRadius: "4px", fontWeight: "bold" }}
+                      title="Wake-on-LAN"
+                    >
+                      WOL
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </section>
   </section>;
 }
