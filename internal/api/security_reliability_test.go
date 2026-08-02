@@ -59,6 +59,7 @@ func TestOpenAPIDocumentsEveryRegisteredRoute(t *testing.T) {
 		"/recovery/reconcile", "/snapshots", "/snapshots/{id}/restore",
 		"/import/pfsense/preview", "/import/pfsense/{id}/apply", "/backup/export",
 		"/backup/import/preview", "/import/backup/{id}/apply", "/firmware/verify",
+		"/network/wol", "/qos/speedtest",
 	} {
 		if !strings.Contains(spec, "  "+route+":") {
 			t.Errorf("OpenAPI is missing registered route %s", route)

@@ -218,6 +218,8 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	}
 	buf.WriteString("    udp dport 123 accept\n")
 	buf.WriteString("    ip protocol icmp accept\n\n")
+	buf.WriteString("    # The unprivileged management daemon opens outbound HTTPS for the QoS speed test\n")
+	buf.WriteString("    meta skuid routerd tcp dport 443 accept\n")
 	if cfg.Cloudflare.DDNSEnabled {
 		buf.WriteString("    # Cloudflare DDNS needs HTTPS for the root-run verification and inadyn daemon\n")
 		buf.WriteString("    meta skuid root tcp dport 443 accept\n")

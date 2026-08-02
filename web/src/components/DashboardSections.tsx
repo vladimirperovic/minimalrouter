@@ -13,6 +13,13 @@ export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
 type ApplyConfig = (mutate: (next: RouterConfig) => void, success: string) => Promise<void>;
 
+type SpeedTestResult = {
+  download_mbps: number;
+  upload_mbps: number;
+  suggested_download_mbps: number;
+  suggested_upload_mbps: number;
+};
+
 type Props = {
   active: SectionID;
   config: RouterConfig;
@@ -34,6 +41,9 @@ type Props = {
   submitSquid: (event: FormEvent<HTMLFormElement>) => void;
   submitWiFi: (event: FormEvent<HTMLFormElement>) => void;
   submitQoS: (event: FormEvent<HTMLFormElement>) => void;
+  runSpeedTest: () => Promise<void>;
+  speedTest: SpeedTestResult | null;
+  speedTesting: boolean;
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
   changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -72,7 +82,7 @@ function formatHandshake(epoch: number) {
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
   lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, createSnapshot, restoreSnapshot, changePassword, setError,
+  submitWiFi, submitQoS, runSpeedTest, speedTest, speedTesting, createSnapshot, restoreSnapshot, changePassword, setError,
 }: Props) {
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
@@ -159,6 +169,31 @@ export default function DashboardSections({
     <p className="form-note">Set limits to ~90% of your measured WAN speed. Enabling QoS on a link with no congestion has little effect; measure latency before/after to confirm bufferbloat is reduced.</p>
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply QoS configuration</button></div>
   </form>
+
+  {config.qos.enabled ? (
+    <div className="speedtest-note" role="status">
+      <strong>Speed test unavailable</strong>
+      <span>Disable QoS first. An active shaper (currently {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps) would report its own limit — not your real line speed — and suggested limits would be wrong.</span>
+    </div>
+  ) : (
+    <div className="speedtest-block">
+      <div className="speedtest-heading">
+        <div>
+          <strong>Measure your line speed</strong>
+          <small>Run with QoS off, then apply the suggested 90% limits below.</small>
+        </div>
+        <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Measuring…" : "Run speed test"}</button>
+      </div>
+      {speedTest && (
+        <div className="metric-grid compact">
+          <article><span>Measured download</span><strong>{speedTest.download_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
+          <article><span>Measured upload</span><strong>{speedTest.upload_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
+          <article><span>Suggested download</span><strong>{speedTest.suggested_download_mbps} Mbps</strong><small>90% of measured</small></article>
+          <article><span>Suggested upload</span><strong>{speedTest.suggested_upload_mbps} Mbps</strong><small>90% of measured</small></article>
+        </div>
+      )}
+    </div>
+  )}
 </section>}
 
 {active === "wireguard" && <section className="dashboard-section" id="wireguard">

@@ -276,6 +276,44 @@
   gap: 10px;
 }
 
+.speedtest-block {
+  margin-top: 18px;
+  border: 1px solid var(--dashboard-border, rgba(0, 0, 0, 0.09));
+  border-radius: 18px;
+  padding: 18px 19px;
+  background: var(--dashboard-panel, #fff);
+}
+.speedtest-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.speedtest-heading strong {
+  display: block;
+  font-size: 14px;
+}
+.speedtest-heading small {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 12px;
+}
+.speedtest-note {
+  margin-top: 18px;
+  border: 1px dashed var(--dashboard-border, rgba(0, 0, 0, 0.2));
+  border-radius: 14px;
+  padding: 14px 16px;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 12px;
+}
+.speedtest-note strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--text-primary, #1d1d1f);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

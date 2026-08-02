@@ -42,6 +42,7 @@ func TestCloudflareDDNSGetsConditionalHTTPSEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"meta skuid routerd tcp dport 443 accept",
 		"meta skuid root tcp dport 443 accept",
 		"meta skuid inadyn tcp dport 443 accept",
 	} {
