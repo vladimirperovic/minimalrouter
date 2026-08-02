@@ -148,6 +148,22 @@ function Dashboard() {
     }
   };
 
+  const triggerRecovery = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await apiFetch("/api/v1/recovery/reconcile", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Recovery failed (${res.status})`);
+      setNotice("Recovery successful. Services reconciled.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recovery reconciliation failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submitNetwork = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -376,7 +392,7 @@ function Dashboard() {
 
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
-        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
+        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary" style={{ marginLeft: "auto", whiteSpace: "nowrap" }} disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}

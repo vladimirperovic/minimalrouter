@@ -239,6 +239,13 @@ export default function ClassicOverview({
       
       <div className="elegant-table-container">
         <table className="elegant-device-table">
+          <colgroup>
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '12%' }} />
+          </colgroup>
           <thead>
             <tr>
               <th>Host Name</th>

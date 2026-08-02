@@ -163,7 +163,7 @@
 .modern-section-heading {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   margin-bottom: 24px;
   flex-wrap: wrap;
   gap: 16px;
@@ -195,6 +195,7 @@
   width: 16px;
   height: 16px;
   color: var(--classic-muted);
+  pointer-events: none;
 }
 .modern-search-input {
   width: 100%;
@@ -205,14 +206,14 @@
   color: var(--classic-text);
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.25s cubic-bezier(0.2, 0, 0, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  box-sizing: border-box;
 }
 .modern-search-input:focus {
   outline: none;
   border-color: var(--classic-blue);
   box-shadow: 0 0 0 4px rgba(10, 116, 232, 0.1);
-  transform: translateY(-1px);
 }
 
 .elegant-table-container {
@@ -233,6 +234,7 @@
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+  table-layout: fixed;
 }
 
 .elegant-device-table th {
