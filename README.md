@@ -21,6 +21,11 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/dashboard-overview.svg" alt="Minimal Router OS dashboard overview" width="1200" />
+</p>
+<p align="center"><sub>Current dashboard preview using sanitized illustrative data.</sub></p>
+
 <a id="project-status"></a>
 
 > **Development status: early alpha.** Minimal Router OS is a research and
