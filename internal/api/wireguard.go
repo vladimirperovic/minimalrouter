@@ -46,6 +46,50 @@ func validateWireGuardEndpoint(value string) error {
 	return nil
 }
 
+// nextFreeWireGuardIP returns the first IPv4 in the server's subnet after the
+// server address that no enabled peer has claimed. Reserved network and
+// broadcast addresses and the server address are skipped. Returns an error when
+// the subnet is exhausted.
+func nextFreeWireGuardIP(serverIP net.IP, subnet string, peers []config.WireGuardPeer) (string, error) {
+	used := make(map[string]struct{})
+	for _, p := range peers {
+		if !p.Enabled {
+			continue
+		}
+		for _, ip := range p.AllowedIPs {
+			if got := net.ParseIP(strings.TrimSuffix(ip, "/32")); got != nil {
+				used[got.String()] = struct{}{}
+			}
+		}
+	}
+
+	if _, network, err := net.ParseCIDR(subnet); err != nil {
+		return "", fmt.Errorf("invalid WireGuard subnet %s", subnet)
+	} else {
+		net4 := network.IP.To4()
+		server4 := serverIP.To4()
+		if net4 == nil || server4 == nil {
+			return "", fmt.Errorf("WireGuard subnet is not IPv4")
+		}
+		ones, bits := network.Mask.Size()
+		hosts := 1 << uint(bits-ones)
+		lastHost := int(net4[3]) + hosts - 1
+		serverHost := int(server4[3])
+		for i := 1; i < hosts-1; i++ {
+			octet := serverHost + i
+			if octet >= lastHost {
+				break
+			}
+			candidate := net.IPv4(net4[0], net4[1], net4[2], byte(octet))
+			if _, skip := used[candidate.String()]; skip {
+				continue
+			}
+			return candidate.String(), nil
+		}
+	}
+	return "", fmt.Errorf("no free address available in WireGuard subnet %s", subnet)
+}
+
 // handleProvisionWireGuardPeer generates the client key locally, persists only
 // its public key plus a preshared key, applies the peer, and returns the private
 // client configuration exactly once in a no-store response.
@@ -62,19 +106,45 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		http.Error(w, "name is required", http.StatusUnprocessableEntity)
 		return
 	}
-	if err := validateWireGuardEndpoint(req.ServerEndpoint); err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
 
 	candidate := s.engine.GetCurrentConfig()
 	if !candidate.WAN.Enabled {
 		http.Error(w, "Configure and verify the WAN connection before enabling WireGuard", http.StatusConflict)
 		return
 	}
-	clientIP := net.ParseIP(req.ClientIPAddress)
+
 	serverIP, wgNetwork, err := net.ParseCIDR(candidate.WireGuard.Address)
-	if err != nil || clientIP == nil || clientIP.To4() == nil || !wgNetwork.Contains(clientIP) || clientIP.Equal(serverIP) {
+	if err != nil {
+		http.Error(w, "WireGuard subnet is invalid", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Auto-assign the next free client IP when the caller leaves it blank.
+	if req.ClientIPAddress == "" {
+		req.ClientIPAddress, err = nextFreeWireGuardIP(serverIP, candidate.WireGuard.Address, candidate.WireGuard.Peers)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+
+	// Auto-fill the server endpoint from the DDNS domain when left blank.
+	if req.ServerEndpoint == "" {
+		if domain := strings.TrimSpace(candidate.Cloudflare.Domain); domain != "" {
+			req.ServerEndpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
+		}
+	}
+	if err := validateWireGuardEndpoint(req.ServerEndpoint); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	if req.ServerEndpoint == "" {
+		http.Error(w, "Configure Dynamic DNS or provide a server_endpoint", http.StatusUnprocessableEntity)
+		return
+	}
+
+	clientIP := net.ParseIP(req.ClientIPAddress)
+	if clientIP == nil || clientIP.To4() == nil || !wgNetwork.Contains(clientIP) || clientIP.Equal(serverIP) {
 		http.Error(w, "client_ip_address must be a unique IPv4 address inside the WireGuard subnet", http.StatusUnprocessableEntity)
 		return
 	}

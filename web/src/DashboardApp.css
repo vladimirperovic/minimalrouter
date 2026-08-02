@@ -973,3 +973,69 @@
   font-weight: 750;
   text-transform: capitalize;
 }
+
+/* WireGuard — add device (auto-assign next free IP + endpoint) */
+.wg-add-form {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, auto);
+  gap: 28px;
+  align-items: start;
+}
+.wg-add-input .field > span {
+  margin-bottom: 4px;
+}
+.wg-add-summary {
+  border-left: 1px solid var(--separator-strong, rgba(0, 0, 0, 0.09));
+  padding-left: 26px;
+}
+.wg-add-assign {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wg-assign-copy {
+  color: var(--text-tertiary, #86868b);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.wg-add-assign dl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.wg-add-assign dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--separator, rgba(0, 0, 0, 0.07));
+}
+.wg-add-assign dt {
+  color: var(--text-secondary, #6e6e73);
+  font-size: 12px;
+}
+.wg-add-assign dd {
+  margin: 0;
+}
+.wg-add-assign dd code {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-primary, #171719);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.wg-add-assign dd:last-child code {
+  color: #0071e3;
+}
+
+@media (max-width: 680px) {
+  .wg-add-form {
+    grid-template-columns: 1fr;
+  }
+  .wg-add-summary {
+    border-left: 0;
+    padding-left: 0;
+  }
+}

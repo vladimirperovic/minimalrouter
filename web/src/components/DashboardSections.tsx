@@ -84,6 +84,36 @@ function formatHandshake(epoch: number) {
   return new Date(epoch * 1000).toLocaleString();
 }
 
+// nextFreeIP mirrors the server: first /32 after the server address not claimed
+// by an enabled peer, skipping reserved host and broadcast addresses.
+function nextFreeIP(serverCIDR: string, peers: Array<{ enabled?: boolean; allowed_ips?: string[] }>) {
+  const [ipText, prefix] = serverCIDR.split("/");
+  const parts = (ipText || "").split(".").map(Number);
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return "—";
+  const used = new Set<string>();
+  for (const peer of peers || []) {
+    if (!peer.enabled) continue;
+    for (const ip of peer.allowed_ips || []) {
+      used.add(ip.replace(/\/32$/, ""));
+    }
+  }
+  const last = parts[3];
+  const hosts = prefix === "32" ? 0 : 1 << Math.max(0, 32 - Number(prefix));
+  for (let i = 1; i < hosts - 1; i++) {
+    const host = last + i;
+    if (host >= 256) break;
+    const candidate = `${parts[0]}.${parts[1]}.${parts[2]}.${host}`;
+    if (used.has(candidate)) continue;
+    return candidate;
+  }
+  return "—";
+}
+
+function endpointFor(config: { cloudflare: { domain: string }; wireguard: { listen_port: number } }, publicIP?: string) {
+  const host = config.cloudflare.domain || publicIP || "1.2.3.4";
+  return `${host}:${config.wireguard.listen_port}`;
+}
+
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
   lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
@@ -102,9 +132,7 @@ export default function DashboardSections({
       const res = await apiFetch("/api/v1/wireguard/peers", {
         method: "POST",
         body: JSON.stringify({
-          name: data.get("name"),
-          client_ip_address: data.get("client_ip_address"),
-          server_endpoint: data.get("server_endpoint")
+          name: data.get("name")
         })
       });
       if (res.ok) {
@@ -312,14 +340,23 @@ export default function DashboardSections({
       <div className="card-title-row">
         <div>
           <h3>Add a new device</h3>
-          <p>Generate a new WireGuard configuration to connect a laptop or phone.</p>
+          <p>Name it — Minimal Router assigns the next free IP and endpoint automatically.</p>
         </div>
       </div>
       <form className="settings-form" onSubmit={handleAddPeer}>
-        <div className="form-grid two">
-          <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required /></label>
-          <label className="field"><span>Client IP Address</span><input name="client_ip_address" placeholder="10.6.0.4/32" required /></label>
-          <label className="field form-span"><span>Server Endpoint (Domain:Port)</span><input name="server_endpoint" defaultValue={`${config.cloudflare.domain || runtime.public_ip || "1.2.3.4"}:${config.wireguard.listen_port}`} required /></label>
+        <div className="wg-add-form">
+          <div className="wg-add-input">
+            <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required autoFocus /></label>
+          </div>
+          <div className="wg-add-summary">
+            <div className="wg-add-assign">
+              <span className="wg-assign-copy">Minimal Router will assign</span>
+              <dl>
+                <div><dt>Client IP</dt><dd><code>{nextFreeIP(config.wireguard.address, config.wireguard.peers || [])}</code></dd></div>
+                <div><dt>Server endpoint</dt><dd><code>{endpointFor(config, runtime.public_ip)}</code></dd></div>
+              </dl>
+            </div>
+          </div>
         </div>
         <div className="form-actions"><button className="button primary" disabled={addingPeer || busy} type="submit">{addingPeer ? "Generating..." : "Generate and Download"}</button></div>
       </form>
