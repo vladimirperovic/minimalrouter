@@ -190,15 +190,6 @@ export default function ClassicOverview({
 
       <div className="classic-charts-row" style={{ display: "flex", gap: "20px" }}>
         <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
-          <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
-          <div className="classic-chart-frame">
-            <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
-            {history.length === 0 && <span className="classic-chart-empty">Waiting for gateway history…</span>}
-          </div>
-          <div className="classic-chart-axis"><span>Older</span><span>Now</span></div>
-        </div>
-        
-        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
           <div className="classic-chart-title"><div><strong>Live Bandwidth</strong><small>WAN interface · last 60 seconds</small></div><div className="classic-chart-legend"><span><i style={{ background: "var(--classic-purple)" }} />Download</span><span><i style={{ background: "var(--classic-green)" }} />Upload</span></div></div>
           <div className="classic-chart-frame">
             <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Live bandwidth history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{rxPath && <path fill="none" stroke="var(--classic-purple)" strokeWidth="2" strokeLinejoin="round" d={rxPath} />}{txPath && <path fill="none" stroke="var(--classic-green)" strokeWidth="2" strokeLinejoin="round" d={txPath} />}</svg>
@@ -208,6 +199,15 @@ export default function ClassicOverview({
             <span style={{ color: "var(--classic-purple)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].rx.toFixed(1) + " Mbps ↓" : "↓"}</span>
             <span style={{ color: "var(--classic-green)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].tx.toFixed(1) + " Mbps ↑" : "↑"}</span>
           </div>
+        </div>
+        
+        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
+          <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
+          <div className="classic-chart-frame">
+            <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
+            {history.length === 0 && <span className="classic-chart-empty">Waiting for gateway history…</span>}
+          </div>
+          <div className="classic-chart-axis"><span>Older</span><span>Now</span></div>
         </div>
       </div>
     </article>
