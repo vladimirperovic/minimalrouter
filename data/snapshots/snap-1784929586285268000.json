@@ -1,7 +1,0 @@
-{
-  "id": "snap-1784929586285268000",
-  "revision": 1,
-  "created_at": "2026-07-24T23:46:26.285269+02:00",
-  "checksum": "a9df4279a6743c96051bfbe63213deb741a824b8136f0ca4ac02dce792df40f3",
-  "config_json": "{\"revision\":1,\"updated_at\":\"2026-07-24T23:16:43.413273+02:00\",\"system\":{\"hostname\":\"minimalrouter\",\"domain\":\"lan\",\"https_enabled\":true,\"https_port\":443},\"wan\":{\"interface\":\"eth0\",\"enabled\":true,\"username\":\"\",\"mtu\":1492,\"use_peer_dns\":true},\"lan\":{\"interface\":\"eth1\",\"ip_address\":\"192.168.1.1\",\"netmask\":\"255.255.255.0\",\"cidr\":\"192.168.1.1/24\"},\"dhcp\":{\"enabled\":true,\"range_start\":\"192.168.1.100\",\"range_end\":\"192.168.1.200\",\"lease_time\":\"12h\",\"dns_servers\":[\"1.1.1.1\",\"1.0.0.1\"],\"static_leases\":[]},\"firewall\":{\"default_wan_input_policy\":\"deny\",\"stateful_firewall\":true,\"port_forwards\":[],\"custom_rules\":[]}}"
-}

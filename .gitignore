@@ -35,3 +35,9 @@ alpine-standard-3.21.3-x86_64.iso
 # Build artifacts
 /build/
 /tools/macos-vm/minimalrouter-alpine-vm
+
+# Runtime config + dev scratch (not for public repos)
+/data/
+/AI_HANDOFF.md
+/SESSION6_SUMMARY.md
+/implementation_plan.md
