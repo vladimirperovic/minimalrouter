@@ -2,18 +2,6 @@ import { expect, test } from "@playwright/test";
 
 test("captures current dashboard overview for documentation", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.addInitScript(() => {
-    const FixedDate = class extends Date {
-      constructor(...args: ConstructorParameters<typeof Date>) {
-        super(...(args.length ? args : ["2026-08-02T08:00:00Z"]));
-      }
-      static now() {
-        return new Date("2026-08-02T08:00:00Z").getTime();
-      }
-    };
-    // @ts-expect-error deterministic documentation screenshot
-    window.Date = FixedDate;
-  });
 
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
