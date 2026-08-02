@@ -1,15 +1,17 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
 import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
+import ClassicOverview from "./components/ClassicOverview";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import "./DashboardApp.css";
+import "./ClassicDashboard.css";
 
 const navigation: Array<[SectionID, string]> = [
   ["overview", "Overview"],
   ["gateway", "Gateway Quality"],
-  ["network", "WAN, LAN & DHCP"],
+  ["network", "LAN & DHCP"],
   ["firewall", "Firewall"],
   ["wireguard", "WireGuard"],
   ["cloudflare", "Dynamic DNS"],
@@ -338,10 +340,13 @@ function Dashboard() {
     return <main className="dashboard-loading"><p>{error || "Loading secure router state…"}</p><button className="button secondary" onClick={() => void load()} type="button">Retry</button></main>;
   }
 
+  const ddnsProvider = config.cloudflare.ddns_provider === "noip" ? "No-IP" : "Cloudflare";
+  const gatewayState = gatewaySummary?.state || "unknown";
+
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
-        <div className="dashboard-brand"><span aria-hidden="true">M</span><div><strong>Minimal Router</strong><small>{system.version || "Early alpha"}</small></div></div>
+        <div className="dashboard-brand"><span className="classic-brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><div><strong>Minimal Router</strong><small>Home gateway</small></div></div>
         <nav aria-label="Router sections">
           {navigation.map(([id, label], index) => (
             <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><span>{String(index + 1).padStart(2, "0")}</span>{label}</a>
@@ -354,16 +359,29 @@ function Dashboard() {
       </aside>
 
       <main className="dashboard-main">
-        <header className="dashboard-topbar">
+        <header className="dashboard-topbar classic-topbar">
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
-          <div><p className="eyebrow">Minimal Router OS</p><h1>{navigation.find(([id]) => id === active)?.[1]}</h1></div>
-          <div className="dashboard-health"><span className={runtime.wan_connected ? "health-dot is-online" : "health-dot"} />{runtime.wan_connected ? "WAN online" : "WAN offline"}</div>
+          <div className="classic-topbar-status" aria-label="Router service status">
+            <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
+            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard</span>
+            <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP</span>
+            <span className={config.dhcp.dns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DNS</span>
+            <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? ddnsProvider : "DDNS off"}</span>
+            <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
+          </div>
+          <div className="classic-topbar-actions">
+            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
+            <span className="classic-setup-pill">Setup complete</span>
+            <button className="classic-avatar" onClick={() => void logout()} type="button" title="Sign out">VP</button>
+          </div>
         </header>
 
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
+
+        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
         <DashboardSections
