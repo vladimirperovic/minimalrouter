@@ -33,7 +33,9 @@ EOF
 chmod +x "$TMP/mock-bin/id" "$TMP/mock-bin/uname"
 
 # Build a dependency-phase-only copy so the test does not modify the host.
-sed 's|/etc|mock-etc|g' "$SCRIPT" > "$TMP/install.sh"
+# Keep mocked /etc absolute because install-dist.sh changes into SCRIPT_DIR before
+# it reaches repository configuration and dependency installation.
+sed "s|/etc|$TMP/mock-etc|g" "$SCRIPT" > "$TMP/install.sh"
 sed -i.bak '/SCRIPT_DIR=/c\SCRIPT_DIR="'$TMP'/dist"' "$TMP/install.sh"
 sed -i.bak '/# Router authentication, TLS,/,$d' "$TMP/install.sh"
 
