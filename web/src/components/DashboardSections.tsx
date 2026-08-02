@@ -1,4 +1,6 @@
+import React, { useState } from "react";
 import type { FormEvent } from "react";
+import { apiFetch } from "../lib/api";
 import DNSFilterPanel from "./DNSFilterPanel";
 import AuditLogPanel from "./AuditLogPanel";
 import GatewayQualityPanel, { GatewayOverviewCard } from "./GatewayQualityPanel";
@@ -24,6 +26,7 @@ type Props = {
   busy: boolean;
   lastRefresh: Date | null;
   load: () => Promise<void>;
+  logout: () => Promise<void>;
   applyConfig: ApplyConfig;
   applyGatewayMonitoring: (settings: GatewaySettings) => void;
   submitNetwork: (event: FormEvent<HTMLFormElement>) => void;
@@ -57,9 +60,41 @@ function formatUptime(seconds = 0) {
 
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
-  lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
+  lastRefresh, load, logout, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
   submitWiFi, createSnapshot, restoreSnapshot, changePassword, setError,
 }: Props) {
+  const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
+  const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
+  const [addingPeer, setAddingPeer] = useState(false);
+
+  const handleAddPeer = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAddingPeer(true);
+    try {
+      const data = new FormData(event.currentTarget);
+      const response = await apiFetch("/api/v1/wireguard/peers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: data.get("name"),
+          client_ip_address: data.get("client_ip_address"),
+          server_endpoint: data.get("server_endpoint"),
+        }),
+      });
+      if (response.ok) {
+        const body = await response.json();
+        setWgConfig({ name: body.peer.name, config: body.client_config, qr: body.qr_code_data });
+        void load();
+      } else {
+        const errorBody = await response.json().catch(() => ({}));
+        setError(errorBody.error || "Failed to add peer");
+      }
+    } catch (peerError) {
+      setError(peerError instanceof Error ? peerError.message : "Failed to add peer");
+    } finally {
+      setAddingPeer(false);
+    }
+  };
+
   return <>
 {active === "overview" && <section className="dashboard-section" id="overview">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2>{lastRefresh && <small>Updated {lastRefresh.toLocaleTimeString()}</small>}</div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
@@ -97,10 +132,105 @@ export default function DashboardSections({
 {active === "wireguard" && <section className="dashboard-section" id="wireguard">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Remote access</p><h2>WireGuard</h2></div><button className="button secondary" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable" : "Enable"}</button></div>
   <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
-  <article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Name</th><th>Allowed IPs</th><th>Endpoint</th><th>Status</th></tr></thead><tbody>{(config.wireguard.peers || []).length === 0 ? <tr><td className="empty-state" colSpan={4}>No peers configured.</td></tr> : config.wireguard.peers.map((peer: WireGuardPeer) => <tr key={peer.id}><td>{peer.name}</td><td><code>{(peer.allowed_ips || []).join(", ")}</code></td><td>{peer.endpoint || "Dynamic"}</td><td>{peer.enabled ? "Enabled" : "Disabled"}</td></tr>)}</tbody></table></div></article>
+  <div className="wireguard-peer-cards">
+    {(config.wireguard.peers || []).length === 0 ? (
+      <article className="card"><div className="empty-state wireguard-empty">No peers configured.</div></article>
+    ) : (
+      config.wireguard.peers.map((peer: WireGuardPeer) => (
+        <article className="card wireguard-peer-card" key={peer.id}>
+          <div>
+            <h3 className="wireguard-peer-title">
+              <span className={peer.enabled ? "wireguard-peer-dot is-enabled" : "wireguard-peer-dot"} />
+              {peer.name}
+            </h3>
+            <p className="wireguard-peer-meta">
+              IP: <code>{(peer.allowed_ips || []).join(", ")}</code> • Endpoint: {peer.endpoint || "Dynamic"}
+            </p>
+          </div>
+          <div className="wireguard-peer-actions">
+            <p className="wireguard-key-preview">{peer.public_key.slice(0, 16)}…</p>
+            <button className="button secondary small" disabled={busy} onClick={() => void applyConfig((next) => {
+              const targetPeer = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === peer.id);
+              if (targetPeer) targetPeer.enabled = !targetPeer.enabled;
+            }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">
+              {peer.enabled ? "Disable" : "Enable"}
+            </button>
+          </div>
+        </article>
+      ))
+    )}
+  </div>
+
+  {wgConfig ? (
+    <div className="dashboard-callout wireguard-config-callout">
+      {wgConfig.qr && (
+        <div className="wireguard-qr-wrap">
+          <img src={wgConfig.qr} alt="WireGuard configuration QR code" className="wireguard-qr" />
+        </div>
+      )}
+      <div>
+        <strong className="wireguard-config-title">Success! Configuration generated for {wgConfig.name}.</strong>
+        <p>WireGuard does not store your private key for security reasons. Download this file or scan the QR code now, as it cannot be retrieved later.</p>
+        <div className="wireguard-config-actions">
+          <button className="button primary" onClick={() => {
+            const blob = new Blob([wgConfig.config], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `${wgConfig.name.replace(/[^a-zA-Z0-9]/g, "_")}.conf`;
+            link.click();
+            URL.revokeObjectURL(url);
+          }} type="button">Download .conf file</button>
+          <button className="button secondary" onClick={() => setWgConfig(null)} type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <article className="card">
+      <div className="card-title-row">
+        <div>
+          <h3>Add a new device</h3>
+          <p>Generate a new WireGuard configuration to connect a laptop or phone.</p>
+        </div>
+      </div>
+      <form className="settings-form wireguard-add-form" onSubmit={handleAddPeer}>
+        <div className="form-grid two">
+          <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required /></label>
+          <label className="field"><span>Client IP Address</span><input name="client_ip_address" placeholder="10.6.0.4/32" required /></label>
+          <label className="field form-span"><span>Server Endpoint (Domain:Port)</span><input name="server_endpoint" defaultValue={`${config.cloudflare.domain || runtime.public_ip || "1.2.3.4"}:${config.wireguard.listen_port}`} required /></label>
+        </div>
+        <div className="form-actions"><button className="button primary" disabled={addingPeer || busy} type="submit">{addingPeer ? "Generating..." : "Generate and Download"}</button></div>
+      </form>
+    </article>
+  )}
 </section>}
 
-{active === "cloudflare" && <section className="dashboard-section" id="cloudflare"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Dynamic DNS</h2></div></div><form className="settings-form" key={`ddns-${config.revision}`} onSubmit={submitCloudflare}><label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable Dynamic DNS</span></label><div className="form-grid two"><label className="field"><span>Provider</span><select defaultValue={config.cloudflare.ddns_provider || "cloudflare"} name="provider"><option value="noip">No-IP</option><option value="cloudflare">Cloudflare</option></select></label><label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="all.ddnskey.com or router.example.com" /></label><label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username} name="username" /></label><label className="field"><span>Cloudflare zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" placeholder="example.com" /></label><label className="field form-span"><span>New provider credential</span><input autoComplete="new-password" name="credential" placeholder="No-IP DDNS Key password or Cloudflare API token" type="password" /></label></div><p className="form-note">No-IP is the recommended default for this pilot. With a No-IP DDNS Key, use the generated key username/password; No-IP recommends <code>all.ddnskey.com</code> as the update target. Only the fields for the selected provider are validated. Switching provider requires a new credential. Cloudflare Tunnel remains unavailable; WireGuard is the only accepted remote-entry path.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Dynamic DNS</button></div></form></section>}
+{active === "cloudflare" && <section className="dashboard-section" id="cloudflare">
+  <div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Dynamic DNS</h2></div></div>
+  <div className="ddns-tabs">
+    <button className={`button ${ddnsTab === "noip" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("noip")}>No-IP</button>
+    <button className={`button ${ddnsTab === "cloudflare" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
+  </div>
+  <form className="settings-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
+    <input type="hidden" name="provider" value={ddnsTab} />
+    <label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable Dynamic DNS ({ddnsTab === "noip" ? "No-IP" : "Cloudflare"})</span></label>
+    {ddnsTab === "noip" ? (
+      <div className="form-grid two">
+        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain || "homelab.redirectme.net"} name="domain" placeholder="homelab.redirectme.net" /></label>
+        <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || ""} name="username" placeholder="No-IP username or DDNS key username" /></label>
+        <label className="field form-span"><span>New provider credential (Password)</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret" type="password" /></label>
+      </div>
+    ) : (
+      <div className="form-grid two">
+        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="router.example.com" /></label>
+        <label className="field"><span>Cloudflare zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" placeholder="example.com" /></label>
+        <label className="field form-span"><span>New API token</span><input autoComplete="new-password" name="credential" placeholder="Leave blank to keep stored secret" type="password" /></label>
+      </div>
+    )}
+    <p className="form-note">{ddnsTab === "noip" ? "With a No-IP DDNS Key, use the generated key username/password." : "Cloudflare requires a Zone name and API token with Edit DNS permissions."}</p>
+    <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply Dynamic DNS</button></div>
+  </form>
+</section>}
 
 {active === "squid" && <section className="dashboard-section" id="squid"><div className="dashboard-section-heading"><div><p className="eyebrow">Optional</p><h2>Squid forward proxy</h2></div></div><form className="settings-form" key={`squid-${config.revision}`} onSubmit={submitSquid}><label className="checkbox-row"><input defaultChecked={config.squid_proxy.enabled} name="enabled" type="checkbox" /><span>Enable non-caching proxy</span></label><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} name="username" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" name="password" placeholder="Leave blank to keep stored secret" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply proxy configuration</button></div></form></section>}
 
@@ -110,7 +240,7 @@ export default function DashboardSections({
 
 {active === "recovery" && <section className="dashboard-section" id="recovery"><div className="dashboard-section-heading"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div><article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article></section>}
 
-{active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button></div></form></section>}
+{active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button><button className="button secondary" onClick={() => void logout()} type="button">Sign out</button></div></form></section>}
 {active === "logs" && <AuditLogPanel />}
   </>;
 }

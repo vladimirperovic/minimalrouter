@@ -7,6 +7,7 @@ import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig,
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import "./DashboardApp.css";
 import "./ClassicDashboard.css";
+import "./DashboardSync.css";
 
 const navigation: Array<[SectionID, string]> = [
   ["overview", "Overview"],
@@ -142,6 +143,22 @@ function Dashboard() {
       await load();
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Configuration apply failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const triggerRecovery = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await apiFetch("/api/v1/recovery/reconcile", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Recovery failed (${res.status})`);
+      setNotice("Recovery successful. Services reconciled.");
+      await load();
+    } catch (recoveryError) {
+      setError(recoveryError instanceof Error ? recoveryError.message : "Recovery reconciliation failed");
     } finally {
       setBusy(false);
     }
@@ -352,10 +369,6 @@ function Dashboard() {
             <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><span>{String(index + 1).padStart(2, "0")}</span>{label}</a>
           ))}
         </nav>
-        <div className="dashboard-sidebar-actions">
-          <button className="quiet-button" onClick={() => setDark((value) => !value)} type="button">{dark ? "Light mode" : "Dark mode"}</button>
-          <button className="quiet-button" onClick={() => void logout()} type="button">Sign out</button>
-        </div>
       </aside>
 
       <main className="dashboard-main">
@@ -363,22 +376,23 @@ function Dashboard() {
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
           <div className="classic-topbar-status" aria-label="Router service status">
             <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
-            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard</span>
-            <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP</span>
-            <span className={config.dhcp.dns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DNS</span>
-            <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? ddnsProvider : "DDNS off"}</span>
+            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter((peer) => peer.enabled).length}</b>}</span>
+            <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
+            <span className="classic-status-chip">DNS</span>
+            <span className={config.cloudflare.ddns_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
+            <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "CF Tunnel" : "CF Tunnel off"}</span>
             <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
           </div>
           <div className="classic-topbar-actions">
             <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
             <span className="classic-setup-pill">Setup complete</span>
-            <button className="classic-avatar" onClick={() => void logout()} type="button" title="Sign out">VP</button>
+            <button className="classic-avatar" onClick={() => { setActive("security"); setMenuOpen(false); }} type="button" title="Security Settings">VP</button>
           </div>
         </header>
 
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
-        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}</div>}
+        {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary dashboard-alert-action" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}
@@ -398,6 +412,7 @@ function Dashboard() {
           lastRefresh={lastRefresh}
           leases={leases}
           load={load}
+          logout={logout}
           memoryPercent={memoryPercent}
           restoreSnapshot={restoreSnapshot}
           setError={setError}

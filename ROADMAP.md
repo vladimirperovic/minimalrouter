@@ -1,137 +1,61 @@
 # Roadmap
 
-Minimal Router OS is an early-alpha project. This roadmap is organized around
-recorded evidence and safety gates, not promised dates.
-
-A checked item means the implementation exists and passed the listed development
-tests. It does not imply production readiness on every host, NIC, ISP, or network.
+Minimal Router OS is early alpha. The roadmap is organized around evidence and
+release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## Current automated baseline
+## Implemented baseline
 
-- [x] Alpine Linux packaging and OpenRC services
-- [x] split unprivileged `routerd` and privileged `router-applyd`
-- [x] SQLite canonical store, migrations, typed validation, and deterministic
-      generators
-- [x] snapshot/apply/verify/commit-or-rollback configuration lifecycle
-- [x] default-deny WAN firewall and LAN-to-WAN NAT
-- [x] PPPoE, DHCP, DNS, WireGuard, QoS, DDNS, Wi-Fi, and DNS Filter paths
-- [x] first-run HTTPS wizard and interface confirmation
-- [x] Argon2id, secure sessions, CSRF, rate limiting, TOTP, and local recovery
-- [x] encrypted backup export and restore validation
-- [x] crash-safe A/B update activation and rollback with durable journal
-- [x] signed manifests, SHA-256 checks, SPDX SBOMs, and provenance support
-- [x] bounded local storage retention, passive SQLite WAL maintenance, and bounded
-      router service log rotation
-- [x] 80% storage warning and 90% critical fail-closed durable-write pressure mode
-      while the active forwarding plane remains untouched
-- [x] central authenticated appliance health with Healthy / Warning / Degraded /
-      Recovery required / Unknown aggregation and Overview banner
-- [x] Go race/vet/vulnerability tests, CodeQL, secret scan, and repository hygiene
-- [x] frontend lint, unit, TypeScript 6 build, dependency audit, and Playwright E2E
-- [x] clean Alpine install, wizard, update activation, and rollback CI
-- [x] repeated interrupted-update recovery tests
-- [x] API and update-journal fuzzing
-- [x] `gosec`, `shellcheck`, `actionlint`, and Linux binary inspection
-- [x] ARM64 build and QEMU smoke test
-- [x] isolated WAN-router-LAN DHCP/DNS/NAT/firewall/traffic laboratory
-- [x] control-plane benchmark and allocation artifacts
-- [x] GitHub core CI actions and artifact upload moved to v7
-- [x] dashboard TypeScript 6.0.3 and Node type definitions 26.1.2
+- [x] Alpine packaging and OpenRC services
+- [x] `routerd` / `router-applyd` privilege separation
+- [x] SQLite canonical config, validation and deterministic generation
+- [x] transactional apply, confirmation, rollback and recovery
+- [x] nftables firewall/NAT, PPPoE, DHCP/DNS and WireGuard
+- [x] No-IP / Cloudflare DDNS, DNS Filter, QoS and optional Wi-Fi/Squid
+- [x] secure sessions, CSRF, rate limits, TOTP and local recovery
+- [x] encrypted backup and snapshots
+- [x] crash-safe A/B update/rollback with signed-manifest support
+- [x] bounded storage/logging and aggregate appliance health
+- [x] gateway monitoring, live bandwidth and connected-device dashboard
+- [x] Go/frontend/security/Alpine/QEMU/network-lab CI
 
-## Alpha pilot — actual Proxmox VM
+## Proven on the first real Proxmox pilot
 
-Goal: prove the minimum router workflow on the target Proxmox host without risking
-the production network.
+- [x] real PPPoE and Internet forwarding
+- [x] recorded 570/327 Mbps throughput sample
+- [x] 0% loss in the recorded 600-packet test
+- [x] external phone WireGuard handshake
+- [x] dashboard access through WireGuard
+- [x] successful pfSense fallback
+- [x] `linux-lts` identified as the working PPPoE kernel path
 
-- [ ] identify and document the candidate VM and NIC/bridge roles read-only
-- [ ] confirm isolated LAN and test/NAT WAN topology
-- [ ] preserve pfSense rollback independent of the candidate
-- [ ] create known-good application backup and Proxmox snapshot
-- [ ] record exact host/guest versions and installed commit
-- [ ] complete five graceful guest reboot cycles
-- [ ] complete repeated Proxmox shutdown/start cycles
-- [ ] prove stable WAN/LAN role reconciliation
-- [ ] prove DHCP, DNS, NAT, HTTPS management, and default-deny WAN behavior
-- [ ] prove unconfirmed disruptive-change rollback and recovery-console access
-- [ ] activate a verified update, reboot, validate, and explicitly roll back
-- [ ] restore an encrypted backup into a fresh VM
+## Next pilot gates
 
-Exit criterion: the VM survives repeated boot, configuration, update, rollback,
-and restore tests without manual file repair or loss of management access.
+- [ ] MinimalRouter-managed No-IP update and later public-IP change
+- [ ] five repeated guest/host reboot cycles with stable WAN/LAN identity
+- [ ] repeated PPPoE reconnect and reboot recovery
+- [ ] WireGuard recovery after PPPoE reconnect/reboot
+- [ ] encrypted backup restore into a fresh VM
+- [ ] external IPv4/IPv6 scan
+- [ ] sustained throughput, packet rate, latency/loss and thermal measurements
+- [ ] full-disk, inode, read-only-filesystem and abrupt-power tests
+- [ ] seven-day continuous pilot with bounded resource growth
 
-## Alpha performance — target-host evidence
+## Production gates
 
-Goal: replace same-kernel CI ceilings with reproducible Proxmox and NIC results.
-
-- [ ] record Proxmox version, host kernel, guest kernel, vCPU, RAM, disk, and NIC
-      model
-- [ ] document VirtIO queues, offloads, bridges, and traffic-generator placement
-- [ ] measure boot-to-forwarding-ready and management-ready
-- [ ] measure idle and loaded CPU/RAM
-- [ ] measure routing/NAT throughput and packets per second
-- [ ] measure latency, jitter, retransmits, and packet loss under load
-- [ ] verify management responsiveness during traffic
-- [ ] measure real PPPoE connect/reconnect, MTU, and CPU cost
-- [ ] measure real WireGuard throughput and CPU cost
-- [ ] measure QoS behavior under load
-- [ ] measure 1 GbE and, where available, 2.5 GbE
-- [ ] investigate 10 GbE only after lower-speed evidence is stable
-- [ ] record bounded log, SQLite WAL, snapshot, gateway-history, and disk growth
-
-Exit criterion: every published number links to exact hardware, commands,
-configuration, duration, raw summary, and limitations.
-
-## Alpha recovery and fault injection
-
-- [x] automated interrupted update/rollback journal reconciliation
-- [x] automated corrupt journal and malformed API fuzzing
-- [x] automated signed package and clean-install rollback tests
-- [x] automated storage-pressure threshold and durable-write classification tests
-- [x] automated central health severity and recovery precedence tests
-- [ ] service-crash tests on the target VM
-- [ ] full-disk and inode-exhaustion test on a disposable clone
-- [ ] read-only-filesystem test on a disposable clone
-- [ ] verify HTTP 507 pressure mode on a real full test filesystem while existing
-      routing, DHCP/DNS, PPPoE and firewall state remains active
-- [ ] corrupt state/snapshot restore rehearsal
-- [ ] abrupt Proxmox host/guest power-loss test after graceful tests pass
-- [ ] backup restore into a completely new VM
-- [ ] seven-day continuous pilot with bounded logs/WAL/history and stable memory
-
-Exit criterion: every failure returns to a documented known-good state and pfSense
-can be restored immediately.
-
-## External and production gates
-
-- [ ] real ISP PPPoE during a maintenance window
-- [ ] WireGuard from an unrelated external network
-- [ ] external IPv4 scan from an unrelated host
-- [ ] external IPv6 scan or documented fail-closed result
-- [ ] owner-signed install and recovery media
+- [ ] owner-qualified signed install/recovery media
 - [ ] independent focused security review
 - [ ] supported Proxmox/NIC matrix
-- [ ] stable migration and upgrade policy
-- [ ] security-update and support policy
-- [ ] no unresolved critical or high-severity findings
+- [ ] stable migration/update policy
+- [ ] security-update/support policy
+- [ ] no unresolved critical/high-severity findings
 
-Until these gates pass, the project remains a controlled pilot rather than an
-unattended pfSense replacement.
+Until these pass, Minimal Router remains a controlled pilot rather than an
+unattended pfSense/OpenWrt replacement.
 
-## Deferred or outside current scope
+## Deferred
 
-- pfSense feature parity
-- multi-WAN and high availability
-- IDS/IPS
-- captive portal
-- BGP or OSPF
-- OpenVPN or IPsec
-- arbitrary WAN port forwarding
-- Docker or Kubernetes on the router
-- general third-party package ecosystem
-- full AdGuard Home feature parity
-
-Adding any deferred feature requires a product decision, threat review,
-maintenance plan, and recorded evidence that it belongs in a small home-router
-appliance.
+Multi-WAN/HA, IDS/IPS, captive portal, BGP/OSPF, OpenVPN/IPsec, arbitrary WAN port
+forwarding, container hosting and a general third-party package ecosystem are
+outside the current small-router scope.

@@ -1,0 +1,271 @@
+.dashboard-alert-action {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.wireguard-peer-cards {
+  display: grid;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.wireguard-empty {
+  padding: 20px;
+  text-align: center;
+}
+
+.wireguard-peer-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 20px;
+}
+
+.wireguard-peer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 5px;
+}
+
+.wireguard-peer-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.wireguard-peer-dot.is-enabled {
+  background: var(--success);
+}
+
+.wireguard-peer-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.wireguard-peer-actions {
+  text-align: right;
+}
+
+.wireguard-key-preview {
+  margin: 0 0 5px;
+  color: var(--text-muted);
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.wireguard-config-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  border-left-color: var(--success);
+}
+
+.wireguard-qr-wrap {
+  flex-shrink: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.wireguard-qr {
+  display: block;
+  width: 150px;
+  height: 150px;
+}
+
+.wireguard-config-title {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 1.1rem;
+}
+
+.wireguard-config-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.wireguard-add-form {
+  padding: 20px;
+}
+
+.ddns-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.security-intro {
+  margin: 10px 0 30px;
+  color: var(--classic-muted);
+  font-size: 14px;
+}
+
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 30px;
+}
+
+.security-card {
+  display: block;
+  min-height: auto;
+  padding: 30px;
+}
+
+.security-card.is-session {
+  display: flex;
+  flex-direction: column;
+}
+
+.security-card-title {
+  margin-bottom: 20px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.security-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.security-field-label,
+.security-session-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--classic-muted);
+  font-size: 12px;
+}
+
+.security-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--classic-border);
+  border-radius: 8px;
+  background: var(--classic-panel);
+  color: var(--classic-text);
+}
+
+.security-submit {
+  align-self: flex-start;
+  margin-top: 10px;
+}
+
+.security-session-body {
+  flex: 1;
+}
+
+.security-session-item {
+  margin-bottom: 20px;
+}
+
+.security-session-value {
+  font-size: 15px;
+}
+
+.security-session-meta {
+  display: block;
+  margin-top: 3px;
+  color: var(--classic-muted);
+}
+
+.security-signout-panel {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid var(--classic-border);
+  border-radius: 8px;
+  background: var(--classic-panel);
+}
+
+.security-signout-title {
+  display: block;
+  color: var(--classic-text);
+  font-size: 13px;
+}
+
+.security-signout-copy {
+  margin: 5px 0 15px;
+  color: var(--classic-muted);
+  font-size: 12px;
+}
+
+.security-signout-button {
+  border: 0;
+  background: #d9382e;
+  color: #fff;
+}
+
+.classic-overview-block {
+  margin-bottom: 20px;
+}
+
+.classic-resource-value-row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.classic-cpu-temp {
+  color: var(--classic-text);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.classic-charts-row {
+  display: flex;
+  gap: 20px;
+}
+
+.classic-chart-block.is-half {
+  flex: 1;
+  min-width: 0;
+}
+
+.classic-chart-legend .is-download {
+  background: var(--classic-purple);
+}
+
+.classic-chart-legend .is-upload {
+  background: var(--classic-green);
+}
+
+.classic-bandwidth-download {
+  color: var(--classic-purple);
+  font-weight: 600;
+}
+
+.classic-bandwidth-upload {
+  color: var(--classic-green);
+  font-weight: 600;
+}
+
+.classic-device-col-name { width: 30%; }
+.classic-device-col-ip { width: 18%; }
+.classic-device-col-mac { width: 22%; }
+.classic-device-col-expires { width: 18%; }
+.classic-device-col-actions { width: 12%; }
+
+@media (max-width: 760px) {
+  .wireguard-peer-card,
+  .wireguard-config-callout,
+  .classic-charts-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .wireguard-peer-actions {
+    text-align: left;
+  }
+
+  .ddns-tabs {
+    flex-wrap: wrap;
+  }
+}

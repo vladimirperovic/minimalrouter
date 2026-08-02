@@ -1,109 +1,53 @@
-# Controlled lab installation
+# Installation
 
-Minimal Router OS is currently an **early-alpha lab appliance**. There is no
-signed stable ISO or unattended production installation path. Keep console
-access and a known-good router available throughout the test.
+Minimal Router OS is early alpha. Install only on a lab VM or controlled pilot
+with console access and a known-good router ready for rollback.
 
-This guide covers the self-contained Alpine Linux distribution archive produced
-from the source tree. Proxmox-specific preparation is documented in
-[`PROXMOX.md`](PROXMOX.md).
+For Proxmox-specific preparation see [`PROXMOX.md`](PROXMOX.md).
 
-## Supported test target
+## Requirements
 
-The currently documented test target is:
+- Alpine Linux 3.22
+- AMD64 or ARM64
+- one WAN and one LAN interface
+- local console access
+- working PPPoE kernel support when PPPoE is used
 
-- Alpine Linux 3.22;
-- x86-64 (`amd64`) or ARM64 where the required networking packages and kernel
-  modules are available;
-- on the validated Proxmox PPPoE path, **Alpine `linux-lts`**;
-- one WAN and one LAN interface;
-- a VM or dedicated test machine with local console access;
-- an isolated LAN that is not bridged to the normal household or office LAN.
-
-For a VM, 1 vCPU, 1 GiB RAM, an 8 GiB disk and two VirtIO NICs are a practical
-starting point. The 2026-08-01 owner-Proxmox pilot observed approximately 73 MB
-RAM after a clean `linux-lts` boot and 172 MB after the exercised workload, but
-those values are observations rather than sizing guarantees.
-
-## Why the PPPoE kernel preflight matters
-
-The first real Proxmox PPPoE pilot initially used Alpine `linux-virt`. That
-running kernel did not provide the PPPoE module needed by the appliance. After
-switching to `linux-lts`, PPPoE support was available and the real WAN test
-succeeded.
-
-Before installation, verify the running kernel can load PPPoE support:
+For the validated Proxmox path use Alpine `linux-lts` and verify:
 
 ```sh
-uname -a
 modprobe pppoe
 ```
 
-If `modprobe pppoe` fails, stop. On the validated Proxmox path install/boot
-`linux-lts`, reboot into it, and repeat the check. The source and distribution
-installers perform the same capability check and fail closed instead of leaving
-an apparently installed router that cannot establish the intended PPPoE WAN.
+If that fails, stop before installing.
 
-## Safety checklist
+A practical VM starting point is 1 vCPU, 1 GiB RAM and an 8 GiB disk.
 
-Before installation:
+## Build
 
-- keep the existing router connected and ready for rollback;
-- connect the candidate WAN to a test/NAT network before a real ISP cutover;
-- connect the candidate LAN to an isolated bridge or switch;
-- do not reuse production PPPoE, No-IP/Cloudflare, Wi-Fi, proxy or WireGuard
-  secrets during initial lab setup;
-- record which virtual or physical interface is WAN and which is LAN;
-- take a VM snapshot only when the guest filesystem is in a consistent state;
-- never pipe a mutable download directly into a root shell.
-
-## 1. Build the distribution archive
-
-Build on a trusted Linux or macOS development computer with the Go version from
-`go.mod`, Node.js 22 and pnpm installed.
+On a trusted development machine with Go from `go.mod`, Node.js 22 and pnpm:
 
 ```sh
 git clone https://github.com/vladimirperovic/minimalrouter.git
 cd minimalrouter
-
-git status --short
 pnpm --dir web install --frozen-lockfile
 make dist-amd64
 ```
 
-For ARM64, use:
+For ARM64 use `make dist-arm64`.
 
-```sh
-make dist-arm64
-```
-
-## 2. Verify the archive before transfer
-
-On the build computer:
+Verify the archive before transfer:
 
 ```sh
 cd build
 sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
 ```
 
-On macOS:
+On macOS use `shasum -a 256 -c ...`.
 
-```sh
-cd build
-shasum -a 256 -c minimalrouter-linux-amd64.tar.gz.sha256
-```
+## Prepare Alpine
 
-Record the exact Git commit:
-
-```sh
-git rev-parse HEAD
-```
-
-## 3. Prepare Alpine Linux
-
-Install a clean Alpine Linux 3.22 system. On Proxmox, boot `linux-lts` for the
-validated PPPoE path. Confirm kernel support and both interfaces before running
-the Minimal Router installer:
+Confirm the guest and identify WAN/LAN by topology rather than interface number:
 
 ```sh
 cat /etc/alpine-release
@@ -113,115 +57,85 @@ ip -brief link
 ip -brief address
 ```
 
-Do not guess interface roles from numbering alone. Hypervisors and hardware may
-present interfaces in a different order after reboot.
+Do not place the candidate DHCP server on the same broadcast domain as the
+production router during initial setup.
 
-## 4. Transfer and verify
+## Install
 
-Copy the archive and checksum to the Alpine machine over a trusted path. Verify
-the checksum again on the target:
-
-```sh
-sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
-```
-
-A failed checksum is a hard stop.
-
-## 5. Extract and install
+Transfer the archive and checksum over a trusted path, verify the checksum again,
+then extract it:
 
 ```sh
 mkdir -p /tmp/minimalrouter-install
 tar xzf minimalrouter-linux-amd64.tar.gz -C /tmp/minimalrouter-install
 cd /tmp/minimalrouter-install/minimalrouter-linux-amd64
+```
+
+### Normal install
+
+```sh
 sudo sh install.sh
 ```
 
-The installer runs as root and supports Alpine Linux only. It installs required
-packages, binaries, OpenRC services, web assets, sysctl/module configuration and
-restrictive file ownership. It also loads every required router kernel module;
-missing `pppoe` support aborts installation with the `linux-lts` guidance above.
+Normal mode configures Alpine 3.22 repositories when needed and runs `apk update`
+and `apk add` for required dependencies.
 
-Do not modify generated service files manually. Configuration changes must go
-through the validated Minimal Router API and apply pipeline.
-
-## 6. Verify services
+### Offline / pre-provisioned install
 
 ```sh
+sudo sh install.sh --offline
+```
+
+Offline mode is for an already provisioned, air-gapped node. It:
+
+- does not run `apk update` or `apk add`;
+- does not modify Alpine repository configuration;
+- checks every required package locally with `apk info -e`;
+- aborts if anything is missing.
+
+The required package set is maintained in
+`packaging/alpine/install-dist.sh` so documentation does not duplicate it.
+
+`MINIMALROUTER_OFFLINE=1 sudo sh install.sh` is also accepted.
+
+## Start and verify
+
+```sh
+rc-service chronyd start
+rc-service router-applyd start
+rc-service routerd start
+
 rc-service router-applyd status
 rc-service routerd status
 rc-update show | grep -E 'routerd|router-applyd'
 modprobe pppoe
 ```
 
-Inspect only redacted logs when requesting help. Never publish credentials,
-private keys, session values, real public addresses, private hostnames, MAC
-addresses or device inventory.
+Then connect a client only to the isolated LAN and open the HTTPS management
+address shown by the installer. Complete the first-run setup with test
+credentials.
 
-## 7. Complete first-run setup
+During the first pilot verify:
 
-Attach a client only to the isolated LAN. Open the HTTPS management address shown
-by the appliance or assigned to the selected LAN interface, then complete the
-first-run wizard.
+- correct WAN/LAN interfaces;
+- DHCP and DNS from the isolated LAN;
+- outbound Internet connectivity;
+- no direct dashboard access from WAN;
+- logout/login behavior;
+- rollback after an unconfirmed disruptive change;
+- console recovery access.
 
-During the first trial:
+## Dynamic DNS and WireGuard
 
-- use test credentials;
-- leave optional integrations disabled until base routing is verified;
-- verify the selected WAN and LAN interfaces before applying;
-- keep the console open during every disruptive network change;
-- confirm that management is unavailable directly from WAN;
-- confirm that a failed or unconfirmed disruptive change rolls back.
+New configurations default to No-IP DDNS; Cloudflare remains supported. Configure
+DDNS only after the base WAN is stable and verify the hostname from an external
+resolver.
 
-A locally generated device certificate may require an explicit browser trust
-exception during lab testing. Do not replace HTTPS with plaintext management.
+See [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md) and [`RECOVERY.md`](RECOVERY.md).
 
-## 8. Dynamic DNS / No-IP
+## Before any real ISP cutover
 
-New configurations default to **No-IP** DDNS through Alpine `inadyn`. Cloudflare
-remains available for compatibility. Prefer a scoped No-IP DDNS Key rather than
-the main account password.
-
-Do not assume DDNS is working merely because Internet access works. After the
-base WAN is stable, configure No-IP in the **Dynamic DNS** dashboard and validate
-it from an external resolver. The full provider and diagnostic contract is in
-[`DYNAMIC_DNS.md`](DYNAMIC_DNS.md).
-
-The 2026-08-01 pilot already demonstrated that a working externally resolved
-hostname allowed a phone to establish WireGuard and open the dashboard; the
-remaining test is to prove that the newly implemented **MinimalRouter-managed
-No-IP updater** performs that update without a Proxmox-host workaround.
-
-## 9. Basic validation
-
-After setup, verify from an isolated LAN client:
-
-- DHCP lease acquisition;
-- DNS resolution;
-- outbound IPv4 connectivity through the intended WAN;
-- default-deny unsolicited WAN behavior;
-- dashboard authentication and logout;
-- backup export using a test password;
-- reboot reconciliation;
-- console access after a deliberately failed configuration change.
-
-For a real-ISP pilot, additionally verify:
-
-- PPPoE disconnect/reconnect and reboot recovery;
-- MinimalRouter-managed No-IP update and external resolution;
-- WireGuard recovery using the No-IP hostname;
-- host-side/out-of-band rollback remains ready before each disruptive cutover.
-
-Do not move the appliance into unattended production merely because these checks
-pass. Repeated NIC/PPPoE behavior, sustained throughput and thermals, power-loss
-recovery, external scanning, restore, signed recovery media and independent
-security review remain release gates.
-
-## Upgrade and removal
-
-There is no stable in-place upgrade contract yet. Before testing a newer commit,
-export an encrypted backup, record the current commit, and keep a full VM or disk
-rollback path.
-
-For a failed test, disconnect the candidate WAN and LAN, restore the known-good
-router, and only then investigate. See [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)
-and [`SUPPORT.md`](../SUPPORT.md).
+Keep the existing router and an out-of-band rollback path ready. A successful
+basic test is not a production-readiness claim; repeated PPPoE/reboot recovery,
+No-IP propagation, backup restore, external scans, destructive fault tests and a
+longer soak are still release gates.
