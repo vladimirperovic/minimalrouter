@@ -49,11 +49,44 @@ if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi
 
-echo "[1/7] Installing dependencies..."
-apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
-    wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
-    chrony chrony-openrc logrotate
+OFFLINE_MODE=0
+if [ "${1:-}" = "--offline" ]; then
+    OFFLINE_MODE=1
+elif [ -n "${1:-}" ]; then
+    echo "Usage: $0 [--offline]" >&2
+    exit 1
+fi
+
+if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
+    OFFLINE_MODE=1
+fi
+
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+
+if [ "$OFFLINE_MODE" -eq 1 ]; then
+    echo "[1/7] Checking dependencies (offline mode)..."
+    MISSING_PKGS=""
+    for pkg in $REQUIRED_PACKAGES; do
+        if apk info -e "$pkg" >/dev/null 2>&1; then
+            echo "  ✓ $pkg"
+        else
+            echo "  ✗ $pkg (MISSING)"
+            MISSING_PKGS="$MISSING_PKGS $pkg"
+        fi
+    done
+    
+    if [ -n "$MISSING_PKGS" ]; then
+        echo "ERROR: The following required packages are missing for offline installation:" >&2
+        echo "$MISSING_PKGS" >&2
+        exit 1
+    fi
+    echo "All required dependencies already installed."
+    echo "Continuing offline installation..."
+else
+    echo "[1/7] Installing dependencies..."
+    apk update
+    apk add --no-cache $REQUIRED_PACKAGES
+fi
 
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:

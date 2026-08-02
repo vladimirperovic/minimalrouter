@@ -47,6 +47,8 @@ Verify the checksum again after transfer to the guest.
 
 ## Install
 
+**Normal install:**
+
 ```sh
 mkdir -p /tmp/minimalrouter-install
 tar xzf minimalrouter-linux-amd64.tar.gz -C /tmp/minimalrouter-install
@@ -54,8 +56,21 @@ cd /tmp/minimalrouter-install/minimalrouter-linux-amd64
 sudo sh install.sh
 ```
 
-The installer sets up the required Alpine packages, OpenRC services, dashboard,
-sysctl settings and required kernel modules including `pppoe`.
+The normal installer requires internet access to download and set up the required Alpine packages (`apk update && apk add ...`), OpenRC services, dashboard, sysctl settings and required kernel modules including `pppoe`.
+
+**Offline/preprovisioned install:**
+
+```sh
+sudo sh install.sh --offline
+```
+
+The `--offline` mode is designed for secure, air-gapped deployments on pre-provisioned nodes. It:
+- Does **not** attempt to download or install packages.
+- Never contacts the internet or Alpine repositories.
+- First verifies that all required dependencies are already present on the system.
+- Aborts immediately if any required package is missing.
+
+Use `--offline` to update an existing, isolated installation without enabling upstream connectivity.
 
 ## Verify
 
