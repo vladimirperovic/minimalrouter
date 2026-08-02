@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -36,6 +37,7 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/gateway/history", sh(s.authMiddleware(s.handleGetGatewayHistory)))
 	mux.HandleFunc("GET /api/v1/gateway/settings", sh(s.authMiddleware(s.handleGetGatewaySettings)))
 	mux.HandleFunc("PUT /api/v1/gateway/settings", sh(s.authMiddleware(s.handlePutGatewaySettings)))
+	mux.HandleFunc("POST /api/v1/network/wol", sh(s.authMiddleware(s.handleWakeOnLAN)))
 }
 
 func (s *Server) handleGetGatewaySummary(w http.ResponseWriter, _ *http.Request) {
@@ -109,6 +111,48 @@ func (s *Server) handlePutGatewaySettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeGatewayJSON(w, http.StatusOK, settings)
+}
+
+func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MAC string `json:"mac"`
+	}
+	if err := decodeJSON(w, r, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	hwAddr, err := net.ParseMAC(req.MAC)
+	if err != nil {
+		http.Error(w, "Invalid MAC address", http.StatusBadRequest)
+		return
+	}
+	packet := make([]byte, 102)
+	for i := 0; i < 6; i++ {
+		packet[i] = 0xFF
+	}
+	for i := 1; i <= 16; i++ {
+		copy(packet[i*6:], hwAddr)
+	}
+	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:9")
+	if err != nil {
+		http.Error(w, "Wake-on-LAN address unavailable", http.StatusInternalServerError)
+		return
+	}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		http.Error(w, "Wake-on-LAN socket unavailable", http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+	if err := conn.SetWriteBuffer(len(packet)); err != nil {
+		http.Error(w, "Wake-on-LAN socket unavailable", http.StatusInternalServerError)
+		return
+	}
+	if _, err := conn.Write(packet); err != nil {
+		http.Error(w, "Wake-on-LAN send failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func writeGatewayJSON(w http.ResponseWriter, status int, value interface{}) {
