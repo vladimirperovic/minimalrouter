@@ -44,74 +44,69 @@ export default function SecuritySettings({ changePassword, logout }: Props) {
             <h1>Security Settings</h1>
           </div>
         </div>
-        <p style={{ color: "var(--classic-muted)", fontSize: "14px", marginTop: "10px", marginBottom: "30px" }}>
+        <p className="classic-security-intro">
           Manage your password and review recent account activity.
         </p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "30px" }}>
-          <div className="classic-live-card" style={{ display: "block", minHeight: "auto", padding: "30px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>Change Administrator Password</h3>
+        <div className="classic-security-grid">
+          <div className="classic-live-card classic-security-card">
+            <h3>Change Administrator Password</h3>
             
-            <form onSubmit={changePassword} style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+            <form onSubmit={changePassword} className="classic-security-form">
               <div>
-                <label style={{ display: "block", fontSize: "12px", color: "var(--classic-muted)", marginBottom: "5px" }}>Current Password</label>
+                <label>Current Password</label>
                 <input 
                   type="password" 
                   name="old_password"
                   required
-                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--classic-border)", background: "var(--classic-panel)", color: "var(--classic-text)" }}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "12px", color: "var(--classic-muted)", marginBottom: "5px" }}>New Password</label>
+                <label>New Password</label>
                 <input 
                   type="password" 
                   name="new_password"
                   required
-                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--classic-border)", background: "var(--classic-panel)", color: "var(--classic-text)" }}
                 />
               </div>
               <div>
-                <label style={{ display: "block", fontSize: "12px", color: "var(--classic-muted)", marginBottom: "5px" }}>Confirm New Password</label>
+                <label>Confirm New Password</label>
                 <input 
                   type="password" 
                   name="confirm_password"
                   required
-                  style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--classic-border)", background: "var(--classic-panel)", color: "var(--classic-text)" }}
                 />
               </div>
               <button 
                 type="submit" 
                 className="button primary" 
-                style={{ alignSelf: "flex-start", marginTop: "10px" }}
               >
                 Update Password
               </button>
             </form>
           </div>
 
-          <div className="classic-live-card" style={{ display: "flex", flexDirection: "column", minHeight: "auto", padding: "30px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 600, marginBottom: "20px" }}>Session Information</h3>
+          <div className="classic-live-card classic-security-card classic-security-card-column">
+            <h3>Session Information</h3>
             
-            <div style={{ flex: 1 }}>
-              <div style={{ marginBottom: "20px" }}>
-                <span style={{ display: "block", fontSize: "12px", color: "var(--classic-muted)", marginBottom: "5px" }}>Previous Login</span>
-                <strong style={{ fontSize: "15px" }}>
+            <div className="classic-security-session">
+              <div className="classic-security-session-block">
+                <label>Previous Login</label>
+                <strong className="classic-security-value">
                   {loading ? "Loading..." : lastLogin ? new Date(lastLogin.timestamp).toLocaleString() : "First login"}
                 </strong>
-                {lastLogin && <small style={{ display: "block", color: "var(--classic-muted)", marginTop: "3px" }}>From IP: {lastLogin.actor}</small>}
+                {lastLogin && <small>From IP: {lastLogin.actor}</small>}
               </div>
               
-              <div style={{ padding: "15px", background: "var(--classic-panel)", border: "1px solid var(--classic-border)", borderRadius: "8px", marginTop: "20px" }}>
-                <strong style={{ display: "block", fontSize: "13px", color: "var(--classic-text)" }}>End current session</strong>
-                <p style={{ fontSize: "12px", color: "var(--classic-muted)", margin: "5px 0 15px" }}>
+              <div className="classic-security-logout">
+                <strong>End current session</strong>
+                <p>
                   Sign out of the minimalrouter dashboard on this device.
                 </p>
                 <button 
                   type="button" 
                   onClick={() => void logout()} 
                   className="button" 
-                  style={{ background: "#d9382e", color: "white", border: "none" }}
                 >
                   Sign Out
                 </button>

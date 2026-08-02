@@ -600,13 +600,13 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	} else {
 		clearQoS(cfg)
 	}
-	
+
 	if lanChanged {
 		if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 			return fmt.Errorf("restart dnsmasq: %w", err)
 		}
 	}
-	
+
 	if cfg.WAN.Enabled {
 		if wanChanged {
 			if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
@@ -641,7 +641,7 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
-		
+
 		// Inadyn is restarted asynchronously. We do not block the pipeline verifying
 		// credentials because the network interface (e.g. PPPoE) might still be initializing.
 		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {

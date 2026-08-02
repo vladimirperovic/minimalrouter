@@ -245,16 +245,16 @@ export default function DashboardSections({
   )}
 
   {wgConfig ? (
-    <div className="dashboard-callout" style={{ borderLeftColor: "var(--success)", display: "flex", gap: "20px", alignItems: "flex-start" }}>
+    <div className="dashboard-callout wg-callout">
       {wgConfig.qr && (
-        <div style={{ flexShrink: 0, padding: "10px", background: "white", borderRadius: "8px" }}>
-          <img src={wgConfig.qr} alt="QR Code" style={{ width: "150px", height: "150px", display: "block" }} />
+        <div className="wg-qr">
+          <img src={wgConfig.qr} alt="QR Code" />
         </div>
       )}
       <div>
-        <strong style={{ fontSize: "1.1rem", display: "block", marginBottom: "5px" }}>Success! Configuration generated for {wgConfig.name}.</strong>
+        <strong className="wg-success-title">Success! Configuration generated for {wgConfig.name}.</strong>
         <p>WireGuard does not store your private key for security reasons. You MUST download this file or scan the QR code now, as it cannot be retrieved later.</p>
-        <div style={{ marginTop: "15px", display: "flex", gap: "10px" }}>
+        <div className="wg-actions">
           <button className="button primary" onClick={() => {
             const blob = new Blob([wgConfig.config], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
@@ -275,7 +275,7 @@ export default function DashboardSections({
           <p>Generate a new WireGuard configuration to connect a laptop or phone.</p>
         </div>
       </div>
-      <form className="settings-form" onSubmit={handleAddPeer} style={{ padding: "20px" }}>
+      <form className="settings-form" onSubmit={handleAddPeer}>
         <div className="form-grid two">
           <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required /></label>
           <label className="field"><span>Client IP Address</span><input name="client_ip_address" placeholder="10.6.0.4/32" required /></label>

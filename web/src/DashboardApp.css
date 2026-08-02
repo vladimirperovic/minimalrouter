@@ -240,6 +240,40 @@
 .dashboard-alert.is-warning {
   border-color: rgba(255, 149, 0, 0.3);
   background: rgba(255, 149, 0, 0.1);
+  color: #9a6b00;
+}
+
+.classic-alert-recover {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.wg-callout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  border-left: 4px solid var(--success, #28a745);
+}
+.wg-qr {
+  flex-shrink: 0;
+  padding: 10px;
+  background: white;
+  border-radius: 8px;
+}
+.wg-qr img {
+  width: 150px;
+  height: 150px;
+  display: block;
+}
+.wg-success-title {
+  font-size: 1.1rem;
+  display: block;
+  margin-bottom: 5px;
+}
+.wg-actions {
+  margin-top: 15px;
+  display: flex;
+  gap: 10px;
 }
 
 .metric-grid {

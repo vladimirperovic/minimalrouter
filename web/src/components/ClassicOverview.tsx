@@ -148,16 +148,16 @@ export default function ClassicOverview({
         <span className="classic-chip" title="Time sync">Time Synchronized: {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
       </div>
 
-      <div className="classic-live-grid" style={{ marginBottom: "20px" }}>
+      <div className="classic-live-grid">
         <article className="classic-live-card"><span>Gateway latency</span><strong>{metric(gatewaySummary?.latency_ms, " ms")}</strong><small>Read-only WAN quality monitor</small></article>
         <article className="classic-live-card"><span>Packet loss</span><strong>{metric(gatewaySummary?.packet_loss_percent, "%")}</strong><small>Across configured probe targets</small></article>
         <article className="classic-live-card"><span>PPPoE uptime</span><strong>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</strong><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></article>
       </div>
 
-      <div className="classic-resource-grid" style={{ marginBottom: "20px" }}>
+      <div className="classic-resource-grid">
         <article>
           <span>CPU</span>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", width: "100%" }}>
+          <div className="classic-resource-top">
             <strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong>
           </div>
           <small>{runtime.cpu_count || 0} logical cores</small>
@@ -167,20 +167,20 @@ export default function ClassicOverview({
         <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
       </div>
 
-      <div className="classic-charts-row" style={{ display: "flex", gap: "20px" }}>
-        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
-          <div className="classic-chart-title"><div><strong>Live Bandwidth</strong><small>WAN interface · last 60 seconds</small></div><div className="classic-chart-legend"><span><i style={{ background: "var(--classic-purple)" }} />Download</span><span><i style={{ background: "var(--classic-green)" }} />Upload</span></div></div>
+      <div className="classic-charts-row">
+        <div className="classic-chart-block">
+          <div className="classic-chart-title"><div><strong>Live Bandwidth</strong><small>WAN interface · last 60 seconds</small></div><div className="classic-chart-legend"><span><i className="is-download" />Download</span><span><i className="is-upload" />Upload</span></div></div>
           <div className="classic-chart-frame">
             <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Live bandwidth history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{rxPath && <path fill="none" stroke="var(--classic-purple)" strokeWidth="2" strokeLinejoin="round" d={rxPath} />}{txPath && <path fill="none" stroke="var(--classic-green)" strokeWidth="2" strokeLinejoin="round" d={txPath} />}</svg>
             {bandwidthHistory.length === 0 && <span className="classic-chart-empty">Collecting metrics…</span>}
           </div>
           <div className="classic-chart-axis">
-            <span style={{ color: "var(--classic-purple)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].rx.toFixed(1) + " Mbps ↓" : "↓"}</span>
-            <span style={{ color: "var(--classic-green)", fontWeight: 600 }}>{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].tx.toFixed(1) + " Mbps ↑" : "↑"}</span>
+            <span className="is-download">{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].rx.toFixed(1) + " Mbps ↓" : "↓"}</span>
+            <span className="is-upload">{bandwidthHistory.length > 0 ? bandwidthHistory[bandwidthHistory.length - 1].tx.toFixed(1) + " Mbps ↑" : "↑"}</span>
           </div>
         </div>
         
-        <div className="classic-chart-block" style={{ flex: 1, minWidth: 0 }}>
+        <div className="classic-chart-block">
           <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
           <div className="classic-chart-frame">
             <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
