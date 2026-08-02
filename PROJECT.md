@@ -1,198 +1,90 @@
-# Minimal Router OS product vision
+# Product direction
 
-## Purpose
+Minimal Router OS is a focused Alpine Linux router appliance for home and
+small-office networks. It combines proven Linux networking components with a
+small Go control plane, transactional configuration and a clear web UI.
 
-Minimal Router OS is a focused Linux router appliance for home and small-office
-networks. It reuses proven Linux networking components and adds a small Go
-control plane, a transactional configuration model, and a clear web interface.
+> **Status: early alpha.** Current evidence is tracked in
+> [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-It is not a new packet-processing stack and it does not target pfSense or OpenWrt
-feature parity. The project intentionally trades breadth for a smaller set of
-understandable, integrated workflows.
+## Principles
 
-The current project is **early alpha**. This document describes direction and
-acceptance criteria; it is not a promise that every target is implemented or
-validated today. Current evidence and limitations are documented in `README.md`,
-`ROADMAP.md`, and the dated files under `docs/`.
+- Keep the feature set small and understandable.
+- Reuse mature Linux networking components.
+- Keep packet forwarding out of the Go management process.
+- Prefer safe, reversible configuration over clever automation.
+- Fail closed when runtime state cannot be proven.
+- Make optional exposure explicit and opt-in.
+- Require reproducible evidence for performance and security claims.
 
-## Core principles
+## Core scope
 
-1. Less is better. Every feature must justify its attack surface and maintenance
-   cost.
-2. Reuse Linux components that already solve networking problems well.
-3. Safe configuration, recovery, and honest failure are more important than
-   clever automation.
-4. Defaults must be secure, understandable, and opt-in for optional exposure.
-5. The UI, API, and local tools are clients of the same typed configuration
-   model.
-6. Packet forwarding stays out of the Go management process.
-7. Hypervisor-specific optimizations remain optional.
-8. Performance and security claims require reproducible evidence.
-
-## Intended user experience
-
-A future supported release should let an administrator:
-
-1. install a verified appliance image or package on supported hardware;
-2. identify WAN and LAN interfaces without guessing Linux device names;
-3. create an administrator password during first run;
-4. enter optional PPPoE credentials;
-5. review the proposed LAN address and DHCP pool;
-6. apply the configuration with automatic rollback protection;
-7. reach a concise dashboard that accurately reports router and service state;
-8. recover through documented console or recovery-media procedures.
-
-The wizard should ask only for information that cannot be safely inferred. Any
-time target for installation must be measured on documented reference hardware
-before it becomes a release claim.
-
-## Current technology direction
-
-- Alpine Linux
-- Go management services
-- React + TypeScript + Vite dashboard compiled to static assets
-- SQLite canonical configuration store
-- nftables firewall and NAT
-- pppd for PPPoE
-- dnsmasq for DHCP, DNS, and a basic global DNS blocklist
-- WireGuard for remote access
-- OpenRC service management
-
-Optional integrations currently include bounded paths for Squid, QoS,
-Cloudflare DDNS, and a hardware-dependent Wi-Fi access point. Optional features
-remain disabled until explicitly configured.
-
-## Control-plane architecture
-
-The control plane is split into:
-
-- `routerd`: unprivileged HTTPS/API, authentication, canonical state,
-  transactions, audit events, and dashboard delivery;
-- `router-applyd`: local privileged helper for fixed, typed, allowlisted system
-  operations;
-- `minimalrouter-mcp`: optional local MCP bridge whose default mode is read-only.
-
-Every configuration mutation follows the same invariant:
-
-```text
-input → validation → typed model → generation → preflight → snapshot
-      → apply → verification → commit or rollback
-```
-
-Generated service files are disposable artifacts. Canonical validated state is
-the source of truth.
-
-## Focused router scope
-
-The intended focused workflow includes:
+The current product focuses on:
 
 - one WAN and one LAN role;
-- optional PPPoE WAN;
-- LAN addressing and DHCP;
-- DNS forwarding and a basic global blocklist;
+- PPPoE WAN;
+- DHCP and DNS;
 - default-deny firewall and LAN-to-WAN NAT;
-- WireGuard-first remote administration;
-- live lease/status information;
-- encrypted backup export and configuration snapshots;
-- commit-confirmed protection for lockout-prone changes;
-- optional Wi-Fi AP only on verified compatible hardware.
+- WireGuard remote access;
+- No-IP / Cloudflare Dynamic DNS;
+- device visibility and basic DNS filtering;
+- snapshots, encrypted backups and rollback;
+- gateway quality and appliance-health monitoring;
+- optional Squid, QoS and Wi-Fi AP support.
 
 WAN web management and arbitrary WAN port forwarding are intentionally outside
 the current secure appliance profile.
 
-## User interface direction
+## Technology
 
-The dashboard should prioritize:
+- Alpine Linux + OpenRC
+- Go (`routerd`, `router-applyd`, recovery/update tools)
+- React + TypeScript + Vite dashboard
+- SQLite canonical configuration state
+- nftables, pppd, dnsmasq, WireGuard and inadyn
 
-- internet and PPPoE status;
-- CPU, memory, disk, and uptime;
-- WAN and LAN traffic;
-- currently leased devices;
-- firewall and WireGuard state;
-- service health and explicit unavailable states;
-- snapshots, backup, restore, and audit events.
+Configuration follows one invariant:
 
-Controls must not imply that an unimplemented or failed backend operation
-succeeded. Decorative graphs and configuration complexity should be avoided when
-they do not help an operator make a decision.
+```text
+input → validate → generate → preflight → snapshot → apply → verify
+      → commit or rollback/recovery
+```
 
-## Platform policy
+Generated service files are disposable. Validated canonical state is the source
+of truth.
 
-Initial evidence focuses on:
+## User experience
 
-- x86-64 Alpine Linux in a Proxmox/KVM-style VM;
-- ARM64 development VMs for selected integration and resource tests.
+The router should behave like an appliance rather than an enterprise cockpit.
+The dashboard should make these answers obvious:
 
-Bare metal, VMware, Hyper-V, VirtualBox, additional ARM devices, and other
-hypervisors remain targets until each has a documented install, boot,
-networking, rollback, recovery, and performance result. A platform is not
-supported merely because the binaries compile for its CPU architecture.
+1. Is the Internet working?
+2. Is the gateway healthy?
+3. How many devices are connected?
+4. Is remote access working?
+5. Does the router itself need attention?
 
-## Performance policy
+Advanced details remain available without dominating the default view.
 
-The project aims for a smaller idle resource footprint than broad firewall
-platforms because it intentionally provides fewer services. Current VM
-measurements are evidence for those exact environments only.
+## Platform direction
 
-Before publishing a performance claim, record:
+Current evidence is centered on x86-64 Alpine in Proxmox/KVM. ARM64 is covered by
+build/QEMU smoke tests. Other hardware and hypervisors are not considered
+supported until install, networking, recovery and performance are tested there.
 
-- exact CPU, NIC, memory, storage, and virtualization environment;
-- software commit and configuration;
-- test commands and traffic pattern;
-- idle and sustained CPU/memory use;
-- throughput, latency, packet loss, thermals, and management responsiveness;
-- comparison limitations.
+## Production boundary
 
-Near-term validation targets are reliable 1 GbE operation on reference hardware
-and measured WireGuard/PPPoE cost. 2.5 GbE and 10 GbE are research targets, not
-current support promises.
+A future production recommendation requires, at minimum:
 
-## Explicit exclusions for the current release line
+- repeated real PPPoE/reboot recovery;
+- supported hardware/virtualization matrix;
+- signed install and recovery media;
+- stable migrations and update/rollback policy;
+- backup restore evidence;
+- external IPv4/IPv6 scanning and fault injection;
+- sustained resource/performance measurements;
+- independent security review;
+- no unresolved critical/high-severity findings.
 
-- pfSense feature parity
-- multi-WAN
-- high availability/CARP
-- IDS/IPS
-- captive portal
-- BGP or OSPF
-- OpenVPN or IPsec
-- arbitrary WAN port forwarding
-- Docker or Kubernetes on the router
-- a general third-party package platform
-- full AdGuard Home feature parity
-
-Adding an excluded feature requires a product decision, threat review,
-maintenance plan, failure/rollback design, and evidence that it belongs in a
-small appliance.
-
-## Public alpha acceptance criteria
-
-A public early-alpha repository must:
-
-- contain only reviewed source in a clean one-commit repository boundary;
-- expose no private development history, repository metadata, credentials,
-  runtime state, or real network inventory;
-- pass repository hygiene, Go race tests, vet, dashboard lint/build, CodeQL, a
-  clean Alpine install, and current/full-history secret scans;
-- clearly state that it is experimental and community-supported;
-- provide accurate installation, contribution, support, security, and rollback
-  documentation;
-- avoid production, performance, or security claims that exceed its evidence.
-
-## Production-readiness criteria
-
-A future release may be recommended as a household production router only after
-it has:
-
-- a documented supported hardware/hypervisor matrix;
-- reproducible signed installation and recovery artifacts;
-- stable configuration migrations and upgrade/rollback procedures;
-- real ISP PPPoE, DHCP, DNS, NAT, WireGuard, reboot, and backup/restore evidence;
-- external IPv4/IPv6 scanning and fault-injection results;
-- published sustained resource and performance measurements;
-- bounded log and disk-pressure behavior;
-- an independent focused security review;
-- a documented support and security-update policy;
-- no unresolved critical or high-severity security findings.
-
-See `SECURITY.md` and `ROADMAP.md` for the detailed gates.
+See [`ROADMAP.md`](ROADMAP.md) for the active gates and [`SECURITY.md`](SECURITY.md)
+for the security model.
