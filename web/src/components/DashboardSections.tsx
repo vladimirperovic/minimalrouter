@@ -52,7 +52,6 @@ type Props = {
   speedTesting: boolean;
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
-  changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
   setError: (message: string) => void;
 };
 
@@ -88,7 +87,7 @@ function formatHandshake(epoch: number) {
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
   lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, speedTest, speedTesting, createSnapshot, restoreSnapshot, changePassword, setError,
+  submitWiFi, submitQoS, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError,
 }: Props) {
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
@@ -405,7 +404,6 @@ export default function DashboardSections({
 
 {active === "recovery" && <section className="dashboard-section" id="recovery"><div className="dashboard-section-heading"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div><article className="card table-card"><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article></section>}
 
-{active === "security" && <section className="dashboard-section" id="security"><div className="dashboard-section-heading"><div><p className="eyebrow">Administrator</p><h2>Security settings</h2></div></div><form className="settings-form narrow" onSubmit={changePassword}><div className="form-grid"><label className="field"><span>Current password</span><input autoComplete="current-password" name="old_password" required type="password" /></label><label className="field"><span>New password</span><input autoComplete="new-password" minLength={15} name="new_password" required type="password" /></label><label className="field"><span>Confirm new password</span><input autoComplete="new-password" minLength={15} name="confirm_password" required type="password" /></label></div><p className="form-note">Changing the password revokes every session. TOTP enrollment remains available through the authenticated API; lost TOTP recovery is local-console only.</p><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Change password</button></div></form></section>}
 {active === "logs" && <AuditLogPanel />}
   </>;
 }

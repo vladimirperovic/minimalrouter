@@ -3,6 +3,7 @@ import AuthGate from "./components/AuthGate";
 import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
+import ProfileMenu from "./components/ProfileMenu";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
@@ -449,12 +450,16 @@ function Dashboard() {
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
-        <div className="dashboard-brand"><span className="classic-brand-mark" aria-hidden="true"><i /><i /><i /><i /></span><div><strong>Minimal Router</strong><small>Home gateway</small></div></div>
+        <div className="dashboard-brand">
+          <span className="classic-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9h18M4 9l1.2 5.2a3 3 0 0 0 2.9 2.3h7.8a3 3 0 0 0 2.9-2.3L20 9" /><circle cx="5.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="8.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><path d="M7 5.5h10M10 3.5h4" /></svg></span>
+          <div className="dashboard-brand-title"><strong>Minimal</strong><small>Router</small></div>
+        </div>
         <nav aria-label="Router sections">
           {navigation.map(([id, label]) => (
             <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
           ))}
         </nav>
+        <div className="dashboard-brand-revision">Revision {config.revision}</div>
       </aside>
 
       <main className="dashboard-main">
@@ -474,7 +479,7 @@ function Dashboard() {
           <div className="classic-topbar-actions">
             <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
             <span className="classic-setup-pill">Setup complete</span>
-            <button className="classic-avatar" onClick={() => { setActive("security"); setMenuOpen(false); }} type="button" title="Security Settings">VP</button>
+            <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
           </div>
         </header>
 
@@ -486,7 +491,7 @@ function Dashboard() {
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
-        {active === "security" && <SecuritySettings changePassword={changePassword} logout={logout} />}
+        {active === "security" && <SecuritySettings config={config} />}
 
         {active !== "security" && (
           <DashboardSections
@@ -494,7 +499,6 @@ function Dashboard() {
             applyConfig={applyConfig}
             applyGatewayMonitoring={applyGatewayMonitoring}
             busy={busy}
-            changePassword={changePassword}
             config={config}
             createSnapshot={createSnapshot}
             diskPercent={diskPercent}

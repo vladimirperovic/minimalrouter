@@ -60,6 +60,8 @@ export default function ClassicOverview({
 }: Props) {
   const [history, setHistory] = useState<GatewayHistoryPoint[]>([]);
   const [bandwidthHistory, setBandwidthHistory] = useState<{rx: number, tx: number}[]>([]);
+  const [securityCount, setSecurityCount] = useState<number | null>(null);
+  const [lastLogin, setLastLogin] = useState<{ timestamp: string; actor: string } | null>(null);
   const lastBytesRef = useRef<{rx: number, tx: number, time: number} | null>(null);
 
   useEffect(() => {
@@ -110,6 +112,20 @@ export default function ClassicOverview({
     };
   }, [lastRefresh]);
 
+  useEffect(() => {
+    let active = true;
+    void apiFetch("/api/v1/audit/events?limit=50")
+      .then(res => res.ok ? res.json() : Promise.reject())
+      .then((body: { events?: Array<{ event_type: string; timestamp: string; actor: string }> }) => {
+        if (!active || !Array.isArray(body.events)) return;
+        const logins = body.events.filter((e) => e.event_type === "auth.login_succeeded");
+        if (logins.length > 0) setLastLogin({ timestamp: logins[0].timestamp, actor: logins[0].actor });
+        setSecurityCount(body.events.filter((e) => /auth.(csrf|origin|cross_site)_rejected/.test(e.event_type)).length);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [lastRefresh]);
+
   const latencyPath = useMemo(() => pathFor(history.map((point) => point.latency_ms ?? 0), 1000, 130), [history]);
   const lossPath = useMemo(() => pathFor(history.map((point) => point.packet_loss_percent ?? 0), 1000, 130), [history]);
 
@@ -139,8 +155,12 @@ export default function ClassicOverview({
         <span>LAN MAC <b>{runtime.lan_mac || "Unknown"}</b></span>
         <span>Uptime <b>{formatUptime(runtime.uptime_seconds)}</b></span>
         <span>MTU <b>{config.wan.mtu || 1492}</b></span>
-        <span>Revision <b>{config.revision}</b></span>
         <span className={system.update_trust_configured ? "is-positive" : "is-warning"}>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</span>
+      </div>
+      <div className="classic-security-chip">
+        <span className={`classic-chip ${config.firewall.stateful_firewall ? "" : "is-warning"}`} title="Stateful firewall">Firewall {config.firewall.stateful_firewall ? "on" : "off"}</span>
+        <span className="classic-chip" title="Blocked requests in last 50 events">Rejected requests {securityCount ?? "…"}</span>
+        <span className="classic-chip" title="Previous successful sign-in">{lastLogin ? `Last login ${new Date(lastLogin.timestamp).toLocaleString()} · ${lastLogin.actor}` : "Checking last login…"}</span>
       </div>
       <div className="classic-chips-row">
         <span className="classic-chip" title="Storage">Storage {runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used (${formatBytes(runtime.storage.used_bytes)} of ${formatBytes(runtime.storage.total_bytes)})` : "Unknown"}</span>
