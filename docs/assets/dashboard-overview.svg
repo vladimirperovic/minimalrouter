@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Minimal Router OS dashboard overview</title>
+  <desc id="desc">Generated preview of the current classic Minimal Router OS dashboard using sanitized illustrative data.</desc>
+
+  <rect width="1440" height="900" fill="#f5f5f7"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="0" width="228" height="900" fill="#f5f5f7"/>
+  <line x1="227.5" y1="0" x2="227.5" y2="900" stroke="#dedee2"/>
+
+  <rect x="23" y="20" width="38" height="38" rx="11" fill="#ffffff" stroke="#dedee2"/>
+  <rect x="33" y="30" width="8" height="8" rx="2" fill="#0a74e8"/>
+  <rect x="45" y="30" width="8" height="8" rx="2" fill="#0a74e8"/>
+  <rect x="33" y="42" width="8" height="8" rx="2" fill="#0a74e8"/>
+  <rect x="45" y="42" width="8" height="8" rx="2" fill="#0a74e8"/>
+  <text x="72" y="36" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700" fill="#171719">Minimal Router</text>
+  <text x="72" y="50" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">router appliance</text>
+
+  <rect x="15" y="88" width="198" height="42" rx="10" fill="#e8f2fd"/>
+  <text x="31" y="114" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="600" fill="#0a74e8">01</text>
+  <text x="63" y="114" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="600" fill="#0a74e8">Overview</text>
+
+  <g font-family="Inter,Arial,sans-serif" font-size="12" fill="#55555a">
+    <text x="31" y="161">02</text><text x="63" y="161">Gateway Quality</text>
+    <text x="31" y="205">03</text><text x="63" y="205">LAN &amp; DHCP</text>
+    <text x="31" y="249">04</text><text x="63" y="249">Firewall</text>
+    <text x="31" y="293">05</text><text x="63" y="293">WireGuard</text>
+    <text x="31" y="337">06</text><text x="63" y="337">Dynamic DNS</text>
+    <text x="31" y="381">07</text><text x="63" y="381">Squid Proxy</text>
+    <text x="31" y="425">08</text><text x="63" y="425">DNS Filter</text>
+    <text x="31" y="469">09</text><text x="63" y="469">Wi-Fi AP</text>
+    <text x="31" y="513">10</text><text x="63" y="513">Recovery</text>
+    <text x="31" y="557">11</text><text x="63" y="557">Security</text>
+    <text x="31" y="601">12</text><text x="63" y="601">Logs</text>
+  </g>
+
+  <!-- Top bar -->
+  <rect x="228" y="0" width="1212" height="64" fill="#f5f5f7"/>
+  <line x1="228" y1="63.5" x2="1440" y2="63.5" stroke="#dedee2"/>
+
+  <rect x="256" y="17" width="104" height="30" rx="15" fill="#eaf7ed"/>
+  <circle cx="271" cy="32" r="3" fill="#21833a"/>
+  <text x="281" y="36" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700" fill="#21833a">WAN online</text>
+
+  <rect x="370" y="17" width="118" height="30" rx="15" fill="#eaf7ed"/>
+  <circle cx="385" cy="32" r="3" fill="#21833a"/>
+  <text x="395" y="36" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700" fill="#21833a">Health verified</text>
+
+  <rect x="1231" y="17" width="86" height="30" rx="15" fill="#ffffff" stroke="#dedee2"/>
+  <text x="1253" y="36" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="600" fill="#171719">Refresh</text>
+  <rect x="1327" y="14" width="36" height="36" rx="11" fill="#171719"/>
+  <text x="1338" y="36" font-family="Inter,Arial,sans-serif" font-size="10" font-weight="700" fill="#ffffff">VP</text>
+
+  <!-- Content -->
+  <g transform="translate(258,96)">
+    <!-- Hero card -->
+    <rect x="0" y="0" width="1152" height="425" rx="18" fill="#ffffff" stroke="#dedee2"/>
+
+    <circle cx="31" cy="37" r="4" fill="#28a745"/>
+    <text x="44" y="41" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="700" fill="#86868b">Internet</text>
+    <text x="27" y="91" font-family="Inter,Arial,sans-serif" font-size="44" font-weight="650" letter-spacing="-2" fill="#171719">Online and verified</text>
+
+    <rect x="955" y="26" width="168" height="34" rx="17" fill="#ffffff" stroke="#dedee2"/>
+    <circle cx="974" cy="43" r="4" fill="#28a745"/>
+    <text x="986" y="47" font-family="Inter,Arial,sans-serif" font-size="11" font-weight="600" fill="#28a745">PPPoE connected</text>
+
+    <g font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">
+      <text x="27" y="127">Public IP</text><text x="78" y="127" font-weight="600" fill="#171719">203.0.113.42</text>
+      <text x="177" y="127">Uptime</text><text x="218" y="127" font-weight="600" fill="#171719">3d 8h 17m</text>
+      <text x="306" y="127">MTU</text><text x="332" y="127" font-weight="600" fill="#171719">1492</text>
+      <text x="383" y="127">Revision</text><text x="431" y="127" font-weight="600" fill="#171719">42</text>
+      <text x="478" y="127" font-weight="700" fill="#28a745">Signed updates enabled</text>
+    </g>
+
+    <!-- Live cards -->
+    <rect x="27" y="153" width="342" height="124" rx="16" fill="#f1f1f3"/>
+    <text x="51" y="180" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">Gateway latency</text>
+    <text x="51" y="225" font-family="Inter,Arial,sans-serif" font-size="36" font-weight="620" fill="#171719">8.7 ms</text>
+    <text x="51" y="248" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Read-only WAN quality monitor</text>
+
+    <rect x="381" y="153" width="342" height="124" rx="16" fill="#f1f1f3"/>
+    <text x="405" y="180" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">Packet loss</text>
+    <text x="405" y="225" font-family="Inter,Arial,sans-serif" font-size="36" font-weight="620" fill="#171719">0.0%</text>
+    <text x="405" y="248" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Across configured probe targets</text>
+
+    <rect x="735" y="153" width="388" height="124" rx="16" fill="#f1f1f3"/>
+    <text x="759" y="180" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">PPPoE uptime</text>
+    <text x="759" y="225" font-family="Inter,Arial,sans-serif" font-size="32" font-weight="620" fill="#171719">3d 8h 14m</text>
+    <text x="759" y="248" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">0 reconnects / 24h</text>
+
+    <!-- Chart -->
+    <line x1="27" y1="300" x2="1123" y2="300" stroke="#dedee2"/>
+    <text x="27" y="329" font-family="Inter,Arial,sans-serif" font-size="12" font-weight="700" fill="#171719">Gateway quality</text>
+    <text x="27" y="345" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Live samples · last hour</text>
+    <circle cx="1005" cy="326" r="4" fill="#0a74e8"/><text x="1016" y="330" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Latency</text>
+    <circle cx="1068" cy="326" r="4" fill="#7557d9"/><text x="1079" y="330" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Packet loss</text>
+
+    <line x1="27" y1="365" x2="1123" y2="365" stroke="#e6e6e9"/>
+    <line x1="27" y1="392" x2="1123" y2="392" stroke="#e6e6e9"/>
+    <path d="M27 397 C110 385,160 388,225 375 S350 382,425 366 S560 380,640 371 S775 365,860 377 S1010 361,1123 368" fill="none" stroke="#0a74e8" stroke-width="2.2"/>
+    <path d="M27 408 C190 408,240 405,330 408 S520 407,615 408 S815 408,900 404 S1030 408,1123 407" fill="none" stroke="#7557d9" stroke-width="2"/>
+  </g>
+
+  <!-- System section -->
+  <g transform="translate(258,560)">
+    <text x="0" y="0" font-family="Inter,Arial,sans-serif" font-size="9" font-weight="700" letter-spacing="1" fill="#86868b">SYSTEM</text>
+    <text x="0" y="42" font-family="Inter,Arial,sans-serif" font-size="34" font-weight="620" letter-spacing="-1.7" fill="#171719">Quietly doing its job.</text>
+    <text x="1037" y="38" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Alpine Linux · amd64 · 39°C</text>
+
+    <rect x="0" y="68" width="374" height="135" rx="16" fill="#ffffff" stroke="#dedee2"/>
+    <text x="23" y="96" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">CPU</text>
+    <text x="304" y="103" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="620" fill="#171719">7%</text>
+    <text x="23" y="120" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">2 logical cores</text>
+    <rect x="23" y="157" width="328" height="5" rx="2.5" fill="#f1f1f3"/><rect x="23" y="157" width="23" height="5" rx="2.5" fill="#0a74e8"/>
+
+    <rect x="389" y="68" width="374" height="135" rx="16" fill="#ffffff" stroke="#dedee2"/>
+    <text x="412" y="96" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">Memory</text>
+    <text x="656" y="103" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="620" fill="#171719">172 MB</text>
+    <text x="412" y="120" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">172 MB of 2.0 GB</text>
+    <rect x="412" y="157" width="328" height="5" rx="2.5" fill="#f1f1f3"/><rect x="412" y="157" width="28" height="5" rx="2.5" fill="#7557d9"/>
+
+    <rect x="778" y="68" width="374" height="135" rx="16" fill="#ffffff" stroke="#dedee2"/>
+    <text x="801" y="96" font-family="Inter,Arial,sans-serif" font-size="10" fill="#86868b">Disk</text>
+    <text x="1055" y="103" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="620" fill="#171719">1.1 GB</text>
+    <text x="801" y="120" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">1.1 GB of 8.0 GB</text>
+    <rect x="801" y="157" width="328" height="5" rx="2.5" fill="#f1f1f3"/><rect x="801" y="157" width="45" height="5" rx="2.5" fill="#28a745"/>
+  </g>
+
+  <!-- Operations row -->
+  <g transform="translate(258,803)">
+    <rect x="0" y="0" width="181" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="16" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Storage pressure</text>
+    <text x="16" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">Normal</text>
+
+    <rect x="194" y="0" width="181" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="210" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Conntrack</text>
+    <text x="210" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">2%</text>
+
+    <rect x="388" y="0" width="181" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="404" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Time sync</text>
+    <text x="404" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">Synchronized</text>
+
+    <rect x="582" y="0" width="181" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="598" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">Dynamic DNS</text>
+    <text x="598" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">No-IP</text>
+
+    <rect x="776" y="0" width="181" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="792" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">WireGuard</text>
+    <text x="792" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">On</text>
+
+    <rect x="970" y="0" width="182" height="70" rx="14" fill="#ffffff" stroke="#dedee2"/>
+    <text x="986" y="24" font-family="Inter,Arial,sans-serif" font-size="9" fill="#86868b">DHCP</text>
+    <text x="986" y="49" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="620" fill="#171719">On</text>
+  </g>
+
+  <text x="1407" y="891" text-anchor="end" font-family="Inter,Arial,sans-serif" font-size="9" fill="#a0a0a6">Generated preview · sanitized illustrative data</text>
+</svg>
