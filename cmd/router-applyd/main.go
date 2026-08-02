@@ -280,7 +280,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		log.Printf("apply transaction %q activation failed and was rolled back: %s", req.ID, safeError(err))
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
 	}
-	if err := verifyActive(req.Config); err != nil {
+	if err := verifyActive(req.Config, requireWANVerification(req.Op)); err != nil {
 		rollbackErr := rollback(previousConfig, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
@@ -336,7 +336,7 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err := configureRuntimeLAN(req.Config); err != nil {
 		return recoveryFailure(req.ID, "could not finalize LAN address; verified rollback is required")
 	}
-	if err := verifyActive(req.Config); err != nil {
+	if err := verifyActive(req.Config, true); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime verification failed; verified rollback is required")
 	}
 	return apply.ApplyResponse{
@@ -356,7 +356,7 @@ func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmed commit does not match pending configuration", false)
 	}
-	if err := verifyActive(req.Config); err != nil {
+	if err := verifyActive(req.Config, true); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime is no longer active; canonical reconciliation is required")
 	}
 	if err := saveLastGood(req.Config); err != nil {
@@ -655,7 +655,11 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	return nil
 }
 
-func verifyActive(cfg config.SystemConfig) error {
+func requireWANVerification(op apply.OperationType) bool {
+	return op != apply.OpReconcile
+}
+
+func verifyActive(cfg config.SystemConfig, requireWAN bool) error {
 	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err != nil {
 		return fmt.Errorf("nftables table unavailable: %w", err)
 	}
@@ -674,7 +678,7 @@ func verifyActive(cfg config.SystemConfig) error {
 	if !strings.Contains(output, "inet "+prefix+"/") {
 		return errors.New("configured LAN address is not active")
 	}
-	if cfg.WAN.Enabled {
+	if cfg.WAN.Enabled && requireWAN {
 		deadline := time.Now().Add(20 * time.Second)
 		for {
 			if err := runFixed("/sbin/ip", "link", "show", "dev", "ppp0"); err == nil {
@@ -957,7 +961,7 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 	}
 	if previousConfig != nil {
 		_ = os.Remove(pendingPath)
-		return verifyActive(*previousConfig)
+		return verifyActive(*previousConfig, true)
 	}
 	return nil
 }

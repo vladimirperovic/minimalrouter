@@ -30,6 +30,7 @@ depend() {
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
+    rm -f /run/minimalrouter/apply.sock
 }
 
 # routerd must not be released merely because the supervisor was forked. The
@@ -37,7 +38,11 @@ start_pre() {
 start_post() {
     attempts=0
     while [ "$attempts" -lt 120 ]; do
-        [ -S /run/minimalrouter/apply.sock ] && return 0
+        if [ -S /run/minimalrouter/apply.sock ]; then
+            chgrp routerd "$pidfile"
+            chmod 0640 "$pidfile"
+            return 0
+        fi
         attempts=$((attempts + 1))
         sleep 0.25
     done
