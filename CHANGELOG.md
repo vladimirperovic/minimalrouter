@@ -4,6 +4,27 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During early
 alpha, compatibility may change between commits.
 
+## [v0.1.0] — 2026-08-03
+
+Beta milestone: the full system is validated and running in production on
+Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
+
+### Added
+
+- WireGuard peer provisioning by name only: the router auto-assigns the next
+  free client IP in the subnet and defaults the server endpoint to the DDNS
+  domain (`nextFreeWireGuardIP` with subnet-bound allocation).
+- Central Security page: firewall posture, failed-login and CSRF/origin-reject
+  counters, and a bounded live security-events feed; account controls moved into
+  the VP profile dropdown.
+- Overview security chips (firewall, rejected requests, previous login) and a
+  router-icon sidebar with the revision pinned at the bottom.
+
+### Fixed
+
+- Production deploy procedure hardened: binary swap now stops services first
+  (avoiding `Text file busy`) and gunzips on the guest before install.
+
 ## [Unreleased]
 
 ### Added
