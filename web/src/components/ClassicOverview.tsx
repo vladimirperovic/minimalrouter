@@ -166,8 +166,6 @@ export default function ClassicOverview({
         {typeof runtime.temperature_c === "number" && (
            <span className="classic-chip" title="CPU Temperature">🌡️ {runtime.temperature_c.toFixed(1)}°C</span>
         )}
-        <span className="classic-chip" title="Active LAN leases">🟢 Trenutno zakačeno {leases.length} LAN uređaja</span>
-        <span className="classic-chip" title="Active WireGuard peers">🔵 {(config.wireguard.peers || []).filter((peer) => peer.enabled).length} WireGuard uređaja</span>
         <span className="classic-chip" title="Storage">💾 Storage {runtime.storage ? `${runtime.storage.usage_percent.toFixed(1)}% used` : "Unknown"}</span>
         <span className="classic-chip" title="Conntrack">🔌 Conntrack {runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</span>
         <span className="classic-chip" title="Time sync">🕒 Time {runtime.time_synchronized ? "Synchronized" : "Not verified"}</span>

@@ -144,3 +144,14 @@
   .classic-section-heading { align-items: flex-start; }
   .classic-section-heading > small { display: none; }
 }
+.chip-badge {
+  display: inline-block;
+  background: currentColor;
+  color: var(--classic-panel);
+  border-radius: 10px;
+  padding: 0 4px;
+  margin-left: 2px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.3;
+}
