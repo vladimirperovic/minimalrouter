@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { GatewayHistoryPoint, GatewaySummary, RouterConfig, SystemStatus } from "../api-types";
 import { apiFetch } from "../lib/api";
 
@@ -11,7 +11,6 @@ type Props = {
   gatewaySummary: GatewaySummary | null;
   memoryPercent: number;
   diskPercent: number;
-  leases: NonNullable<Runtime["dhcp_leases"]>;
   lastRefresh: Date | null;
 };
 
@@ -57,13 +56,11 @@ export default function ClassicOverview({
   gatewaySummary,
   memoryPercent,
   diskPercent,
-  leases,
   lastRefresh,
 }: Props) {
   const [history, setHistory] = useState<GatewayHistoryPoint[]>([]);
   const [bandwidthHistory, setBandwidthHistory] = useState<{rx: number, tx: number}[]>([]);
   const lastBytesRef = useRef<{rx: number, tx: number, time: number} | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -116,30 +113,6 @@ export default function ClassicOverview({
   const latencyPath = useMemo(() => pathFor(history.map((point) => point.latency_ms ?? 0), 1000, 130), [history]);
   const lossPath = useMemo(() => pathFor(history.map((point) => point.packet_loss_percent ?? 0), 1000, 130), [history]);
 
-  const staticMacs = useMemo(() => new Set((config.dhcp.static_leases || []).map(sl => sl.mac.toLowerCase())), [config.dhcp.static_leases]);
-  
-  const filteredLeases = useMemo(() => {
-    if (!searchQuery) return leases;
-    const lower = searchQuery.toLowerCase();
-    return leases.filter(l => 
-      (l.hostname && l.hostname.toLowerCase().includes(lower)) || 
-      l.ip_address.includes(lower) || 
-      l.mac.includes(lower)
-    );
-  }, [leases, searchQuery]);
-
-  const wakeOnLan = useCallback(async (mac: string) => {
-    try {
-      await apiFetch("/api/v1/network/wol", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mac }),
-      });
-    } catch (e) {
-      console.error("WOL failed", e);
-    }
-  }, []);
-
   const connected = useMemo(() => {
     return gatewaySummary && gatewaySummary.packet_loss_percent < 50;
   }, [gatewaySummary]);
@@ -148,7 +121,7 @@ export default function ClassicOverview({
     <article className="classic-hero-card">
       <div className="classic-hero-heading">
         <div>
-          <div className="classic-kicker">Local appliance</div>
+          <div className="classic-kicker">{typeof runtime.cpu_load_percent === "number" ? `${(100 - runtime.cpu_load_percent).toFixed(0)}% idle · load ${(runtime.load_average || []).map((v) => v.toFixed(2)).join("/")}` : "Local appliance"}</div>
           <h1>{connected ? "Online and verified" : "Offline"}</h1>
         </div>
         {gatewaySummary ? (
@@ -220,73 +193,5 @@ export default function ClassicOverview({
         </div>
       </div>
     </article>
-
-    <section className="modern-device-section">
-      <div className="modern-section-heading">
-        <div className="modern-heading-titles">
-          <span>LAN NETWORK</span>
-          <h2>Connected devices</h2>
-        </div>
-        <div className="modern-search-wrapper">
-          <svg className="modern-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          <input 
-            type="text" 
-            placeholder="Search by name, IP, or MAC..." 
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="modern-search-input"
-          />
-        </div>
-      </div>
-      
-      <div className="elegant-table-container">
-        <table className="elegant-device-table">
-          <colgroup>
-            <col style={{ width: '30%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '12%' }} />
-          </colgroup>
-          <thead>
-            <tr>
-              <th>Host Name</th>
-              <th>IP Address</th>
-              <th>MAC Address</th>
-              <th>Expires</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredLeases.length === 0 ? (
-              <tr><td colSpan={5} className="elegant-empty">No devices found.</td></tr>
-            ) : filteredLeases.map((lease) => {
-              const isStatic = staticMacs.has(lease.mac.toLowerCase());
-              return (
-                <tr key={`${lease.mac}-${lease.ip_address}`}>
-                  <td className="elegant-cell-name">
-                    {lease.hostname || "Unknown device"}
-                    {isStatic && <span className="elegant-badge-static">Static</span>}
-                  </td>
-                  <td className="elegant-cell-ip">{lease.ip_address}</td>
-                  <td className="elegant-cell-mac">{lease.mac}</td>
-                  <td className="elegant-cell-expires">{isStatic ? 'Never' : new Date(lease.expires_at * 1000).toLocaleString()}</td>
-                  <td className="elegant-cell-actions">
-                    <button 
-                      type="button" 
-                      onClick={() => void wakeOnLan(lease.mac)}
-                      className="elegant-btn-wol"
-                      title="Wake-on-LAN"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
   </section>;
 }

@@ -468,6 +468,12 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		return nil, fmt.Errorf("doh proxy: %w", err)
 	}
 
+	// Router's own resolver is its local dnsmasq; upstreams and the nftables
+	// output allow-list are both derived from cfg.DHCP.DNSServers, so pointing
+	// resolv.conf at 127.0.0.1 keeps router-local lookups working even when the
+	// ISP pushes broken nameservers via usepeerdns.
+	resolvConf := "nameserver 127.0.0.1\n"
+
 	return map[string]artifact{
 		"nftables":  {path: nftRuntimePath, data: []byte(nft), mode: 0600},
 		"pppoe":     {path: "/etc/ppp/peers/wan", data: []byte(pppoe.PeerConfig), mode: 0600},
@@ -487,6 +493,7 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 		},
 		"squid":        {path: "/etc/squid/squid.conf", data: []byte(squidConfig), mode: 0644},
 		"squid-passwd": {path: "/etc/squid/passwd", data: squidPassword, mode: 0640},
+		"resolv-conf":  {path: "/etc/resolv.conf", data: []byte(resolvConf), mode: 0644},
 	}, nil
 }
 
@@ -555,7 +562,7 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 }
 
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "nftables"} {
+	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)

@@ -152,6 +152,7 @@ export type SystemStatus = {
     uptime_seconds?: number;
     cpu_count?: number;
     cpu_load_percent?: number;
+    load_average?: number[];
     memory_used_bytes?: number;
     memory_total_bytes?: number;
     rx_bytes?: number;
@@ -166,6 +167,15 @@ export type SystemStatus = {
     conntrack_usage_percent?: number;
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
     wireguard_active_peers?: number;
+    wireguard_peers?: Array<{
+      public_key: string;
+      endpoint?: string;
+      allowed_ips?: string;
+      last_handshake_epoch?: number;
+      rx_bytes?: number;
+      tx_bytes?: number;
+      online: boolean;
+    }>;
     ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string };
   };
 };

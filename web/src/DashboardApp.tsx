@@ -380,6 +380,7 @@ function Dashboard() {
             <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
             <span className="classic-status-chip">DNS</span>
             <span className={config.cloudflare.ddns_enabled ? (system.runtime?.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info") : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
+            <span className={config.squid_proxy.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>Squid Proxy {config.squid_proxy.enabled ? "on" : "off"}</span>
             <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "Cloudflare Tunnel" : "Cloudflare Tunnel off"}</span>
             <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
           </div>
@@ -395,7 +396,7 @@ function Dashboard() {
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary" style={{ marginLeft: "auto", whiteSpace: "nowrap" }} disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} leases={leases} lastRefresh={lastRefresh} />}
+        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
         {active === "security" && <SecuritySettings changePassword={changePassword} logout={logout} />}

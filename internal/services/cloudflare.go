@@ -41,6 +41,12 @@ func GenerateDynamicDNS(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("    username = " + strconv.Quote(cfg.Cloudflare.DDNSUser) + "\n")
 		buf.WriteString("    password = " + strconv.Quote(cfg.Cloudflare.APIToken) + "\n")
 		buf.WriteString("    hostname = " + strconv.Quote(cfg.Cloudflare.Domain) + "\n")
+		// Inadyn's default No-IP checkip server answers on HTTP :80, which the
+		// egress firewall drops. Override it to api.ipify.org over HTTPS
+		// (allowed on :443) so the router can detect its public IP.
+		buf.WriteString("    checkip-server = api.ipify.org\n")
+		buf.WriteString("    checkip-path = /\n")
+		buf.WriteString("    checkip-ssl = true\n")
 		buf.WriteString("}\n")
 	case "cloudflare":
 		buf.WriteString("provider cloudflare.com:1 {\n")

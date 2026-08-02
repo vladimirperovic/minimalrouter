@@ -16,12 +16,13 @@ type AuditEvent = {
 
 export default function SecuritySettings({ changePassword, logout }: Props) {
   const [lastLogin, setLastLogin] = useState<AuditEvent | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void apiFetch("/api/v1/audit/events")
       .then(res => res.ok ? res.json() : Promise.reject())
-      .then((data: AuditEvent[]) => {
-        if (!Array.isArray(data)) return;
+      .then((body: { events?: AuditEvent[] }) => {
+        const data = Array.isArray(body.events) ? body.events : [];
         const loginEvents = data.filter(e => e.event_type === "auth.login_succeeded");
         loginEvents.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         if (loginEvents.length > 1) {
@@ -30,7 +31,8 @@ export default function SecuritySettings({ changePassword, logout }: Props) {
           setLastLogin(loginEvents[0]);
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setLoading(false));
   }, []);
 
   return (
@@ -95,7 +97,7 @@ export default function SecuritySettings({ changePassword, logout }: Props) {
               <div style={{ marginBottom: "20px" }}>
                 <span style={{ display: "block", fontSize: "12px", color: "var(--classic-muted)", marginBottom: "5px" }}>Previous Login</span>
                 <strong style={{ fontSize: "15px" }}>
-                  {lastLogin ? new Date(lastLogin.timestamp).toLocaleString() : "Loading..."}
+                  {loading ? "Loading..." : lastLogin ? new Date(lastLogin.timestamp).toLocaleString() : "First login"}
                 </strong>
                 {lastLogin && <small style={{ display: "block", color: "var(--classic-muted)", marginTop: "3px" }}>From IP: {lastLogin.actor}</small>}
               </div>

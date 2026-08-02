@@ -4,6 +4,7 @@ import { apiFetch } from "../lib/api";
 import DNSFilterPanel from "./DNSFilterPanel";
 import AuditLogPanel from "./AuditLogPanel";
 import GatewayQualityPanel, { GatewayOverviewCard } from "./GatewayQualityPanel";
+import DeviceLeasesTable from "./DeviceLeasesTable";
 import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer } from "../api-types";
 import "./DNSFilterPanel.css";
 
@@ -57,6 +58,16 @@ function formatUptime(seconds = 0) {
   return days > 0 ? `${days}d ${hours}h ${minutes}m` : `${hours}h ${minutes}m`;
 }
 
+function formatHandshake(epoch: number) {
+  const diff = Math.max(0, Date.now() / 1000 - epoch);
+  if (diff < 60) return "Just now";
+  const minutes = Math.floor(diff / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(epoch * 1000).toLocaleString();
+}
+
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
   lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
@@ -99,7 +110,7 @@ export default function DashboardSections({
   <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2>{lastRefresh && <small>Updated {lastRefresh.toLocaleTimeString()}</small>}</div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
   <div className="metric-grid">
     <article><span>Uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong><small>{runtime.os || "Runtime unavailable"}</small></article>
-    <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
+    <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%{typeof runtime.temperature_c === "number" && <span className="cpu-temp"> {runtime.temperature_c.toFixed(1)}°C</span>}</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
     <article><span>Memory</span><strong>{memoryPercent}%</strong><small>{formatBytes(runtime.memory_used_bytes)} / {formatBytes(runtime.memory_total_bytes)}</small></article>
     <article><span>Disk</span><strong>{diskPercent}%</strong><small>{formatBytes(runtime.disk_used_bytes)} / {formatBytes(runtime.disk_total_bytes)}</small></article>
     <article><span>LAN</span><strong>{system.lan_ip || config.lan.ip_address}</strong><small>{config.lan.interface}</small></article>
@@ -118,9 +129,10 @@ export default function DashboardSections({
   <div className="dashboard-section-heading"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2></div></div>
   <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetwork}>
     <fieldset><legend>WAN / PPPoE</legend><label className="checkbox-row"><input defaultChecked={config.wan.enabled} name="wan_enabled" type="checkbox" /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
-    <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><select defaultValue={String(config.lan.cidr || "").split("/")[1] || "24"} name="lan_prefix"><option value="24">/24</option><option value="16">/16</option></select></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div><label className="checkbox-row"><input defaultChecked={config.dhcp.enabled} name="dhcp_enabled" type="checkbox" /><span>Enable DHCP server</span></label></fieldset>
+    <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><select defaultValue={String(config.lan.cidr || "").split("/")[1] || "24"} name="lan_prefix"><option value="24">/24</option><option value="16">/16</option></select></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div>    <label className="checkbox-row"><input defaultChecked={config.dhcp.enabled} name="dhcp_enabled" type="checkbox" /><span>Enable DHCP server</span></label></fieldset>
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply network configuration</button></div>
   </form>
+  <DeviceLeasesTable leases={leases} config={config} />
 </section>}
 
 {active === "firewall" && <section className="dashboard-section" id="firewall">
@@ -130,34 +142,68 @@ export default function DashboardSections({
 
 {active === "wireguard" && <section className="dashboard-section" id="wireguard">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Remote access</p><h2>WireGuard</h2></div><button className="button secondary" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable" : "Enable"}</button></div>
-  <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Enabled peers</span><strong>{(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
-  <div className="peer-cards" style={{ display: "grid", gap: "15px", marginBottom: "20px" }}>
-    {(config.wireguard.peers || []).length === 0 ? (
-      <article className="card"><div className="empty-state" style={{ padding: "20px", textAlign: "center" }}>No peers configured.</div></article>
-    ) : (
-      config.wireguard.peers.map((peer: WireGuardPeer) => (
-        <article className="card" key={peer.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 20px" }}>
-          <div>
-            <h3 style={{ margin: "0 0 5px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: peer.enabled ? "var(--success)" : "var(--border)" }}></span>
-              {peer.name}
-            </h3>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: "0.9rem" }}>
-              IP: <code>{(peer.allowed_ips || []).join(", ")}</code> • Endpoint: {peer.endpoint || "Dynamic"}
-            </p>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <p style={{ margin: "0 0 5px 0", fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{peer.public_key.slice(0, 16)}…</p>
-            <button className="button secondary small" disabled={busy} onClick={() => void applyConfig((next) => {
-              const p = next.wireguard.peers?.find((x: WireGuardPeer) => x.id === peer.id);
-              if (p) p.enabled = !p.enabled;
-            }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">
-              {peer.enabled ? "Disable" : "Enable"}
-            </button>
-          </div>
-        </article>
-      ))
-    )}
+  <div className="metric-grid compact"><article><span>Interface</span><strong>{config.wireguard.interface}</strong></article><article><span>Listen port</span><strong>{config.wireguard.listen_port}</strong></article><article><span>Tunnel network</span><strong>{config.wireguard.address}</strong></article><article><span>Connected peers</span><strong>{runtime.wireguard_active_peers ?? 0} / {(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</strong></article></div>
+  <div className="wg-status-card">
+    <div className="wg-status-main">
+      <span className={`wg-status-dot ${config.wireguard.enabled ? (runtime.wireguard_active_peers ? "is-connected" : "is-idle") : ""}`} aria-hidden="true" />
+      <div>
+        <h3>{config.wireguard.enabled ? (runtime.wireguard_active_peers ? "Interface up — clients reachable" : "Interface up — no clients connected") : "Interface disabled"}</h3>
+        <p className="wg-status-host">wg0 · {config.wireguard.address} · UDP {config.wireguard.listen_port}</p>
+      </div>
+    </div>
+    <dl className="wg-status-metrics">
+      <div><dt>Peers online</dt><dd>{runtime.wireguard_active_peers ?? 0} of {(config.wireguard.peers || []).filter((peer: WireGuardPeer) => peer.enabled).length}</dd></div>
+      <div><dt>Total received</dt><dd>{formatBytes(runtime.wireguard_peers?.reduce((sum, p) => sum + (p.rx_bytes || 0), 0) || 0)}</dd></div>
+      <div><dt>Total sent</dt><dd>{formatBytes(runtime.wireguard_peers?.reduce((sum, p) => sum + (p.tx_bytes || 0), 0) || 0)}</dd></div>
+    </dl>
+  </div>
+  <div className="elegant-table-container wg-table">
+    <table className="elegant-device-table">
+      <colgroup><col className="wg-col-status" /><col className="wg-col-peer" /><col className="wg-col-ip" /><col className="wg-col-endpoint" /><col className="wg-col-handshake" /><col className="wg-col-transfer" /><col className="wg-col-actions" /></colgroup>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Peer</th>
+          <th>Allowed IPs</th>
+          <th>Endpoint</th>
+          <th>Last handshake</th>
+          <th>Download / Upload</th>
+          <th className="elegant-th-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {(config.wireguard.peers || []).length === 0 ? (
+          <tr><td className="elegant-empty" colSpan={7}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" /></svg><span>No peers configured yet.</span></td></tr>
+        ) : config.wireguard.peers.map((peer: WireGuardPeer) => {
+          const live = runtime.wireguard_peers?.find((p) => p.public_key === peer.public_key);
+          const online = live?.online || false;
+          const handshake = live?.last_handshake_epoch;
+          const endpoint = live?.endpoint || peer.endpoint;
+          return (
+            <tr key={peer.id}>
+              <td className="wg-cell-status">
+                <span className={`wg-status-icon ${online ? "is-online" : "is-offline"}`} role="img" aria-label={online ? "Connected" : "Disconnected"}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.5 2.5L16 10" /></svg>
+                </span>
+              </td>
+              <td className="wg-cell-peer"><span className="wg-peer-name">{peer.name}</span><small className="wg-peer-key">{peer.public_key.slice(0, 18)}…</small></td>
+              <td className="elegant-cell-ip">{live?.allowed_ips || (peer.allowed_ips || []).join(", ") || "—"}</td>
+              <td className="wg-cell-endpoint">{endpoint || "—"}</td>
+              <td className="wg-cell-handshake">{handshake ? formatHandshake(handshake) : "Never"}</td>
+              <td className="wg-cell-transfer"><span className="wg-transfer-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span className="wg-transfer-tx">↑ {formatBytes(live?.tx_bytes || 0)}</span></td>
+              <td className="elegant-cell-actions">
+                <button className="button secondary small" disabled={busy} onClick={() => void applyConfig((next) => {
+                  const p = next.wireguard.peers?.find((x: WireGuardPeer) => x.id === peer.id);
+                  if (p) p.enabled = !p.enabled;
+                }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">
+                  {peer.enabled ? "Disable" : "Enable"}
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   </div>
   
   {wgConfig ? (

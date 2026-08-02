@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 	"golang.org/x/sys/unix"
@@ -116,7 +115,8 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 		}
 	}
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
-	status.WireguardActivePeers = countActiveWireGuardPeers()
+	status.WireguardPeers = readWireGuardPeers()
+	status.WireguardActivePeers = countActive(status.WireguardPeers)
 	status.DDNS = inspectDDNS()
 	return status
 }
@@ -189,24 +189,12 @@ func inadynHostname() string {
 	return ""
 }
 
-func countActiveWireGuardPeers() int {
-	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg0", "latest-handshakes")
+// readWireGuardPeers runs `wg show wg0 dump` and parses the per-peer status.
+func readWireGuardPeers() []WireGuardPeerStatus {
+	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg0", "dump")
 	out, err := cmd.Output()
 	if err != nil {
-		return 0
+		return nil
 	}
-
-	active := 0
-	now := time.Now().Unix()
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		parts := strings.Fields(line)
-		if len(parts) == 2 {
-			ts, err := strconv.ParseInt(parts[1], 10, 64)
-			if err == nil && ts > 0 && now-ts < 180 {
-				active++
-			}
-		}
-	}
-	return active
+	return parseWireGuardDump(string(out))
 }

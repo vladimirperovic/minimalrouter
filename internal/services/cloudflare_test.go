@@ -56,6 +56,9 @@ func TestGenerateDynamicDNSUsesNativeNoIPProvider(t *testing.T) {
 		"period = 300",
 		"forced-update = 2592000",
 		"secure-ssl = true",
+		"checkip-server = api.ipify.org",
+		"checkip-path = /",
+		"checkip-ssl = true",
 	} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("missing %q in generated No-IP config:\n%s", expected, out)
