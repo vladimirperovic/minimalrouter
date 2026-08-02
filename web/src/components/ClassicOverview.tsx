@@ -111,24 +111,27 @@ export default function ClassicOverview({
         <article className="classic-live-card"><span>PPPoE uptime</span><strong>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</strong><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></article>
       </div>
 
-      <div className="classic-chart-block">
+      <div className="classic-hero-body" style={{ display: "flex", gap: "20px", marginTop: "20px", alignItems: "stretch" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <div className="classic-chart-block" style={{ flex: 1, margin: 0 }}>
         <div className="classic-chart-title"><div><strong>Gateway quality</strong><small>Live samples · last hour</small></div><div className="classic-chart-legend"><span><i className="is-latency" />Latency</span><span><i className="is-loss" />Packet loss</span></div></div>
         <div className="classic-chart-frame">
           <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Gateway latency and packet-loss history"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" />{latencyPath && <path className="classic-chart-line is-latency" d={latencyPath} />}{lossPath && <path className="classic-chart-line is-loss" d={lossPath} />}</svg>
           {history.length === 0 && <span className="classic-chart-empty">Waiting for gateway history…</span>}
         </div>
-        <div className="classic-chart-axis"><span>Older</span><span>Now</span></div>
+          </div>
+        </div>
+        <div style={{ flex: "0 0 220px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div className="classic-resource-grid" style={{ display: "flex", flexDirection: "column", gap: "10px", gridTemplateColumns: "1fr" }}>
+            <article style={{ padding: "12px", minHeight: "auto" }}><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} style={{ marginTop: "8px" }} /></article>
+            <article style={{ padding: "12px", minHeight: "auto" }}><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} style={{ marginTop: "8px" }} /></article>
+            <article style={{ padding: "12px", minHeight: "auto" }}><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} style={{ marginTop: "8px" }} /></article>
+          </div>
+        </div>
       </div>
     </article>
 
-    <section className="classic-system-section">
-      <div className="classic-section-heading"><div><span>SYSTEM</span><h2>Quietly doing its job.</h2></div><small>{runtime.os || "Alpine Linux"}{runtime.architecture ? ` · ${runtime.architecture}` : ""}{typeof runtime.temperature_c === "number" ? ` · ${runtime.temperature_c.toFixed(0)}°C` : ""}</small></div>
-      <div className="classic-resource-grid">
-        <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
-        <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><progress max="100" value={Math.min(100, memoryPercent)} /></article>
-        <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
-      </div>
-    </section>
+
 
     <section className="classic-operations-section">
       <div className="classic-section-heading"><div><span>OPERATIONS</span><h2>Everything important, at a glance.</h2></div><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString()}` : "Live state"}</small></div>
