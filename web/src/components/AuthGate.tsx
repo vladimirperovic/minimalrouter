@@ -18,6 +18,20 @@ function loginFailureMessage(status: number, result: LoginResult) {
   return `Sign-in failed (${status}).`;
 }
 
+async function probeRouterState(): Promise<"setup" | "login" | "authenticated"> {
+  if (await refreshSession()) return "authenticated";
+  const status = await fetch("/api/v1/setup/status", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  const contentType = status.headers.get("content-type") ?? "";
+  if (!status.ok || !contentType.includes("application/json")) {
+    throw new Error("Router API unavailable");
+  }
+  const result = (await status.json()) as { is_configured?: boolean };
+  return result.is_configured ? "login" : "setup";
+}
+
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>("loading");
   const [password, setPassword] = useState("");
@@ -32,20 +46,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     const initialize = async () => {
       const localPreviewHosts = new Set(["localhost", "127.0.0.1", "::1"]);
       try {
-        if (await refreshSession()) {
-          if (active) setState("authenticated");
-          return;
-        }
-        const status = await fetch("/api/v1/setup/status", {
-          credentials: "same-origin",
-          cache: "no-store",
-        });
-        const contentType = status.headers.get("content-type") ?? "";
-        if (!status.ok || !contentType.includes("application/json")) {
-          throw new Error("Router API unavailable");
-        }
-        const result = (await status.json()) as { is_configured?: boolean };
-        if (active) setState(result.is_configured ? "login" : "setup");
+        const nextState = await probeRouterState();
+        if (active) setState(nextState);
       } catch {
         if (active) {
           if (localPreviewHosts.has(window.location.hostname)) {
@@ -65,6 +67,29 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       window.removeEventListener("minimalrouter:unauthorized", unauthorized);
     };
   }, []);
+
+  useEffect(() => {
+    if (state !== "offline" || previewMode) return;
+
+    let active = true;
+    let timer = 0;
+    const retry = async () => {
+      try {
+        const nextState = await probeRouterState();
+        if (active) {
+          setError("");
+          setState(nextState);
+        }
+      } catch {
+        if (active) timer = window.setTimeout(retry, 5000);
+      }
+    };
+    timer = window.setTimeout(retry, 5000);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [previewMode, state]);
 
   const login = async (event: FormEvent) => {
     event.preventDefault();
@@ -132,8 +157,8 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         <section className="auth-panel auth-offline" aria-labelledby="offline-title">
           <div className="auth-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
           <h1 id="offline-title">Router unavailable</h1>
-          <p>Connect to the router LAN and try again.</p>
-          <button className="button primary" type="button" onClick={() => window.location.reload()}>Try again</button>
+          <p>Connect to the router LAN and try again. This page will reconnect automatically.</p>
+          <button className="button primary" type="button" onClick={() => window.location.reload()}>Try again now</button>
         </section>
       </main>
     );
@@ -165,7 +190,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             autoComplete="one-time-code"
             inputMode="numeric"
             maxLength={6}
-            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
+            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))
             required
             value={totpCode}
           />
