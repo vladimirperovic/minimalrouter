@@ -185,11 +185,10 @@ function Dashboard() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void applyConfig((next) => {
-      const wanEnabled = form.get("wan_enabled") === "on";
       next.wan = {
         ...next.wan,
         interface: field(form, "wan_interface"),
-        enabled: wanEnabled,
+        enabled: next.wan.enabled,
         username: field(form, "pppoe_username"),
         password: field(form, "pppoe_password") || next.wan.password,
         mtu: Number(field(form, "wan_mtu")) || 1492,
@@ -203,13 +202,25 @@ function Dashboard() {
       };
       next.dhcp = {
         ...next.dhcp,
-        enabled: form.get("dhcp_enabled") === "on",
+        enabled: next.dhcp.enabled,
         range_start: field(form, "dhcp_start"),
         range_end: field(form, "dhcp_end"),
         lease_time: field(form, "lease_time"),
         dns_servers: field(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean),
       };
     }, "Network configuration applied.");
+  };
+
+  const toggleWAN = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.wan = { ...next.wan, enabled };
+    }, enabled ? "WAN enabled." : "WAN disabled.");
+  };
+
+  const toggleDHCP = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.dhcp = { ...next.dhcp, enabled };
+    }, enabled ? "DHCP server enabled." : "DHCP server disabled.");
   };
 
   const applyGatewayMonitoring = (settings: GatewaySettings) => {
@@ -245,7 +256,7 @@ function Dashboard() {
       const newCredential = field(form, "credential");
       next.cloudflare = {
         ...next.cloudflare,
-        ddns_enabled: form.get("enabled") === "on",
+        ddns_enabled: next.cloudflare.ddns_enabled,
         ddns_provider: provider,
         ddns_username: field(form, "username"),
         domain: field(form, "domain"),
@@ -262,7 +273,7 @@ function Dashboard() {
     void applyConfig((next) => {
       next.squid_proxy = {
         ...next.squid_proxy,
-        enabled: form.get("enabled") === "on",
+        enabled: next.squid_proxy.enabled,
         port: Number(field(form, "port")) || 3128,
         username: field(form, "username"),
         password: field(form, "password") || next.squid_proxy.password,
@@ -276,7 +287,7 @@ function Dashboard() {
     void applyConfig((next) => {
       next.wifi = {
         ...next.wifi,
-        enabled: form.get("enabled") === "on",
+        enabled: next.wifi.enabled,
         interface: field(form, "interface"),
         ssid: field(form, "ssid"),
         passphrase: field(form, "passphrase") || next.wifi.passphrase,
@@ -292,12 +303,36 @@ function Dashboard() {
     const form = new FormData(event.currentTarget);
     void applyConfig((next) => {
       next.qos = {
-        enabled: form.get("enabled") === "on",
+        enabled: next.qos.enabled,
         algorithm: field(form, "algorithm") || "cake",
         download_limit_mbps: Number(field(form, "download_limit_mbps")) || 100,
         upload_limit_mbps: Number(field(form, "upload_limit_mbps")) || 20,
       };
     }, "QoS configuration applied.");
+  };
+
+  const toggleQoS = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.qos = { ...next.qos, enabled };
+    }, enabled ? "QoS enabled." : "QoS disabled.");
+  };
+
+  const toggleCloudflare = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.cloudflare = { ...next.cloudflare, ddns_enabled: enabled };
+    }, enabled ? "Dynamic DNS enabled." : "Dynamic DNS disabled.");
+  };
+
+  const toggleSquid = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.squid_proxy = { ...next.squid_proxy, enabled };
+    }, enabled ? "Squid proxy enabled." : "Squid proxy disabled.");
+  };
+
+  const toggleWiFi = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.wifi = { ...next.wifi, enabled };
+    }, enabled ? "Wi-Fi access point enabled." : "Wi-Fi access point disabled.");
   };
 
   const [speedTest, setSpeedTest] = useState<{ download_mbps: number; upload_mbps: number; suggested_download_mbps: number; suggested_upload_mbps: number } | null>(null);
@@ -478,6 +513,12 @@ function Dashboard() {
             submitWiFi={submitWiFi}
             submitQoS={submitQoS}
             runSpeedTest={runSpeedTest}
+            toggleQoS={toggleQoS}
+            toggleWAN={toggleWAN}
+            toggleDHCP={toggleDHCP}
+            toggleCloudflare={toggleCloudflare}
+            toggleSquid={toggleSquid}
+            toggleWiFi={toggleWiFi}
             speedTest={speedTest}
             speedTesting={speedTesting}
             system={system}
