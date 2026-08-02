@@ -109,9 +109,12 @@ export default function ClassicOverview({
         <article className="classic-live-card"><span>Gateway latency</span><strong>{metric(gatewaySummary?.latency_ms, " ms")}</strong><small>Read-only WAN quality monitor</small></article>
         <article className="classic-live-card"><span>Packet loss</span><strong>{metric(gatewaySummary?.packet_loss_percent, "%")}</strong><small>Across configured probe targets</small></article>
         <article className="classic-live-card"><span>PPPoE uptime</span><strong>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</strong><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></article>
-        <article className="classic-live-card"><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} style={{ marginTop: "10px" }} /></article>
-        <article className="classic-live-card"><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} style={{ marginTop: "10px" }} /></article>
-        <article className="classic-live-card"><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} style={{ marginTop: "10px" }} /></article>
+      </div>
+
+      <div className="classic-resource-grid" style={{ marginBottom: "20px" }}>
+        <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
+        <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><progress max="100" value={Math.min(100, memoryPercent)} /></article>
+        <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
       </div>
 
       <div className="classic-chart-block">
