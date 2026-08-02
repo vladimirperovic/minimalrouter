@@ -23,9 +23,9 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -40,14 +40,19 @@ jobs:
       - name: Run slot state benchmarks
         run: |
           mkdir -p build/deep-test
-          go test ./internal/firmware -run '^$' -bench '^BenchmarkSlotManager' -benchmem -benchtime=2s -count=5 | tee build/deep-test/slot-benchmarks.txt
+          go test ./internal/firmware \
+            -run '^$' \
+            -bench '^BenchmarkSlotManager' \
+            -benchmem \
+            -benchtime=2s \
+            -count=5 | tee build/deep-test/slot-benchmarks.txt
       - name: Measure test coverage
         run: |
           go test ./... -covermode=atomic -coverprofile=build/deep-test/coverage.out
           go tool cover -func=build/deep-test/coverage.out | tee build/deep-test/coverage.txt
       - name: Upload fuzz and benchmark evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: crash-fuzz-benchmark-${{ github.sha }}
           path: build/deep-test
@@ -60,11 +65,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install network test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox dnsmasq-base dnsutils iperf3 iproute2 iputils-ping jq netcat-openbsd nftables nmap
+          sudo apt-get install -y --no-install-recommends \
+            busybox \
+            dnsmasq-base \
+            dnsutils \
+            iperf3 \
+            iproute2 \
+            iputils-ping \
+            jq \
+            netcat-openbsd \
+            nftables \
+            nmap
       - name: Validate network laboratory syntax
         run: bash -n scripts/ci-network-namespace-lab.sh
       - name: Run isolated router network laboratory
@@ -74,7 +89,7 @@ jobs:
           chmod -R a+rX build/deep-test/network
       - name: Upload network measurements
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: network-laboratory-${{ github.sha }}
           path: build/deep-test/network
@@ -87,9 +102,9 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
@@ -108,7 +123,8 @@ jobs:
       - name: Run high-confidence Go security analysis
         run: |
           mkdir -p build/deep-test/security
-          gosec -severity high -confidence high -fmt=json -out=build/deep-test/security/gosec.json ./...
+          gosec -severity high -confidence high -fmt=json \
+            -out=build/deep-test/security/gosec.json ./...
       - name: Build and inspect Linux binaries
         run: |
           make build-linux-amd64
@@ -125,7 +141,7 @@ jobs:
           go list -m -json all >build/deep-test/security/go-modules.json
       - name: Upload security reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-hardening-${{ github.sha }}
           path: build/deep-test/security
@@ -138,9 +154,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true

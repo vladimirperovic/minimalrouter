@@ -3,9 +3,11 @@
 Minimal Router uses Alpine `inadyn` for Dynamic DNS. New configurations default
 to **No-IP**, while Cloudflare DDNS remains supported for backward compatibility.
 
-The historical configuration/API object remains named `cloudflare` so existing
+The historical configuration/API object is still named `cloudflare` so old
 backups and clients can be restored without a schema-breaking migration. The
-DDNS fields inside that object are now provider-aware.
+DDNS fields inside that object are provider-aware; Cloudflare Tunnel fields stay
+Cloudflare-specific and the tunnel remains disabled by the hardened appliance
+profile.
 
 ## Supported providers
 
@@ -21,7 +23,7 @@ uses `noip` for new installs.
 ## Recommended No-IP setup
 
 Prefer a **No-IP DDNS Key** instead of the main No-IP account password. A DDNS
-Key is scoped to a hostname or hostname group and can be revoked independently.
+Key is scoped to one hostname or hostname group and can be revoked independently.
 
 In the dashboard open **Dynamic DNS** and enter:
 
@@ -29,21 +31,23 @@ In the dashboard open **Dynamic DNS** and enter:
 - Enable Dynamic DNS: enabled
 - No-IP username / DDNS Key username: the generated DDNS Key username
 - New provider credential: the generated DDNS Key password
-- Hostname / update target: `all.ddnskey.com` when using a current No-IP DDNS Key
+- Hostname / update target: `all.ddnskey.com` when using a current No-IP DDNS
+  Key, as recommended by No-IP
 
-The WireGuard client endpoint remains the actual No-IP hostname assigned to the
-deployment. `all.ddnskey.com` is the updater target associated with a DDNS Key;
-it does not replace the hostname used by the WireGuard client.
+The public hostname used by a WireGuard client remains the actual No-IP hostname
+assigned to the deployment. `all.ddnskey.com` is the update target associated
+with the DDNS Key; it does not replace the hostname you put in the WireGuard
+client endpoint.
 
 If intentionally using legacy No-IP account credentials instead of a DDNS Key,
 enter the No-IP username/email and password and use the intended No-IP hostname
 as the update target. DDNS Keys are preferred because they limit credential
 scope.
 
-Never store No-IP credentials in Git, documentation, shell history, evidence
-files or chat output.
+Do not store No-IP credentials in documentation, shell history, issue comments,
+or test reports.
 
-## Cloudflare compatibility
+## Cloudflare setup
 
 For Cloudflare select `Cloudflare` and enter:
 
@@ -52,8 +56,8 @@ For Cloudflare select `Cloudflare` and enter:
   Zone ID
 - New provider credential: scoped Cloudflare API token
 
-Legacy Cloudflare configurations whose `ddns_provider` field is absent retain
-Cloudflare semantics.
+Legacy Cloudflare configurations whose `ddns_provider` field is absent continue
+to use Cloudflare semantics.
 
 ## Apply lifecycle
 
@@ -68,32 +72,55 @@ Dynamic DNS uses the existing transactional network apply pipeline:
 7. roll back the previous configuration/service state if activation or
    verification fails.
 
-Dynamic DNS requires HTTPS egress but does not open a management port on WAN.
+The firewall permits the root-run verification and the `inadyn` daemon to make
+the HTTPS connection required by DDNS. Dynamic DNS does not open a management
+port on WAN.
 
-## Safe diagnostics
+## Safe diagnostics on the router console
+
+Never paste output that contains a provider username, password, API token, or
+private hostname if the deployment treats that hostname as sensitive.
+
+Check the installed configuration syntax:
 
 ```sh
 inadyn --check-config -f /etc/inadyn/inadyn.conf
+```
+
+Check service state:
+
+```sh
 rc-service inadyn status
-inadyn --once --force --foreground --no-pidfile \
-  --config /etc/inadyn/inadyn.conf --loglevel notice
+```
+
+Run a foreground one-shot update when intentionally debugging the provider:
+
+```sh
+inadyn --once --force --foreground \
+  --no-pidfile \
+  --config /etc/inadyn/inadyn.conf \
+  --loglevel notice
+```
+
+Restart the daemon after a successful check:
+
+```sh
 rc-service inadyn restart
 ```
 
-Redact provider usernames, passwords, API tokens and private hostnames before
-sharing any diagnostic output.
+Then verify the public DNS result from a separate network/resolver. For the
+production proof, also verify a later WAN public-IP change without manually
+running an updater on the Proxmox host.
 
-Then verify the public DNS result from a separate network/resolver. A production
-proof must also verify a later WAN public-IP change without manually running a
-DDNS updater on the Proxmox host.
+## Target-host validation status
 
-## Target-host status
+The 2026-08-01 Proxmox pilot proved that a manually provisioned Dynamic DNS
+endpoint on the Proxmox side allowed a real external phone to establish a
+WireGuard tunnel and open the Minimal Router dashboard.
 
-The 2026-08-01 Proxmox pilot proved that manually provisioned Dynamic DNS on the
-Proxmox side allowed a real external phone to establish WireGuard and open the
-Minimal Router dashboard. That proves the external hostname/endpoint and
-WireGuard path.
-
-The remaining DDNS gate after this implementation is to prove that
-**MinimalRouter itself** updates No-IP through `inadyn`, keeps the daemon healthy
-and follows a real public-IP change without a host-side workaround.
+That proves the external hostname/endpoint and WireGuard path, but it does not
+retroactively prove the old appliance-managed Cloudflare-only implementation.
+After this No-IP implementation is built and deployed, the remaining DDNS gate
+is to prove that **MinimalRouter itself** updates No-IP through `inadyn`, keeps
+the daemon healthy, and survives a real public-IP change without a host-side
+workaround.

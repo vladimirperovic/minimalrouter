@@ -6,9 +6,10 @@ manifest is sufficient on its own.
 
 ## Release artifacts
 
-A version tag matching `vMAJOR.MINOR.PATCH` starts the signed release workflow.
-The workflow refuses lightweight tags; maintainers must create and push an
-annotated tag that points at the reviewed commit.
+A version tag matching `vMAJOR.MINOR.PATCH` starts the release workflow.
+The workflow refuses lightweight or unverifiable tags. Maintainers must create
+an SSH-signed annotated tag whose signer appears in the protected
+`MINIMALROUTER_RELEASE_ALLOWED_SIGNERS` secret.
 
 For AMD64 and ARM64, a release publishes:
 
@@ -20,9 +21,13 @@ For AMD64 and ARM64, a release publishes:
 - GitHub artifact attestations binding each archive and SBOM to the workflow,
   repository, commit, and tag that produced it.
 
-The release workflow fails when the offline Ed25519 private key secret is not
-configured. The private key is decoded into a mode `0600` temporary file, used
-only to sign canonical manifests, and removed before publication.
+The current release workflow uses a GitHub Actions protected Ed25519 signing
+secret. It is decoded into a mode `0600` temporary file, used only to sign
+canonical manifests, and removed before publication. This is **not an offline
+key**: the protected `production-release` environment, required reviewer
+approval, immutable Action pins, and SSH-signed tag verification reduce risk,
+but a future trust-model migration should move signing to an isolated machine,
+hardware-backed key, or a reviewed keyless design.
 
 ## Trust anchors
 

@@ -1,0 +1,11 @@
+# Default maintainer review
+* @vladimirperovic
+
+# Security-sensitive and privileged paths
+/SECURITY.md @vladimirperovic
+/internal/auth/ @vladimirperovic
+/internal/apply/ @vladimirperovic
+/internal/services/nftables.go @vladimirperovic
+/cmd/router-applyd/ @vladimirperovic
+/packaging/ @vladimirperovic
+/.github/workflows/ @vladimirperovic

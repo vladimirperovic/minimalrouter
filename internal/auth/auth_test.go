@@ -8,7 +8,11 @@ import (
 )
 
 func TestArgon2PasswordHashing(t *testing.T) {
+<<<<<<< HEAD
 	password := "Correct-Horse-Battery-Staple-15"
+=======
+	password := "Correct-Horse-Battery-Staple-15" // gitleaks:allow -- synthetic test fixture
+>>>>>>> public/main
 	hash, err := HashPassword(password)
 	if err != nil {
 		t.Fatalf("HashPassword failed: %v", err)

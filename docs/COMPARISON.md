@@ -1,122 +1,125 @@
-# Minimal Router OS vs OpenWrt vs pfSense — Comparison
+# Minimal Router OS compared with pfSense and OpenWrt
 
-## Resource Usage
+This document is a scope and resource comparison, not a claim of security,
+feature, or support parity.
 
-| Metric | Minimal Router OS | OpenWrt | pfSense |
-|--------|-------------------|---------|---------|
-| RAM | 140 MiB idle; 203 MiB after setup/config work; 512 MiB tested minimum, 1 GiB comfortable | 64 MiB minimum, 128 MiB preferable (official device guidance) | 1 GiB minimum (official requirement) |
-| Disk | ~60 MiB initial payload; use 4 GiB bench / 8 GiB production | >32 MiB flash recommended for modern use | 8 GB minimum (official requirement) |
-| Dashboard | 360 KiB static SPA | LuCI is optional and device/image dependent | Included web configurator |
-| Packages | 89 in the measured Alpine VM | Image/device dependent | Installation/package set dependent |
-| OS base | Alpine Linux 3.22 (musl) | BusyBox (musl) | FreeBSD 14 |
-| Build system | Go 1.25 + Vite/React + Alpine mkimage | C/Cross-compile (Buildroot) | Go + C (FreeBSD kernel + userland) |
-| Application binaries | 18.2 MiB combined, static and stripped | Image/package dependent | Installation/package set dependent |
-| Management API | REST (`/api/v1`) | UCI + LuCI HTML forms | XML API + Web GUI |
+Minimal Router OS is early alpha software with limited deployment history.
+pfSense and OpenWrt are mature projects used on a wide range of production
+networks. A smaller code and service footprint can reduce complexity, but it
+does not by itself prove that a system is safer, faster, or more reliable.
 
-The Minimal Router values were measured in an Alpine ARM64 VM on 2026-07-28.
-OpenWrt and pfSense values above are official provisioning guidance, not
-identical workload measurements. Footprint does not imply equivalent feature
-coverage, maturity, or security assurance. See the
-[resource and hardware test](RESOURCE_AND_HARDWARE_TEST.md) for method,
-limitations, and primary sources.
+## Summary
 
-## Security Model Comparison
+| Area | Minimal Router OS | pfSense | OpenWrt |
+|---|---|---|---|
+| Current maturity | Early alpha development project | Mature production firewall platform | Mature embedded router distribution |
+| Primary goal | Focused home/small-office appliance with a narrow UI and safe transaction model | Broad firewall, routing, VPN, HA, and package capabilities | Flexible embedded routing across a large hardware ecosystem |
+| Base system | Alpine Linux | FreeBSD | Linux-based embedded distribution |
+| Management | React dashboard and Go REST API | Mature web configurator | LuCI and UCI |
+| Extensibility | Deliberately limited | Optional package system | Large package ecosystem |
+| Production support | Community best effort | Community and commercial Netgate options | Community and vendor/device-dependent options |
 
-### 1. Default Firewall Policy
+## Resource guidance
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| WAN input default | **deny** (nftables policy drop) | deny (unless custom rule added) | block (anti-lockout rules protect LAN) |
-| WAN ingress | **WireGuard only** — no TCP/ICMP to WAN | Allows WAN access unless explicitly blocked | Block unsolicited WAN (but flexible) |
-| Port forwards | **Forbidden** (validation rejects, nftables ignores) | Allowed by default | Allowed by default |
-| LAN access | `192.168.1.0/24` only on eth1 | Any LAN | Any LAN (or VLAN) |
-| Bogon/CGNAT drop | **Yes** — atomic nftables set | Requires manual firewall rules | Automatic (alias-based) |
-| uRPF anti-spoofing | **Yes** (strict) | Optional | Available |
-| IPv6 policy | **Fail-closed** — disabled until parity with IPv4 | Often enabled by default | Often enabled by default |
+The numbers below are not identical workload benchmarks.
 
-### 2. Attack Surface
+| Metric | Minimal Router OS | pfSense |
+|---|---|---|
+| RAM | One ARM64 development VM measured about 140 MiB idle and about 203 MiB after setup/configuration work. 512 MiB is the tested development minimum; 1 GiB is recommended for comfortable headroom. | Netgate documents 1 GiB or more as the minimum. Packages, state count, VPN, IDS/IPS, ZFS, and traffic can require more. |
+| Disk | The application payload is small, but 8 GiB is currently recommended for Alpine, logs, snapshots, packages, and upgrades. | Netgate documents 8 GB or more as the minimum. |
+| CPU | The narrow service set is expected to produce low idle CPU usage, but no fair cross-platform CPU or throughput comparison has been published yet. | Requirements depend on throughput, VPN cryptography, packages, state count, and traffic features. |
+| Dashboard runtime | Static assets served by the Go process; Node.js is not installed on the router. | Integrated web configurator and the services required by the platform. |
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| Management on WAN | **Forbidden** (nftables + app-layer dual block) | Requires explicit config | Requires explicit config |
-| SSH | **Disabled by default** | Available (can be enabled) | Available |
-| Unused services | **Removed** from image | Many enabled by default | Many enabled by default |
-| Web server | Go single binary | uhttpd ( BusyBox) | nginx + PHP-FPM |
-| Package manager | Alpine apk (minimal) | opkg (BusyBox ipkg) | pkg (FreeBSD) |
-| Management plane split | **Unprivileged `routerd` + privileged `router-applyd`** over Unix socket | Single process (root) | PHP-FPM + root web server |
-| Privilege boundary | `routerd` runs as non-root; `router-applyd` is local-only, peer-credential verified | No process isolation | Limited (PHP in chroot) |
+A lower measured memory footprint is expected because Minimal Router OS supports
+far fewer features. It should not be interpreted as equivalent functionality at
+a lower cost.
 
-### 3. Authentication & Session Security
+Official pfSense references:
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| Password hashing | **Argon2id** (64 MiB, 3 iterations, 2 lanes) | Platform/version dependent | Platform/version dependent |
-| Session cookies | **Secure + HttpOnly + SameSite=Strict**, 256-bit entropy, 30 min idle / 8 hr absolute | Session-based (web) | Session-based (web) |
-| CSRF protection | **Mandatory** per-stateful request | Limited | Built-in |
-| Rate limiting | **Per-source + global**, bounded, restart-aware | Basic (uci) | Basic |
-| 2FA | **TOTP** supported | No (plugin) | Yes (plugin) |
-| Response redaction | Secrets never in API responses | Possible | Manual |
-| Backup encryption | **AES-256-GCM** | No built-in | AES-256 (package) |
+- https://docs.netgate.com/pfsense/en/latest/hardware/minimum-requirements.html
+- https://docs.netgate.com/pfsense/en/latest/hardware/size.html
 
-### 4. API & Input Validation
+## DNS filtering and ad blocking
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| API spec | Versioned REST API; OpenAPI coverage is still being completed | UCI (text-based) | Platform/package dependent |
-| Unknown field rejection | **Yes** (`DisallowUnknownFields`) | No (text parsing) | No (JSON loose) |
-| Constant-time compare | **Yes** (`crypto/subtle`) for session/token comparison | No | No |
-| Parameterized storage | **SQLite** (parameterized queries) | UCI text files | PHP/PostgreSQL |
-| Request size limits | Bounded, nested depth limits | No explicit limit | No explicit limit |
-| Audit trail | **Always on** — immutable, metadata-only, secret redaction | Optional logging | Available (plugin) |
+Minimal Router OS includes a basic global DNS sinkhole/blocklist in the same
+configuration model and dashboard as DHCP and DNS. This is useful for simple
+network-wide blocking without installing a second application.
 
-### 5. Network Hardening (nftables)
+It is **not** a complete implementation of AdGuard Home. Current limitations
+include the absence of its full query-log experience, client policies, extensive
+filter management, and other advanced features.
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| WAN Bogon drop | **Yes** (atomic nftables set) | Manual rules needed | Yes (alias) |
-| WAN CGNAT leak protection | **Yes** (100.64.0.0/10 drop) | Manual | Manual |
-| TCP MSS clamping | **Yes** (auto on WAN/PPPoE) | Manual | Yes |
-| WireGuard flood guard | **Yes** (rate-limit before endpoint) | nftables only | No native |
-| PersistentKeepalive | **25s** (auto-generated) | Manual | Manual |
-| TCP SYN cookies | **Yes** (sysctl) | Yes | Yes |
-| ICMP redirect blocking | **Yes** | Optional | Optional |
-| Conntrack CT helper | **Never assigned** (no implicit openings) | Sometimes | Sometimes |
-| DNS rebind protection | **Yes** (dnsmasq stop-dns-rebind) | Available | Available |
-| Reverse proxy | **None** (no WAN services) | uhttpd | nginx |
+On pfSense, administrators commonly add DNSBL capabilities with the optional
+`pfBlockerNG` package or operate a separate DNS filtering service such as
+AdGuard Home or Pi-hole. pfSense deliberately keeps many such capabilities in
+its package ecosystem rather than its base installation.
 
-### 6. Supply Chain & Updates
+Official pfSense package references:
 
-| Feature | Minimal Router OS | OpenWrt | pfSense |
-|---------|-------------------|---------|---------|
-| Go module pinning | **Yes** (go.sum, GOSUMDB) | N/A (C toolchain) | N/A |
-| Frontend lockfile | **Yes** (pnpm-lock.yaml) | N/A | N/A |
-| Reproducible builds | Targeted; independent reproducibility evidence is a release gate | Project-dependent | Project-dependent |
-| SBOM generation | Planned | No | No |
-| Firmware verification | Ed25519 verifier exists; automatic update path is disabled | Signed release mechanism | Signed release mechanism |
-| Signed updates | Planned | Yes (opkg) | Yes (pkg) |
-| Recovery media | Planned; signed boot evidence is a release gate | Project release images | Project release images |
+- https://docs.netgate.com/pfsense/en/latest/packages/
+- https://docs.netgate.com/pfsense/en/latest/packages/pfblocker.html
 
-## Key Differentiators
+## Feature comparison
 
-### Minimal Router OS is designed for:
-- **Minimal attack surface**: Small footprint, few services, no WAN management
-- **Deterministic configuration**: JSON model → nftables generation → snapshot → apply → verify
-- **Zero WAN exposure**: Only WireGuard tunnel accepted on WAN, everything else drops
-- **Safe rollback**: Checksumsummed snapshots, transactional apply, automatic rollback on failure
-- **Least privilege**: Unprivileged API + privileged helper over authenticated Unix socket
+| Capability | Minimal Router OS — current alpha | pfSense |
+|---|---|---|
+| Stateful firewall and NAT | Focused generated nftables policy | Comprehensive and mature |
+| PPPoE | Implemented | Mature |
+| DHCP and DNS | Implemented with dnsmasq | Mature resolver/forwarder and DHCP capabilities |
+| WireGuard | Implemented for the focused remote-access workflow | Supported with broader configuration options |
+| WAN web management | Intentionally unavailable | Configurable by the administrator, though secure deployment normally avoids direct exposure |
+| Port forwarding | Intentionally rejected in the current secure profile | Fully supported |
+| VLANs | Not yet a stable workflow | Mature |
+| Multi-WAN | Not implemented | Mature |
+| High availability | Not implemented | CARP and established HA workflows |
+| IPv6 | Disabled and blocked until feature parity is complete | Mature IPv6 support |
+| IDS/IPS | Not implemented | Available through packages such as Snort and Suricata |
+| DNS blocklist | Basic integrated global sinkhole | Commonly provided through pfBlockerNG or another service |
+| Wi-Fi AP | Optional, hardware-dependent, disabled by default | Usually delegated to separate access points; platform/hardware dependent |
+| Configuration rollback | Transaction and commit-confirm design | Mature configuration backup and recovery workflows |
+| Package ecosystem | No general ecosystem | Extensive optional package repository |
+| Hardware/deployment history | Limited lab evidence | Extensive real-world deployment history |
 
-### OpenWrt is designed for:
-- **Embedded flexibility**: Runs on many hardware platforms
-- **Customizability**: UCI + shell scripting, enormous package ecosystem
-- **Lightweight**: Smallest footprint of all three
-- **Community driven**: Large package collection and long deployment history
+## Design differences
 
-### pfSense is designed for:
-- **Enterprise features**: VLANs, HA clustering, IPsec, extensive plugin ecosystem
-- **Maturity**: Based on FreeBSD, long track record
-- **Flexibility**: Rich GUI, comprehensive network management
-- **Resource hungry**: Much larger footprint than Minimal Router OS or OpenWrt
+### Minimal Router OS
 
-Minimal Router currently has the smallest supported surface of the three, but
-also the least deployment history and external review. It must not be described
-as more secure than OpenWrt or pfSense solely because it is smaller.
+- uses a narrow typed configuration model;
+- separates unprivileged `routerd` from privileged `router-applyd`;
+- generates owned service configuration deterministically;
+- uses preflight, snapshots, verification, and rollback for changes;
+- keeps WAN management closed and uses WireGuard for remote access;
+- favors a small number of integrated workflows over flexibility.
+
+### pfSense
+
+- covers substantially more firewall and routing scenarios;
+- has a mature UI, documentation set, package system, and support ecosystem;
+- supports production features such as VLANs, multi-WAN, IPsec, HA, advanced
+  policy routing, extensive NAT, and larger deployment topologies;
+- requires more resources partly because it provides a much broader platform.
+
+### OpenWrt
+
+- targets a large range of embedded router hardware;
+- offers a mature package ecosystem and flexible UCI configuration;
+- can have an extremely small footprint depending on the device and image;
+- is a more appropriate comparison when hardware constraints and embedded Wi-Fi
+  support are primary requirements.
+
+## Choosing a platform
+
+Choose **pfSense** when production maturity, broad firewall features, HA,
+multi-WAN, VLAN-heavy environments, commercial support, or a large package
+ecosystem are required.
+
+Choose **OpenWrt** when broad embedded-device support, integrated wireless
+hardware, and a mature lightweight Linux router ecosystem are most important.
+
+Experiment with **Minimal Router OS** when the goal is to help develop a focused,
+resource-efficient home-router appliance and the network can tolerate alpha
+software, console access, and rollback to an established router.
+
+Minimal Router OS should earn production trust through reproducible tests,
+external review, hardware evidence, recovery drills, and stable releases—not
+through comparison-table claims.

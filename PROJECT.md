@@ -1,167 +1,90 @@
-# Minimal Router OS Vision
+# Product direction
 
-## Product statement
+Minimal Router OS is a focused Alpine Linux router appliance for home and
+small-office networks. It combines proven Linux networking components with a
+small Go control plane, transactional configuration and a clear web UI.
 
-Minimal Router OS is an ultra-lightweight Linux appliance for home and small
-office networks. It is not a pfSense replacement, a new firewall, or a new
-networking stack. It reuses proven Linux components and focuses on simplicity,
-stability, security, performance, and a clean user experience.
+> **Status: early alpha.** Current evidence is tracked in
+> [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-The final goal is a router that installs in minutes, requires almost no
-networking knowledge, and just works with excellent UX and minimal overhead.
+## Principles
 
-## Core principles
+- Keep the feature set small and understandable.
+- Reuse mature Linux networking components.
+- Keep packet forwarding out of the Go management process.
+- Prefer safe, reversible configuration over clever automation.
+- Fail closed when runtime state cannot be proven.
+- Make optional exposure explicit and opt-in.
+- Require reproducible evidence for performance and security claims.
 
-1. Less is better. Every feature must justify its existence.
-2. Never reimplement something Linux already does well.
-3. Safe changes are more important than clever changes.
-4. Defaults must be secure and understandable.
-5. The UI and API are two clients of the same validated configuration model.
-6. Hypervisor-specific optimizations are optional and never required.
+## Core scope
 
-## Target platforms
+The current product focuses on:
 
-These remain targets until the release compatibility matrix records a passing
-install, boot, networking, rollback, and performance run for each platform.
+- one WAN and one LAN role;
+- PPPoE WAN;
+- DHCP and DNS;
+- default-deny firewall and LAN-to-WAN NAT;
+- WireGuard remote access;
+- No-IP / Cloudflare Dynamic DNS;
+- device visibility and basic DNS filtering;
+- snapshots, encrypted backups and rollback;
+- gateway quality and appliance-health monitoring;
+- optional Squid, QoS and Wi-Fi AP support.
 
-- Bare metal
-- Proxmox VE
-- VMware
-- Hyper-V
-- KVM
-- VirtualBox
+WAN web management and arbitrary WAN port forwarding are intentionally outside
+the current secure appliance profile.
 
-## Technology stack
+## Technology
 
-- Alpine Linux
-- Go backend
-- React + TypeScript + Vite frontend (static assets; no Node.js runtime)
-- nftables
-- pppd
-- dnsmasq
-- WireGuard
-- SQLite
+- Alpine Linux + OpenRC
+- Go (`routerd`, `router-applyd`, recovery/update tools)
+- React + TypeScript + Vite dashboard
+- SQLite canonical configuration state
+- nftables, pppd, dnsmasq, WireGuard and inadyn
 
-## Installation experience
+Configuration follows one invariant:
 
-Installation must take less than two minutes on supported hardware:
+```text
+input → validate → generate → preflight → snapshot → apply → verify
+      → commit or rollback/recovery
+```
 
-1. Select the target disk.
-2. Install and reboot.
-3. Open the first-run wizard.
-4. Enter PPPoE credentials and an administrator password.
-5. Review the proposed WAN interface.
-6. Confirm WAN; the remaining interface becomes LAN.
-7. Apply the default LAN address `192.168.1.1/24`.
-8. Enable DHCP.
-9. Create the initial snapshot.
-10. Show a successful completion screen with
-    `https://192.168.1.1`.
+Generated service files are disposable. Validated canonical state is the source
+of truth.
 
-The wizard asks only for information that cannot be safely inferred.
+## User experience
 
-## User interface
+The router should behave like an appliance rather than an enterprise cockpit.
+The dashboard should make these answers obvious:
 
-The dashboard shows only:
+1. Is the Internet working?
+2. Is the gateway healthy?
+3. How many devices are connected?
+4. Is remote access working?
+5. Does the router itself need attention?
 
-- Internet status
-- Public IP address
-- PPPoE status
-- CPU, memory, disk, and uptime
-- WAN and LAN traffic
-- Connected devices
-- WireGuard status
-- Supported-service health and explicit unavailable states
+Advanced details remain available without dominating the default view.
 
-There are no decorative or unnecessary graphs.
+## Platform direction
 
-The primary pages are:
+Current evidence is centered on x86-64 Alpine in Proxmox/KVM. ARM64 is covered by
+build/QEMU smoke tests. Other hardware and hypervisors are not considered
+supported until install, networking, recovery and performance are tested there.
 
-- Internet
-- LAN and DHCP
-- Static Leases
-- Simple Firewall: allow/deny and LAN-to-WAN NAT; inbound WAN port forwards are
-  forbidden
-- WireGuard
-- Cloudflare DDNS through the packaged and verified Alpine `inadyn` lifecycle
-- Wi-Fi access point on a compatible AP-capable Linux radio
-- Cloudflare Tunnel remains unavailable because WireGuard is the only remote
-  entry path
-- Backup and Restore
-- Updates
+## Production boundary
 
-## Safe configuration lifecycle
+A future production recommendation requires, at minimum:
 
-Every change creates an automatic snapshot. A candidate configuration is
-validated before activation. After activation, health and connectivity checks
-must pass. If validation, apply, or verification fails—or a disruptive change
-is not confirmed—the system rolls back to the previous known-good snapshot.
+- repeated real PPPoE/reboot recovery;
+- supported hardware/virtualization matrix;
+- signed install and recovery media;
+- stable migrations and update/rollback policy;
+- backup restore evidence;
+- external IPv4/IPv6 scanning and fault injection;
+- sustained resource/performance measurements;
+- independent security review;
+- no unresolved critical/high-severity findings.
 
-Everything exposed in the web interface is also available through a versioned
-REST API.
-
-## Security principles
-
-- HTTPS only
-- Secure, HTTP-only cookies
-- CSRF protection
-- Argon2id password hashing
-- Least privilege
-- No WAN management access by default
-- Existing Linux security mechanisms wherever possible
-- No custom cryptography
-
-See [SECURITY.md](SECURITY.md) for the threat model and release requirements.
-
-## Performance targets
-
-- Boot in less than 10 seconds on reference hardware
-- Use 150–250 MB RAM during normal operation
-- Support 1 GbE, 2.5 GbE, and 10 GbE where hardware permits
-- Keep the control plane out of the packet-forwarding data path
-
-## Version 1 exclusions
-
-Version 1 explicitly excludes:
-
-- IDS/IPS
-- Captive portals
-- Multi-WAN
-- BGP
-- OSPF
-- Docker
-- Kubernetes
-- Enterprise QoS
-- OpenVPN
-- IPsec
-
-Adding an excluded feature requires a new product decision, not only an
-implementation pull request.
-
-## Development rule
-
-Never edit Linux service configurations directly. Every configuration change
-must pass through:
-
-`input -> validation -> config model -> config generator -> preflight -> snapshot -> apply -> verification -> commit or rollback`
-
-Generated service files are disposable artifacts. The validated configuration
-model is the source of truth.
-
-## Version 1 success criteria
-
-Version 1 is complete when a user can:
-
-- Install on bare metal and at least one supported hypervisor.
-- Complete the first-run wizard without networking expertise.
-- Establish a PPPoE internet connection.
-- Manage LAN, DHCP, static leases, simple firewall rules, and LAN-to-WAN NAT
-  while WAN port forwarding remains forbidden.
-- Configure WireGuard, Cloudflare DDNS, and a Wi-Fi access point on compatible
-  hardware. Cloudflare Tunnel and DoH are visibly unavailable and rejected.
-- Back up and restore the appliance safely. Automatic updates are a later
-  release gate, not a current capability.
-- Recover automatically from an invalid or connectivity-breaking change.
-
-The release must also meet the security gates in `SECURITY.md` and performance
-targets above on documented reference hardware.
+See [`ROADMAP.md`](ROADMAP.md) for the active gates and [`SECURITY.md`](SECURITY.md)
+for the security model.

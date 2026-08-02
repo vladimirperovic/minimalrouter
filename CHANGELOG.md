@@ -22,23 +22,23 @@ alpha, compatibility may change between commits.
 - Overview appliance-health banner with independent 15-second refresh and concise
   explanations for non-healthy signals.
 - Durable update-operation journal for crash-safe A/B activation and rollback.
-- Durable privileged-operation intent before network side effects and a validated
-  completed-result journal for idempotent response replay.
-- Explicit `RecoveryRequired` outcome that blocks ordinary configuration until
-  canonical reconciliation succeeds.
-- Allowlisted `RECONCILE` operation that may supersede unresolved helper state
-  only by applying and verifying SQLite canonical configuration.
-- Separate `COMMIT_CONFIRMED` phase after runtime confirmation and SQLite commit.
+- Durable privileged-operation intent and completed-result records written around
+  each `router-applyd` side-effect boundary.
 - Recovery-safe bootstrap executables independent of the candidate firmware slot.
-- Deterministic failure coverage for lost apply/confirmation responses,
-  incomplete intents, corrupt helper metadata, contradictory RPC outcomes,
-  WireGuard-only management changes, failed rollback, SQLite commit failure,
-  final helper acknowledgement failure, boot reconciliation, and two-phase
-  confirmation ordering.
-- Clean-Alpine destructive smoke coverage that removes volatile nftables, LAN,
-  and WireGuard runtime and verifies reconstruction from confirmed state.
-- Gateway-quality/PPPoE monitoring with bounded history, latency, jitter, packet
-  loss, reconnect history, and flapping detection.
+- Failure-injection coverage for interrupted activation, rollback, corrupt
+  journals, state-write failures, and concurrent update operations.
+- Deterministic router failure scenarios covering lost privileged responses,
+  confirmation-response loss, simulated power loss during pending changes,
+  WireGuard-only management changes, failed automatic rollback, SQLite commit
+  failure, unverified helper results, boot reconciliation, incomplete helper
+  intents, corrupt helper metadata, and two-phase confirmation ordering.
+- Explicit `RecoveryRequired` transaction and RPC outcome for runtime states whose
+  commit or rollback has not been verified.
+- Allowlisted `RECONCILE` privileged operation that may supersede unresolved
+  helper journal state only by applying and verifying SQLite canonical state.
+- Separate `COMMIT_CONFIRMED` phase after runtime confirmation and SQLite commit.
+- Failure-scenario matrix for IPC, power, process, storage, firewall, DHCP/DNS,
+  PPPoE, WireGuard, update, backup, restore, and target-Proxmox testing.
 - Fuzz targets for malformed unauthenticated API requests and update journals.
 - Isolated WAN-router-LAN network namespace laboratory covering DHCP, DNS, NAT,
   firewall, TCP, UDP, parallel flows, packet loss, latency, and WAN port checks.
@@ -47,9 +47,12 @@ alpha, compatibility may change between commits.
 - ARM64 QEMU smoke testing for recovery-safe commands.
 - High-confidence `gosec`, `shellcheck`, `actionlint`, Linux binary inspection,
   and executable-stack rejection.
-- Private `PROXMOX_AI_HANDOFF.md` with current storage/health behavior, durable
-  interruption points, stop conditions, evidence format, and rollback rules for
-  the owner-created VM.
+- Current validation document separating automated evidence from target-host
+  Proxmox and hardware gates.
+- Expanded Proxmox pilot, testing, recovery, and evidence documentation.
+- Professional project README, documentation index, governance, privacy,
+  contribution, support, release, and community documentation.
+- Dashboard screenshot and synthetic documentation data.
 - Local recovery console for credential reset, LAN repair, snapshot restore, and
   factory reset with session revocation and undo snapshots.
 - DNS Filter device profiles and scheduled Kids profile workflow.
@@ -59,73 +62,87 @@ alpha, compatibility may change between commits.
 
 ### Changed
 
-- Shared application/runtime code is synchronized with public baseline
-  `vladimirperovic/minimalrouter@df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`,
-  including public PR #28, PR #29, and their final validation documentation.
 - Nonessential gateway sample/reconnect history is shed under critical storage
   pressure while live probing and in-memory gateway health continue.
 - Recovery and configuration writes remain fail-closed under critical storage
   pressure; read-only status, previews, verification and encrypted backup export
-  stay available where no durable mutation is required.
-- Ambiguous transport failures retry the exact same transaction ID so the helper
-  can return a persisted idempotent result without repeating side effects.
-- Disruptive confirmation now proceeds in order: verify candidate runtime,
-  commit the exact candidate revision to SQLite, then verify runtime again,
-  record helper `last-good`, and clear pending state.
-- Explicit final helper-commit retry uses a fresh transaction ID after a recorded
-  storage failure, while transport retry within one attempt retains the same ID.
-- WireGuard key, port, address, peer, and allowed-route changes require
-  commit-confirm while management is WireGuard-only.
-- Failed automatic rollback retains pending/candidate access, blocks overlapping
-  mutation, and retries with a fresh rollback transaction ID.
-- `router-applyd` exposes its Unix socket only after startup reconciliation has
-  completed successfully.
-- Private documentation now distinguishes fully green public automated evidence,
-  synchronized shared-source parity, and remaining target-Proxmox gates.
-- CI and tagged-release `checkout`, `setup-go`, and `setup-node` actions use v7;
-  evidence-upload workflows use `upload-artifact` v7.
+  stay available.
+- Ambiguous `routerd` to `router-applyd` transport failures retry the exact same
+  transaction ID so the helper can return its persisted idempotent result.
+- Privileged mutations write an intent record before side effects and a validated
+  final result afterward; an incomplete intent blocks ordinary mutation.
+- Privileged transaction, pending-confirmation, and last-good records are
+  structurally validated and fail closed when unreadable or inconsistent.
+- WireGuard key, port, address, peer, and route changes require commit-confirm
+  while management is WireGuard-only.
+- Commit-confirm now follows a two-phase persistence order: verify candidate
+  runtime, commit the exact candidate revision to SQLite, then record helper
+  `last-good` and clear pending state.
+- A failed explicit final helper commit retry uses a fresh transaction ID while
+  transport retries inside the same attempt retain the same ID.
+- A failed automatic commit-confirm rollback retains pending/candidate access,
+  blocks overlapping configuration, schedules another attempt, and uses a fresh
+  rollback transaction ID rather than replaying a cached failed response.
+- Core GitHub CI actions and artifact upload use v7.
 - Dashboard development uses TypeScript 6.0.3 and Node.js type definitions 26.1.2.
-- TypeScript 6 CSS side-effect import checks are satisfied with a Vite client
-  declaration rather than disabling stricter compiler behavior.
-- Active A/B slots supply `routerd`, `router-applyd`, and dashboard assets through
-  stable dispatchers.
-- Update and recovery commands execute from an independent bootstrap payload.
-- Update staging re-verifies copied files and uses atomic synchronized filesystem
-  operations.
-- Recovery mutations use transactional SQLite operations.
+- TypeScript 6 CSS side-effect import checks are satisfied with the Vite client
+  declaration rather than disabling the stricter compiler behavior.
+- Active A/B slots now supply `routerd`, `router-applyd`, and dashboard assets
+  through stable dispatchers.
+- Update and recovery commands always execute from an independent bootstrap
+  payload, preventing a candidate slot from replacing rollback tooling.
+- Update staging now re-verifies copied files against the signed manifest and
+  performs atomic, synchronized filesystem operations.
+- Recovery authentication reset, LAN change, snapshot restore, and factory reset
+  use transactional SQLite operations.
 - CLI help and read-only status commands avoid privileged side effects.
+- The release signer safely handles raw Ed25519 keys and can emit the public trust
+  anchor covered by the signed manifest.
+- Documentation now treats dated resource/security reports as historical evidence
+  and uses `docs/CURRENT_VALIDATION.md` for current repository status.
+- Proxmox guidance explicitly requires read-only VM discovery, isolated LAN,
+  test/NAT WAN, graceful lifecycle handling, and pfSense rollback.
+- The first-run wizard uses discovered interface choices and external CSS.
+- `router-applyd` starts with no-new-privileges, disabled dumpability, bounded
+  resources, fixed executable path, and sanitized loader environment.
 - Node.js remains build-time only; the router runtime is Bash-free.
 
 ### Fixed
 
-- Malformed/partial `/api/v1/health` payloads no longer crash the dashboard; the
-  Overview banner fails closed to an unavailable/unknown display.
+- Lost IPC responses after a completed apply or confirmation no longer force an
+  unnecessary unknown outcome when the helper can return the saved result.
 - A helper restart after an incomplete privileged operation can no longer treat
-  the request as fresh and repeat side effects.
-- A different transaction can no longer bypass unresolved helper intent or
-  `RecoveryRequired` state.
-- Corrupt, unreadable, valid-but-empty, or structurally inconsistent transaction,
-  pending-confirmation, and last-good metadata now fails closed.
-- Contradictory privileged RPC outcomes are rejected instead of being interpreted
-  as proof of commit or rollback.
-- Lost IPC responses after completed apply or confirmation return the persisted
-  result when available.
-- Rollback is reported only after successful, verified restoration; otherwise the
-  result remains `RecoveryRequired`.
-- Helper `last-good` no longer advances before SQLite canonical commit during a
-  disruptive change.
-- Failure after SQLite commit but before helper acknowledgement no longer enables
-  timeout rollback to the older helper state.
-- Unconfirmed power-loss state is reconciled from SQLite before management
-  readiness.
-- Interrupted update pointer changes are reconciled through the durable journal.
+  the same request as fresh and repeat side effects.
+- A different transaction can no longer bypass an unresolved helper intent or
+  `RecoveryRequired` result.
+- Corrupt or valid-but-empty helper metadata is no longer treated as absent state.
+- Privileged RPC responses with contradictory success, verification, rollback, or
+  recovery flags are rejected.
+- Privileged confirmation now recognizes WireGuard control-plane changes that can
+  break a WireGuard-only management path.
+- A rollback that fails verification is no longer falsely reported as
+  `RolledBack`; it is reported as `RecoveryRequired`.
+- SQLite commit failure reports `RolledBack` only after a successful, verified
+  privileged restoration of the previous configuration.
+- Helper `last-good` no longer advances before the corresponding SQLite canonical
+  commit during disruptive confirmation.
+- Failure to acknowledge helper `last-good` after SQLite commit no longer enables
+  timeout rollback of the now-canonical candidate.
+- A crash between update pointer changes can no longer silently lose the intended
+  activation/rollback transition; journal reconciliation restores consistency.
 - Corrupt state no longer leaves a blocking partially staged version.
 - State-save failures remove incomplete final slots.
-- Unsafe or broken update pointers are rejected.
-- Recovery session-deletion failures roll back the full transaction.
-- Dashboard TypeScript 6 builds accept reviewed CSS side effects.
-- Clean Alpine CI exercises signed update activation and rollback.
-- TOTP disable verifies request, password, code, and session revocation in order.
+- Unsafe, broken, absolute, or traversal update pointers are rejected.
+- Recovery session-deletion failures roll back the entire credential/configuration
+  transaction.
+- Raw 64-byte signing keys no longer risk scanner-reported ignored close errors.
+- Dashboard TypeScript 6 builds accept reviewed CSS module side effects.
+- Clean Alpine CI exercises the signed update, active slot, dashboard marker, and
+  rollback path.
+- TOTP disable validates the request, current password, code, and session
+  revocation in the correct order.
+- Distribution builds create staging directories before copying binaries and
+  dashboard assets.
 
 ### Security
 
@@ -134,36 +151,28 @@ alpha, compatibility may change between commits.
 - Health collection is read-only and does not inspect or return PPPoE passwords,
   WireGuard private keys, provider tokens, administrator credentials, backups, or
   other secret material.
-- Privileged side effects never begin without a durable intent marker.
-- Unknown privileged outcomes block future mutation until canonical
-  reconciliation succeeds.
-- Only typed `RECONCILE` may override unresolved helper journal state.
 - Signed staging rejects untrusted keys, unsafe paths, symlinks, non-regular
   files, hash mismatches, duplicate versions, and package-supplied hooks.
-- Staged files are re-verified after copy.
-- Dispatchers use a fixed PATH and sanitized environment.
-- Runtime data, credentials, keys, backups, packet captures, databases, VM images,
-  and real Proxmox/network inventory are rejected by repository hygiene.
+- The verify-to-copy window is closed by re-verification of staged files.
+- Update/recovery dispatchers use a fixed PATH and remove loader/environment hooks.
+- Privileged side effects are never started without a durable intent marker.
+- Unknown privileged outcomes block future mutation until canonical
+  reconciliation succeeds.
+- Only the typed `RECONCILE` path may override unresolved helper journal state;
+  ordinary apply and confirmation operations remain blocked.
+- Runtime data, credentials, private keys, backups, packet captures, databases,
+  VM images, and private network inventory are rejected by repository hygiene.
 - Recovery has no network endpoint and credential changes revoke sessions.
-
-### Validation note
-
-- Public PR #28 final head `e3f6b983b189e6418cbd1711abf32e4a29d98107`
-  and PR #29 final head `f56807a4bbad09bc3565f66de2b3b18aeb5c87b4`
-  passed their full triggered workflow suites.
-- The final public documentation baseline is
-  `df99909a7b161b1a0bcc7149b9dfeaf6a2a51796`.
-- Public automated evidence is not a substitute for the owner's real Proxmox,
-  PPPoE, NIC, destructive storage, external scan, restore, or long-duration tests.
-- A private CI pass must not be claimed unless Actions for the exact private head
-  actually execute and report success.
+- Device-profile rules are evaluated before established-connection acceptance so
+  expired policy flows are not grandfathered.
 
 ### Known limitations
 
-- Early alpha; not an unattended production firewall.
-- The owner-created Proxmox VM still needs the dated private test report described
-  in `docs/PROXMOX_AI_HANDOFF.md`.
+- Early alpha; not supported as an unattended production firewall.
 - No stable signed ISO or owner-qualified recovery media.
-- Real NIC, PPPoE, WireGuard, external scan, full-disk/inode/read-only/process-kill,
-  abrupt power-loss, backup-restore, and long-duration evidence is still required.
+- Real target Proxmox, NIC, PPPoE, external scan, long-duration, full-disk,
+  inode-exhaustion, read-only-filesystem, process-kill, and destructive power-loss
+  evidence is still required.
+- IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
+  ecosystem are not current stable features.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.

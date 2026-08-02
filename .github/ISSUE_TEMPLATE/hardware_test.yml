@@ -1,0 +1,99 @@
+name: Hardware validation report
+description: Share reproducible, privacy-safe test evidence from a VM or dedicated device.
+title: "hardware: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing Minimal Router OS. Use only an isolated test network and keep console access plus a known-good router available.
+
+        Do not include credentials, keys, public IP addresses, real hostnames, MAC addresses, device names, WireGuard profiles or QR codes, backups, databases, packet captures, or unredacted logs.
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or release
+      description: Exact commit SHA or release tag tested.
+      placeholder: abcdef123456...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: Architecture
+      options:
+        - x86-64 / amd64
+        - ARM64 / aarch64
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: platform
+    attributes:
+      label: Platform
+      description: Generic hardware or VM details, Alpine version, hypervisor, CPU, RAM, disk, NIC chipset or virtual NIC type.
+      placeholder: Alpine 3.22 VM, 1 vCPU, 1 GiB RAM, 8 GiB disk, two VirtIO NICs
+    validations:
+      required: true
+
+  - type: textarea
+    id: topology
+    attributes:
+      label: Test topology
+      description: Use generic labels and documentation-only addresses. State whether WAN was NAT/test-only and LAN was isolated.
+      placeholder: Test WAN behind a NAT bridge; isolated LAN bridge with one synthetic client
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scenarios
+    attributes:
+      label: Scenarios tested
+      options:
+        - label: Clean installation
+        - label: First-run wizard
+        - label: DHCP and DNS
+        - label: Firewall and NAT
+        - label: PPPoE
+        - label: WireGuard
+        - label: Reboot reconciliation
+        - label: Failed-change rollback
+        - label: Backup export and restore
+        - label: Power-loss recovery
+        - label: Sustained throughput or latency
+
+  - type: textarea
+    id: method
+    attributes:
+      label: Method and measurements
+      description: Describe commands, duration, traffic direction, packet size, client count, and measurement limitations. Do not include private network data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: Report successes, failures, resource use, temperatures, and unexpected behavior with units.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Paste only the minimum redacted logs or screenshots needed to support the result.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety and privacy confirmation
+      options:
+        - label: I tested on an isolated network or dedicated test path and kept console access plus rollback available.
+          required: true
+        - label: I removed credentials, keys, real addresses, hostnames, MAC addresses, device names, profiles, QR codes, backups, databases, and packet captures.
+          required: true
+        - label: I understand that a successful report does not establish production readiness for other hardware or environments.
+          required: true

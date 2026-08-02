@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible problem without including private network data.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Minimal Router OS. This is early alpha software.
+        Remove all credentials, tokens, keys, public IP addresses, hostnames, MAC addresses, and device names before submitting.
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or release
+      description: Paste the exact commit SHA or release tag.
+      placeholder: abcdef123456...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Alpine VM on Proxmox
+        - Alpine VM on another hypervisor
+        - Alpine bare metal
+        - macOS development preview
+        - CI / clean-install smoke test
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and network layout
+      description: Use generic interface and network names. Do not expose your real public IP or device inventory.
+      placeholder: x86-64 VM, 2 VirtIO NICs, isolated test WAN and LAN
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that triggers the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or screenshots
+      description: Do not upload databases, backups, pfSense exports, WireGuard profiles, or unredacted diagnostics.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I reproduced this on an isolated test network or have console access and rollback available.
+          required: true
+        - label: I removed credentials and identifying network information.
+          required: true
+        - label: This is not a security vulnerability. Security issues are reported privately.
+          required: true
