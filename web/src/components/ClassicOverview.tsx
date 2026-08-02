@@ -148,9 +148,9 @@ export default function ClassicOverview({
         <small>{runtime.os || "Alpine Linux"}{runtime.architecture ? ` · ${runtime.architecture}` : ""}{typeof runtime.temperature_c === "number" ? ` · ${runtime.temperature_c.toFixed(0)}°C` : ""}</small>
       </div>
       <div className="classic-resource-grid">
-        <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small><div><i style={{ width: `${Math.min(100, runtime.cpu_load_percent || 0)}%` }} /></div></article>
-        <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><div><i style={{ width: `${Math.min(100, memoryPercent)}%` }} /></div></article>
-        <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><div><i style={{ width: `${Math.min(100, diskPercent)}%` }} /></div></article>
+        <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
+        <article><span>Memory</span><strong>{formatBytes(runtime.memory_used_bytes)}</strong><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small><progress max="100" value={Math.min(100, memoryPercent)} /></article>
+        <article><span>Disk</span><strong>{formatBytes(runtime.disk_used_bytes)}</strong><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small><progress max="100" value={Math.min(100, diskPercent)} /></article>
       </div>
     </section>
 
