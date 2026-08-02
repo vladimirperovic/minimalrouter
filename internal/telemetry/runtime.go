@@ -34,7 +34,6 @@ type RuntimeStatus struct {
 	Storage               storage.Status        `json:"storage"`
 	RXBytes               uint64                `json:"rx_bytes,omitempty"`
 	TXBytes               uint64                `json:"tx_bytes,omitempty"`
-	TemperatureC          float64               `json:"temperature_c,omitempty"`
 	TimeSynchronized      bool                  `json:"time_synchronized"`
 	ConntrackCount        uint64                `json:"conntrack_count,omitempty"`
 	ConntrackMax          uint64                `json:"conntrack_max,omitempty"`

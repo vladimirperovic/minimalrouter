@@ -1094,6 +1094,17 @@ td > span {
   background: var(--surface-muted);
 }
 
+.button.danger {
+  border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--separator));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+}
+
+.button.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
 .button.full {
   width: 100%;
 }

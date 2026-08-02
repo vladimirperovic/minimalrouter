@@ -32,9 +32,12 @@
 .dashboard-brand strong { font-size: 14px; letter-spacing: -0.02em; }
 .dashboard-brand small { margin-top: 3px; font-size: 10px; letter-spacing: 0; text-transform: none; }
 .dashboard-sidebar nav { gap: 4px; }
-.dashboard-sidebar nav a { min-height: 42px; gap: 10px; border-radius: 10px; padding: 0 11px; font-size: 12px; font-weight: 500; }
-.dashboard-sidebar nav a span { width: 24px; font-size: 9px; font-weight: 600; }
-.dashboard-sidebar nav a:hover, .dashboard-sidebar nav a.is-active { background: rgba(10, 116, 232, 0.1); color: var(--classic-blue); }
+.dashboard-sidebar nav a { min-height: 42px; gap: 11px; border-radius: 10px; padding: 0 11px; font-size: 12px; font-weight: 500; }
+.dashboard-nav-icon { width: 18px; height: 18px; color: var(--classic-muted); }
+.dashboard-sidebar nav a:hover { background: rgba(0, 0, 0, 0.05); color: var(--classic-text); }
+.dashboard-sidebar nav a:hover .dashboard-nav-icon { color: var(--classic-muted); }
+.dashboard-sidebar nav a.is-active { background: rgba(10, 116, 232, 0.1); color: var(--classic-blue); }
+.dashboard-sidebar nav a.is-active .dashboard-nav-icon { color: var(--classic-blue); }
 .dashboard-main { margin-left: 228px; padding: 0 30px 72px; }
 .dashboard-topbar.classic-topbar { position: sticky; top: 0; z-index: 20; max-width: none; min-height: 64px; margin: 0 -30px 46px; padding: 0 28px; border-bottom: 1px solid var(--classic-border); background: color-mix(in srgb, var(--classic-bg) 92%, transparent); backdrop-filter: blur(18px); }
 .classic-topbar-status, .classic-topbar-actions { display: flex; align-items: center; gap: 8px; }

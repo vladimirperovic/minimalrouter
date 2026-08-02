@@ -160,7 +160,6 @@ export type SystemStatus = {
     disk_used_bytes?: number;
     disk_total_bytes?: number;
     storage?: StorageStatus;
-    temperature_c?: number;
     time_synchronized?: boolean;
     conntrack_count?: number;
     conntrack_max?: number;

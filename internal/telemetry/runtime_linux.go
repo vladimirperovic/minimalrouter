@@ -11,9 +11,20 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 	"golang.org/x/sys/unix"
+)
+
+type cpuTicks struct {
+	total uint64
+	idle  uint64
+}
+
+var (
+	cpuSampleMu   sync.Mutex
+	lastCPUSample cpuTicks
 )
 
 func readUint(path string) uint64 {
@@ -23,6 +34,46 @@ func readUint(path string) uint64 {
 	}
 	value, _ := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 	return value
+}
+
+// readCPULoadPercent returns real CPU utilization since the previous call,
+// computed as the busy-jiffies delta from /proc/stat (matching what Proxmox
+// reports), falling back to 0 on the first sample.
+func readCPULoadPercent() float64 {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return 0
+	}
+	line := strings.Fields(strings.SplitN(string(data), "\n", 2)[0])
+	if len(line) < 5 || line[0] != "cpu" {
+		return 0
+	}
+	// cpu user nice system idle iowait irq softirq steal
+	var total, idle uint64
+	for i, field := range line[1:] {
+		value, _ := strconv.ParseUint(field, 10, 64)
+		total += value
+		if i == 3 || i == 4 { // idle + iowait
+			idle += value
+		}
+	}
+	cpuSampleMu.Lock()
+	defer cpuSampleMu.Unlock()
+	if lastCPUSample.total == 0 || total < lastCPUSample.total {
+		lastCPUSample = cpuTicks{total: total, idle: idle}
+		return 0
+	}
+	dTotal := total - lastCPUSample.total
+	dIdle := idle - lastCPUSample.idle
+	lastCPUSample = cpuTicks{total: total, idle: idle}
+	if dTotal == 0 {
+		return 0
+	}
+	pct := float64(dTotal-dIdle) / float64(dTotal) * 100
+	if pct > 100 {
+		return 100
+	}
+	return pct
 }
 
 func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
@@ -50,13 +101,8 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 				status.LoadAverage = append(status.LoadAverage, value)
 			}
 		}
-		if len(status.LoadAverage) > 0 && status.CPUCount > 0 {
-			status.CPULoadPercent = status.LoadAverage[0] / float64(status.CPUCount) * 100
-			if status.CPULoadPercent > 100 {
-				status.CPULoadPercent = 100
-			}
-		}
 	}
+	status.CPULoadPercent = readCPULoadPercent()
 	if file, err := os.Open("/proc/meminfo"); err == nil {
 		scanner := bufio.NewScanner(file)
 		var totalKB, availableKB uint64
@@ -103,9 +149,6 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 	status.LANMAC = interfaceMAC(lanInterface)
 	status.RXBytes = readUint("/sys/class/net/" + statsInterface + "/statistics/rx_bytes")
 	status.TXBytes = readUint("/sys/class/net/" + statsInterface + "/statistics/tx_bytes")
-	if raw := readUint("/sys/class/thermal/thermal_zone0/temp"); raw > 0 {
-		status.TemperatureC = float64(raw) / 1000
-	}
 	status.ConntrackCount = readUint("/proc/sys/net/netfilter/nf_conntrack_count")
 	status.ConntrackMax = readUint("/proc/sys/net/netfilter/nf_conntrack_max")
 	if status.ConntrackMax > 0 {

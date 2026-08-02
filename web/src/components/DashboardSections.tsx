@@ -8,7 +8,7 @@ import DeviceLeasesTable from "./DeviceLeasesTable";
 import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer } from "../api-types";
 import "./DNSFilterPanel.css";
 
-export type SectionID = "overview" | "gateway" | "network" | "firewall" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs";
+export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
 type ApplyConfig = (mutate: (next: RouterConfig) => void, success: string) => Promise<void>;
@@ -33,6 +33,7 @@ type Props = {
   submitCloudflare: (event: FormEvent<HTMLFormElement>) => void;
   submitSquid: (event: FormEvent<HTMLFormElement>) => void;
   submitWiFi: (event: FormEvent<HTMLFormElement>) => void;
+  submitQoS: (event: FormEvent<HTMLFormElement>) => void;
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
   changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -71,11 +72,12 @@ function formatHandshake(epoch: number) {
 export default function DashboardSections({
   active, config, system, gatewaySummary, gatewaySettings, runtime, memoryPercent, diskPercent, leases, snapshots, busy,
   lastRefresh, load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, createSnapshot, restoreSnapshot, changePassword, setError,
+  submitWiFi, submitQoS, createSnapshot, restoreSnapshot, changePassword, setError,
 }: Props) {
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
   const [addingPeer, setAddingPeer] = useState(false);
+  const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
 
   const handleAddPeer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -110,7 +112,7 @@ export default function DashboardSections({
   <div className="dashboard-section-heading"><div><p className="eyebrow">Live status</p><h2>Router overview</h2>{lastRefresh && <small>Updated {lastRefresh.toLocaleTimeString()}</small>}</div><button className="button secondary" onClick={() => void load()} type="button">Refresh</button></div>
   <div className="metric-grid">
     <article><span>Uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong><small>{runtime.os || "Runtime unavailable"}</small></article>
-    <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%{typeof runtime.temperature_c === "number" && <span className="cpu-temp"> {runtime.temperature_c.toFixed(1)}°C</span>}</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
+    <article><span>CPU</span><strong>{Math.round(runtime.cpu_load_percent || 0)}%</strong><small>{runtime.cpu_count || 0} logical cores</small></article>
     <article><span>Memory</span><strong>{memoryPercent}%</strong><small>{formatBytes(runtime.memory_used_bytes)} / {formatBytes(runtime.memory_total_bytes)}</small></article>
     <article><span>Disk</span><strong>{diskPercent}%</strong><small>{formatBytes(runtime.disk_used_bytes)} / {formatBytes(runtime.disk_total_bytes)}</small></article>
     <article><span>LAN</span><strong>{system.lan_ip || config.lan.ip_address}</strong><small>{config.lan.interface}</small></article>
@@ -137,7 +139,26 @@ export default function DashboardSections({
 
 {active === "firewall" && <section className="dashboard-section" id="firewall">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2></div></div>
-  <div className="status-list"><article><div><strong>WAN input</strong><span>Unsolicited WAN input remains denied.</span></div><b>DENY</b></article><article><div><strong>State tracking</strong><span>Established and related traffic is accepted after security schedules.</span></div><b>{config.firewall.stateful_firewall ? "ON" : "INVALID"}</b></article><article><div><strong>Remote entry</strong><span>WireGuard is the only supported WAN entry point.</span></div><b>{config.firewall.wan_ingress_mode || "wireguard_only"}</b></article><article><div><strong>WAN port forwards</strong><span>The secure profile rejects enabled port forwards.</span></div><b>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</b></article></div>
+  <div className="status-list"><article><div><strong>WAN input</strong><span>Unsolicited WAN input remains denied.</span></div><b>DENY</b></article><article><div><strong>State tracking</strong><span>Established and related traffic is accepted after security schedules.</span></div><b>{config.firewall.stateful_firewall ? "ON" : "INVALID"}</b></article><article><div><strong>Remote entry</strong><span>WireGuard is the only supported WAN entry point.</span></div><b>{config.firewall.wan_ingress_mode || "wireguard_only"}</b></article>    <article><div><strong>WAN port forwards</strong><span>The secure profile rejects enabled port forwards.</span></div><b>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</b></article></div>
+</section>}
+
+{active === "qos" && <section className="dashboard-section" id="qos">
+  <div className="dashboard-section-heading"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Applied to {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${config.qos.enabled ? "" : "is-off"}`}>QoS {config.qos.enabled ? "Active" : "Off"}</span></div>
+  <div className="metric-grid compact">
+    <article><span>Algorithm</span><strong>{config.qos.algorithm}</strong><small>{config.qos.enabled ? "qdisc applied" : "inactive"}</small></article>
+    <article><span>Download limit</span><strong>{config.qos.download_limit_mbps} Mbps</strong><small>ingress police</small></article>
+    <article><span>Upload limit</span><strong>{config.qos.upload_limit_mbps} Mbps</strong><small>root qdisc rate</small></article>
+  </div>
+  <form className="settings-form" key={`qos-${config.revision}`} onSubmit={submitQoS}>
+    <label className="checkbox-row"><input defaultChecked={config.qos.enabled} name="enabled" type="checkbox" /><span>Enable QoS traffic shaping</span></label>
+    <div className="form-grid two">
+      <label className="field"><span>Algorithm</span><select defaultValue={config.qos.algorithm} name="algorithm"><option value="cake">CAKE (recommended)</option><option value="fq_codel">FQ-CoDel</option></select></label>
+      <label className="field"><span>Download limit (Mbps)</span><input defaultValue={config.qos.download_limit_mbps} max="100000" min="1" name="download_limit_mbps" required type="number" /></label>
+      <label className="field form-span"><span>Upload limit (Mbps)</span><input defaultValue={config.qos.upload_limit_mbps} max="100000" min="1" name="upload_limit_mbps" required type="number" /></label>
+    </div>
+    <p className="form-note">Set limits to ~90% of your measured WAN speed. Enabling QoS on a link with no congestion has little effect; measure latency before/after to confirm bufferbloat is reduced.</p>
+    <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply QoS configuration</button></div>
+  </form>
 </section>}
 
 {active === "wireguard" && <section className="dashboard-section" id="wireguard">
@@ -183,7 +204,7 @@ export default function DashboardSections({
             <tr key={peer.id}>
               <td className="wg-cell-status">
                 <span className={`wg-status-icon ${online ? "is-online" : "is-offline"}`} role="img" aria-label={online ? "Connected" : "Disconnected"}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.5 2.5L16 10" /></svg>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">{online ? <><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.5 2.5L16 10" /></> : <><circle cx="12" cy="12" r="9" /><path d="M8.5 12h7" /></>}</svg>
                 </span>
               </td>
               <td className="wg-cell-peer"><span className="wg-peer-name">{peer.name}</span><small className="wg-peer-key">{peer.public_key.slice(0, 18)}…</small></td>
@@ -198,6 +219,7 @@ export default function DashboardSections({
                 }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">
                   {peer.enabled ? "Disable" : "Enable"}
                 </button>
+                <button className="button danger small" disabled={busy} onClick={() => setConfirmDeletePeer({ id: peer.id, name: peer.name })} type="button" aria-label={`Delete peer ${peer.name}`} title={`Delete ${peer.name}`}>Delete</button>
               </td>
             </tr>
           );
@@ -205,7 +227,23 @@ export default function DashboardSections({
       </tbody>
     </table>
   </div>
-  
+
+  {confirmDeletePeer && (
+    <div className="modal-backdrop" onClick={() => setConfirmDeletePeer(null)}>
+      <div className="modal destructive-modal" role="dialog" aria-modal="true" aria-labelledby="delete-peer-title" onClick={(e) => e.stopPropagation()}>
+        <button className="modal-close" aria-label="Close" onClick={() => setConfirmDeletePeer(null)} type="button">✕</button>
+        <h2 id="delete-peer-title">Delete {confirmDeletePeer.name}?</h2>
+        <p className="modal-copy">This permanently removes the peer <strong>{confirmDeletePeer.name}</strong> from the WireGuard configuration. Its client config and QR code will no longer work, and this cannot be undone.</p>
+        <div className="modal-actions">
+          <button className="button secondary" onClick={() => setConfirmDeletePeer(null)} type="button">Cancel</button>
+          <button className="button danger" disabled={busy} type="button" onClick={() => void applyConfig((next) => {
+            next.wireguard.peers = (next.wireguard.peers || []).filter((x: WireGuardPeer) => x.id !== confirmDeletePeer.id);
+          }, `Peer ${confirmDeletePeer.name} deleted.`).then(() => setConfirmDeletePeer(null))}>Delete</button>
+        </div>
+      </div>
+    </div>
+  )}
+
   {wgConfig ? (
     <div className="dashboard-callout" style={{ borderLeftColor: "var(--success)", display: "flex", gap: "20px", alignItems: "flex-start" }}>
       {wgConfig.qr && (

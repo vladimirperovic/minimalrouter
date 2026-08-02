@@ -159,9 +159,6 @@ export default function ClassicOverview({
           <span>CPU</span>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", width: "100%" }}>
             <strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong>
-            {typeof runtime.temperature_c === "number" && (
-              <span style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--classic-text)" }}>{runtime.temperature_c.toFixed(1)}°C</span>
-            )}
           </div>
           <small>{runtime.cpu_count || 0} logical cores</small>
           <progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} />

@@ -78,24 +78,39 @@
 .dashboard-sidebar nav a {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   border-radius: 10px;
-  padding: 10px 11px;
+  padding: 9px 11px;
   color: var(--text-secondary, #6e6e73);
   font-size: 13px;
   font-weight: 650;
   text-decoration: none;
+  transition: background-color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1)), color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.dashboard-sidebar nav a span {
+.dashboard-nav-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
   color: var(--text-tertiary, #86868b);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
+  transition: color 160ms var(--ease-out, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.dashboard-sidebar nav a:hover,
+.dashboard-sidebar nav a:hover {
+  background: rgba(0, 0, 0, 0.045);
+  color: var(--text-primary, #1d1d1f);
+}
+
+.dashboard-sidebar nav a:hover .dashboard-nav-icon {
+  color: var(--text-secondary, #6e6e73);
+}
+
 .dashboard-sidebar nav a.is-active {
   background: rgba(0, 113, 227, 0.1);
+  color: #0071e3;
+}
+
+.dashboard-sidebar nav a.is-active .dashboard-nav-icon {
   color: #0071e3;
 }
 
@@ -262,14 +277,6 @@
   letter-spacing: -0.025em;
 }
 
-.metric-grid article strong .cpu-temp {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--text-secondary, #6e6e73);
-  white-space: nowrap;
-}
-
 .wg-status-card {
   display: flex;
   justify-content: space-between;
@@ -374,8 +381,8 @@
 }
 
 .wg-status-icon.is-online svg {
-  fill: rgba(52, 199, 89, 0.9);
-  stroke: #34c759;
+  fill: rgba(52, 199, 89, 0.14);
+  stroke: rgba(52, 199, 89, 0.85);
   stroke-width: 1.6;
 }
 
