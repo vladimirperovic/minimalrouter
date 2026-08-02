@@ -20,6 +20,12 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/dashboard-overview.svg" alt="Minimal Router dashboard overview" />
+</p>
+
+<p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>
+
 <a id="status"></a>
 
 > **Early alpha.** Use only in a controlled lab/pilot with local console access
