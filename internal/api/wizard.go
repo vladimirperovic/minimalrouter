@@ -24,16 +24,26 @@ type WizardSetupRequest struct {
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	cfg := s.engine.GetCurrentConfig()
-
 	s.mu.RLock()
 	isConfigured := s.adminHash != ""
 	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if isConfigured {
+		// Once setup is complete this endpoint is only an unauthenticated routing
+		// hint for AuthGate. Do not expose internal interfaces, addresses or
+		// recovery details to an unauthenticated LAN client.
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"is_configured": true,
+		})
+		return
+	}
+
+	cfg := s.engine.GetCurrentConfig()
 	status := s.engine.GetStatus()
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"is_configured":     isConfigured,
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"is_configured":     false,
 		"wan_interface":     cfg.WAN.Interface,
 		"lan_interface":     cfg.LAN.Interface,
 		"lan_ip":            cfg.LAN.IPAddress,
@@ -165,16 +175,30 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		"lan_interface": cfg.LAN.Interface,
 	})
 
-	// Create an initial session for the admin so they don't need to re-login
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+
+	// Session creation is deliberately after the atomic setup commit. If the
+	// session store has a transient failure at this point, setup itself has still
+	// succeeded. Report success and let the UI continue to the normal login flow
+	// instead of falsely claiming that the router initialization failed.
 	session := s.sessionMgr.CreateSession()
 	if session == nil {
-		http.Error(w, "Could not create a durable session", http.StatusInternalServerError)
+		log.Printf("[AUTH] Initial setup committed but durable session creation failed; explicit login required\n")
+		s.appendAudit("system.setup_session_failed", auditActor(r.RemoteAddr), map[string]string{
+			"result": "setup_committed_login_required",
+		})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":        true,
+			"requires_login": true,
+			"redirect_url":   fmt.Sprintf("https://%s", net.JoinHostPort(cfg.LAN.IPAddress, fmt.Sprint(cfg.System.HTTPSPort))),
+			"tx":             redactTransaction(tx),
+		})
 		return
 	}
 	s.sessionMgr.SetSessionCookie(w, session)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":      true,
 		"csrf_token":   session.CSRFToken,
 		"redirect_url": fmt.Sprintf("https://%s", net.JoinHostPort(cfg.LAN.IPAddress, fmt.Sprint(cfg.System.HTTPSPort))),
