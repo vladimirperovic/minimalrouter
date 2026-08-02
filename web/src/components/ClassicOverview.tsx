@@ -140,14 +140,24 @@ export default function ClassicOverview({
     }
   }, []);
 
+  const connected = useMemo(() => {
+    return gatewaySummary && gatewaySummary.packet_loss_percent < 50;
+  }, [gatewaySummary]);
+
   return <section className="classic-dashboard-overview" aria-label="System Overview">
     <article className="classic-hero-card">
       <div className="classic-hero-heading">
         <div>
           <div className="classic-kicker">Local appliance</div>
-          <h1>{config.system.hostname}</h1>
+          <h1>{connected ? "Online and verified" : "Offline"}</h1>
         </div>
-        {runtime.os === "linux" ? <span className="classic-state-pill is-primary">{runtime.architecture}</span> : <span className="classic-state-pill is-primary">Unsupported platform</span>}
+        {gatewaySummary ? (
+          <span className={`classic-state-pill ${connected ? "is-good" : "is-bad"}`}>
+            <span className="classic-dot" />{connected ? "PPPoE connected" : "PPPoE disconnected"}
+          </span>
+        ) : (
+          <span className="classic-state-pill"><span className="classic-dot" />Checking PPPoE...</span>
+        )}
       </div>
 
       <div className="classic-meta-row">
@@ -207,62 +217,65 @@ export default function ClassicOverview({
       </div>
     </article>
 
-    <section className="classic-device-section">
-      <div className="classic-section-heading">
-        <div>
-          <span>LAN</span>
-          <h2>Connected devices.</h2>
+    <section className="modern-device-section">
+      <div className="modern-section-heading">
+        <div className="modern-heading-titles">
+          <span>LAN NETWORK</span>
+          <h2>Connected devices</h2>
         </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        <div className="modern-search-wrapper">
+          <svg className="modern-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
           <input 
             type="text" 
-            placeholder="Search devices..." 
+            placeholder="Search by name, IP, or MAC..." 
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            style={{ padding: "6px 12px", borderRadius: "20px", border: "1px solid var(--classic-border)", fontSize: "12px", background: "var(--classic-panel)", color: "var(--classic-text)" }}
+            className="modern-search-input"
           />
-          <small>{filteredLeases.length} active leases</small>
         </div>
       </div>
-      <div className="classic-device-table-wrap">
-        <table className="classic-device-table">
-          <thead>
-            <tr>
-              <th>Host</th>
-              <th>IP address</th>
-              <th>MAC</th>
-              <th>Expires</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredLeases.length === 0 ? <tr><td colSpan={5}>No active DHCP leases found.</td></tr> : filteredLeases.map((lease) => {
-              const isStatic = staticMacs.has(lease.mac.toLowerCase());
-              return (
-                <tr key={`${lease.mac}-${lease.ip_address}`} style={isStatic ? { background: "rgba(0,0,0,0.03)" } : {}}>
-                  <td style={{ fontWeight: isStatic ? 600 : "normal" }}>
-                    {lease.hostname || "Unknown"}
-                    {isStatic && <span style={{ marginLeft: "8px", fontSize: "10px", background: "var(--classic-purple)", color: "white", padding: "2px 6px", borderRadius: "10px" }}>Static</span>}
-                  </td>
-                  <td><code>{lease.ip_address}</code></td>
-                  <td><code>{lease.mac}</code></td>
-                  <td>{new Date(lease.expires_at * 1000).toLocaleString()}</td>
-                  <td>
-                    <button 
-                      type="button" 
-                      onClick={() => void wakeOnLan(lease.mac)}
-                      className="quiet-button"
-                      style={{ fontSize: "11px", padding: "4px 8px", background: "var(--classic-border)", borderRadius: "4px", fontWeight: "bold" }}
-                      title="Wake-on-LAN"
-                    >
-                      WOL
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      
+      <div className="modern-device-grid">
+        {filteredLeases.length === 0 ? (
+          <div className="modern-empty-state">No devices found.</div>
+        ) : filteredLeases.map((lease) => {
+          const isStatic = staticMacs.has(lease.mac.toLowerCase());
+          return (
+            <div key={`${lease.mac}-${lease.ip_address}`} className={`modern-device-card ${isStatic ? 'is-static' : ''}`}>
+              <div className="modern-device-info">
+                <div className="modern-device-header">
+                  <h3 className="modern-device-name">{lease.hostname || "Unknown device"}</h3>
+                  {isStatic && <span className="modern-badge-static">Static IP</span>}
+                </div>
+                <div className="modern-device-details">
+                  <div className="modern-detail-item">
+                    <span className="modern-detail-label">IP Address</span>
+                    <span className="modern-detail-value">{lease.ip_address}</span>
+                  </div>
+                  <div className="modern-detail-item">
+                    <span className="modern-detail-label">MAC Address</span>
+                    <span className="modern-detail-value">{lease.mac}</span>
+                  </div>
+                  <div className="modern-detail-item">
+                    <span className="modern-detail-label">Expires</span>
+                    <span className="modern-detail-value">{isStatic ? 'Never' : new Date(lease.expires_at * 1000).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="modern-device-actions">
+                <button 
+                  type="button" 
+                  onClick={() => void wakeOnLan(lease.mac)}
+                  className="modern-btn-wol"
+                  title="Wake-on-LAN"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                  <span>Wake Up</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   </section>;
