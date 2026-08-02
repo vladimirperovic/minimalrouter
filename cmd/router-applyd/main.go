@@ -1040,6 +1040,7 @@ func configureLAN(lan config.LANSettings) error {
 	if err := runFixed("/sbin/ip", "-4", "addr", "add", lan.CIDR, "dev", lan.Interface); err != nil {
 		return fmt.Errorf("configure LAN address: %w", err)
 	}
+	sendGratuitousARP(lan.Interface, lan.CIDR)
 	return nil
 }
 
@@ -1096,6 +1097,7 @@ func configureRuntimeLAN(cfg config.SystemConfig) error {
 	if err := runFixed("/sbin/ip", "-4", "addr", "add", cfg.LAN.CIDR, "dev", bridge); err != nil {
 		return fmt.Errorf("configure LAN bridge address: %w", err)
 	}
+	sendGratuitousARP(bridge, cfg.LAN.CIDR)
 	return nil
 }
 
@@ -1112,6 +1114,17 @@ func configureProvisionalRuntimeLAN(candidate, previous config.SystemConfig) err
 		}
 	}
 	return nil
+}
+
+func sendGratuitousARP(iface, cidr string) {
+	parts := strings.Split(cidr, "/")
+	if len(parts) == 0 {
+		return
+	}
+	ip := parts[0]
+	// Send an unsolicited ARP reply (-A) or request (-U) to update peers
+	// using busybox arping (which typically supports -U for Unsolicited)
+	_ = runFixed("/usr/sbin/arping", "-U", "-c", "3", "-I", iface, ip)
 }
 
 func applyKernelHardening(cfg config.SystemConfig) error {
