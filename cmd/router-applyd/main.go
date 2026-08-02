@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -298,6 +297,17 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			}
 			log.Printf("apply transaction %q functional DNS verification failed and was rolled back: %s", req.ID, safeError(err))
 			return failure(req.ID, "functional DNS verification failed; previous configuration restored: "+safeError(err), true)
+		}
+	}
+	if requiresDDNSVerification(previousConfig, req.Config) {
+		if err := verifyDDNSUpdate(); err != nil {
+			rollbackErr := rollback(previousConfig, previous)
+			if rollbackErr != nil {
+				log.Printf("apply transaction %q dynamic DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
+				return recoveryFailure(req.ID, "dynamic DNS verification failed and rollback could not be verified")
+			}
+			log.Printf("apply transaction %q dynamic DNS verification failed and was rolled back: %s", req.ID, safeError(err))
+			return failure(req.ID, "dynamic DNS verification failed; previous configuration restored: "+safeError(err), true)
 		}
 	}
 	if req.RequireConfirmation {
@@ -655,8 +665,8 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
 
-		// Inadyn is restarted asynchronously. We do not block the pipeline verifying
-		// credentials because the network interface (e.g. PPPoE) might still be initializing.
+		// Inadyn is restarted asynchronously. Provider credentials are verified
+		// after PPPoE/link verification and only when DDNS settings changed.
 		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
 		}
