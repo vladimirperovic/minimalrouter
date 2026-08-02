@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#status"><img alt="Status: Early Alpha" src="https://img.shields.io/badge/status-early%20alpha-orange" /></a>
+  <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
@@ -28,8 +28,14 @@
 
 <a id="status"></a>
 
-> **Early alpha.** Use only in a controlled lab/pilot with local console access
-> and a known-good router ready for rollback. There is no stable signed ISO yet.
+> **Beta — core routing validated.** Minimal Router is carrying real PPPoE traffic
+> in a validated Proxmox deployment, with DHCP/DNS, NAT, WireGuard, Dynamic DNS,
+> Squid, gateway monitoring, snapshots/recovery, security controls and audit logs
+> working end to end. Remaining gaps are mostly management UI or hardware-specific:
+> firewall/port-forward editing, dashboard DHCP reservations, TOTP and Cloudflare
+> Tunnel UI, DNS-filter device/guest selection, Wi-Fi on systems with a supported
+> radio, and signing-key management. Local-console recovery remains the deliberate
+> safety path while the final release/update workflow is completed.
 
 Minimal Router OS is a small Alpine Linux router appliance with a Go control
 plane and React dashboard. Linux handles packet forwarding; the project builds on
@@ -42,8 +48,9 @@ new network stack.
 - WireGuard remote access and peer provisioning
 - No-IP and Cloudflare Dynamic DNS
 - gateway latency/loss/reconnect monitoring and live bandwidth view
-- connected-device search, static lease visibility and Wake-on-LAN
-- DNS filtering/device profiles, optional Squid, QoS and Wi-Fi AP
+- connected-device search, DHCP lease visibility and Wake-on-LAN
+- DNS filtering/device profiles and non-caching Squid
+- optional Wi-Fi AP on supported hardware
 - transactional config apply with confirmation, rollback and recovery
 - unprivileged `routerd` plus narrow privileged `router-applyd`
 - encrypted backups, snapshots and crash-safe A/B updates
