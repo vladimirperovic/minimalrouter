@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -563,9 +564,16 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
+	// Determine deltas to avoid unnecessary network drops
+	wifiChanged := previous == nil || !reflect.DeepEqual(cfg.WiFi, previous.WiFi)
+	lanChanged := previous == nil || !reflect.DeepEqual(cfg.LAN, previous.LAN) || !reflect.DeepEqual(cfg.DHCP, previous.DHCP)
+	wanChanged := previous == nil || !reflect.DeepEqual(cfg.WAN, previous.WAN)
+
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
 	// topology change so enabling, disabling, and rollback are deterministic.
-	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	if wifiChanged {
+		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	}
 	if provisional {
 		if err := configureProvisionalRuntimeLAN(cfg, *previous); err != nil {
 			return err
@@ -585,25 +593,37 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	} else {
 		clearQoS(cfg)
 	}
-	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
-		return fmt.Errorf("restart dnsmasq: %w", err)
+	
+	if lanChanged {
+		if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
+			return fmt.Errorf("restart dnsmasq: %w", err)
+		}
 	}
+	
 	if cfg.WAN.Enabled {
-		if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
-			return fmt.Errorf("restart PPPoE: %w", err)
+		if wanChanged {
+			if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
+				return fmt.Errorf("restart PPPoE: %w", err)
+			}
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+		if wanChanged {
+			_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+		}
 	}
 	if err := activateWireGuard(cfg); err != nil {
 		return err
 	}
 	if cfg.WiFi.Enabled {
-		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
-			return fmt.Errorf("restart hostapd: %w", err)
+		if wifiChanged {
+			if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
+				return fmt.Errorf("restart hostapd: %w", err)
+			}
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+		if wifiChanged {
+			_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+		}
 	}
 	if cfg.Cloudflare.DDNSEnabled {
 		group, lookupErr := user.LookupGroup("inadyn")
@@ -614,11 +634,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
-		if err := runFixedTimeout(45*time.Second, "/usr/sbin/inadyn",
-			"--once", "--force", "--foreground", "--no-pidfile",
-			"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice"); err != nil {
-			return fmt.Errorf("verify Cloudflare DDNS credentials and update: %w", err)
-		}
+		
+		// Inadyn is restarted asynchronously. We do not block the pipeline verifying
+		// credentials because the network interface (e.g. PPPoE) might still be initializing.
 		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
 		}
