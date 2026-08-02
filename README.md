@@ -30,6 +30,12 @@ plane and React dashboard. Linux handles packet forwarding; the project builds o
 `nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn` rather than implementing a
 new network stack.
 
+<p align="center">
+  <img src="docs/images/dashboard-overview.svg" alt="Minimal Router dashboard overview" />
+</p>
+
+<p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are replaced with documentation/example values.</sub></p>
+
 ## Highlights
 
 - PPPoE WAN, DHCP/DNS, NAT and default-deny firewall
