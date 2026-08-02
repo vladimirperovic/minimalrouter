@@ -146,6 +146,8 @@ export type SystemStatus = {
     os?: string;
     architecture?: string;
     wan_connected?: boolean;
+    wan_mac?: string;
+    lan_mac?: string;
     public_ip?: string;
     uptime_seconds?: number;
     cpu_count?: number;
@@ -164,6 +166,7 @@ export type SystemStatus = {
     conntrack_usage_percent?: number;
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
     wireguard_active_peers?: number;
+    ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string };
   };
 };
 

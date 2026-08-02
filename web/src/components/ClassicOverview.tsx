@@ -162,6 +162,8 @@ export default function ClassicOverview({
 
       <div className="classic-meta-row">
         <span>Public IP <b>{runtime.public_ip || "Unavailable"}</b></span>
+        <span>WAN MAC <b>{runtime.wan_mac || "Unknown"}</b></span>
+        <span>LAN MAC <b>{runtime.lan_mac || "Unknown"}</b></span>
         <span>Uptime <b>{formatUptime(runtime.uptime_seconds)}</b></span>
         <span>MTU <b>{config.wan.mtu || 1492}</b></span>
         <span>Revision <b>{config.revision}</b></span>

@@ -14,6 +14,8 @@ type RuntimeStatus struct {
 	OS                    string         `json:"os"`
 	Architecture          string         `json:"architecture"`
 	WANConnected          bool           `json:"wan_connected"`
+	WANMAC                string         `json:"wan_mac,omitempty"`
+	LANMAC                string         `json:"lan_mac,omitempty"`
 	PublicIP              string         `json:"public_ip,omitempty"`
 	UptimeSeconds         int64          `json:"uptime_seconds,omitempty"`
 	CPUCount              int            `json:"cpu_count"`
@@ -33,4 +35,15 @@ type RuntimeStatus struct {
 	ConntrackUsagePercent float64        `json:"conntrack_usage_percent,omitempty"`
 	DHCPLeases            []DHCPLease    `json:"dhcp_leases"`
 	WireguardActivePeers  int            `json:"wireguard_active_peers,omitempty"`
+	DDNS                  DDNSStatus     `json:"ddns"`
+}
+
+// DDNSStatus reports the live state of the in-router inadyn daemon, mirroring
+// the status pfSense shows for a Dynamic DNS client. LastUpdate is the last
+// successful provider update epoch; LastIP is the address most recently sent.
+type DDNSStatus struct {
+	Running    bool   `json:"running"`
+	Hostname   string `json:"hostname,omitempty"`
+	LastUpdate int64  `json:"last_update_epoch,omitempty"`
+	LastIP     string `json:"last_ip,omitempty"`
 }

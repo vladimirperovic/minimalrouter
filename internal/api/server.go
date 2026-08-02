@@ -942,7 +942,7 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 	if dataDir == "" {
 		dataDir = "/var/lib/minimalrouter"
 	}
-	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, dataDir)
+	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	connectionStatus := "Disconnected"
 	if cfg.WAN.Enabled && runtimeStatus.WANConnected {
 		connectionStatus = "Connected"

@@ -8,7 +8,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 )
 
-func RuntimeSnapshot(_, _ string) RuntimeStatus {
+func RuntimeSnapshot(_, _, _ string) RuntimeStatus {
 	return RuntimeStatus{
 		Available:    false,
 		OS:           runtime.GOOS,

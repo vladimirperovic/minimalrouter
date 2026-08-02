@@ -4,6 +4,7 @@ package telemetry
 
 import (
 	"bufio"
+	"filepath"
 	"net"
 	"os"
 	"os/exec"
@@ -25,7 +26,7 @@ func readUint(path string) uint64 {
 	return value
 }
 
-func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
+func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 	status := RuntimeStatus{
 		Available:    true,
 		OS:           runtime.GOOS,
@@ -99,6 +100,8 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 	if !status.WANConnected {
 		statsInterface = wanInterface
 	}
+	status.WANMAC = interfaceMAC(wanInterface)
+	status.LANMAC = interfaceMAC(lanInterface)
 	status.RXBytes = readUint("/sys/class/net/" + statsInterface + "/statistics/rx_bytes")
 	status.TXBytes = readUint("/sys/class/net/" + statsInterface + "/statistics/tx_bytes")
 	if raw := readUint("/sys/class/thermal/thermal_zone0/temp"); raw > 0 {
@@ -114,7 +117,53 @@ func RuntimeSnapshot(wanInterface, dataDir string) RuntimeStatus {
 	}
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
 	status.WireguardActivePeers = countActiveWireGuardPeers()
+	status.DDNS = inspectDDNS()
 	return status
+}
+
+// interfaceMAC returns the hardware address for the named interface, or ""
+// when the interface does not exist or has no address assigned.
+func interfaceMAC(name string) string {
+	iface, err := net.InterfaceByName(name)
+	if err != nil || iface.HardwareAddr == nil {
+		return ""
+	}
+	return iface.HardwareAddr.String()
+}
+
+// inspectDDNS reads the live inadyn state so the dashboard can show the
+// pfSense-style status card. Each host gets a cache file /var/cache/inadyn/
+// <host>.cache holding "<epoch> <ip>".
+func inspectDDNS() DDNSStatus {
+	st := DDNSStatus{}
+	if _, err := os.Stat("/run/inadyn.pid"); err == nil {
+		st.Running = true
+	}
+	entries, err := os.ReadDir("/var/cache/inadyn")
+	if err != nil {
+		return st
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".cache") {
+			continue
+		}
+		st.Hostname = strings.TrimSuffix(filepath.Base(entry.Name()), ".cache")
+		data, readErr := os.ReadFile(filepath.Join("/var/cache/inadyn", entry.Name()))
+		if readErr != nil {
+			continue
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) >= 1 {
+			if epoch, parseErr := strconv.ParseInt(fields[0], 10, 64); parseErr == nil {
+				st.LastUpdate = epoch
+			}
+		}
+		if len(fields) >= 2 {
+			st.LastIP = fields[1]
+		}
+		break
+	}
+	return st
 }
 
 func countActiveWireGuardPeers() int {

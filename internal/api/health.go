@@ -25,7 +25,7 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 		dataDir = "/var/lib/minimalrouter"
 	}
 
-	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, dataDir)
+	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	facts := health.InspectRuntimeFacts(cfg)
 
 	gatewaySummary := gateway.Summary{}

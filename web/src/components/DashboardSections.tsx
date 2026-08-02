@@ -211,6 +211,20 @@ export default function DashboardSections({
     <button className={`button ${ddnsTab === "noip" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("noip")}>No-IP</button>
     <button className={`button ${ddnsTab === "cloudflare" ? "primary" : "secondary"}`} type="button" onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
   </div>
+  {config.cloudflare.ddns_enabled && (
+    <article className="card" style={{ marginBottom: "20px" }}>
+      <div className="card-title-row">
+        <div><h3>Dynamic DNS status</h3></div>
+        <span className={runtime.ddns?.running ? "classic-status-chip" : "classic-status-chip is-off"}>{runtime.ddns?.running ? "Connected" : "Not running"}</span>
+      </div>
+      <div className="form-grid two">
+        <div><p className="eyebrow">Provider</p><p>{ddnsTab === "noip" ? "No-IP" : "Cloudflare"}</p></div>
+        <div><p className="eyebrow">Hostname</p><p>{runtime.ddns?.hostname || config.cloudflare.domain || "—"}</p></div>
+        {runtime.ddns?.last_ip && <div><p className="eyebrow">Registered IP</p><p>{runtime.ddns.last_ip}</p></div>}
+        <div><p className="eyebrow">Last update</p><p>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleString() : "Never"}</p></div>
+      </div>
+    </article>
+  )}
   <form className="settings-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
     <input type="hidden" name="provider" value={ddnsTab} />
     <label className="checkbox-row"><input defaultChecked={config.cloudflare.ddns_enabled} name="enabled" type="checkbox" /><span>Enable Dynamic DNS ({ddnsTab === "noip" ? "No-IP" : "Cloudflare"})</span></label>
