@@ -20,6 +20,12 @@
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
+<p align="center">
+  <img src="docs/images/dashboard-overview.svg" alt="Minimal Router dashboard overview" />
+</p>
+
+<p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>
+
 <a id="status"></a>
 
 > **Early alpha.** Use only in a controlled lab/pilot with local console access
@@ -29,12 +35,6 @@ Minimal Router OS is a small Alpine Linux router appliance with a Go control
 plane and React dashboard. Linux handles packet forwarding; the project builds on
 `nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn` rather than implementing a
 new network stack.
-
-<p align="center">
-  <img src="docs/images/dashboard-overview.svg" alt="Minimal Router dashboard overview" />
-</p>
-
-<p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>
 
 ## Highlights
 
