@@ -107,6 +107,7 @@ export type RouterConfig = {
     channel: number;
     hide_ssid: boolean;
   };
+  trusted_networks: string[];
 };
 
 export type PendingTransaction = {

@@ -502,7 +502,7 @@ function Dashboard() {
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
         {active === "overview" && <ApplianceHealthBanner />}
 
-        {active === "security" && <SecuritySettings config={config} />}
+        {active === "security" && <SecuritySettings config={config} onError={setError} />}
 
         {active !== "security" && (
           <DashboardSections

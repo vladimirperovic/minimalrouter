@@ -514,6 +514,35 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
+	// Trusted networks gate administrative Web UI/API access. The list must
+	// never be empty (an empty list would silently deny every non-loopback
+	// client and could lock out administration), and wildcard ranges are
+	// rejected because they defeat the purpose of an access boundary.
+	if len(c.TrustedNetworks) == 0 {
+		appendFieldError(&errs, "trusted_networks", "must contain at least one CIDR network")
+	}
+	seen := make(map[string]bool, len(c.TrustedNetworks))
+	for i, network := range c.TrustedNetworks {
+		field := fmt.Sprintf("trusted_networks[%d]", i)
+		if hasUnsafeControl(network) {
+			appendFieldError(&errs, field, "must not contain control characters")
+			continue
+		}
+		if seen[network] {
+			appendFieldError(&errs, field, "must not contain duplicate networks")
+			continue
+		}
+		seen[network] = true
+		ip, ipNet, err := net.ParseCIDR(network)
+		if err != nil {
+			appendFieldError(&errs, field, "must be a valid IPv4 or IPv6 CIDR network")
+			continue
+		}
+		if ones, _ := ipNet.Mask.Size(); ones == 0 || ip.IsUnspecified() {
+			appendFieldError(&errs, field, "wildcard networks (0.0.0.0/0, ::/0) are not allowed")
+		}
+	}
+
 	if len(errs) > 0 {
 		return errs
 	}

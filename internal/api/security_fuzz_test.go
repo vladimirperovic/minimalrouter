@@ -26,6 +26,7 @@ func FuzzMalformedUnauthenticatedRequests(f *testing.F) {
 	server := NewServer(engine)
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+	handler := trustedMux(mux)
 
 	for _, seed := range [][]byte{
 		{},
@@ -59,7 +60,7 @@ func FuzzMalformedUnauthenticatedRequests(f *testing.F) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", "https://attacker.invalid")
 		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, req)
+		handler.ServeHTTP(recorder, req)
 
 		if recorder.Code < 100 || recorder.Code > 599 {
 			t.Fatalf("invalid HTTP status %d for %s %s", recorder.Code, method, endpoint)

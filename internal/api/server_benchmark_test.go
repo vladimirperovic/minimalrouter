@@ -13,7 +13,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
-func benchmarkMux(b *testing.B) (*http.ServeMux, func()) {
+func benchmarkMux(b *testing.B) (http.Handler, func()) {
 	b.Helper()
 	tempDir, err := os.MkdirTemp("", "router-benchmark-*")
 	if err != nil {
@@ -28,23 +28,24 @@ func benchmarkMux(b *testing.B) (*http.ServeMux, func()) {
 	server := NewServer(engine)
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+	handler := trustedMux(mux)
 	previousLogOutput := log.Writer()
 	log.SetOutput(io.Discard)
-	return mux, func() {
+	return handler, func() {
 		log.SetOutput(previousLogOutput)
 		_ = os.RemoveAll(tempDir)
 	}
 }
 
 func BenchmarkAPISetupStatusParallel(b *testing.B) {
-	mux, cleanup := benchmarkMux(b)
+	handler, cleanup := benchmarkMux(b)
 	defer cleanup()
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
 			recorder := httptest.NewRecorder()
-			mux.ServeHTTP(recorder, req)
+			handler.ServeHTTP(recorder, req)
 			if recorder.Code != http.StatusOK {
 				b.Fatalf("unexpected status: %d", recorder.Code)
 			}
@@ -53,14 +54,14 @@ func BenchmarkAPISetupStatusParallel(b *testing.B) {
 }
 
 func BenchmarkAPIProtectedEndpointParallel(b *testing.B) {
-	mux, cleanup := benchmarkMux(b)
+	handler, cleanup := benchmarkMux(b)
 	defer cleanup()
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/system", nil)
 			recorder := httptest.NewRecorder()
-			mux.ServeHTTP(recorder, req)
+			handler.ServeHTTP(recorder, req)
 			if recorder.Code != http.StatusUnauthorized {
 				b.Fatalf("unexpected status: %d", recorder.Code)
 			}
@@ -69,7 +70,7 @@ func BenchmarkAPIProtectedEndpointParallel(b *testing.B) {
 }
 
 func BenchmarkAPIMalformedRequestParallel(b *testing.B) {
-	mux, cleanup := benchmarkMux(b)
+	handler, cleanup := benchmarkMux(b)
 	defer cleanup()
 	body := []byte(`{`)
 	b.ReportAllocs()
@@ -79,7 +80,7 @@ func BenchmarkAPIMalformedRequestParallel(b *testing.B) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			recorder := httptest.NewRecorder()
-			mux.ServeHTTP(recorder, req)
+			handler.ServeHTTP(recorder, req)
 			if recorder.Code == http.StatusInternalServerError {
 				b.Fatalf("malformed request caused internal error: %s", recorder.Body.String())
 			}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestFirstRunKeepsCloudflareAndWiFiDisabled(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	body, err := json.Marshal(map[string]string{
@@ -28,7 +28,7 @@ func TestFirstRunKeepsCloudflareAndWiFiDisabled(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/apply", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("setup failed: %d %s", response.Code, response.Body.String())
 	}

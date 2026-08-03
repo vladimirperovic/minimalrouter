@@ -35,7 +35,7 @@ func currentTOTPCode(t *testing.T, secret string) string {
 }
 
 func TestTOTPDisableDecodesPasswordBeforeVerification(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	server.store = server.engine.GetStore()
@@ -70,7 +70,7 @@ func TestTOTPDisableDecodesPasswordBeforeVerification(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
 	recorder := httptest.NewRecorder()
 
-	mux.ServeHTTP(recorder, req)
+	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("TOTP disable returned %d: %s", recorder.Code, recorder.Body.String())
 	}

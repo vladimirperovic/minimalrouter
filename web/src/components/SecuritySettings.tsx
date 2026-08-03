@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../lib/api";
 import type { RouterConfig } from "../api-types";
+import TrustedNetworksPanel from "./TrustedNetworksPanel";
 
 type AuditEvent = {
   id: string;
@@ -12,6 +13,7 @@ type AuditEvent = {
 
 type Props = {
   config: RouterConfig;
+  onError: (message: string) => void;
 };
 
 function since(iso: string): string {
@@ -27,7 +29,7 @@ function isSecurityEvent(event: AuditEvent): boolean {
   return /auth|session|login|totp|csrf|rate_limit|origin|firewall/.test(value);
 }
 
-export default function SecuritySettings({ config }: Props) {
+export default function SecuritySettings({ config, onError }: Props) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [failureCount, setFailureCount] = useState(0);
@@ -135,6 +137,8 @@ export default function SecuritySettings({ config }: Props) {
             </table>
           )}
         </div>
+
+        <TrustedNetworksPanel onError={onError} />
       </article>
     </section>
   );

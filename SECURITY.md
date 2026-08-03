@@ -115,7 +115,13 @@ The management plane uses:
 - same-origin and JSON content-type checks;
 - optional TOTP two-factor authentication;
 - session revocation after password or TOTP changes;
-- restrictive security headers and host/destination validation.
+- restrictive security headers and host/destination validation;
+- source-network gating: the administrative Web UI/API is reachable only from
+  networks listed in `trusted_networks` (plus loopback); the check uses the real
+  TCP peer address, never forwarded headers, and is a first gate before
+  authentication, never a replacement for it. An empty list denies everything
+  except localhost, and applying a change that would remove the caller's own
+  source network is rejected to prevent operator lockout.
 
 Authentication errors should not reveal whether a password, session, or TOTP
 component was specifically correct.

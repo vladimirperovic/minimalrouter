@@ -34,6 +34,7 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 	server := NewServer(engine)
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
+	handler := trustedMux(mux)
 
 	body, err := json.Marshal(map[string]string{
 		"wan_interface":  "enp1s0",
@@ -50,7 +51,7 @@ func TestFreshInstallWizardProducesWorkingRouterBaseline(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/setup/apply", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("fresh setup failed: %d %s", response.Code, response.Body.String())
 	}

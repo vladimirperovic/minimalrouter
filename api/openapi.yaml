@@ -200,6 +200,12 @@ components:
         revision:
           type: integer
           minimum: 1
+        trusted_networks:
+          type: array
+          description: Source networks allowed to reach the administrative Web UI/API. Does not replace authentication.
+          items:
+            type: string
+            example: 192.168.1.0/24
         adguard:
           allOf:
             - $ref: '#/components/schemas/DNSFilterConfig'

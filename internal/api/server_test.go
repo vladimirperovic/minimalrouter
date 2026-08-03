@@ -21,7 +21,7 @@ func (apiTestApplyClient) Apply(_ context.Context, req apply.ApplyRequest) (*app
 	return &apply.ApplyResponse{ID: req.ID, Success: true, Verified: true}, nil
 }
 
-func setupTestServer(t *testing.T) (*Server, *http.ServeMux, string) {
+func setupTestServer(t *testing.T) (*Server, *http.ServeMux, http.Handler, string) {
 	tempDir, err := os.MkdirTemp("", "router-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -40,17 +40,31 @@ func setupTestServer(t *testing.T) (*Server, *http.ServeMux, string) {
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 
-	return server, mux, tempDir
+	return server, mux, trustedMux(mux), tempDir
+}
+
+// trustedMux wraps a mux so requests arriving without an explicit RemoteAddr
+// appear to come from a trusted LAN client (192.168.1.0/24). httptest requests
+// default to RemoteAddr "192.0.2.1:1234", which trusted_networks gate would
+// otherwise reject; tests that want an untrusted source set RemoteAddr
+// explicitly and the wrapper leaves it untouched.
+func trustedMux(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RemoteAddr == "192.0.2.1:1234" {
+			r.RemoteAddr = "192.168.1.2:12345"
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func TestSetupStatusEndpoint(t *testing.T) {
-	_, mux, tempDir := setupTestServer(t)
+	_, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	req := httptest.NewRequest("GET", "/api/v1/setup/status", nil)
 	w := httptest.NewRecorder()
 
-	mux.ServeHTTP(w, req)
+	handler.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected 200 OK for setup status, got %d", w.Code)
@@ -67,7 +81,7 @@ func TestSetupStatusEndpoint(t *testing.T) {
 }
 
 func TestUnauthenticatedProtectedEndpoints(t *testing.T) {
-	_, mux, tempDir := setupTestServer(t)
+	_, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	endpoints := []string{
@@ -81,7 +95,7 @@ func TestUnauthenticatedProtectedEndpoints(t *testing.T) {
 		req := httptest.NewRequest("GET", ep, nil)
 		w := httptest.NewRecorder()
 
-		mux.ServeHTTP(w, req)
+		handler.ServeHTTP(w, req)
 
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("Expected 401 Unauthorized for endpoint %s, got %d", ep, w.Code)
@@ -90,7 +104,7 @@ func TestUnauthenticatedProtectedEndpoints(t *testing.T) {
 }
 
 func TestUnsafeLegacyAndUnverifiedUpdateRoutesAreNotRegistered(t *testing.T) {
-	_, mux, tempDir := setupTestServer(t)
+	_, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	for _, endpoint := range []string{
@@ -101,7 +115,7 @@ func TestUnsafeLegacyAndUnverifiedUpdateRoutesAreNotRegistered(t *testing.T) {
 	} {
 		req := httptest.NewRequest(http.MethodPost, endpoint, bytes.NewReader([]byte(`{}`)))
 		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, req)
+		handler.ServeHTTP(recorder, req)
 		if recorder.Code != http.StatusNotFound {
 			t.Fatalf("%s returned %d, want 404", endpoint, recorder.Code)
 		}
@@ -109,7 +123,7 @@ func TestUnsafeLegacyAndUnverifiedUpdateRoutesAreNotRegistered(t *testing.T) {
 }
 
 func TestHTTPOriginIsAllowedOnlyInExplicitLoopbackPreview(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	session := server.sessionMgr.CreateSession()
@@ -120,7 +134,7 @@ func TestHTTPOriginIsAllowedOnlyInExplicitLoopbackPreview(t *testing.T) {
 		req.Header.Set(auth.CSRFHeaderName, session.CSRFToken)
 		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
 		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, req)
+		handler.ServeHTTP(recorder, req)
 		return recorder
 	}
 
@@ -134,7 +148,7 @@ func TestHTTPOriginIsAllowedOnlyInExplicitLoopbackPreview(t *testing.T) {
 }
 
 func TestSetupApplyAndLoginFlow(t *testing.T) {
-	_, mux, tempDir := setupTestServer(t)
+	_, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	// 1. Run Setup Wizard
@@ -151,7 +165,7 @@ func TestSetupApplyAndLoginFlow(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/v1/setup/apply", bytes.NewBuffer(data))
 	w := httptest.NewRecorder()
 
-	mux.ServeHTTP(w, req)
+	handler.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("Expected 200 OK for setup apply, got %d: %s", w.Code, w.Body.String())
@@ -169,7 +183,7 @@ func TestSetupApplyAndLoginFlow(t *testing.T) {
 	loginReq := httptest.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(loginData))
 	loginW := httptest.NewRecorder()
 
-	mux.ServeHTTP(loginW, loginReq)
+	handler.ServeHTTP(loginW, loginReq)
 
 	if loginW.Code != http.StatusOK {
 		t.Fatalf("Expected 200 OK for login, got %d: %s", loginW.Code, loginW.Body.String())
@@ -219,7 +233,7 @@ func TestTransactionResponsesRedactEveryConfigSecretWithoutMutation(t *testing.T
 }
 
 func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	setupBody, _ := json.Marshal(map[string]string{
@@ -233,7 +247,7 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/apply", bytes.NewReader(setupBody))
 	setupReq.Header.Set("Content-Type", "application/json")
 	setupW := httptest.NewRecorder()
-	mux.ServeHTTP(setupW, setupReq)
+	handler.ServeHTTP(setupW, setupReq)
 	if setupW.Code != http.StatusOK {
 		t.Fatalf("setup failed: %d %s", setupW.Code, setupW.Body.String())
 	}
@@ -258,7 +272,7 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 	provisionReq.Header.Set(auth.CSRFHeaderName, setupResponse.CSRFToken)
 	provisionReq.AddCookie(cookies[0])
 	provisionW := httptest.NewRecorder()
-	mux.ServeHTTP(provisionW, provisionReq)
+	handler.ServeHTTP(provisionW, provisionReq)
 	if provisionW.Code != http.StatusOK {
 		t.Fatalf("peer provisioning failed: %d %s", provisionW.Code, provisionW.Body.String())
 	}
@@ -292,7 +306,7 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 }
 
 func TestWireGuardProvisioningPreviewMatchesBackendAllocation(t *testing.T) {
-	_, mux, tempDir := setupTestServer(t)
+	_, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	setupBody, _ := json.Marshal(map[string]string{
@@ -306,7 +320,7 @@ func TestWireGuardProvisioningPreviewMatchesBackendAllocation(t *testing.T) {
 	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/apply", bytes.NewReader(setupBody))
 	setupReq.Header.Set("Content-Type", "application/json")
 	setupW := httptest.NewRecorder()
-	mux.ServeHTTP(setupW, setupReq)
+	handler.ServeHTTP(setupW, setupReq)
 	if setupW.Code != http.StatusOK {
 		t.Fatalf("setup failed: %d %s", setupW.Code, setupW.Body.String())
 	}
@@ -324,7 +338,7 @@ func TestWireGuardProvisioningPreviewMatchesBackendAllocation(t *testing.T) {
 	previewReq := httptest.NewRequest(http.MethodGet, "/api/v1/wireguard/provisioning-preview", nil)
 	previewReq.AddCookie(cookies[0])
 	previewW := httptest.NewRecorder()
-	mux.ServeHTTP(previewW, previewReq)
+	handler.ServeHTTP(previewW, previewReq)
 	if previewW.Code != http.StatusOK {
 		t.Fatalf("provisioning preview failed: %d %s", previewW.Code, previewW.Body.String())
 	}
@@ -340,7 +354,7 @@ func TestWireGuardProvisioningPreviewMatchesBackendAllocation(t *testing.T) {
 }
 
 func TestReadOnlyLoginCannotMutateRouterState(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 	password := "longsecureadminpassword123!"
 	hash, err := auth.HashPassword(password)
@@ -358,7 +372,7 @@ func TestReadOnlyLoginCannotMutateRouterState(t *testing.T) {
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginData))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	mux.ServeHTTP(loginW, loginReq)
+	handler.ServeHTTP(loginW, loginReq)
 	if loginW.Code != http.StatusOK {
 		t.Fatalf("read-only login failed: %d %s", loginW.Code, loginW.Body.String())
 	}
@@ -377,7 +391,7 @@ func TestReadOnlyLoginCannotMutateRouterState(t *testing.T) {
 	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	getReq.AddCookie(cookies[0])
 	getW := httptest.NewRecorder()
-	mux.ServeHTTP(getW, getReq)
+	handler.ServeHTTP(getW, getReq)
 	if getW.Code != http.StatusOK {
 		t.Fatalf("read-only GET rejected: %d", getW.Code)
 	}
@@ -387,14 +401,14 @@ func TestReadOnlyLoginCannotMutateRouterState(t *testing.T) {
 	putReq.Header.Set(auth.CSRFHeaderName, login.CSRFToken)
 	putReq.AddCookie(cookies[0])
 	putW := httptest.NewRecorder()
-	mux.ServeHTTP(putW, putReq)
+	handler.ServeHTTP(putW, putReq)
 	if putW.Code != http.StatusForbidden || !strings.Contains(putW.Body.String(), "Read-only session") {
 		t.Fatalf("read-only mutation was not blocked: %d %s", putW.Code, putW.Body.String())
 	}
 }
 
 func TestAdministratorCanReadPersistedAuditMetadata(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 	password := "longsecureadminpassword123!"
 	hash, err := auth.HashPassword(password)
@@ -414,7 +428,7 @@ func TestAdministratorCanReadPersistedAuditMetadata(t *testing.T) {
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(loginData))
 	loginReq.Header.Set("Content-Type", "application/json")
 	loginW := httptest.NewRecorder()
-	mux.ServeHTTP(loginW, loginReq)
+	handler.ServeHTTP(loginW, loginReq)
 	if loginW.Code != http.StatusOK {
 		t.Fatalf("login failed: %d %s", loginW.Code, loginW.Body.String())
 	}
@@ -423,7 +437,7 @@ func TestAdministratorCanReadPersistedAuditMetadata(t *testing.T) {
 	auditReq := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=10", nil)
 	auditReq.AddCookie(cookies[0])
 	auditW := httptest.NewRecorder()
-	mux.ServeHTTP(auditW, auditReq)
+	handler.ServeHTTP(auditW, auditReq)
 	if auditW.Code != http.StatusOK || !strings.Contains(auditW.Body.String(), `"test.event"`) {
 		t.Fatalf("audit endpoint failed: %d %s", auditW.Code, auditW.Body.String())
 	}

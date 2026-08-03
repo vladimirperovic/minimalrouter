@@ -125,6 +125,22 @@ During the first pilot verify:
 - rollback after an unconfirmed disruptive change;
 - console recovery access.
 
+## Trusted management networks
+
+`trusted_networks` controls which source networks may reach the MinimalRouter
+administrative Web UI/API. It does not replace authentication: the operator
+password still applies, and both layers are enforced on every request. The
+check uses the real TCP peer address of the connection and never trusts
+forwarded headers. Loopback (`127.0.0.1`, `::1`) is always reachable so console
+recovery keeps working.
+
+The default is `192.168.1.0/24`. An empty list denies all remote access (only
+local console access remains), and a configuration change that would remove the
+caller's own source network is rejected to prevent operator lockout.
+
+To later add a dedicated recovery subnet such as `10.255.255.0/24`, add it to
+`trusted_networks` — no code changes are required.
+
 ## Dynamic DNS and WireGuard
 
 New configurations default to No-IP DDNS; Cloudflare remains supported. Configure

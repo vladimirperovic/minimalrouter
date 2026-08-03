@@ -271,6 +271,31 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// trustedNetworksMiddleware enforces the trusted_networks management
+// boundary. It runs before authentication: a client whose source address is
+// not inside a trusted network receives 403 Forbidden without any login
+// attempt, per SECURITY.md. Loopback is always trusted. The check is
+// fail-safe — an unparsable source address is denied.
+func (s *Server) trustedNetworksMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.engine.GetCurrentConfig()
+		if !cfg.IsTrustedClientAddress(r.RemoteAddr) {
+			log.Printf("[ACCESS] Rejected untrusted source %s for %s %s\n", r.RemoteAddr, r.Method, r.URL.Path)
+			s.appendAudit("access.trusted_network_rejected", auditActor(r.RemoteAddr), map[string]string{
+				"method": r.Method,
+				"path":   r.URL.Path,
+			})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Source address is not within a trusted management network",
+			})
+			return
+		}
+		next(w, r)
+	}
+}
+
 // securityHeadersMiddleware sets strict web security headers on all API responses per SECURITY.md §6.
 func (s *Server) securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -292,51 +317,56 @@ func (s *Server) securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFu
 // Protected endpoints: everything else (requires valid session)
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
+	// Trusted-network boundary applies to every endpoint, public and protected
+	// alike: even the login and setup wizard are admin surfaces.
+	gate := func(next http.HandlerFunc) http.HandlerFunc {
+		return sh(s.trustedNetworksMiddleware(next))
+	}
 
 	// ── Public endpoints (no auth required) ──
-	mux.HandleFunc("POST /api/v1/auth/login", sh(s.handleLogin))
-	mux.HandleFunc("GET /api/v1/setup/status", sh(s.handleSetupStatus))
-	mux.HandleFunc("GET /api/v1/setup/interfaces", sh(s.handleDiscoverSetupInterfaces))
+	mux.HandleFunc("POST /api/v1/auth/login", gate(s.handleLogin))
+	mux.HandleFunc("GET /api/v1/setup/status", gate(s.handleSetupStatus))
+	mux.HandleFunc("GET /api/v1/setup/interfaces", gate(s.handleDiscoverSetupInterfaces))
 
 	// ── Protected endpoints (auth required) ──
-	mux.HandleFunc("POST /api/v1/auth/logout", sh(s.authMiddleware(s.handleLogout)))
-	mux.HandleFunc("GET /api/v1/auth/session", sh(s.authMiddleware(s.handleGetSession)))
-	mux.HandleFunc("POST /api/v1/auth/change-password", sh(s.authMiddleware(s.handleChangePassword)))
+	mux.HandleFunc("POST /api/v1/auth/logout", gate(s.authMiddleware(s.handleLogout)))
+	mux.HandleFunc("GET /api/v1/auth/session", gate(s.authMiddleware(s.handleGetSession)))
+	mux.HandleFunc("POST /api/v1/auth/change-password", gate(s.authMiddleware(s.handleChangePassword)))
 
 	// TOTP endpoints (auth required)
-	mux.HandleFunc("POST /api/v1/auth/totp/enable", sh(s.authMiddleware(s.handleTOTPEnable)))
-	mux.HandleFunc("POST /api/v1/auth/totp/enroll", sh(s.authMiddleware(s.handleTOTPQR)))
-	mux.HandleFunc("POST /api/v1/auth/totp/disable", sh(s.authMiddleware(s.handleTOTPDisable)))
+	mux.HandleFunc("POST /api/v1/auth/totp/enable", gate(s.authMiddleware(s.handleTOTPEnable)))
+	mux.HandleFunc("POST /api/v1/auth/totp/enroll", gate(s.authMiddleware(s.handleTOTPQR)))
+	mux.HandleFunc("POST /api/v1/auth/totp/disable", gate(s.authMiddleware(s.handleTOTPDisable)))
 
-	mux.HandleFunc("GET /api/v1/system", sh(s.authMiddleware(s.handleGetSystem)))
-	mux.HandleFunc("GET /api/v1/system/interfaces", sh(s.authMiddleware(s.handleDiscoverInterfaces)))
-	mux.HandleFunc("GET /api/v1/system/diagnostics", sh(s.authMiddleware(s.handleGetDiagnostics)))
-	mux.HandleFunc("GET /api/v1/audit/events", sh(s.authMiddleware(s.handleGetAuditEvents)))
-	mux.HandleFunc("GET /api/v1/config", sh(s.authMiddleware(s.handleGetConfig)))
-	mux.HandleFunc("PUT /api/v1/config", sh(s.authMiddleware(s.handleUpdateConfig)))
-	mux.HandleFunc("POST /api/v1/wireguard/peers", sh(s.authMiddleware(s.handleProvisionWireGuardPeer)))
-	mux.HandleFunc("GET /api/v1/wireguard/provisioning-preview", sh(s.authMiddleware(s.handleWireGuardProvisioningPreview)))
-	mux.HandleFunc("GET /api/v1/transactions/pending", sh(s.authMiddleware(s.handleGetPendingTransaction)))
-	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", sh(s.authMiddleware(s.handleConfirmTransaction)))
-	mux.HandleFunc("POST /api/v1/network/wol", sh(s.authMiddleware(s.handleWakeOnLAN)))
-	mux.HandleFunc("POST /api/v1/qos/speedtest", sh(s.authMiddleware(s.handleSpeedtest)))
-	mux.HandleFunc("POST /api/v1/recovery/reconcile", sh(s.authMiddleware(s.handleRecoveryReconcile)))
-	mux.HandleFunc("GET /api/v1/snapshots", sh(s.authMiddleware(s.handleGetSnapshots)))
-	mux.HandleFunc("POST /api/v1/snapshots", sh(s.authMiddleware(s.handleCreateSnapshot)))
-	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", sh(s.authMiddleware(s.handleRestoreSnapshot)))
-	mux.HandleFunc("POST /api/v1/import/pfsense/preview", sh(s.authMiddleware(s.handlePfSenseImportPreview)))
-	mux.HandleFunc("POST /api/v1/import/pfsense/{id}/apply", sh(s.authMiddleware(s.handlePfSenseImportApply)))
+	mux.HandleFunc("GET /api/v1/system", gate(s.authMiddleware(s.handleGetSystem)))
+	mux.HandleFunc("GET /api/v1/system/interfaces", gate(s.authMiddleware(s.handleDiscoverInterfaces)))
+	mux.HandleFunc("GET /api/v1/system/diagnostics", gate(s.authMiddleware(s.handleGetDiagnostics)))
+	mux.HandleFunc("GET /api/v1/audit/events", gate(s.authMiddleware(s.handleGetAuditEvents)))
+	mux.HandleFunc("GET /api/v1/config", gate(s.authMiddleware(s.handleGetConfig)))
+	mux.HandleFunc("PUT /api/v1/config", gate(s.authMiddleware(s.handleUpdateConfig)))
+	mux.HandleFunc("POST /api/v1/wireguard/peers", gate(s.authMiddleware(s.handleProvisionWireGuardPeer)))
+	mux.HandleFunc("GET /api/v1/wireguard/provisioning-preview", gate(s.authMiddleware(s.handleWireGuardProvisioningPreview)))
+	mux.HandleFunc("GET /api/v1/transactions/pending", gate(s.authMiddleware(s.handleGetPendingTransaction)))
+	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", gate(s.authMiddleware(s.handleConfirmTransaction)))
+	mux.HandleFunc("POST /api/v1/network/wol", gate(s.authMiddleware(s.handleWakeOnLAN)))
+	mux.HandleFunc("POST /api/v1/qos/speedtest", gate(s.authMiddleware(s.handleSpeedtest)))
+	mux.HandleFunc("POST /api/v1/recovery/reconcile", gate(s.authMiddleware(s.handleRecoveryReconcile)))
+	mux.HandleFunc("GET /api/v1/snapshots", gate(s.authMiddleware(s.handleGetSnapshots)))
+	mux.HandleFunc("POST /api/v1/snapshots", gate(s.authMiddleware(s.handleCreateSnapshot)))
+	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", gate(s.authMiddleware(s.handleRestoreSnapshot)))
+	mux.HandleFunc("POST /api/v1/import/pfsense/preview", gate(s.authMiddleware(s.handlePfSenseImportPreview)))
+	mux.HandleFunc("POST /api/v1/import/pfsense/{id}/apply", gate(s.authMiddleware(s.handlePfSenseImportApply)))
 
 	// ── Authenticated encrypted backup and restore ──
-	mux.HandleFunc("POST /api/v1/backup/export", sh(s.authMiddleware(s.handleBackupExport)))
-	mux.HandleFunc("POST /api/v1/backup/import/preview", sh(s.authMiddleware(s.handleBackupImportPreview)))
-	mux.HandleFunc("POST /api/v1/import/backup/{id}/apply", sh(s.authMiddleware(s.handleBackupImportApply)))
+	mux.HandleFunc("POST /api/v1/backup/export", gate(s.authMiddleware(s.handleBackupExport)))
+	mux.HandleFunc("POST /api/v1/backup/import/preview", gate(s.authMiddleware(s.handleBackupImportPreview)))
+	mux.HandleFunc("POST /api/v1/import/backup/{id}/apply", gate(s.authMiddleware(s.handleBackupImportApply)))
 
 	// ── Firmware Verification (P1) ──
-	mux.HandleFunc("POST /api/v1/firmware/verify", sh(s.authMiddleware(s.handleFirmwareVerify)))
+	mux.HandleFunc("POST /api/v1/firmware/verify", gate(s.authMiddleware(s.handleFirmwareVerify)))
 
 	// ── Setup Wizard (first-run only, self-guarding) ──
-	mux.HandleFunc("POST /api/v1/setup/apply", sh(s.handleSetupApply))
+	mux.HandleFunc("POST /api/v1/setup/apply", gate(s.handleSetupApply))
 }
 
 // ── Authentication Handlers ──
@@ -1038,6 +1068,23 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if newCfg.WiFi.Passphrase == "[REDACTED]" {
 		newCfg.WiFi.Passphrase = current.WiFi.Passphrase
+	}
+
+	// Fail-safe: changing trusted_networks must never lock the operator out.
+	// If the new list would not admit the caller's own source address, the
+	// change is rejected before it can be applied. Loopback callers always
+	// pass (loopback is unconditionally trusted).
+	if !newCfg.IsTrustedClientAddress(r.RemoteAddr) {
+		log.Printf("[API] PUT %s - Rejected trusted_networks change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
+		s.appendAudit("config.lockout_prevented", auditActor(r.RemoteAddr), map[string]string{
+			"path": r.URL.Path,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "This change would remove your own source address from trusted_networks and lock you out",
+		})
+		return
 	}
 
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())

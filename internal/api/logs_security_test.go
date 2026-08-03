@@ -11,12 +11,12 @@ import (
 )
 
 func TestLogsFeedRequiresAuthenticationAndReturnsAuditMetadata(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, _, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 
 	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=250", nil)
 	unauthenticatedResponse := httptest.NewRecorder()
-	mux.ServeHTTP(unauthenticatedResponse, unauthenticated)
+	handler.ServeHTTP(unauthenticatedResponse, unauthenticated)
 	if unauthenticatedResponse.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated logs request returned %d, want 401", unauthenticatedResponse.Code)
 	}
@@ -28,7 +28,7 @@ func TestLogsFeedRequiresAuthenticationAndReturnsAuditMetadata(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=250", nil)
 	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
 	response := httptest.NewRecorder()
-	mux.ServeHTTP(response, request)
+	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("authenticated logs request returned %d: %s", response.Code, response.Body.String())
 	}

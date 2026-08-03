@@ -22,6 +22,11 @@ type SystemConfig struct {
 	AdGuard DNSFilterConfig `json:"adguard"`
 	QoS     QoSConfig       `json:"qos"`
 	WiFi    WiFiConfig      `json:"wifi"`
+	// TrustedNetworks restricts administrative Web UI/API access to clients
+	// whose source address falls within one of the listed CIDR networks.
+	// Localhost (127.0.0.1, ::1) is always trusted. It does not replace
+	// authentication; both layers are enforced.
+	TrustedNetworks []string `json:"trusted_networks"`
 }
 
 type WireGuardConfig struct {
@@ -261,5 +266,8 @@ func DefaultConfig() SystemConfig {
 		},
 		QoS:  QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
 		WiFi: WiFiConfig{Enabled: false, Interface: "wlan0", SSID: "MinimalRouter-Home", Band: "5ghz", Channel: 36},
+		// Default management trust boundary is the LAN. A future Proxmox
+		// recovery virtual NIC can extend this list (e.g. 10.255.255.0/24).
+		TrustedNetworks: []string{"192.168.1.0/24"},
 	}
 }

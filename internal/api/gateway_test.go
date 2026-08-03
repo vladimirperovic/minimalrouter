@@ -26,7 +26,7 @@ func (apiGatewayLink) Read(context.Context) gateway.LinkStatus {
 }
 
 func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T) {
-	server, mux, tempDir := setupTestServer(t)
+	server, mux, handler, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)
 	gatewayStore, err := gateway.OpenStore(tempDir)
 	if err != nil {
@@ -41,7 +41,7 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 	server.RegisterGatewayRoutes(mux)
 
 	unauthorized := httptest.NewRecorder()
-	mux.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil))
+	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated summary returned %d", unauthorized.Code)
 	}
@@ -51,7 +51,7 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
 		recorder := httptest.NewRecorder()
-		mux.ServeHTTP(recorder, req)
+		handler.ServeHTTP(recorder, req)
 		return recorder
 	}
 
@@ -92,7 +92,7 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 	withoutCSRF.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
 	withoutCSRF.Header.Set("Content-Type", "application/json")
 	withoutCSRFResponse := httptest.NewRecorder()
-	mux.ServeHTTP(withoutCSRFResponse, withoutCSRF)
+	handler.ServeHTTP(withoutCSRFResponse, withoutCSRF)
 	if withoutCSRFResponse.Code != http.StatusForbidden {
 		t.Fatalf("settings mutation without CSRF returned %d", withoutCSRFResponse.Code)
 	}
@@ -102,7 +102,7 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 	update.Header.Set("Content-Type", "application/json")
 	update.Header.Set(auth.CSRFHeaderName, session.CSRFToken)
 	updateResponse := httptest.NewRecorder()
-	mux.ServeHTTP(updateResponse, update)
+	handler.ServeHTTP(updateResponse, update)
 	if updateResponse.Code != http.StatusOK {
 		t.Fatalf("settings update returned %d: %s", updateResponse.Code, updateResponse.Body.String())
 	}
