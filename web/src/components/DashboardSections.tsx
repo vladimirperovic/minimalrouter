@@ -84,56 +84,8 @@ function formatHandshake(epoch: number) {
   return new Date(epoch * 1000).toLocaleString();
 }
 
-function ipv4Number(value: string) {
-  const parts = value.split(".").map(Number);
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
-  return parts.reduce((result, part) => result * 256 + part, 0);
-}
-
-function ipv4Text(value: number) {
-  return [
-    Math.floor(value / 16777216) % 256,
-    Math.floor(value / 65536) % 256,
-    Math.floor(value / 256) % 256,
-    value % 256,
-  ].join(".");
-}
-
-// Mirrors the backend's authoritative allocation rules for display only. The
-// backend still decides the actual address at provisioning time.
-function nextFreeIP(serverCIDR: string, peers: Array<{ allowed_ips?: string[] }>) {
-  const [serverText, prefixText] = serverCIDR.split("/");
-  const server = ipv4Number(serverText || "");
-  const prefix = Number(prefixText);
-  if (server === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 30) return "—";
-
-  const blockSize = 2 ** (32 - prefix);
-  const network = Math.floor(server / blockSize) * blockSize;
-  const firstUsable = network + 1;
-  const lastUsable = network + blockSize - 2;
-  if (server < firstUsable || server > lastUsable) return "—";
-
-  const used = new Set<number>();
-  for (const peer of peers || []) {
-    for (const route of peer.allowed_ips || []) {
-      const [ipText, routePrefix] = route.trim().split("/");
-      if (routePrefix !== "32") continue;
-      const ip = ipv4Number(ipText || "");
-      if (ip !== null) used.add(ip);
-    }
-  }
-
-  const findFree = (start: number, end: number) => {
-    for (let candidate = start; candidate <= end; candidate += 1) {
-      if (candidate === server || used.has(candidate)) continue;
-      return ipv4Text(candidate);
-    }
-    return "";
-  };
-
-  return findFree(server + 1, lastUsable) || findFree(firstUsable, server - 1) || "—";
-}
-
+// The backend owns allocation (next free IP, DDNS endpoint). The UI only
+// displays what the authoritative /provisioning-preview endpoint reports.
 function endpointFor(config: { cloudflare: { domain: string }; wireguard: { listen_port: number } }) {
   const host = config.cloudflare.domain?.trim();
   return host ? `${host}:${config.wireguard.listen_port}` : "Configure Dynamic DNS first";
@@ -148,6 +100,24 @@ export default function DashboardSections({
   const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
   const [addingPeer, setAddingPeer] = useState(false);
   const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
+  const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
+
+  // Authoritative allocation preview from the backend (MR-AUD-005): the UI
+  // never re-implements next-free-IP or endpoint resolution.
+  React.useEffect(() => {
+    let cancelled = false;
+    const loadPreview = () => {
+      apiFetch("/api/v1/wireguard/provisioning-preview")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { client_ip: string, server_endpoint: string } | null) => {
+          if (!cancelled) setWgPreview(body);
+        })
+        .catch(() => { if (!cancelled) setWgPreview(null); });
+    };
+    loadPreview();
+    const timer = window.setInterval(loadPreview, 15000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [config.wireguard.peers?.length, config.cloudflare.domain, config.wireguard.address]);
 
   const handleAddPeer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -391,8 +361,8 @@ export default function DashboardSections({
             <div className="wg-add-assign">
               <span className="wg-assign-copy">Minimal Router will assign</span>
               <dl>
-                <div><dt>Client IP</dt><dd><code>{nextFreeIP(config.wireguard.address, config.wireguard.peers || [])}</code></dd></div>
-                <div><dt>Server endpoint</dt><dd><code>{endpointFor(config)}</code></dd></div>
+                <div><dt>Client IP</dt><dd><code>{wgPreview?.client_ip || "…"}</code></dd></div>
+                <div><dt>Server endpoint</dt><dd><code>{wgPreview?.server_endpoint || endpointFor(config)}</code></dd></div>
               </dl>
             </div>
           </div>

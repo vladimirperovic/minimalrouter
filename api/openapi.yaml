@@ -462,6 +462,32 @@ paths:
         '422':
           description: Invalid or duplicate peer settings
 
+  /wireguard/provisioning-preview:
+    get:
+      summary: Report the client IP and endpoint the backend will assign to the next peer
+      description: Authoritative allocation preview so the UI never duplicates backend logic.
+      operationId: wireGuardProvisioningPreview
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Next free client IP and server endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_ip:
+                    type: string
+                  server_endpoint:
+                    type: string
+                  ddns_configured:
+                    type: boolean
+                  wireguard_enabled:
+                    type: boolean
+        '409':
+          description: WireGuard subnet exhausted
+
   /audit/events:
     get:
       summary: List bounded metadata-only security audit events

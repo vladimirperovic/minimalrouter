@@ -315,6 +315,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/config", sh(s.authMiddleware(s.handleGetConfig)))
 	mux.HandleFunc("PUT /api/v1/config", sh(s.authMiddleware(s.handleUpdateConfig)))
 	mux.HandleFunc("POST /api/v1/wireguard/peers", sh(s.authMiddleware(s.handleProvisionWireGuardPeer)))
+	mux.HandleFunc("GET /api/v1/wireguard/provisioning-preview", sh(s.authMiddleware(s.handleWireGuardProvisioningPreview)))
 	mux.HandleFunc("GET /api/v1/transactions/pending", sh(s.authMiddleware(s.handleGetPendingTransaction)))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", sh(s.authMiddleware(s.handleConfirmTransaction)))
 	mux.HandleFunc("POST /api/v1/network/wol", sh(s.authMiddleware(s.handleWakeOnLAN)))

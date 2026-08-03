@@ -44,6 +44,8 @@ type Input struct {
 	UpdateTrustConfigured bool
 	Facts                 RuntimeFacts
 	LastBackupAt          *time.Time
+	DNSResolves           *bool
+	DNSError              string
 	Now                   time.Time
 }
 
@@ -150,10 +152,16 @@ func Build(input Input) Snapshot {
 		}
 
 		if input.Config.DHCP.Enabled || input.Config.DHCP.DNSEnabled {
-			if input.Facts.DnsmasqStarted {
-				add("dns_dhcp", "DNS / DHCP", StateHealthy, "dnsmasq is started for configured DNS/DHCP services.")
-			} else {
+			if !input.Facts.DnsmasqStarted {
 				add("dns_dhcp", "DNS / DHCP", StateDegraded, "DNS/DHCP is configured but dnsmasq is not started.")
+			} else if input.DNSResolves != nil && !*input.DNSResolves {
+				detail := ""
+				if input.DNSError != "" {
+					detail = ": " + input.DNSError
+				}
+				add("dns_dhcp", "DNS / DHCP", StateDegraded, "dnsmasq is started but cannot resolve public names"+detail)
+			} else {
+				add("dns_dhcp", "DNS / DHCP", StateHealthy, "dnsmasq is started and resolves public names.")
 			}
 		}
 

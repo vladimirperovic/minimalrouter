@@ -287,3 +287,32 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		"tx":            redactTransaction(tx),
 	})
 }
+
+// handleWireGuardProvisioningPreview reports the exact client IP and server
+// endpoint the backend will assign to the next WireGuard peer, so the frontend
+// never has to duplicate allocation logic (MR-AUD-005).
+func (s *Server) handleWireGuardProvisioningPreview(w http.ResponseWriter, r *http.Request) {
+	candidate := s.engine.GetCurrentConfig()
+	serverIP, _, err := net.ParseCIDR(candidate.WireGuard.Address)
+	if err != nil {
+		http.Error(w, "WireGuard subnet is invalid", http.StatusUnprocessableEntity)
+		return
+	}
+	clientIP, err := nextFreeWireGuardIP(serverIP, candidate.WireGuard.Address, candidate.WireGuard.Peers)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	endpoint := ""
+	if domain := strings.TrimSpace(candidate.Cloudflare.Domain); domain != "" {
+		endpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"client_ip":         clientIP,
+		"server_endpoint":   endpoint,
+		"ddns_configured":   endpoint != "",
+		"wireguard_enabled": candidate.WireGuard.Enabled,
+	})
+}

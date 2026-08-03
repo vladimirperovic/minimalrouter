@@ -60,6 +60,16 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 
+	var dnsResolves *bool
+	var dnsError string
+	if cfg.DHCP.Enabled || cfg.DHCP.DNSEnabled {
+		resolves, err := health.ProbeFunctionalDNS(4 * time.Second)
+		dnsResolves = &resolves
+		if err != nil {
+			dnsError = err.Error()
+		}
+	}
+
 	snapshot := health.Build(health.Input{
 		Config:                cfg,
 		Runtime:               runtimeStatus,
@@ -69,6 +79,8 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 		UpdateTrustConfigured: updateTrustConfigured,
 		Facts:                 facts,
 		LastBackupAt:          lastBackupAt,
+		DNSResolves:           dnsResolves,
+		DNSError:              dnsError,
 		Now:                   time.Now().UTC(),
 	})
 

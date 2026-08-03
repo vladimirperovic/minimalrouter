@@ -291,6 +291,54 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 	}
 }
 
+func TestWireGuardProvisioningPreviewMatchesBackendAllocation(t *testing.T) {
+	_, mux, tempDir := setupTestServer(t)
+	defer os.RemoveAll(tempDir)
+
+	setupBody, _ := json.Marshal(map[string]string{
+		"wan_interface":  "eth0",
+		"pppoe_username": "test-user",
+		"pppoe_password": "test-password",
+		"admin_password": "longsecureadminpassword123!",
+		"lan_interface":  "eth1",
+		"lan_ip_address": "192.168.1.1",
+	})
+	setupReq := httptest.NewRequest(http.MethodPost, "/api/v1/setup/apply", bytes.NewReader(setupBody))
+	setupReq.Header.Set("Content-Type", "application/json")
+	setupW := httptest.NewRecorder()
+	mux.ServeHTTP(setupW, setupReq)
+	if setupW.Code != http.StatusOK {
+		t.Fatalf("setup failed: %d %s", setupW.Code, setupW.Body.String())
+	}
+	var setupResponse struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.Unmarshal(setupW.Body.Bytes(), &setupResponse); err != nil {
+		t.Fatal(err)
+	}
+	cookies := setupW.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("setup session cookie missing")
+	}
+
+	previewReq := httptest.NewRequest(http.MethodGet, "/api/v1/wireguard/provisioning-preview", nil)
+	previewReq.AddCookie(cookies[0])
+	previewW := httptest.NewRecorder()
+	mux.ServeHTTP(previewW, previewReq)
+	if previewW.Code != http.StatusOK {
+		t.Fatalf("provisioning preview failed: %d %s", previewW.Code, previewW.Body.String())
+	}
+	var preview struct {
+		ClientIP string `json:"client_ip"`
+	}
+	if err := json.Unmarshal(previewW.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.ClientIP == "" {
+		t.Fatal("provisioning preview did not report a client IP")
+	}
+}
+
 func TestReadOnlyLoginCannotMutateRouterState(t *testing.T) {
 	server, mux, tempDir := setupTestServer(t)
 	defer os.RemoveAll(tempDir)

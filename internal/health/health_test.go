@@ -88,3 +88,23 @@ func TestStaleBackupDegradesHealth(t *testing.T) {
 		t.Fatalf("state = %q, want degraded", snapshot.State)
 	}
 }
+
+func TestDNSServerRunningButNotResolvingDegradesHealth(t *testing.T) {
+	input := healthyInput()
+	falseValue := false
+	input.DNSResolves = &falseValue
+	input.DNSError = "lookup example.com on 127.0.0.1:53: i/o timeout"
+	snapshot := Build(input)
+	state := ""
+	for _, check := range snapshot.Checks {
+		if check.ID == "dns_dhcp" {
+			state = string(check.State)
+		}
+	}
+	if state != string(StateDegraded) {
+		t.Fatalf("dns_dhcp state = %q, want degraded; checks=%+v", state, snapshot.Checks)
+	}
+	if snapshot.State != StateDegraded {
+		t.Fatalf("overall state = %q, want degraded", snapshot.State)
+	}
+}
