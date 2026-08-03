@@ -160,13 +160,6 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load startup nftables: %w", err)
 	}
-	if cfg.QoS.Enabled {
-		if err := applyQoS(cfg); err != nil {
-			return fmt.Errorf("restore startup QoS: %w", err)
-		}
-	} else {
-		clearQoS(cfg)
-	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 		return fmt.Errorf("restart startup dnsmasq: %w", err)
 	}
@@ -178,6 +171,17 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+	}
+	// QoS attaches to ppp0, which only exists after PPPoE negotiates. It is a
+	// traffic-shaping optimization, not a security boundary: a failed tc attach
+	// must never fail-closed the appliance, or a slow ISP handshake would block
+	// routing entirely at every boot.
+	if cfg.QoS.Enabled {
+		if err := applyQoS(cfg); err != nil {
+			log.Printf("startup QoS not applied (non-fatal): %v", err)
+		}
+	} else {
+		clearQoS(cfg)
 	}
 	if err := activateWireGuard(cfg); err != nil {
 		return fmt.Errorf("restore startup WireGuard: %w", err)

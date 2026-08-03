@@ -17,7 +17,9 @@ func GenerateSquidConfig(cfg *config.SystemConfig) (string, error) {
 
 	buf.WriteString("# Disable disk & memory caching (Pure forward proxy)\n")
 	buf.WriteString("cache deny all\n")
-	buf.WriteString("cache_mem 0 MB\n\n")
+	buf.WriteString("cache_mem 0 MB\n")
+	buf.WriteString("# Short graceful shutdown so config rollback never waits on idle clients\n")
+	buf.WriteString("shutdown_lifetime 2 seconds\n\n")
 
 	if cfg.SquidProxy.Enabled {
 		buf.WriteString("# Basic authentication scheme (NCSA htpasswd)\n")

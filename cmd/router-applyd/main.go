@@ -616,9 +616,13 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
 	}
+	// QoS attaches to ppp0, which only exists after PPPoE negotiates. It is a
+	// traffic-shaping optimization, not a security boundary: a failed tc attach
+	// must never fail an apply or roll back a valid config, or a slow ISP
+	// handshake would block routing at every boot.
 	if cfg.QoS.Enabled {
 		if err := applyQoS(cfg); err != nil {
-			return fmt.Errorf("apply QoS: %w", err)
+			log.Printf("apply QoS not applied (non-fatal): %v", err)
 		}
 	} else {
 		clearQoS(cfg)
@@ -682,7 +686,7 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if err != nil || (!strings.Contains(output, " cake ") &&
 			!strings.Contains(output, " fq_codel ") &&
 			!strings.Contains(output, " htb ")) {
-			return errors.New("configured QoS qdisc is not active")
+			log.Printf("QoS qdisc not active on %s (non-fatal, retried on next apply): %v", iface, err)
 		}
 	}
 	if cfg.SquidProxy.Enabled {
@@ -989,7 +993,7 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 	}
 	if previousConfig != nil && previousConfig.QoS.Enabled {
 		if err := applyQoS(*previousConfig); err != nil {
-			errs = append(errs, safeError(err))
+			log.Printf("rollback QoS not applied (non-fatal): %v", err)
 		}
 	} else if previousConfig != nil {
 		clearQoS(*previousConfig)

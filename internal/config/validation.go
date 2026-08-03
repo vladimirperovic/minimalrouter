@@ -451,9 +451,9 @@ func (c *SystemConfig) Validate() error {
 		if !credentialNamePattern.MatchString(c.SquidProxy.Username) {
 			appendFieldError(&errs, "squid_proxy.username", "must contain only letters, numbers, dot, underscore, or hyphen")
 		}
-		if len([]rune(c.SquidProxy.Password)) < 15 || len(c.SquidProxy.Password) > 1024 ||
+		if len([]rune(c.SquidProxy.Password)) < 12 || len(c.SquidProxy.Password) > 1024 ||
 			c.SquidProxy.Password == "[REDACTED]" {
-			appendFieldError(&errs, "squid_proxy.password", "must contain 15-1024 characters")
+			appendFieldError(&errs, "squid_proxy.password", "must contain 12-1024 characters")
 		}
 	}
 	for i, item := range c.SquidProxy.RestrictedIPs {
