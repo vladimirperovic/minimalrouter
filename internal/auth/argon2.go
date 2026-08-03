@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	ErrPasswordTooShort = errors.New("password must be at least 15 characters long")
+	ErrPasswordTooShort = errors.New("password must be at least 12 characters long")
 	ErrPasswordTooLong  = errors.New("password must be at most 1024 bytes")
 	ErrInvalidHash      = errors.New("the encoded hash is not in the correct format")
 	ErrIncompatibleVer  = errors.New("incompatible version of argon2")
@@ -30,7 +30,7 @@ var (
 
 // HashPassword hashes a plain text password using Argon2id per SECURITY.md §5.
 func HashPassword(password string) (string, error) {
-	if len([]rune(password)) < 15 {
+	if len([]rune(password)) < 12 {
 		return "", ErrPasswordTooShort
 	}
 	if len(password) > 1024 {

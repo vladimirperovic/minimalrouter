@@ -421,8 +421,8 @@ function Dashboard() {
     const oldPassword = field(form, "old_password");
     const newPassword = field(form, "new_password");
     const confirm = field(form, "confirm_password");
-    if (newPassword.length < 15 || newPassword !== confirm) {
-      setError("Nova lozinka mora imati najmanje 15 karaktera i potvrda mora biti ista.");
+    if (newPassword.length < 12 || newPassword !== confirm) {
+      setError("Nova lozinka mora imati najmanje 12 karaktera i potvrda mora biti ista.");
       return;
     }
     setBusy(true);

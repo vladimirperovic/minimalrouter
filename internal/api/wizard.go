@@ -96,8 +96,8 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate Admin Password length (SECURITY.md §5)
-	if len([]rune(req.AdminPassword)) < 15 {
-		http.Error(w, "Administrator password must be at least 15 characters long", http.StatusUnprocessableEntity)
+	if len([]rune(req.AdminPassword)) < 12 {
+		http.Error(w, "Administrator password must be at least 12 characters long", http.StatusUnprocessableEntity)
 		return
 	}
 	if (req.PPPoEUsername == "") != (req.PPPoEPassword == "") {

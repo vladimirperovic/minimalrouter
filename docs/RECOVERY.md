@@ -78,7 +78,7 @@ interface names locally before applying a disruptive change.
 Read the password from standard input so it is not recorded in shell history:
 
 ```sh
-printf '%s\n' 'a-new-password-of-at-least-15-characters' |
+printf '%s\n' 'a-new-password-of-at-least-12-characters' |
   sudo router-recovery reset-auth --password-stdin --disable-totp
 ```
 
@@ -116,7 +116,7 @@ SQLite configuration.
 ## Factory reset
 
 ```sh
-printf '%s\n' 'a-new-password-of-at-least-15-characters' |
+printf '%s\n' 'a-new-password-of-at-least-12-characters' |
   sudo router-recovery factory-reset \
     --wan enp1s0 \
     --lan enp2s0 \

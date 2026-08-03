@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 	"golang.org/x/sys/unix"
@@ -25,6 +26,8 @@ type cpuTicks struct {
 var (
 	cpuSampleMu   sync.Mutex
 	lastCPUSample cpuTicks
+	lastCPUAt     time.Time
+	lastCPUPct    float64
 )
 
 func readUint(path string) uint64 {
@@ -39,7 +42,16 @@ func readUint(path string) uint64 {
 // readCPULoadPercent returns real CPU utilization since the previous call,
 // computed as the busy-jiffies delta from /proc/stat (matching what Proxmox
 // reports), falling back to 0 on the first sample.
+//
+// ponytail: minimum 200ms window between samples; concurrent HTTP calls
+// within that window reuse the last value instead of producing a
+// sub-jiffy-quantized bogus 100%.
 func readCPULoadPercent() float64 {
+	cpuSampleMu.Lock()
+	defer cpuSampleMu.Unlock()
+	if lastCPUSample.total != 0 && time.Since(lastCPUAt) < 200*time.Millisecond {
+		return lastCPUPct
+	}
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
 		return 0
@@ -57,22 +69,23 @@ func readCPULoadPercent() float64 {
 			idle += value
 		}
 	}
-	cpuSampleMu.Lock()
-	defer cpuSampleMu.Unlock()
 	if lastCPUSample.total == 0 || total < lastCPUSample.total {
 		lastCPUSample = cpuTicks{total: total, idle: idle}
+		lastCPUAt = time.Now()
 		return 0
 	}
 	dTotal := total - lastCPUSample.total
 	dIdle := idle - lastCPUSample.idle
 	lastCPUSample = cpuTicks{total: total, idle: idle}
+	lastCPUAt = time.Now()
 	if dTotal == 0 {
 		return 0
 	}
 	pct := float64(dTotal-dIdle) / float64(dTotal) * 100
 	if pct > 100 {
-		return 100
+		pct = 100
 	}
+	lastCPUPct = pct
 	return pct
 }
 

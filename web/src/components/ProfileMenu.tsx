@@ -78,12 +78,12 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
             <>
               <div className="profile-menu-header">
                 <strong>Change password</strong>
-                <small>Minimum 15 characters. Signs you out of every session.</small>
+                <small>Minimum 12 characters. Signs you out of every session.</small>
               </div>
               <form className="profile-menu-form" onSubmit={submitPassword}>
                 <input autoComplete="current-password" name="old_password" placeholder="Current password" required type="password" />
-                <input autoComplete="new-password" minLength={15} name="new_password" placeholder="New password" required type="password" />
-                <input autoComplete="new-password" minLength={15} name="confirm_password" placeholder="Confirm new password" required type="password" />
+                <input autoComplete="new-password" minLength={12} name="new_password" placeholder="New password" required type="password" />
+                <input autoComplete="new-password" minLength={12} name="confirm_password" placeholder="Confirm new password" required type="password" />
                 <div className="profile-menu-actions">
                   <button type="button" className="button secondary small" onClick={() => setPanel("account")}>Back</button>
                   <button type="submit" className="button primary small">Update password</button>

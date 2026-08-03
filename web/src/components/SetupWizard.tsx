@@ -99,8 +99,8 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       return;
     }
     if (step === 4) {
-      if (adminPass.length < 15) {
-        setErrorMsg("Administrator lozinka mora imati najmanje 15 karaktera.");
+      if (adminPass.length < 12) {
+        setErrorMsg("Administrator lozinka mora imati najmanje 12 karaktera.");
         return;
       }
       if (adminPass !== adminPassConfirm) {
@@ -227,11 +227,11 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
           <div className="setup-page">
             <p className="eyebrow">Sigurnost rutera</p>
             <h1 id="setup-title">Kreirajte administrator lozinku</h1>
-            <p className="setup-lead">Najmanje 15 karaktera. Nema fabričke ili rezervne mrežne lozinke.</p>
+            <p className="setup-lead">Najmanje 12 karaktera. Nema fabričke ili rezervne mrežne lozinke.</p>
             <div className="setup-fields">
-              <label className="field"><span>Administrator lozinka</span><input autoComplete="new-password" className={adminPass.length >= 15 ? "is-valid" : ""} onChange={(event) => setAdminPass(event.target.value)} type="password" value={adminPass} /></label>
+              <label className="field"><span>Administrator lozinka</span><input autoComplete="new-password" className={adminPass.length >= 12 ? "is-valid" : ""} onChange={(event) => setAdminPass(event.target.value)} type="password" value={adminPass} /></label>
               <label className="field"><span>Potvrdite lozinku</span><input autoComplete="new-password" className={adminPassConfirm !== "" && adminPassConfirm === adminPass ? "is-valid" : ""} onChange={(event) => setAdminPassConfirm(event.target.value)} type="password" value={adminPassConfirm} /></label>
-              <div className="setup-password-meter"><progress aria-label="Password minimum length" max={15} value={Math.min(adminPass.length, 15)} /><span>{adminPass.length >= 15 ? "✓ Minimalna dužina ispunjena" : `${adminPass.length}/15 karaktera`}</span></div>
+              <div className="setup-password-meter"><progress aria-label="Password minimum length" max={12} value={Math.min(adminPass.length, 12)} /><span>{adminPass.length >= 12 ? "✓ Minimalna dužina ispunjena" : `${adminPass.length}/12 karaktera`}</span></div>
             </div>
             <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Pregledaj →</button></div>
           </div>
