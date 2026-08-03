@@ -516,6 +516,15 @@ func (c *SystemConfig) Validate() error {
 		appendFieldError(&errs, "adguard.blocklist_url", "external blocklist refresh is unavailable in the hardened pilot; use the built-in global list")
 	}
 
+	for i, rec := range c.DNS.Records {
+		if !domainPattern.MatchString(rec.Name) || hasUnsafeControl(rec.Name) {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].name", i), "must be a valid DNS hostname")
+		}
+		if parseIPv4(rec.IP) == nil {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].ip", i), "must be a valid IPv4 address")
+		}
+	}
+
 	if c.QoS.Enabled {
 		if c.QoS.Algorithm != "cake" && c.QoS.Algorithm != "fq_codel" {
 			appendFieldError(&errs, "qos.algorithm", "must be cake or fq_codel")

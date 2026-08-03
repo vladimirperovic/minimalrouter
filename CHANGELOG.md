@@ -8,6 +8,9 @@ alpha, compatibility may change between commits.
 
 ### Added
 
+- Static DNS records (`dns.records`): fixed name → IP entries served by the
+  local resolver via `host-record=` regardless of DHCP, for hosts with static
+  addressing (e.g. `immich.local` on the isolated media network).
 - Isolated extra LAN segments (`firewall.extra_lans`): a second network behind a
   dedicated router interface with no WAN/LAN egress and no router services
   (no DHCP/DNS). Only the listed source networks may reach the single exposed

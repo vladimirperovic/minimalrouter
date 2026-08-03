@@ -13,6 +13,7 @@ type SystemConfig struct {
 	WAN        WANSettings      `json:"wan"`
 	LAN        LANSettings      `json:"lan"`
 	DHCP       DHCPSettings     `json:"dhcp"`
+	DNS        DNSSettings      `json:"dns"`
 	Firewall   FirewallConfig   `json:"firewall"`
 	WireGuard  WireGuardConfig  `json:"wireguard"`
 	Cloudflare CloudflareConfig `json:"cloudflare"`
@@ -204,6 +205,19 @@ type StaticLease struct {
 	Hostname  string `json:"hostname"`
 	MAC       string `json:"mac"`
 	IPAddress string `json:"ip_address"`
+}
+
+// DNSSettings holds static DNS records served by the local resolver,
+// independent of DHCP.
+type DNSSettings struct {
+	Records []DNSRecord `json:"records,omitempty"`
+}
+
+// DNSRecord maps a local hostname to a fixed IPv4 address without requiring
+// the host to receive a DHCP lease from the router.
+type DNSRecord struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
 }
 
 // FirewallConfig holds packet filtering and NAT port forwarding rules.

@@ -76,3 +76,23 @@ func TestGenerateDnsmasq(t *testing.T) {
 		t.Errorf("Expected dnsmasq leases to use the runtime-only path")
 	}
 }
+
+func TestGenerateDnsmasqStaticRecords(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DNS.Records = []config.DNSRecord{
+		{Name: "immich.local", IP: "10.20.30.10"},
+		{Name: "nas.home", IP: "192.168.1.2"},
+	}
+	out, err := GenerateDnsmasq(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateDnsmasq: %v", err)
+	}
+	for _, want := range []string{
+		"host-record=immich.local,10.20.30.10",
+		"host-record=nas.home,192.168.1.2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dnsmasq config missing %q:\n%s", want, out)
+		}
+	}
+}

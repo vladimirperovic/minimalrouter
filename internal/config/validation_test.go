@@ -225,3 +225,19 @@ func TestValidationRejectsMoreThanHourlyGridCanProduce(t *testing.T) {
 		t.Fatalf("expected a 13-window validation error, got %v", errs)
 	}
 }
+
+func TestValidateDNSRecords(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.DNS.Records = []DNSRecord{{Name: "immich.local", IP: "10.20.30.10"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid DNS record rejected: %v", err)
+	}
+	cfg.DNS.Records = append(cfg.DNS.Records, DNSRecord{Name: "bad name!", IP: "10.20.30.10"})
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("invalid hostname accepted")
+	}
+	cfg.DNS.Records = []DNSRecord{{Name: "ok.local", IP: "not-an-ip"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("invalid IP accepted")
+	}
+}
