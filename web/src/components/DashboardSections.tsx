@@ -84,34 +84,59 @@ function formatHandshake(epoch: number) {
   return new Date(epoch * 1000).toLocaleString();
 }
 
-// nextFreeIP mirrors the server: first /32 after the server address not claimed
-// by an enabled peer, skipping reserved host and broadcast addresses.
-function nextFreeIP(serverCIDR: string, peers: Array<{ enabled?: boolean; allowed_ips?: string[] }>) {
-  const [ipText, prefix] = serverCIDR.split("/");
-  const parts = (ipText || "").split(".").map(Number);
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return "—";
-  const used = new Set<string>();
-  for (const peer of peers || []) {
-    if (!peer.enabled) continue;
-    for (const ip of peer.allowed_ips || []) {
-      used.add(ip.replace(/\/32$/, ""));
-    }
-  }
-  const last = parts[3];
-  const hosts = prefix === "32" ? 0 : 1 << Math.max(0, 32 - Number(prefix));
-  for (let i = 1; i < hosts - 1; i++) {
-    const host = last + i;
-    if (host >= 256) break;
-    const candidate = `${parts[0]}.${parts[1]}.${parts[2]}.${host}`;
-    if (used.has(candidate)) continue;
-    return candidate;
-  }
-  return "—";
+function ipv4Number(value: string) {
+  const parts = value.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+  return parts.reduce((result, part) => result * 256 + part, 0);
 }
 
-function endpointFor(config: { cloudflare: { domain: string }; wireguard: { listen_port: number } }, publicIP?: string) {
-  const host = config.cloudflare.domain || publicIP || "1.2.3.4";
-  return `${host}:${config.wireguard.listen_port}`;
+function ipv4Text(value: number) {
+  return [
+    Math.floor(value / 16777216) % 256,
+    Math.floor(value / 65536) % 256,
+    Math.floor(value / 256) % 256,
+    value % 256,
+  ].join(".");
+}
+
+// Mirrors the backend's authoritative allocation rules for display only. The
+// backend still decides the actual address at provisioning time.
+function nextFreeIP(serverCIDR: string, peers: Array<{ allowed_ips?: string[] }>) {
+  const [serverText, prefixText] = serverCIDR.split("/");
+  const server = ipv4Number(serverText || "");
+  const prefix = Number(prefixText);
+  if (server === null || !Number.isInteger(prefix) || prefix < 0 || prefix > 30) return "—";
+
+  const blockSize = 2 ** (32 - prefix);
+  const network = Math.floor(server / blockSize) * blockSize;
+  const firstUsable = network + 1;
+  const lastUsable = network + blockSize - 2;
+  if (server < firstUsable || server > lastUsable) return "—";
+
+  const used = new Set<number>();
+  for (const peer of peers || []) {
+    for (const route of peer.allowed_ips || []) {
+      const [ipText, routePrefix] = route.trim().split("/");
+      if (routePrefix !== "32") continue;
+      const ip = ipv4Number(ipText || "");
+      if (ip !== null) used.add(ip);
+    }
+  }
+
+  const findFree = (start: number, end: number) => {
+    for (let candidate = start; candidate <= end; candidate += 1) {
+      if (candidate === server || used.has(candidate)) continue;
+      return ipv4Text(candidate);
+    }
+    return "";
+  };
+
+  return findFree(server + 1, lastUsable) || findFree(firstUsable, server - 1) || "—";
+}
+
+function endpointFor(config: { cloudflare: { domain: string }; wireguard: { listen_port: number } }) {
+  const host = config.cloudflare.domain?.trim();
+  return host ? `${host}:${config.wireguard.listen_port}` : "Configure Dynamic DNS first";
 }
 
 export default function DashboardSections({
@@ -126,6 +151,10 @@ export default function DashboardSections({
 
   const handleAddPeer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!config.cloudflare.domain?.trim()) {
+      setError("Configure and save a Dynamic DNS hostname before adding a WireGuard device.");
+      return;
+    }
     setAddingPeer(true);
     try {
       const data = new FormData(e.currentTarget);
@@ -143,11 +172,21 @@ export default function DashboardSections({
         const err = await res.json().catch(()=>({}));
         setError(err.error || "Failed to add peer");
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to add peer");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to add peer");
     } finally {
       setAddingPeer(false);
     }
+  };
+
+  const changeWAN = (enabled: boolean) => {
+    if (!enabled && !window.confirm("Disable PPPoE WAN? This will disconnect Internet access until WAN is enabled again.")) return;
+    toggleWAN(enabled);
+  };
+
+  const changeDHCP = (enabled: boolean) => {
+    if (!enabled && !window.confirm("Disable the DHCP server? Devices may lose network access when their current leases expire.")) return;
+    toggleDHCP(enabled);
   };
 
   return <>
@@ -173,8 +212,8 @@ export default function DashboardSections({
 {active === "network" && <section className="dashboard-section" id="network">
   <div className="dashboard-section-heading"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2></div></div>
   <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetwork}>
-    <fieldset><legend>WAN / PPPoE</legend><label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => toggleWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
-    <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><select defaultValue={String(config.lan.cidr || "").split("/")[1] || "24"} name="lan_prefix"><option value="24">/24</option><option value="16">/16</option></select></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div>    <label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => toggleDHCP(e.target.checked)} /><span>Enable DHCP server</span></label></fieldset>
+    <fieldset><legend>WAN / PPPoE</legend><label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => changeWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
+    <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><select defaultValue={String(config.lan.cidr || "").split("/")[1] || "24"} name="lan_prefix"><option value="24">/24</option><option value="16">/16</option></select></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div>    <label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => changeDHCP(e.target.checked)} /><span>Enable DHCP server</span></label></fieldset>
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div>
   </form>
   <DeviceLeasesTable leases={leases} config={config} />
@@ -340,7 +379,7 @@ export default function DashboardSections({
       <div className="card-title-row">
         <div>
           <h3>Add a new device</h3>
-          <p>Name it — Minimal Router assigns the next free IP and endpoint automatically.</p>
+          <p>Name it — Minimal Router assigns the next free IP and saved DDNS endpoint automatically.</p>
         </div>
       </div>
       <form className="settings-form" onSubmit={handleAddPeer}>
@@ -353,12 +392,13 @@ export default function DashboardSections({
               <span className="wg-assign-copy">Minimal Router will assign</span>
               <dl>
                 <div><dt>Client IP</dt><dd><code>{nextFreeIP(config.wireguard.address, config.wireguard.peers || [])}</code></dd></div>
-                <div><dt>Server endpoint</dt><dd><code>{endpointFor(config, runtime.public_ip)}</code></dd></div>
+                <div><dt>Server endpoint</dt><dd><code>{endpointFor(config)}</code></dd></div>
               </dl>
             </div>
           </div>
         </div>
-        <div className="form-actions"><button className="button primary" disabled={addingPeer || busy} type="submit">{addingPeer ? "Generating..." : "Generate and Download"}</button></div>
+        {!config.cloudflare.domain?.trim() && <p className="form-note">Save a Dynamic DNS hostname first. The backend will not generate a remote client with a guessed or stale public IP.</p>}
+        <div className="form-actions"><button className="button primary" disabled={addingPeer || busy || !config.cloudflare.domain?.trim()} type="submit">{addingPeer ? "Generating..." : "Generate and Download"}</button></div>
       </form>
     </article>
   )}
@@ -412,8 +452,8 @@ export default function DashboardSections({
 
     {ddnsTab === "noip" ? (
       <div className="form-grid two">
-        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain || "homelab.redirectme.net"} name="domain" placeholder="homelab.redirectme.net" /></label>
-        <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || "vladimir.perovic@gmail.com"} name="username" /></label>
+        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="router.example.net" /></label>
+        <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || ""} name="username" /></label>
         <label className="field form-span"><span>Provider credential</span><input autoComplete="new-password" name="credential" placeholder="Configured — leave blank to keep" type="password" /></label>
       </div>
     ) : (
