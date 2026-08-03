@@ -88,6 +88,42 @@ func TestRequiresFunctionalDNSVerification(t *testing.T) {
 	}
 }
 
+func TestRequiresDDNSVerification(t *testing.T) {
+	base := config.DefaultConfig()
+	base.WAN.Enabled = true
+	base.WAN.Username = "user"
+	base.WAN.Password = "password"
+	base.Cloudflare.DDNSEnabled = true
+	base.Cloudflare.Domain = "router.example.net"
+	base.Cloudflare.DDNSProvider = "noip"
+	base.Cloudflare.DDNSUser = "user"
+	base.Cloudflare.APIToken = "01234567890123456789"
+
+	unrelated := base
+	unrelated.QoS.Enabled = !base.QoS.Enabled
+	if requiresDDNSVerification(&base, unrelated) {
+		t.Fatal("unrelated config should not trigger a provider update")
+	}
+
+	credentialChanged := base
+	credentialChanged.Cloudflare.APIToken = "98765432109876543210"
+	if !requiresDDNSVerification(&base, credentialChanged) {
+		t.Fatal("DDNS credential change must trigger provider verification")
+	}
+
+	hostnameChanged := base
+	hostnameChanged.Cloudflare.Domain = "new-router.example.net"
+	if !requiresDDNSVerification(&base, hostnameChanged) {
+		t.Fatal("DDNS hostname change must trigger provider verification")
+	}
+
+	disabled := base
+	disabled.Cloudflare.DDNSEnabled = false
+	if requiresDDNSVerification(&base, disabled) {
+		t.Fatal("disabled DDNS should not trigger provider verification")
+	}
+}
+
 func TestRunCommandOutputTimesOut(t *testing.T) {
 	_, err := runCommandOutput(25*time.Millisecond, "/bin/sh", "-c", "sleep 1")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
