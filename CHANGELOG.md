@@ -25,10 +25,15 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 - Production deploy procedure hardened: binary swap now stops services first
   (avoiding `Text file busy`) and gunzips on the guest before install.
 
-## [Unreleased]
+## [v0.1.1] — 2026-08-03
 
 ### Added
 
+- `trusted_networks` management access gate: only source networks listed in the
+  config (plus loopback) can reach the administrative Web UI/API; enforced on the
+  real TCP peer address before authentication, never via forwarded headers, with
+  an operator-lockout guard on configuration changes and a Security-tab panel for
+  adding/removing CIDR networks. Does not replace the administrator password.
 - Bounded storage-pressure policy with explicit 80% warning and 90% critical
   thresholds, authenticated runtime telemetry, and HTTP 507 rejection of durable
   management mutations when safe persistence cannot be guaranteed.
@@ -186,6 +191,12 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 - Recovery has no network endpoint and credential changes revoke sessions.
 - Device-profile rules are evaluated before established-connection acceptance so
   expired policy flows are not grandfathered.
+- QoS activation is non-fatal everywhere: a missing or inactive qdisc no longer
+  aborts apply, verify, or boot reconciliation; it is logged and retried on the
+  next apply cycle.
+- Squid shuts down cleanly on service stop via a bounded `shutdown_lifetime`.
+- Minimum administrator password length is 12 characters (was 15) to match the
+  deployed first-run credentials.
 
 ### Known limitations
 
