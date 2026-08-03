@@ -16,13 +16,13 @@ func TestNextFreeWireGuardIP(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "empty subnet",
+			name:   "empty subnet",
 			server: "10.8.0.1",
 			subnet: "10.8.0.1/24",
-			want: "10.8.0.2",
+			want:   "10.8.0.2",
 		},
 		{
-			name: "skips adjacent used",
+			name:   "skips adjacent used",
 			server: "10.8.0.1",
 			subnet: "10.8.0.1/24",
 			peers: []config.WireGuardPeer{
@@ -31,7 +31,7 @@ func TestNextFreeWireGuardIP(t *testing.T) {
 			want: "10.8.0.3",
 		},
 		{
-			name: "disabled peer address remains reserved",
+			name:   "disabled peer address remains reserved",
 			server: "10.8.0.1",
 			subnet: "10.8.0.1/24",
 			peers: []config.WireGuardPeer{
@@ -40,7 +40,7 @@ func TestNextFreeWireGuardIP(t *testing.T) {
 			want: "10.8.0.3",
 		},
 		{
-			name: "sparse hole reused",
+			name:   "sparse hole reused",
 			server: "10.8.0.1",
 			subnet: "10.8.0.1/24",
 			peers: []config.WireGuardPeer{
@@ -50,7 +50,7 @@ func TestNextFreeWireGuardIP(t *testing.T) {
 			want: "10.8.0.3",
 		},
 		{
-			name: "crosses fourth octet in slash 23",
+			name:   "crosses fourth octet in slash 23",
 			server: "10.8.0.254",
 			subnet: "10.8.0.254/23",
 			peers: []config.WireGuardPeer{
@@ -59,16 +59,16 @@ func TestNextFreeWireGuardIP(t *testing.T) {
 			want: "10.8.1.0",
 		},
 		{
-			name: "wraps to first usable address",
+			name:   "wraps to first usable address",
 			server: "10.8.0.254",
 			subnet: "10.8.0.254/24",
-			want: "10.8.0.1",
+			want:   "10.8.0.1",
 		},
 		{
-			name: "slash 25 boundary",
+			name:   "slash 25 boundary",
 			server: "10.8.0.126",
 			subnet: "10.8.0.126/25",
-			want: "10.8.0.1",
+			want:   "10.8.0.1",
 		},
 	}
 

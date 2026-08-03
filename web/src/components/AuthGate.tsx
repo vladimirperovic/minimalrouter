@@ -190,7 +190,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             autoComplete="one-time-code"
             inputMode="numeric"
             maxLength={6}
-            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))
+            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
             required
             value={totpCode}
           />
