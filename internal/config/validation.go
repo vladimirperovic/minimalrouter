@@ -346,6 +346,54 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
+	wgNetworkCIDR := ""
+	if c.WireGuard.Enabled {
+		if _, wgNet, err := net.ParseCIDR(c.WireGuard.Address); err == nil {
+			wgNetworkCIDR = wgNet.String()
+		}
+	}
+	for i, lan := range c.Firewall.ExtraLANs {
+		if !lan.Enabled {
+			continue
+		}
+		prefix := fmt.Sprintf("firewall.extra_lans[%d]", i)
+		if !validInterfaceName(lan.Interface) || strings.HasPrefix(lan.Interface, "ppp") {
+			appendFieldError(&errs, prefix+".interface", "must be a valid non-PPP interface name")
+		}
+		extraNet, _, err := net.ParseCIDR(lan.CIDR)
+		if err != nil || extraNet.To4() == nil {
+			appendFieldError(&errs, prefix+".cidr", "must be valid IPv4 CIDR notation")
+		} else if lanNetwork != nil && lanNetwork.Contains(extraNet) {
+			appendFieldError(&errs, prefix+".cidr", "must not overlap the LAN subnet")
+		}
+		if lan.DstIP == "" || parseIPv4(lan.DstIP) == nil {
+			appendFieldError(&errs, prefix+".dst_ip", "must be a valid IPv4 address")
+		}
+		if lan.DstPort < 1 || lan.DstPort > 65535 {
+			appendFieldError(&errs, prefix+".dst_port", "must be between 1 and 65535")
+		}
+		switch lan.Protocol {
+		case "", "tcp", "udp":
+		default:
+			appendFieldError(&errs, prefix+".protocol", "must be tcp, udp, or empty")
+		}
+		if len(lan.AllowFrom) == 0 {
+			appendFieldError(&errs, prefix+".allow_from", "must list at least one source CIDR")
+		}
+		seenSrc := make(map[string]struct{})
+		for _, src := range lan.AllowFrom {
+			if src != c.LAN.CIDR && (wgNetworkCIDR == "" || src != wgNetworkCIDR) {
+				appendFieldError(&errs, prefix+".allow_from", "only the LAN and WireGuard networks may reach an extra LAN")
+				break
+			}
+			if _, dup := seenSrc[src]; dup {
+				appendFieldError(&errs, prefix+".allow_from", "duplicates a source CIDR")
+				break
+			}
+			seenSrc[src] = struct{}{}
+		}
+	}
+
 	if c.WireGuard.Enabled {
 		if !c.WAN.Enabled {
 			appendFieldError(&errs, "wireguard.enabled", "requires an enabled WAN connection")

@@ -33,6 +33,49 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 	}
 }
 
+// extraLANSourceInterface maps an AllowFrom CIDR to the router interface that
+// carries it: the LAN segment or the WireGuard tunnel. Anything else is not a
+// trusted source for an extra LAN and is silently skipped (validation rejects
+// such configs).
+func extraLANSourceInterface(cfg *config.SystemConfig, srcCIDR string) string {
+	if srcCIDR == cfg.LAN.CIDR {
+		return cfg.RuntimeLANInterface()
+	}
+	if cfg.WireGuard.Enabled {
+		if _, wgNetwork, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil && srcCIDR == wgNetwork.String() {
+			return cfg.WireGuard.Interface
+		}
+	}
+	return ""
+}
+
+// writeExtraLANs emits rules for isolated extra LAN segments. Each segment is
+// reachable only from the configured AllowFrom networks, and only toward the
+// single service DstIP:DstPort. The router hosts no services on the segment
+// itself (input is anti-spoofed and ICMP-only).
+func writeExtraLANs(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.CIDR == "" || lan.DstIP == "" {
+			continue
+		}
+		proto := lan.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		buf.WriteString(fmt.Sprintf("    # Extra LAN %s (%s): isolated segment, only %s sources reach %s:%d\n", lan.Interface, lan.Name, lan.CIDR, lan.DstIP, lan.DstPort))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != { %s } drop\n", lan.Interface, lan.CIDR))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n", lan.Interface))
+		for _, src := range lan.AllowFrom {
+			iface := extraLANSourceInterface(cfg, src)
+			if iface == "" {
+				continue
+			}
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d accept\n",
+				iface, src, lan.DstIP, proto, lan.DstPort))
+		}
+	}
+}
+
 // GenerateNftables renders an atomic, deterministic nftables configuration string.
 func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	runtimeCfg := *cfg
@@ -117,6 +160,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n", cfg.LAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n\n", cfg.LAN.Interface))
 	}
+	writeExtraLANs(&buf, cfg)
 	if cfg.WireGuard.Enabled {
 		_, wgNetwork, _ := net.ParseCIDR(cfg.WireGuard.Address)
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.WireGuard.Interface, wgNetwork.String()))
@@ -172,6 +216,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// Custom allow rules can only govern traffic originating on the LAN.
 	writeCustomRules(&buf, cfg, "forward", "allow")
+	writeExtraLANs(&buf, cfg)
 
 	if cfg.WAN.Enabled && cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow LAN (%s) out to WAN\n", cfg.LAN.Interface))

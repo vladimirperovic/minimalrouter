@@ -46,6 +46,44 @@ func TestNftablesNeverEmitsWANPortForward(t *testing.T) {
 	}
 }
 
+func TestNftablesExtraLANIsolatesSegment(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "long-enough-test-password"
+	cfg.LAN.CIDR = "192.168.1.1/24"
+	cfg.LAN.Interface = "eth0"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Address = "10.6.0.1/24"
+	cfg.Firewall.ExtraLANs = []config.ExtraLANConfig{{
+		ID: "immich", Name: "Immich", Interface: "eth2", CIDR: "10.20.30.0/24",
+		DstIP: "10.20.30.10", DstPort: 2283, AllowFrom: []string{"192.168.1.1/24", "10.6.0.0/24"}, Enabled: true,
+	}}
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`iifname "eth2" ip saddr != { 10.20.30.0/24 } drop`,
+		`iifname "eth2" ip protocol icmp accept`,
+		`iifname "eth0" ip saddr 192.168.1.1/24 ip daddr 10.20.30.10 tcp dport 2283 accept`,
+		`iifname "wg0" ip saddr 10.6.0.0/24 ip daddr 10.20.30.10 tcp dport 2283 accept`,
+	} {
+		if !strings.Contains(rules, expected) {
+			t.Fatalf("extra LAN rule is missing %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		`iifname "eth2" oifname`,
+		`oifname "ppp*" ip saddr 10.20.30`,
+	} {
+		if strings.Contains(rules, forbidden) {
+			t.Fatalf("extra LAN leaks egress: %s", forbidden)
+		}
+	}
+}
+
 func TestNftablesWANHasOnlyWireGuardNewIngress(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.WAN.Enabled = true

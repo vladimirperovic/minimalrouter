@@ -213,6 +213,23 @@ type FirewallConfig struct {
 	StatefulFirewall      bool              `json:"stateful_firewall"`
 	PortForwards          []PortForwardRule `json:"port_forwards"`
 	CustomRules           []FirewallRule    `json:"custom_rules"`
+	ExtraLANs             []ExtraLANConfig  `json:"extra_lans,omitempty"`
+}
+
+// ExtraLANConfig defines an additional isolated LAN segment (e.g. a media
+// network). Only hosts inside AllowFrom CIDRs may reach the single service
+// DstIP:DstPort; the segment has no WAN/LAN egress and hosts no router
+// services (no DHCP/DNS), so everything else is dropped by the default policy.
+type ExtraLANConfig struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Interface string   `json:"interface"`
+	CIDR      string   `json:"cidr"`
+	DstIP     string   `json:"dst_ip"`
+	DstPort   int      `json:"dst_port"`
+	Protocol  string   `json:"protocol,omitempty"` // tcp (default), udp
+	AllowFrom []string `json:"allow_from"`
+	Enabled   bool     `json:"enabled"`
 }
 
 type PortForwardRule struct {
