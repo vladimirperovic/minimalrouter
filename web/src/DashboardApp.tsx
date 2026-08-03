@@ -84,11 +84,23 @@ function Dashboard() {
       } else {
         throw new Error("Configuration unavailable");
       }
+
+      const unavailable: string[] = [];
       if (systemResult.status === "fulfilled" && systemResult.value.ok) {
         setSystem((await systemResult.value.json()) as SystemStatus);
+        setLastRefresh(new Date());
+      } else {
+        // Never keep old CPU/RAM/leases/service state beside a fresh-looking
+        // timestamp. An empty runtime renders unavailable/zero values instead.
+        setSystem({});
+        setLastRefresh(null);
+        unavailable.push("system status");
       }
       if (gatewayResult.status === "fulfilled" && gatewayResult.value.ok) {
         setGatewaySummary((await gatewayResult.value.json()) as GatewaySummary);
+      } else {
+        setGatewaySummary(null);
+        unavailable.push("gateway quality");
       }
       if (gatewaySettingsResult.status === "fulfilled" && gatewaySettingsResult.value.ok) {
         setGatewaySettings((await gatewaySettingsResult.value.json()) as GatewaySettings);
@@ -101,8 +113,7 @@ function Dashboard() {
         const body = (await pendingResult.value.json()) as PendingTransaction;
         setPendingTx(body?.id ? body : null);
       }
-      setLastRefresh(new Date());
-      setError("");
+      setError(unavailable.length > 0 ? `Live data unavailable: ${unavailable.join(", ")}.` : "");
     } catch (loadError) {
       if ((loadError as Error).name !== "AbortError" && sequence === pollSequence.current) {
         setError(loadError instanceof Error ? loadError.message : "Router API unavailable");
