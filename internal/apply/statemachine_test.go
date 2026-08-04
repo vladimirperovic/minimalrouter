@@ -145,3 +145,90 @@ func TestWiFiTopologyChangesRequireConfirmation(t *testing.T) {
 		t.Fatal("an SSID-only change does not alter management topology")
 	}
 }
+
+func TestWGClientChangesRequireConfirmation(t *testing.T) {
+	previous := config.DefaultConfig()
+
+	enabled := previous
+	enabled.WGClient.Enabled = true
+	enabled.WGClient.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	enabled.WGClient.PublicKey = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA="
+	enabled.WGClient.Address = "10.7.0.2/32"
+	enabled.WGClient.Endpoint = "office.example.com:51820"
+	enabled.WGClient.AllowedIPs = []string{"10.9.0.0/24"}
+	if !requiresConfirmation(previous, enabled) {
+		t.Fatal("enabling the outbound WireGuard tunnel must require confirmation")
+	}
+
+	newEndpoint := enabled
+	newEndpoint.WGClient.Endpoint = "dr.evil.example.com:51820"
+	if !requiresConfirmation(enabled, newEndpoint) {
+		t.Fatal("changing the tunnel endpoint must require confirmation")
+	}
+
+	rotatedKeys := enabled
+	rotatedKeys.WGClient.PrivateKey = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCE="
+	if !requiresConfirmation(enabled, rotatedKeys) {
+		t.Fatal("rotating the tunnel key must require confirmation")
+	}
+
+	newNets := enabled
+	newNets.WGClient.AllowedIPs = []string{"10.9.0.0/24", "10.10.0.0/24"}
+	if !requiresConfirmation(enabled, newNets) {
+		t.Fatal("changing allowed remote networks must require confirmation")
+	}
+
+	keepaliveOnly := enabled
+	keepaliveOnly.WGClient.PersistentKeepalive = 15
+	if !requiresConfirmation(enabled, keepaliveOnly) {
+		t.Fatal("changing the tunnel keepalive must require confirmation")
+	}
+
+	// The LAN management path and the outbound tunnel are independent: a wg1
+	// change alone must not flag the Wi-Fi or LAN topologies.
+	disabled := enabled
+	disabled.WGClient.Enabled = false
+	if !requiresConfirmation(enabled, disabled) {
+		t.Fatal("disabling the outbound tunnel must require confirmation")
+	}
+}
+
+func TestGetCurrentConfigReturnsDetachedCopy(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WireGuard.Peers = []config.WireGuardPeer{
+		{ID: "p1", Name: "phone", PublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", PresharedKey: "secret-psk", AllowedIPs: []string{"10.8.0.2/32"}, Enabled: true},
+	}
+	cfg.WGClient.AllowedIPs = []string{"10.7.0.0/24"}
+	cfg.Firewall.ExtraLANs = []config.ExtraLANConfig{
+		{ID: "xl1", Name: "media", Interface: "eth3", CIDR: "192.168.50.0/24", DstIP: "192.168.50.10", DstPort: 8080, AllowFrom: []string{cfg.LAN.CIDR}, Enabled: true},
+	}
+	cfg.DNS.Records = []config.DNSRecord{{Name: "immich.home.arpa", IP: "192.168.1.50"}}
+	cfg.TrustedNetworks = []string{"192.168.1.0/24"}
+	engine := NewEngineWithClient(cfg, nil, &testApplyClient{response: &ApplyResponse{}})
+
+	view := engine.GetCurrentConfig()
+	view.WireGuard.Peers[0].PresharedKey = "MUTATED"
+	view.WireGuard.Peers[0].AllowedIPs[0] = "10.8.0.99/32"
+	view.WireGuard.Peers = append(view.WireGuard.Peers, config.WireGuardPeer{ID: "evil", PublicKey: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC="})
+	view.WGClient.AllowedIPs[0] = "0.0.0.0/0"
+	view.Firewall.ExtraLANs[0].AllowFrom[0] = "0.0.0.0/0"
+	view.DNS.Records[0].Name = "mutated.home.arpa"
+	view.TrustedNetworks[0] = "0.0.0.0/0"
+
+	current := engine.GetCurrentConfig()
+	if current.WireGuard.Peers[0].PresharedKey != "secret-psk" {
+		t.Fatalf("peer preshared key was mutated through a config view: %q", current.WireGuard.Peers[0].PresharedKey)
+	}
+	if len(current.WireGuard.Peers) != 1 || current.WireGuard.Peers[0].AllowedIPs[0] != "10.8.0.2/32" {
+		t.Fatalf("peer slice/AllowedIPs were mutated through a config view: %+v", current.WireGuard.Peers)
+	}
+	if current.WGClient.AllowedIPs[0] != "10.7.0.0/24" {
+		t.Fatalf("WGClient AllowedIPs were mutated through a config view: %v", current.WGClient.AllowedIPs)
+	}
+	if current.Firewall.ExtraLANs[0].AllowFrom[0] != cfg.LAN.CIDR {
+		t.Fatalf("ExtraLAN AllowFrom was mutated through a config view: %v", current.Firewall.ExtraLANs[0].AllowFrom)
+	}
+	if current.DNS.Records[0].Name != "immich.home.arpa" || current.TrustedNetworks[0] != "192.168.1.0/24" {
+		t.Fatal("nested DNS records or trusted networks were mutated through a config view")
+	}
+}

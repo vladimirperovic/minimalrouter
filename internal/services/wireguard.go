@@ -66,11 +66,10 @@ func GenerateWireGuardClientRuntime(wg *config.WGClientConfig) (string, error) {
 	if wg.Endpoint != "" {
 		buf.WriteString(fmt.Sprintf("Endpoint = %s\n", wg.Endpoint))
 	}
-	keepalive := wg.PersistentKeepalive
-	if keepalive <= 0 {
-		keepalive = 25
-	}
-	buf.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", keepalive))
+	// Validation allows 0..65535 and wg(8) treats 0 as "keepalive disabled",
+	// so the configured value is emitted verbatim; an explicit zero must not
+	// silently become a 25-second keepalive.
+	buf.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", wg.PersistentKeepalive))
 	return buf.String(), nil
 }
 

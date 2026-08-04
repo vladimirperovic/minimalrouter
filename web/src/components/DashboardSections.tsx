@@ -138,7 +138,9 @@ function WGClientPanel({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || `Key generation failed (${res.status})`);
       setKeys(body);
-      setPublicKey(body.public_key);
+      // The local public key is shown and copied for the remote side, but it
+      // must never overwrite the Remote public key field, which holds the
+      // remote peer's key.
       setPrivateKey(body.private_key);
       if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(body.public_key).then(

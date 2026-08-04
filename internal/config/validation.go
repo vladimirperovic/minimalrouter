@@ -54,6 +54,12 @@ func appendFieldError(errs *ValidationErrors, field, message string) {
 	*errs = append(*errs, ValidationError{Field: field, Message: message})
 }
 
+// networksOverlap reports whether two IPv4/IPv6 networks share any address.
+// Both networks must be canonical *net.IPNet values (parse via net.ParseCIDR).
+func networksOverlap(a, b *net.IPNet) bool {
+	return a.Contains(b.IP) || b.Contains(a.IP)
+}
+
 func validWireGuardKey(value string) bool {
 	decoded, err := base64.StdEncoding.DecodeString(value)
 	return err == nil && len(decoded) == 32
@@ -348,27 +354,109 @@ func (c *SystemConfig) Validate() error {
 	}
 
 	wgNetworkCIDR := ""
+	var wgNetwork *net.IPNet
 	if c.WireGuard.Enabled {
 		if _, wgNet, err := net.ParseCIDR(c.WireGuard.Address); err == nil {
 			wgNetworkCIDR = wgNet.String()
+			wgNetwork = wgNet
 		}
 	}
+	seenExtraInterfaces := make(map[string]struct{})
+	var extraNetworks []*net.IPNet
 	for i, lan := range c.Firewall.ExtraLANs {
 		if !lan.Enabled {
 			continue
 		}
 		prefix := fmt.Sprintf("firewall.extra_lans[%d]", i)
+		if !safeNamePattern.MatchString(lan.Name) || hasUnsafeControl(lan.Name) || len(lan.Name) > 64 {
+			appendFieldError(&errs, prefix+".name", "must be 1-64 safe characters and contain no control characters")
+		}
+		if hasUnsafeControl(lan.ID) || len(lan.ID) > 64 {
+			appendFieldError(&errs, prefix+".id", "must contain no control characters and be at most 64 characters")
+		}
 		if !validInterfaceName(lan.Interface) || strings.HasPrefix(lan.Interface, "ppp") {
 			appendFieldError(&errs, prefix+".interface", "must be a valid non-PPP interface name")
+		} else {
+			switch {
+			case lan.Interface == c.WAN.Interface:
+				appendFieldError(&errs, prefix+".interface", "must not reuse the WAN interface")
+			case lan.Interface == c.LAN.Interface || lan.Interface == WiFiBridgeInterface:
+				appendFieldError(&errs, prefix+".interface", "must not reuse the LAN interface")
+			case c.WireGuard.Enabled && lan.Interface == c.WireGuard.Interface:
+				appendFieldError(&errs, prefix+".interface", "must not reuse the WireGuard interface")
+			case c.WGClient.Enabled && lan.Interface == c.WGClient.Interface:
+				appendFieldError(&errs, prefix+".interface", "must not reuse the WireGuard client interface")
+			case c.WiFi.Enabled && (lan.Interface == c.WiFi.Interface || lan.Interface == WiFiBridgeInterface):
+				appendFieldError(&errs, prefix+".interface", "must not reuse the Wi-Fi radio or its bridge")
+			}
+			if _, dup := seenExtraInterfaces[lan.Interface]; dup {
+				appendFieldError(&errs, prefix+".interface", "duplicates another extra LAN interface")
+			}
+			seenExtraInterfaces[lan.Interface] = struct{}{}
 		}
-		extraNet, _, err := net.ParseCIDR(lan.CIDR)
-		if err != nil || extraNet.To4() == nil {
+		_, extraNet, err := net.ParseCIDR(lan.CIDR)
+		if err != nil || extraNet.IP.To4() == nil {
 			appendFieldError(&errs, prefix+".cidr", "must be valid IPv4 CIDR notation")
-		} else if lanNetwork != nil && lanNetwork.Contains(extraNet) {
-			appendFieldError(&errs, prefix+".cidr", "must not overlap the LAN subnet")
+		} else {
+			if lanNetwork != nil && networksOverlap(lanNetwork, extraNet) {
+				appendFieldError(&errs, prefix+".cidr", "must not overlap the LAN subnet")
+			}
+			if wgNetwork != nil && networksOverlap(wgNetwork, extraNet) {
+				appendFieldError(&errs, prefix+".cidr", "must not overlap the WireGuard subnet")
+			}
+			if c.WGClient.Address != "" {
+				if _, wgClientNet, cidrErr := net.ParseCIDR(c.WGClient.Address); cidrErr == nil && networksOverlap(wgClientNet, extraNet) {
+					appendFieldError(&errs, prefix+".cidr", "must not overlap the WireGuard client subnet")
+				}
+			}
+			for _, previous := range extraNetworks {
+				if networksOverlap(previous, extraNet) {
+					appendFieldError(&errs, prefix+".cidr", "must not overlap another extra LAN subnet")
+				}
+			}
+			extraNetworks = append(extraNetworks, extraNet)
+
+			if lan.RouterAddress == "" {
+				appendFieldError(&errs, prefix+".router_address", "is required for an enabled extra LAN so the router can reconstruct the segment")
+			} else if routerIP, routerNet, cidrErr := net.ParseCIDR(lan.RouterAddress); cidrErr != nil || routerIP.To4() == nil {
+				appendFieldError(&errs, prefix+".router_address", "must be a valid IPv4 interface CIDR")
+			} else if extraNet.Contains(routerIP) {
+				networkIP := extraNet.IP.To4()
+				broadcast := make(net.IP, len(networkIP))
+				for j := range networkIP {
+					broadcast[j] = networkIP[j] | ^extraNet.Mask[j]
+				}
+				switch {
+				case routerIP.Equal(networkIP):
+					appendFieldError(&errs, prefix+".router_address", "cannot use the network address")
+				case routerIP.Equal(broadcast):
+					appendFieldError(&errs, prefix+".router_address", "cannot use the broadcast address")
+				case routerNet.String() != extraNet.String():
+					appendFieldError(&errs, prefix+".router_address", "must be contained in the extra LAN subnet")
+				}
+			} else {
+				appendFieldError(&errs, prefix+".router_address", "must be contained in the extra LAN subnet")
+			}
 		}
 		if lan.DstIP == "" || parseIPv4(lan.DstIP) == nil {
 			appendFieldError(&errs, prefix+".dst_ip", "must be a valid IPv4 address")
+		} else if extraNet != nil && !extraNet.Contains(parseIPv4(lan.DstIP)) {
+			appendFieldError(&errs, prefix+".dst_ip", "must be inside the extra LAN subnet")
+		} else if extraNet != nil {
+			networkIP := extraNet.IP.To4()
+			broadcast := make(net.IP, len(networkIP))
+			for j := range networkIP {
+				broadcast[j] = networkIP[j] | ^extraNet.Mask[j]
+			}
+			dst := parseIPv4(lan.DstIP)
+			if dst.Equal(networkIP) || dst.Equal(broadcast) {
+				appendFieldError(&errs, prefix+".dst_ip", "cannot use the network or broadcast address")
+			}
+			if lan.RouterAddress != "" {
+				if routerIP, _, cidrErr := net.ParseCIDR(lan.RouterAddress); cidrErr == nil && dst.Equal(routerIP) {
+					appendFieldError(&errs, prefix+".dst_ip", "cannot be the router address")
+				}
+			}
 		}
 		if lan.DstPort < 1 || lan.DstPort > 65535 {
 			appendFieldError(&errs, prefix+".dst_port", "must be between 1 and 65535")
@@ -383,8 +471,13 @@ func (c *SystemConfig) Validate() error {
 		}
 		seenSrc := make(map[string]struct{})
 		for _, src := range lan.AllowFrom {
+			src = strings.TrimSpace(src)
 			if src != c.LAN.CIDR && (wgNetworkCIDR == "" || src != wgNetworkCIDR) {
 				appendFieldError(&errs, prefix+".allow_from", "only the LAN and WireGuard networks may reach an extra LAN")
+				break
+			}
+			if _, _, cidrErr := net.ParseCIDR(src); cidrErr != nil {
+				appendFieldError(&errs, prefix+".allow_from", "must be canonical CIDR notation")
 				break
 			}
 			if _, dup := seenSrc[src]; dup {
@@ -519,12 +612,43 @@ func (c *SystemConfig) Validate() error {
 		appendFieldError(&errs, "adguard.blocklist_url", "external blocklist refresh is unavailable in the hardened pilot; use the built-in global list")
 	}
 
+	seenDNSNames := make(map[string]struct{})
+	seenDNSIPs := make(map[string]struct{})
 	for i, rec := range c.DNS.Records {
+		lower := strings.ToLower(strings.TrimSuffix(rec.Name, "."))
 		if !domainPattern.MatchString(rec.Name) || hasUnsafeControl(rec.Name) {
 			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].name", i), "must be a valid DNS hostname")
 		}
+		if strings.HasSuffix(lower, ".local") {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].name", i), ".local is the mDNS namespace and conflicts with macOS/iOS resolvers; use .home.arpa instead")
+		}
+		if _, dup := seenDNSNames[lower]; lower != "" && dup {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].name", i), "duplicates another record (hostnames are case-insensitive)")
+		}
+		if lower != "" {
+			seenDNSNames[lower] = struct{}{}
+		}
 		if parseIPv4(rec.IP) == nil {
 			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].ip", i), "must be a valid IPv4 address")
+		} else {
+			ipKey := parseIPv4(rec.IP).String()
+			if _, dup := seenDNSIPs[ipKey]; dup {
+				appendFieldError(&errs, fmt.Sprintf("dns.records[%d].ip", i), "duplicates another record's address")
+			}
+			seenDNSIPs[ipKey] = struct{}{}
+		}
+	}
+	domainSuffix := "." + strings.ToLower(strings.TrimSuffix(c.System.Domain, "."))
+	for i, lease := range c.DHCP.StaticLeases {
+		if lease.Hostname == "" {
+			continue
+		}
+		leaseFQDN := strings.ToLower(lease.Hostname)
+		if domainSuffix != "." {
+			leaseFQDN += domainSuffix
+		}
+		if _, collision := seenDNSNames[leaseFQDN]; collision {
+			appendFieldError(&errs, fmt.Sprintf("dhcp.static_leases[%d].hostname", i), "conflicts with a static DNS record hostname")
 		}
 	}
 
@@ -611,7 +735,10 @@ func (c *SystemConfig) Validate() error {
 
 // validateWGClient enforces the outbound WireGuard tunnel (wg1) contract:
 // a valid key pair, an explicit remote endpoint, and remote networks that do
-// not overlap the home LAN.
+// not overlap the home LAN or any other local network. Full-tunnel is not
+// supported in this version: entries that would capture the default route
+// (0.0.0.0/0 and the 0.0.0.0/1, 128.0.0.0/1 half-default tricks, or any
+// prefix broader than a /8) are rejected.
 func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs *ValidationErrors) {
 	if !c.WGClient.Enabled {
 		return
@@ -631,13 +758,23 @@ func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs
 	if c.WGClient.PresharedKey != "" && !validWireGuardKey(c.WGClient.PresharedKey) {
 		appendFieldError(errs, "wg_client.preshared_key", "must be a valid 32-byte WireGuard key")
 	}
+	var wgClientAddressNet *net.IPNet
 	if c.WGClient.Address != "" {
-		clientIP, _, err := net.ParseCIDR(c.WGClient.Address)
+		clientIP, clientNet, err := net.ParseCIDR(c.WGClient.Address)
 		if err != nil || clientIP.To4() == nil {
 			appendFieldError(errs, "wg_client.address", "must be a valid IPv4 interface CIDR")
-		} else if lanNetwork != nil && lanNetwork.Contains(clientIP) {
+		} else if lanNetwork != nil && networksOverlap(lanNetwork, clientNet) {
 			appendFieldError(errs, "wg_client.address", "must not overlap the LAN subnet")
+		} else if wgNetwork := wireGuardServerNetwork(c); wgNetwork != nil && networksOverlap(wgNetwork, clientNet) {
+			appendFieldError(errs, "wg_client.address", "must not overlap the WireGuard server subnet")
+		} else {
+			// The outbound tunnel is a point-to-point client; a /32 is the
+			// supported model so the router never routes its own segment.
+			if ones, _ := clientNet.Mask.Size(); ones != 32 {
+				appendFieldError(errs, "wg_client.address", "must be a /32 address in this appliance version")
+			}
 		}
+		wgClientAddressNet = clientNet
 	}
 	if host, portText, err := net.SplitHostPort(c.WGClient.Endpoint); err != nil || host == "" {
 		appendFieldError(errs, "wg_client.endpoint", "must use host:port format")
@@ -664,8 +801,28 @@ func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs
 			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must be a valid IPv4 CIDR network")
 			continue
 		}
-		if lanNetwork != nil && lanNetwork.Contains(ip) {
+		ones, _ := network.Mask.Size()
+		if ones < 8 {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i),
+				"must not be broader than a /8: default-route capture (0.0.0.0/0 and /1 split tricks) is not supported")
+		}
+		if lanNetwork != nil && networksOverlap(lanNetwork, network) {
 			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap the LAN subnet")
+		}
+		if wgNetwork := wireGuardServerNetwork(c); wgNetwork != nil && networksOverlap(wgNetwork, network) {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap the WireGuard server subnet")
+		}
+		if wgClientAddressNet != nil && networksOverlap(wgClientAddressNet, network) {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap the tunnel's own address")
+		}
+		for _, lan := range c.Firewall.ExtraLANs {
+			if !lan.Enabled || lan.CIDR == "" {
+				continue
+			}
+			if _, extraNet, cidrErr := net.ParseCIDR(lan.CIDR); cidrErr == nil && networksOverlap(extraNet, network) {
+				appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap an extra LAN subnet")
+				break
+			}
 		}
 		key := network.String()
 		if _, exists := seenNets[key]; exists {
@@ -679,4 +836,17 @@ func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs
 	if hasUnsafeControl(c.WGClient.Endpoint) || len(c.WGClient.Endpoint) > 255 {
 		appendFieldError(errs, "wg_client.endpoint", "contains forbidden characters or is too long")
 	}
+}
+
+// wireGuardServerNetwork returns the canonical wg0 network when the server
+// tunnel is enabled, or nil otherwise.
+func wireGuardServerNetwork(c *SystemConfig) *net.IPNet {
+	if !c.WireGuard.Enabled || c.WireGuard.Address == "" {
+		return nil
+	}
+	_, network, err := net.ParseCIDR(c.WireGuard.Address)
+	if err != nil {
+		return nil
+	}
+	return network
 }

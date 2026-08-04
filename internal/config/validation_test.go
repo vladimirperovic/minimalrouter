@@ -228,17 +228,43 @@ func TestValidationRejectsMoreThanHourlyGridCanProduce(t *testing.T) {
 
 func TestValidateDNSRecords(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.DNS.Records = []DNSRecord{{Name: "immich.local", IP: "10.20.30.10"}}
+	cfg.DNS.Records = []DNSRecord{{Name: "immich.home.arpa", IP: "10.20.30.10"}}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("valid DNS record rejected: %v", err)
 	}
+	cfg.DNS.Records = []DNSRecord{{Name: "immich.local", IP: "10.20.30.10"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal(".local mDNS namespace record must be rejected")
+	}
+	cfg.DNS.Records = []DNSRecord{{Name: "immich.home.arpa", IP: "10.20.30.10"}}
 	cfg.DNS.Records = append(cfg.DNS.Records, DNSRecord{Name: "bad name!", IP: "10.20.30.10"})
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("invalid hostname accepted")
 	}
-	cfg.DNS.Records = []DNSRecord{{Name: "ok.local", IP: "not-an-ip"}}
+	cfg.DNS.Records = []DNSRecord{{Name: "ok.home.arpa", IP: "not-an-ip"}}
 	if err := cfg.Validate(); err == nil {
 		t.Fatal("invalid IP accepted")
+	}
+	cfg.DNS.Records = []DNSRecord{
+		{Name: "nas.home.arpa", IP: "10.20.30.10"},
+		{Name: "NAS.home.arpa", IP: "10.20.30.11"},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("case-insensitive duplicate hostnames must be rejected")
+	}
+	cfg.DNS.Records = []DNSRecord{
+		{Name: "a.home.arpa", IP: "10.20.30.10"},
+		{Name: "b.home.arpa", IP: "10.20.30.10"},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("duplicate record addresses must be rejected")
+	}
+	cfg.DNS.Records = []DNSRecord{{Name: "nas.home.arpa", IP: "10.20.30.10"}}
+	cfg.DHCP.Enabled = true
+	cfg.System.Domain = "home.arpa"
+	cfg.DHCP.StaticLeases = []StaticLease{{ID: "l1", Hostname: "NAS", MAC: "aa:bb:cc:dd:ee:ff", IPAddress: "192.168.1.42"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("DNS record colliding with a DHCP static lease hostname must be rejected")
 	}
 }
 
@@ -252,7 +278,7 @@ func TestValidateWGClient(t *testing.T) {
 		Address:             "10.7.0.2/32",
 		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 		Endpoint:            "office.example.com:51820",
-		AllowedIPs:          []string{"10.7.0.0/24"},
+		AllowedIPs:          []string{"10.8.0.0/24"},
 		PersistentKeepalive: 25,
 	}
 	if err := cfg.Validate(); err != nil {
@@ -275,7 +301,17 @@ func TestValidateWGClient(t *testing.T) {
 	if err := cfg.Validate(); err == nil {
 		t.Error("allowed network overlapping the LAN must be rejected")
 	}
-	cfg.WGClient.AllowedIPs = []string{"10.7.0.0/24"}
+	cfg.WGClient.AllowedIPs = []string{"10.8.0.0/24"}
+
+	cfg.WGClient.AllowedIPs = []string{"0.0.0.0/0"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("default-route allowed network must be rejected")
+	}
+	cfg.WGClient.AllowedIPs = []string{"128.0.0.0/1"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("/1 split-default allowed network must be rejected")
+	}
+	cfg.WGClient.AllowedIPs = []string{"10.8.0.0/24"}
 
 	cfg.WGClient.Address = "192.168.1.50/24"
 	if err := cfg.Validate(); err == nil {

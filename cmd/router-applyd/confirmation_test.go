@@ -67,3 +67,21 @@ func TestConfirmationModeRejectsLANInterfaceReplacement(t *testing.T) {
 		t.Fatal("provisional mode cannot replace the rollback LAN interface")
 	}
 }
+
+func TestConfirmationModeAllowsWGClientTunnelChange(t *testing.T) {
+	// The outbound tunnel (wg1) is confirmation-required (mirrored in the
+	// engine's requiresConfirmation) and does not touch the management path:
+	// a provisional apply must accept it so the 90-second confirm window runs.
+	previous := config.DefaultConfig()
+	candidate := previous
+	candidate.WGClient.Enabled = true
+	candidate.WGClient.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	candidate.WGClient.PublicKey = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA="
+	candidate.WGClient.Address = "10.7.0.2/32"
+	candidate.WGClient.Endpoint = "office.example.com:51820"
+	candidate.WGClient.AllowedIPs = []string{"10.9.0.0/24"}
+
+	if !confirmationModeAllowed(&previous, candidate) {
+		t.Fatal("confirmation mode must accept outbound tunnel changes")
+	}
+}

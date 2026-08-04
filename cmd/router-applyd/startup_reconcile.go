@@ -139,11 +139,7 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		}
 	}()
 
-	for _, name := range []string{
-		"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns",
-		"cf-tunnel", "doh-proxy", "hostapd", "wireguard",
-		"wireguard-runtime", "squid", "squid-passwd", "nftables",
-	} {
+	for _, name := range restoreArtifacts {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install startup %s: %w", name, err)
@@ -155,6 +151,9 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	}
 	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	if err := configureRuntimeLAN(cfg); err != nil {
+		return err
+	}
+	if err := configureExtraLANs(cfg); err != nil {
 		return err
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
@@ -187,7 +186,11 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		return fmt.Errorf("restore startup WireGuard: %w", err)
 	}
 	if err := activateWireGuardClient(cfg); err != nil {
-		return fmt.Errorf("restore startup WireGuard client: %w", err)
+		// The outbound tunnel (wg1) is optional: its remote site cannot reach
+		// the router (input rules accept only established), so a boot where
+		// wg1 stays down must never fail-closed the core appliance. Runtime
+		// health reports the tunnel as degraded instead.
+		log.Printf("startup WireGuard client not brought up (non-fatal): %v", err)
 	}
 	if cfg.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
@@ -276,12 +279,29 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 			interfaceName = "wg1"
 		}
 		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
-			return fmt.Errorf("startup WireGuard client interface unhealthy: %w", err)
-		}
-		if cfg.WGClient.Address != "" {
+			// Same optional-tunnel semantics as activation: an outbound tunnel
+			// that cannot come up must not block the core router from booting.
+			log.Printf("startup WireGuard client interface not available (non-fatal): %v", err)
+		} else if cfg.WGClient.Address != "" {
 			if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName); err != nil {
-				return fmt.Errorf("startup WireGuard client address unavailable: %w", err)
+				log.Printf("startup WireGuard client address unavailable (non-fatal): %v", err)
 			}
+		}
+	}
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.RouterAddress == "" {
+			continue
+		}
+		addressOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", lan.Interface)
+		if err != nil {
+			return fmt.Errorf("startup extra LAN %s interface unavailable: %w", lan.Interface, err)
+		}
+		addressPrefix := lan.RouterAddress
+		if slash := strings.IndexByte(addressPrefix, '/'); slash >= 0 {
+			addressPrefix = addressPrefix[:slash]
+		}
+		if !strings.Contains(addressOutput, "inet "+addressPrefix+"/") {
+			return fmt.Errorf("startup extra LAN %s router address is not active", lan.Interface)
 		}
 	}
 	if cfg.WiFi.Enabled {

@@ -134,6 +134,19 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	if _, err := GenerateWireGuardClientRuntime(&cfg); err == nil {
 		t.Error("empty allowed networks must be rejected")
 	}
+
+	// An explicit zero keepalive means "disabled" and must reach wg verbatim,
+	// never be coerced to the 25-second default (which would keep a tunnel
+	// alive the administrator explicitly turned off).
+	cfg.AllowedIPs = []string{"10.7.0.0/24"}
+	cfg.PersistentKeepalive = 0
+	out, err = GenerateWireGuardClientRuntime(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateWireGuardClientRuntime(keepalive=0): %v", err)
+	}
+	if !strings.Contains(out, "PersistentKeepalive = 0") {
+		t.Errorf("keepalive 0 must be emitted verbatim:\n%s", out)
+	}
 }
 
 func TestGenerateNftablesWireGuardClient(t *testing.T) {

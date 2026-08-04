@@ -234,6 +234,10 @@ function Dashboard() {
   const submitWireGuardClient = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    // An explicit 0 means keepalives disabled and must reach the backend
+    // verbatim, not be coerced to the 25-second default.
+    const keepalive = Number(field(form, "client_keepalive"));
+    const persistentKeepalive = Number.isFinite(keepalive) && keepalive >= 0 ? keepalive : 25;
     void applyConfig((next) => {
       next.wg_client = {
         ...next.wg_client,
@@ -243,7 +247,7 @@ function Dashboard() {
         preshared_key: field(form, "client_preshared_key") || next.wg_client.preshared_key,
         address: field(form, "client_address"),
         allowed_ips: field(form, "client_allowed_ips").split(",").map((item) => item.trim()).filter(Boolean),
-        persistent_keepalive: Number(field(form, "client_keepalive")) || 25,
+        persistent_keepalive: persistentKeepalive,
         private_key: field(form, "client_private_key") || next.wg_client.private_key,
       };
     }, "WireGuard client settings applied.");
