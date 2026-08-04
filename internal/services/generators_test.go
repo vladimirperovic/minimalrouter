@@ -139,13 +139,13 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 func TestGenerateNftablesWireGuardClient(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.WGClient = config.WGClientConfig{
-		Enabled:      true,
-		Interface:    "wg1",
-		Address:      "10.7.0.2/32",
-		Endpoint:     "office.example.com:51820",
-		AllowedIPs:   []string{"10.7.0.0/24"},
-		PrivateKey:   "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
-		PublicKey:    "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		Enabled:    true,
+		Interface:  "wg1",
+		Address:    "10.7.0.2/32",
+		Endpoint:   "office.example.com:51820",
+		AllowedIPs: []string{"10.7.0.0/24"},
+		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		PublicKey:  "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 	}
 	out, err := GenerateNftables(&cfg)
 	if err != nil {

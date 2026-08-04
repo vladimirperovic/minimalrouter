@@ -7,15 +7,15 @@ type Revision uint64
 
 // SystemConfig represents the complete canonical configuration model.
 type SystemConfig struct {
-	Revision   Revision         `json:"revision"`
-	UpdatedAt  time.Time        `json:"updated_at"`
-	System     SystemSettings   `json:"system"`
-	WAN        WANSettings      `json:"wan"`
-	LAN        LANSettings      `json:"lan"`
-	DHCP       DHCPSettings     `json:"dhcp"`
-	DNS        DNSSettings      `json:"dns"`
-	Firewall   FirewallConfig   `json:"firewall"`
-	WireGuard  WireGuardConfig  `json:"wireguard"`
+	Revision  Revision        `json:"revision"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	System    SystemSettings  `json:"system"`
+	WAN       WANSettings     `json:"wan"`
+	LAN       LANSettings     `json:"lan"`
+	DHCP      DHCPSettings    `json:"dhcp"`
+	DNS       DNSSettings     `json:"dns"`
+	Firewall  FirewallConfig  `json:"firewall"`
+	WireGuard WireGuardConfig `json:"wireguard"`
 	// WGClient is the outbound WireGuard tunnel (client mode) used to reach
 	// remote sites such as an office network. Unlike WireGuard (server, wg0)
 	// the remote peer initiates nothing: nftables only accepts established
@@ -63,7 +63,7 @@ type WGClientConfig struct {
 	Enabled             bool     `json:"enabled"`
 	Interface           string   `json:"interface"` // "wg1"
 	PrivateKey          string   `json:"private_key,omitempty"`
-	Address             string   `json:"address"` // local tunnel address, e.g. "10.7.0.2/32"
+	Address             string   `json:"address"`    // local tunnel address, e.g. "10.7.0.2/32"
 	PublicKey           string   `json:"public_key"` // remote peer public key
 	PresharedKey        string   `json:"preshared_key,omitempty"`
 	Endpoint            string   `json:"endpoint"` // remote endpoint host:port

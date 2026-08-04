@@ -12,12 +12,12 @@ import (
 )
 
 var (
-	interfaceNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
-	hostnamePattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
-	domainPattern          = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
-	safeNamePattern        = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
-	credentialNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
-	cloudflareTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
+	interfaceNamePattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
+	hostnamePattern              = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+	domainPattern                = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+	safeNamePattern              = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
+	credentialNamePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	cloudflareTokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
 	wireGuardEndpointHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
 )
 

@@ -38,8 +38,8 @@ const (
 	// The interface is created, addressed and routed by the same activation
 	// code path used for wg0, without wg-quick or shell hooks.
 	wireGuardClientRuntimePath = "/run/minimalrouter/wg1.runtime.conf"
-	lastTxPath           = "/var/lib/minimalrouter-applyd/last-transaction.json"
-	pendingPath          = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
+	lastTxPath                 = "/var/lib/minimalrouter-applyd/last-transaction.json"
+	pendingPath                = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
 )
 
 var applyMu sync.Mutex
