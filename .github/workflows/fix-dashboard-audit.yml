@@ -29,8 +29,9 @@ jobs:
           from pathlib import Path
           p = Path('web/package.json')
           data = json.loads(p.read_text())
-          data.setdefault('pnpm', {}).setdefault('overrides', {})['brace-expansion'] = '>=5.0.9'
+          data.pop('pnpm', None)
           p.write_text(json.dumps(data, indent=2) + '\n')
+          Path('web/pnpm-workspace.yaml').write_text("packages:\n  - '.'\noverrides:\n  brace-expansion: '>=5.0.9'\n")
           PY
           pnpm --dir web install --lockfile-only
           pnpm --dir web install --frozen-lockfile
@@ -42,7 +43,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/package.json web/pnpm-lock.yaml
+          git add web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml
           git diff --cached --quiet && exit 0
           git commit -m "chore(web): pin patched brace-expansion"
           git push origin HEAD:sync/minimalrouterhome-20260804
