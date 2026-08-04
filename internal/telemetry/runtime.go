@@ -16,32 +16,44 @@ type DHCPLease struct {
 }
 
 type RuntimeStatus struct {
-	Available             bool                  `json:"available"`
-	OS                    string                `json:"os"`
-	Architecture          string                `json:"architecture"`
-	WANConnected          bool                  `json:"wan_connected"`
-	WANMAC                string                `json:"wan_mac,omitempty"`
-	LANMAC                string                `json:"lan_mac,omitempty"`
-	PublicIP              string                `json:"public_ip,omitempty"`
-	UptimeSeconds         int64                 `json:"uptime_seconds,omitempty"`
-	CPUCount              int                   `json:"cpu_count"`
-	CPULoadPercent        float64               `json:"cpu_load_percent,omitempty"`
-	LoadAverage           []float64             `json:"load_average,omitempty"`
-	MemoryUsedBytes       uint64                `json:"memory_used_bytes,omitempty"`
-	MemoryTotalBytes      uint64                `json:"memory_total_bytes,omitempty"`
-	DiskUsedBytes         uint64                `json:"disk_used_bytes,omitempty"`
-	DiskTotalBytes        uint64                `json:"disk_total_bytes,omitempty"`
-	Storage               storage.Status        `json:"storage"`
-	RXBytes               uint64                `json:"rx_bytes,omitempty"`
-	TXBytes               uint64                `json:"tx_bytes,omitempty"`
-	TimeSynchronized      bool                  `json:"time_synchronized"`
-	ConntrackCount        uint64                `json:"conntrack_count,omitempty"`
-	ConntrackMax          uint64                `json:"conntrack_max,omitempty"`
-	ConntrackUsagePercent float64               `json:"conntrack_usage_percent,omitempty"`
-	DHCPLeases            []DHCPLease           `json:"dhcp_leases"`
-	WireguardActivePeers  int                   `json:"wireguard_active_peers,omitempty"`
-	WireguardPeers        []WireGuardPeerStatus `json:"wireguard_peers,omitempty"`
-	DDNS                  DDNSStatus            `json:"ddns"`
+	Available             bool                   `json:"available"`
+	OS                    string                 `json:"os"`
+	Architecture          string                 `json:"architecture"`
+	WANConnected          bool                   `json:"wan_connected"`
+	WANMAC                string                 `json:"wan_mac,omitempty"`
+	LANMAC                string                 `json:"lan_mac,omitempty"`
+	PublicIP              string                 `json:"public_ip,omitempty"`
+	UptimeSeconds         int64                  `json:"uptime_seconds,omitempty"`
+	CPUCount              int                    `json:"cpu_count"`
+	CPULoadPercent        float64                `json:"cpu_load_percent,omitempty"`
+	LoadAverage           []float64              `json:"load_average,omitempty"`
+	MemoryUsedBytes       uint64                 `json:"memory_used_bytes,omitempty"`
+	MemoryTotalBytes      uint64                 `json:"memory_total_bytes,omitempty"`
+	DiskUsedBytes         uint64                 `json:"disk_used_bytes,omitempty"`
+	DiskTotalBytes        uint64                 `json:"disk_total_bytes,omitempty"`
+	Storage               storage.Status         `json:"storage"`
+	RXBytes               uint64                 `json:"rx_bytes,omitempty"`
+	TXBytes               uint64                 `json:"tx_bytes,omitempty"`
+	TimeSynchronized      bool                   `json:"time_synchronized"`
+	ConntrackCount        uint64                 `json:"conntrack_count,omitempty"`
+	ConntrackMax          uint64                 `json:"conntrack_max,omitempty"`
+	ConntrackUsagePercent float64                `json:"conntrack_usage_percent,omitempty"`
+	DHCPLeases            []DHCPLease            `json:"dhcp_leases"`
+	WireguardActivePeers  int                    `json:"wireguard_active_peers,omitempty"`
+	WireguardPeers        []WireGuardPeerStatus  `json:"wireguard_peers,omitempty"`
+	WireGuardClient       *WireGuardClientStatus `json:"wireguard_client,omitempty"`
+	DDNS                  DDNSStatus             `json:"ddns"`
+}
+
+// WireGuardClientStatus mirrors the live state of the outbound tunnel (wg1):
+// the remote endpoint, last handshake and cumulative transfer. Online means a
+// handshake succeeded within the last 3 minutes.
+type WireGuardClientStatus struct {
+	Endpoint      string `json:"endpoint,omitempty"`
+	LastHandshake int64  `json:"last_handshake_epoch,omitempty"`
+	RXBytes       uint64 `json:"rx_bytes,omitempty"`
+	TXBytes       uint64 `json:"tx_bytes,omitempty"`
+	Online        bool   `json:"online"`
 }
 
 // WireGuardPeerStatus mirrors one peer line of `wg show wg0 dump`: the live

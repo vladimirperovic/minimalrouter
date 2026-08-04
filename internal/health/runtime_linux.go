@@ -76,6 +76,9 @@ func inspectRuntimeFacts(cfg config.SystemConfig) RuntimeFacts {
 	if cfg.WireGuard.Enabled {
 		facts.WireGuardInterfaceUp = interfaceUp(cfg.WireGuard.Interface)
 	}
+	if cfg.WGClient.Enabled {
+		facts.WireGuardClientInterfaceUp = interfaceUp(cfg.WGClient.Interface)
+	}
 
 	if data, err := os.ReadFile("/var/lib/minimalrouter-update/state.json"); err == nil {
 		var state updateSlotState

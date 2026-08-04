@@ -7,14 +7,21 @@ type Revision uint64
 
 // SystemConfig represents the complete canonical configuration model.
 type SystemConfig struct {
-	Revision   Revision         `json:"revision"`
-	UpdatedAt  time.Time        `json:"updated_at"`
-	System     SystemSettings   `json:"system"`
-	WAN        WANSettings      `json:"wan"`
-	LAN        LANSettings      `json:"lan"`
-	DHCP       DHCPSettings     `json:"dhcp"`
-	Firewall   FirewallConfig   `json:"firewall"`
-	WireGuard  WireGuardConfig  `json:"wireguard"`
+	Revision  Revision        `json:"revision"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	System    SystemSettings  `json:"system"`
+	WAN       WANSettings     `json:"wan"`
+	LAN       LANSettings     `json:"lan"`
+	DHCP      DHCPSettings    `json:"dhcp"`
+	DNS       DNSSettings     `json:"dns"`
+	Firewall  FirewallConfig  `json:"firewall"`
+	WireGuard WireGuardConfig `json:"wireguard"`
+	// WGClient is the outbound WireGuard tunnel (client mode) used to reach
+	// remote sites such as an office network. Unlike WireGuard (server, wg0)
+	// the remote peer initiates nothing: nftables only accepts established
+	// traffic from this interface, so the remote site can never open a
+	// connection back into the home network.
+	WGClient   WGClientConfig   `json:"wg_client"`
 	Cloudflare CloudflareConfig `json:"cloudflare"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 	// AdGuard is the retained JSON compatibility key. The user-facing feature
@@ -46,6 +53,22 @@ type WireGuardPeer struct {
 	AllowedIPs   []string `json:"allowed_ips"`
 	Endpoint     string   `json:"endpoint,omitempty"`
 	Enabled      bool     `json:"enabled"`
+}
+
+// WGClientConfig configures the outbound WireGuard tunnel (wg1). This router
+// dials the remote endpoint; the remote peer is provisioned to accept this
+// device only. AllowedIPs lists the remote networks reachable through the
+// tunnel (for example the office LAN).
+type WGClientConfig struct {
+	Enabled             bool     `json:"enabled"`
+	Interface           string   `json:"interface"` // "wg1"
+	PrivateKey          string   `json:"private_key,omitempty"`
+	Address             string   `json:"address"`    // local tunnel address, e.g. "10.7.0.2/32"
+	PublicKey           string   `json:"public_key"` // remote peer public key
+	PresharedKey        string   `json:"preshared_key,omitempty"`
+	Endpoint            string   `json:"endpoint"` // remote endpoint host:port
+	AllowedIPs          []string `json:"allowed_ips"`
+	PersistentKeepalive int      `json:"persistent_keepalive"`
 }
 
 // CloudflareConfig retains its historical JSON key so existing backups remain
@@ -206,6 +229,19 @@ type StaticLease struct {
 	IPAddress string `json:"ip_address"`
 }
 
+// DNSSettings holds static DNS records served by the local resolver,
+// independent of DHCP.
+type DNSSettings struct {
+	Records []DNSRecord `json:"records,omitempty"`
+}
+
+// DNSRecord maps a local hostname to a fixed IPv4 address without requiring
+// the host to receive a DHCP lease from the router.
+type DNSRecord struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
+}
+
 // FirewallConfig holds packet filtering and NAT port forwarding rules.
 type FirewallConfig struct {
 	DefaultWANInputPolicy string            `json:"default_wan_input_policy"`
@@ -213,6 +249,23 @@ type FirewallConfig struct {
 	StatefulFirewall      bool              `json:"stateful_firewall"`
 	PortForwards          []PortForwardRule `json:"port_forwards"`
 	CustomRules           []FirewallRule    `json:"custom_rules"`
+	ExtraLANs             []ExtraLANConfig  `json:"extra_lans,omitempty"`
+}
+
+// ExtraLANConfig defines an additional isolated LAN segment (e.g. a media
+// network). Only hosts inside AllowFrom CIDRs may reach the single service
+// DstIP:DstPort; the segment has no WAN/LAN egress and hosts no router
+// services (no DHCP/DNS), so everything else is dropped by the default policy.
+type ExtraLANConfig struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Interface string   `json:"interface"`
+	CIDR      string   `json:"cidr"`
+	DstIP     string   `json:"dst_ip"`
+	DstPort   int      `json:"dst_port"`
+	Protocol  string   `json:"protocol,omitempty"` // tcp (default), udp
+	AllowFrom []string `json:"allow_from"`
+	Enabled   bool     `json:"enabled"`
 }
 
 type PortForwardRule struct {
@@ -259,6 +312,7 @@ func DefaultConfig() SystemConfig {
 			PortForwards: []PortForwardRule{}, CustomRules: []FirewallRule{},
 		},
 		WireGuard:  WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
+		WGClient:   WGClientConfig{Enabled: false, Interface: "wg1", PersistentKeepalive: 25, AllowedIPs: []string{}},
 		Cloudflare: CloudflareConfig{DDNSProvider: "noip"},
 		SquidProxy: SquidProxyConfig{Enabled: false, Port: 3128, Username: "proxyadmin", RestrictedIPs: []RestrictedIPItem{}},
 		AdGuard: DNSFilterConfig{

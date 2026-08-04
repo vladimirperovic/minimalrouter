@@ -180,6 +180,14 @@ func Build(input Input) Snapshot {
 				add("wireguard", "WireGuard", StateDegraded, "WireGuard is enabled but its interface is unavailable or down.")
 			}
 		}
+
+		if input.Config.WGClient.Enabled {
+			if input.Facts.WireGuardClientInterfaceUp {
+				add("wireguard-client", "WireGuard client tunnel", StateHealthy, "The outbound WireGuard client tunnel is up.")
+			} else {
+				add("wireguard-client", "WireGuard client tunnel", StateDegraded, "WireGuard client is enabled but its tunnel interface is unavailable or down.")
+			}
+		}
 	}
 
 	if !input.UpdateTrustConfigured {

@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	interfaceNamePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
-	hostnamePattern        = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
-	domainPattern          = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
-	safeNamePattern        = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
-	credentialNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
-	cloudflareTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
+	interfaceNamePattern         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,14}$`)
+	hostnamePattern              = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+	domainPattern                = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+	safeNamePattern              = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
+	credentialNamePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	cloudflareTokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
+	wireGuardEndpointHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
 )
 
 func hasUnsafeControl(value string) bool {
@@ -346,6 +347,54 @@ func (c *SystemConfig) Validate() error {
 		}
 	}
 
+	wgNetworkCIDR := ""
+	if c.WireGuard.Enabled {
+		if _, wgNet, err := net.ParseCIDR(c.WireGuard.Address); err == nil {
+			wgNetworkCIDR = wgNet.String()
+		}
+	}
+	for i, lan := range c.Firewall.ExtraLANs {
+		if !lan.Enabled {
+			continue
+		}
+		prefix := fmt.Sprintf("firewall.extra_lans[%d]", i)
+		if !validInterfaceName(lan.Interface) || strings.HasPrefix(lan.Interface, "ppp") {
+			appendFieldError(&errs, prefix+".interface", "must be a valid non-PPP interface name")
+		}
+		extraNet, _, err := net.ParseCIDR(lan.CIDR)
+		if err != nil || extraNet.To4() == nil {
+			appendFieldError(&errs, prefix+".cidr", "must be valid IPv4 CIDR notation")
+		} else if lanNetwork != nil && lanNetwork.Contains(extraNet) {
+			appendFieldError(&errs, prefix+".cidr", "must not overlap the LAN subnet")
+		}
+		if lan.DstIP == "" || parseIPv4(lan.DstIP) == nil {
+			appendFieldError(&errs, prefix+".dst_ip", "must be a valid IPv4 address")
+		}
+		if lan.DstPort < 1 || lan.DstPort > 65535 {
+			appendFieldError(&errs, prefix+".dst_port", "must be between 1 and 65535")
+		}
+		switch lan.Protocol {
+		case "", "tcp", "udp":
+		default:
+			appendFieldError(&errs, prefix+".protocol", "must be tcp, udp, or empty")
+		}
+		if len(lan.AllowFrom) == 0 {
+			appendFieldError(&errs, prefix+".allow_from", "must list at least one source CIDR")
+		}
+		seenSrc := make(map[string]struct{})
+		for _, src := range lan.AllowFrom {
+			if src != c.LAN.CIDR && (wgNetworkCIDR == "" || src != wgNetworkCIDR) {
+				appendFieldError(&errs, prefix+".allow_from", "only the LAN and WireGuard networks may reach an extra LAN")
+				break
+			}
+			if _, dup := seenSrc[src]; dup {
+				appendFieldError(&errs, prefix+".allow_from", "duplicates a source CIDR")
+				break
+			}
+			seenSrc[src] = struct{}{}
+		}
+	}
+
 	if c.WireGuard.Enabled {
 		if !c.WAN.Enabled {
 			appendFieldError(&errs, "wireguard.enabled", "requires an enabled WAN connection")
@@ -405,6 +454,8 @@ func (c *SystemConfig) Validate() error {
 			}
 		}
 	}
+
+	validateWGClient(c, lanIP, lanNetwork, &errs)
 
 	if c.Cloudflare.DDNSEnabled {
 		if !c.WAN.Enabled {
@@ -466,6 +517,15 @@ func (c *SystemConfig) Validate() error {
 	errs = append(errs, c.validateDeviceProfiles(lanNetwork)...)
 	if c.AdGuard.BlocklistURL != "" {
 		appendFieldError(&errs, "adguard.blocklist_url", "external blocklist refresh is unavailable in the hardened pilot; use the built-in global list")
+	}
+
+	for i, rec := range c.DNS.Records {
+		if !domainPattern.MatchString(rec.Name) || hasUnsafeControl(rec.Name) {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].name", i), "must be a valid DNS hostname")
+		}
+		if parseIPv4(rec.IP) == nil {
+			appendFieldError(&errs, fmt.Sprintf("dns.records[%d].ip", i), "must be a valid IPv4 address")
+		}
 	}
 
 	if c.QoS.Enabled {
@@ -547,4 +607,76 @@ func (c *SystemConfig) Validate() error {
 		return errs
 	}
 	return nil
+}
+
+// validateWGClient enforces the outbound WireGuard tunnel (wg1) contract:
+// a valid key pair, an explicit remote endpoint, and remote networks that do
+// not overlap the home LAN.
+func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs *ValidationErrors) {
+	if !c.WGClient.Enabled {
+		return
+	}
+	if c.WGClient.Interface != "wg1" {
+		appendFieldError(errs, "wg_client.interface", "must be wg1 in this appliance version")
+	}
+	if !validWireGuardKey(c.WGClient.PrivateKey) {
+		appendFieldError(errs, "wg_client.private_key", "must be a valid 32-byte WireGuard key")
+	}
+	if !validWireGuardKey(c.WGClient.PublicKey) {
+		appendFieldError(errs, "wg_client.public_key", "must be a valid 32-byte WireGuard key")
+	}
+	if c.WGClient.PrivateKey != "" && c.WGClient.PublicKey == c.WGClient.PrivateKey {
+		appendFieldError(errs, "wg_client.public_key", "must not match the private key")
+	}
+	if c.WGClient.PresharedKey != "" && !validWireGuardKey(c.WGClient.PresharedKey) {
+		appendFieldError(errs, "wg_client.preshared_key", "must be a valid 32-byte WireGuard key")
+	}
+	if c.WGClient.Address != "" {
+		clientIP, _, err := net.ParseCIDR(c.WGClient.Address)
+		if err != nil || clientIP.To4() == nil {
+			appendFieldError(errs, "wg_client.address", "must be a valid IPv4 interface CIDR")
+		} else if lanNetwork != nil && lanNetwork.Contains(clientIP) {
+			appendFieldError(errs, "wg_client.address", "must not overlap the LAN subnet")
+		}
+	}
+	if host, portText, err := net.SplitHostPort(c.WGClient.Endpoint); err != nil || host == "" {
+		appendFieldError(errs, "wg_client.endpoint", "must use host:port format")
+	} else {
+		if parsed := net.ParseIP(host); parsed != nil {
+			if parsed.To4() == nil {
+				appendFieldError(errs, "wg_client.endpoint", "IPv6 endpoints are unavailable while IPv6 is disabled")
+			}
+		} else if !wireGuardEndpointHostPattern.MatchString(host) || strings.Contains(host, "..") {
+			appendFieldError(errs, "wg_client.endpoint", "contains an invalid hostname")
+		}
+		port, parseErr := strconv.Atoi(portText)
+		if parseErr != nil || port < 1 || port > 65535 {
+			appendFieldError(errs, "wg_client.endpoint", "port must be between 1 and 65535")
+		}
+	}
+	if len(c.WGClient.AllowedIPs) == 0 {
+		appendFieldError(errs, "wg_client.allowed_ips", "must list at least one remote network")
+	}
+	seenNets := make(map[string]struct{})
+	for i, entry := range c.WGClient.AllowedIPs {
+		ip, network, err := net.ParseCIDR(strings.TrimSpace(entry))
+		if err != nil || ip.To4() == nil {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must be a valid IPv4 CIDR network")
+			continue
+		}
+		if lanNetwork != nil && lanNetwork.Contains(ip) {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap the LAN subnet")
+		}
+		key := network.String()
+		if _, exists := seenNets[key]; exists {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "duplicates another allowed network")
+		}
+		seenNets[key] = struct{}{}
+	}
+	if c.WGClient.PersistentKeepalive < 0 || c.WGClient.PersistentKeepalive > 65535 {
+		appendFieldError(errs, "wg_client.persistent_keepalive", "must be between 0 and 65535")
+	}
+	if hasUnsafeControl(c.WGClient.Endpoint) || len(c.WGClient.Endpoint) > 255 {
+		appendFieldError(errs, "wg_client.endpoint", "contains forbidden characters or is too long")
+	}
 }

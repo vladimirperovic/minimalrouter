@@ -346,6 +346,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/config", gate(s.authMiddleware(s.handleUpdateConfig)))
 	mux.HandleFunc("POST /api/v1/wireguard/peers", gate(s.authMiddleware(s.handleProvisionWireGuardPeer)))
 	mux.HandleFunc("GET /api/v1/wireguard/provisioning-preview", gate(s.authMiddleware(s.handleWireGuardProvisioningPreview)))
+	mux.HandleFunc("POST /api/v1/wireguard/client/keys", gate(s.authMiddleware(s.handleWireGuardClientKeys)))
 	mux.HandleFunc("GET /api/v1/transactions/pending", gate(s.authMiddleware(s.handleGetPendingTransaction)))
 	mux.HandleFunc("POST /api/v1/transactions/{id}/confirm", gate(s.authMiddleware(s.handleConfirmTransaction)))
 	mux.HandleFunc("POST /api/v1/network/wol", gate(s.authMiddleware(s.handleWakeOnLAN)))
@@ -1045,6 +1046,12 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if newCfg.WireGuard.PrivateKey == "[REDACTED]" {
 		newCfg.WireGuard.PrivateKey = current.WireGuard.PrivateKey
+	}
+	if newCfg.WGClient.PrivateKey == "[REDACTED]" {
+		newCfg.WGClient.PrivateKey = current.WGClient.PrivateKey
+	}
+	if newCfg.WGClient.PresharedKey == "[REDACTED]" {
+		newCfg.WGClient.PresharedKey = current.WGClient.PresharedKey
 	}
 	for i := range newCfg.WireGuard.Peers {
 		if newCfg.WireGuard.Peers[i].PresharedKey != "[REDACTED]" {

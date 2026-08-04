@@ -288,6 +288,23 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// handleWireGuardClientKeys generates a fresh WireGuard key pair for the
+// outbound tunnel (wg1). The private key is returned to the browser exactly
+// once and stored only when the user saves the client configuration.
+func (s *Server) handleWireGuardClientKeys(w http.ResponseWriter, r *http.Request) {
+	privateKey, publicKey, err := services.GenerateWireGuardKeypair()
+	if err != nil {
+		http.Error(w, "could not generate key pair", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"private_key": privateKey,
+		"public_key":  publicKey,
+	})
+}
+
 // handleWireGuardProvisioningPreview reports the exact client IP and server
 // endpoint the backend will assign to the next WireGuard peer, so the frontend
 // never has to duplicate allocation logic (MR-AUD-005).

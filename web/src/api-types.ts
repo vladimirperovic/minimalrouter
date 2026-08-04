@@ -48,6 +48,7 @@ export type RouterConfig = {
     dns_servers: string[];
     static_leases: Array<{ id: string; hostname: string; mac: string; ip_address: string }>;
   };
+  dns: { records: Array<{ name: string; ip: string }> };
   firewall: {
     default_wan_input_policy: string;
     wan_ingress_mode: string;
@@ -71,6 +72,17 @@ export type RouterConfig = {
     listen_port: number;
     address: string;
     peers: WireGuardPeer[];
+  };
+  wg_client: {
+    enabled: boolean;
+    interface: string;
+    private_key?: string;
+    address: string;
+    public_key: string;
+    preshared_key?: string;
+    endpoint: string;
+    allowed_ips: string[];
+    persistent_keepalive: number;
   };
   cloudflare: {
     ddns_enabled: boolean;
@@ -176,6 +188,13 @@ export type SystemStatus = {
       tx_bytes?: number;
       online: boolean;
     }>;
+    wireguard_client?: {
+      endpoint?: string;
+      last_handshake_epoch?: number;
+      rx_bytes?: number;
+      tx_bytes?: number;
+      online: boolean;
+    };
     ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string };
   };
 };

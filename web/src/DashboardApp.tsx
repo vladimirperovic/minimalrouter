@@ -220,7 +220,39 @@ function Dashboard() {
         lease_time: field(form, "lease_time"),
         dns_servers: field(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean),
       };
+      const records: Array<{ name: string; ip: string }> = [];
+      for (const [key, value] of Array.from(form.entries())) {
+        if (!key.startsWith("dns_record_name_")) continue;
+        const name = String(value).trim();
+        const ip = String(form.get(key.replace("dns_record_name_", "dns_record_ip_")) || "").trim();
+        if (name || ip) records.push({ name, ip });
+      }
+      next.dns = { ...next.dns, records };
     }, "Network configuration applied.");
+  };
+
+  const submitWireGuardClient = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    void applyConfig((next) => {
+      next.wg_client = {
+        ...next.wg_client,
+        enabled: next.wg_client.enabled,
+        endpoint: field(form, "client_endpoint"),
+        public_key: field(form, "client_public_key"),
+        preshared_key: field(form, "client_preshared_key") || next.wg_client.preshared_key,
+        address: field(form, "client_address"),
+        allowed_ips: field(form, "client_allowed_ips").split(",").map((item) => item.trim()).filter(Boolean),
+        persistent_keepalive: Number(field(form, "client_keepalive")) || 25,
+        private_key: field(form, "client_private_key") || next.wg_client.private_key,
+      };
+    }, "WireGuard client settings applied.");
+  };
+
+  const toggleWGClient = (enabled: boolean) => {
+    void applyConfig((next) => {
+      next.wg_client = { ...next.wg_client, enabled };
+    }, enabled ? "WireGuard client enabled." : "WireGuard client disabled.");
   };
 
   const toggleWAN = (enabled: boolean) => {
@@ -527,6 +559,8 @@ function Dashboard() {
             submitSquid={submitSquid}
             submitWiFi={submitWiFi}
             submitQoS={submitQoS}
+            submitWireGuardClient={submitWireGuardClient}
+            toggleWGClient={toggleWGClient}
             runSpeedTest={runSpeedTest}
             toggleQoS={toggleQoS}
             toggleWAN={toggleWAN}
