@@ -33,6 +33,134 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 	}
 }
 
+// extraLANSourceInterface maps an AllowFrom CIDR to the router interface that
+// carries it: the LAN segment or the WireGuard tunnel. Anything else is not a
+// trusted source for an extra LAN and is silently skipped (validation rejects
+// such configs).
+func extraLANSourceInterface(cfg *config.SystemConfig, srcCIDR string) string {
+	if srcCIDR == cfg.LAN.CIDR {
+		return cfg.RuntimeLANInterface()
+	}
+	if cfg.WireGuard.Enabled {
+		if _, wgNetwork, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil && srcCIDR == wgNetwork.String() {
+			return cfg.WireGuard.Interface
+		}
+	}
+	if cfg.WGClient.Enabled {
+		for _, allowed := range cfg.WGClient.AllowedIPs {
+			if _, network, err := net.ParseCIDR(strings.TrimSpace(allowed)); err == nil && srcCIDR == network.String() {
+				return cfg.WGClient.Interface
+			}
+		}
+	}
+	return ""
+}
+
+// writeWGClientInputRules confines the outbound tunnel (wg1) to established
+// traffic: the remote site can never initiate toward the router itself.
+func writeWGClientInputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.WGClient.Enabled {
+		return
+	}
+	iface := wgClientInterface(cfg)
+	allowed := make([]string, 0, len(cfg.WGClient.AllowedIPs))
+	for _, entry := range cfg.WGClient.AllowedIPs {
+		if _, network, err := net.ParseCIDR(strings.TrimSpace(entry)); err == nil && network.IP.To4() != nil {
+			allowed = append(allowed, network.String())
+		}
+	}
+	spoof := "drop"
+	if len(allowed) > 0 {
+		spoof = fmt.Sprintf("ip saddr != { %s } drop", strings.Join(allowed, ", "))
+	}
+	buf.WriteString(fmt.Sprintf("    # WireGuard client %s: established-only (remote site cannot initiate)\n", iface))
+	buf.WriteString(fmt.Sprintf("    iifname \"%s\" %s\n", iface, spoof))
+	buf.WriteString(fmt.Sprintf("    iifname \"%s\" ct state new drop\n\n", iface))
+}
+
+// writeWGClientForwardRules lets home networks (LAN, extra LANs, wg0) dial out
+// through the tunnel; remote initiations are dropped while responses ride the
+// global established rule.
+func writeWGClientForwardRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.WGClient.Enabled {
+		return
+	}
+	iface := wgClientInterface(cfg)
+	buf.WriteString(fmt.Sprintf("    # WireGuard client %s: home may dial out, remote site may only respond\n", iface))
+	forwardSources := []string{cfg.LAN.Interface}
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if lan.Enabled && lan.Interface != "" {
+			forwardSources = append(forwardSources, lan.Interface)
+		}
+	}
+	if cfg.WireGuard.Enabled && cfg.WireGuard.Interface != "" {
+		forwardSources = append(forwardSources, cfg.WireGuard.Interface)
+	}
+	for _, src := range forwardSources {
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" accept\n", src, iface))
+	}
+	buf.WriteString(fmt.Sprintf("    iifname \"%s\" ct state new drop\n\n", iface))
+}
+
+// writeWGClientOutputRules allows the encapsulated WireGuard stream to the
+// remote endpoint on any WAN path.
+func writeWGClientOutputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.WGClient.Enabled {
+		return
+	}
+	_, portText, err := net.SplitHostPort(cfg.WGClient.Endpoint)
+	if err != nil || portText == "" {
+		return
+	}
+	if cfg.WAN.Interface != "" {
+		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp dport %s accept\n", cfg.WAN.Interface, portText))
+	}
+	buf.WriteString(fmt.Sprintf("    oifname \"ppp*\" udp dport %s accept\n", portText))
+}
+
+func wgClientInterface(cfg *config.SystemConfig) string {
+	if cfg.WGClient.Interface != "" {
+		return cfg.WGClient.Interface
+	}
+	return "wg1"
+}
+
+// writeWGClientMasquerade hides the home source behind the tunnel address so
+// the remote site only ever sees the client's own tunnel IP.
+func writeWGClientMasquerade(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.WGClient.Enabled {
+		return
+	}
+	buf.WriteString(fmt.Sprintf("    oifname \"%s\" masquerade\n", wgClientInterface(cfg)))
+}
+
+// writeExtraLANs emits rules for isolated extra LAN segments. Each segment is
+// reachable only from the configured AllowFrom networks, and only toward the
+// single service DstIP:DstPort. The router hosts no services on the segment
+// itself (input is anti-spoofed and ICMP-only).
+func writeExtraLANs(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.CIDR == "" || lan.DstIP == "" {
+			continue
+		}
+		proto := lan.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		buf.WriteString(fmt.Sprintf("    # Extra LAN %s (%s): isolated segment, only %s sources reach %s:%d\n", lan.Interface, lan.Name, lan.CIDR, lan.DstIP, lan.DstPort))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != { %s } drop\n", lan.Interface, lan.CIDR))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n", lan.Interface))
+		for _, src := range lan.AllowFrom {
+			iface := extraLANSourceInterface(cfg, src)
+			if iface == "" {
+				continue
+			}
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d accept\n",
+				iface, src, lan.DstIP, proto, lan.DstPort))
+		}
+	}
+}
+
 // GenerateNftables renders an atomic, deterministic nftables configuration string.
 func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	runtimeCfg := *cfg
@@ -92,6 +220,8 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n\n", cfg.WireGuard.Interface))
 	}
 
+	writeWGClientInputRules(&buf, cfg)
+
 	// Allow Squid Proxy if enabled (LAN input only)
 	if cfg.SquidProxy.Enabled {
 		port := cfg.SquidProxy.Port
@@ -117,6 +247,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n", cfg.LAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n\n", cfg.LAN.Interface))
 	}
+	writeExtraLANs(&buf, cfg)
 	if cfg.WireGuard.Enabled {
 		_, wgNetwork, _ := net.ParseCIDR(cfg.WireGuard.Address)
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.WireGuard.Interface, wgNetwork.String()))
@@ -172,6 +303,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// Custom allow rules can only govern traffic originating on the LAN.
 	writeCustomRules(&buf, cfg, "forward", "allow")
+	writeExtraLANs(&buf, cfg)
 
 	if cfg.WAN.Enabled && cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow LAN (%s) out to WAN\n", cfg.LAN.Interface))
@@ -187,6 +319,8 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		}
 		buf.WriteString("\n")
 	}
+
+	writeWGClientForwardRules(&buf, cfg)
 
 	buf.WriteString("  }\n\n")
 
@@ -212,6 +346,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.WireGuard.ListenPort))
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
 	}
+	writeWGClientOutputRules(&buf, cfg)
 	if len(cfg.DHCP.DNSServers) > 0 {
 		buf.WriteString(fmt.Sprintf("    ip daddr { %s } udp dport 53 accept\n", strings.Join(cfg.DHCP.DNSServers, ", ")))
 		buf.WriteString(fmt.Sprintf("    ip daddr { %s } tcp dport 53 accept\n", strings.Join(cfg.DHCP.DNSServers, ", ")))
@@ -240,6 +375,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("    oifname \"ppp*\" masquerade\n")
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" masquerade\n", cfg.WAN.Interface))
 	}
+	writeWGClientMasquerade(&buf, cfg)
 	buf.WriteString("  }\n")
 
 	buf.WriteString("}\n")

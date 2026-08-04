@@ -186,6 +186,9 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := activateWireGuard(cfg); err != nil {
 		return fmt.Errorf("restore startup WireGuard: %w", err)
 	}
+	if err := activateWireGuardClient(cfg); err != nil {
+		return fmt.Errorf("restore startup WireGuard client: %w", err)
+	}
 	if cfg.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
 			return fmt.Errorf("restart startup hostapd: %w", err)
@@ -267,6 +270,20 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 			return fmt.Errorf("startup WireGuard address unavailable: %w", err)
 		}
 	}
+	if cfg.WGClient.Enabled {
+		interfaceName := cfg.WGClient.Interface
+		if interfaceName == "" {
+			interfaceName = "wg1"
+		}
+		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
+			return fmt.Errorf("startup WireGuard client interface unhealthy: %w", err)
+		}
+		if cfg.WGClient.Address != "" {
+			if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName); err != nil {
+				return fmt.Errorf("startup WireGuard client address unavailable: %w", err)
+			}
+		}
+	}
 	if cfg.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "status"); err != nil {
 			return fmt.Errorf("startup hostapd unhealthy: %w", err)
@@ -301,6 +318,11 @@ func failClosedStartup(cfg config.SystemConfig) {
 		interfaceName = "wg0"
 	}
 	_ = removeWireGuard(interfaceName)
+	clientInterface := cfg.WGClient.Interface
+	if clientInterface == "" {
+		clientInterface = "wg1"
+	}
+	_ = removeWireGuard(clientInterface)
 	_ = runFixed("/sbin/rc-service", "dnsmasq", "stop")
 	_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 	_ = runFixed("/sbin/rc-service", "hostapd", "stop")

@@ -76,3 +76,93 @@ func TestGenerateDnsmasq(t *testing.T) {
 		t.Errorf("Expected dnsmasq leases to use the runtime-only path")
 	}
 }
+
+func TestGenerateDnsmasqStaticRecords(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DNS.Records = []config.DNSRecord{
+		{Name: "immich.local", IP: "10.20.30.10"},
+		{Name: "nas.home", IP: "192.168.1.2"},
+	}
+	out, err := GenerateDnsmasq(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateDnsmasq: %v", err)
+	}
+	for _, want := range []string{
+		"host-record=immich.local,10.20.30.10",
+		"host-record=nas.home,192.168.1.2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dnsmasq config missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestGenerateWireGuardClientRuntime(t *testing.T) {
+	cfg := config.WGClientConfig{
+		Enabled:             true,
+		Interface:           "wg1",
+		PrivateKey:          "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		Address:             "10.7.0.2/32",
+		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		Endpoint:            "office.example.com:51820",
+		AllowedIPs:          []string{"10.7.0.0/24", "10.7.1.0/24"},
+		PersistentKeepalive: 25,
+	}
+	out, err := GenerateWireGuardClientRuntime(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateWireGuardClientRuntime: %v", err)
+	}
+	for _, want := range []string{
+		"[Interface]",
+		"PrivateKey = WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		"[Peer]",
+		"PublicKey = DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		"AllowedIPs = 10.7.0.0/24, 10.7.1.0/24",
+		"Endpoint = office.example.com:51820",
+		"PersistentKeepalive = 25",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("client config missing %q:\n%s", want, out)
+		}
+	}
+
+	cfg.AllowedIPs = []string{"10.7.0.0/24", "10.7.0.0/24"}
+	if _, err := GenerateWireGuardClientRuntime(&cfg); err == nil {
+		t.Error("duplicate allowed network must be rejected")
+	}
+	cfg.AllowedIPs = nil
+	if _, err := GenerateWireGuardClientRuntime(&cfg); err == nil {
+		t.Error("empty allowed networks must be rejected")
+	}
+}
+
+func TestGenerateNftablesWireGuardClient(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WGClient = config.WGClientConfig{
+		Enabled:    true,
+		Interface:  "wg1",
+		Address:    "10.7.0.2/32",
+		Endpoint:   "office.example.com:51820",
+		AllowedIPs: []string{"10.7.0.0/24"},
+		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		PublicKey:  "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+	}
+	out, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateNftables: %v", err)
+	}
+	for _, want := range []string{
+		`iifname "wg1" ip saddr != { 10.7.0.0/24 } drop`,
+		`iifname "wg1" ct state new drop`,
+		`iifname "eth1" oifname "wg1" accept`,
+		`oifname "ppp*" udp dport 51820 accept`,
+		`oifname "wg1" masquerade`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("nftables output missing %q", want)
+		}
+	}
+	if strings.Contains(out, `iifname "wg1" ip saddr != { 10.7.0.0/24 } drop`) == false {
+		t.Error("wg1 anti-spoof missing")
+	}
+}

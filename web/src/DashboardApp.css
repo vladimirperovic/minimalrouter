@@ -1039,3 +1039,209 @@
     padding-left: 0;
   }
 }
+
+/* ── Static DNS records editor ──────────────────────────────────────────── */
+
+.dns-records-fieldset {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--dashboard-border, rgba(0, 0, 0, 0.09));
+  border-radius: 15px;
+  padding: 17px;
+}
+
+.dns-records-fieldset legend {
+  padding: 0 7px;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.dns-records-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dns-record-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 38px;
+  align-items: end;
+  gap: 12px;
+}
+
+.dns-record-row .field {
+  display: grid;
+  gap: 7px;
+}
+
+.dns-record-row .field > span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dns-record-remove {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 40px;
+  border: 1px solid var(--field-border, #d2d2d7);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-tertiary, #86868b);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.dns-record-remove:hover {
+  color: #e0342d;
+  border-color: rgba(224, 52, 45, 0.45);
+  background: rgba(224, 52, 45, 0.06);
+}
+
+.dns-record-remove svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dns-record-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  justify-self: start;
+  border: 1px dashed var(--field-border, #d2d2d7);
+  border-radius: 11px;
+  padding: 9px 15px;
+  background: transparent;
+  color: var(--text-secondary, #6e6e73);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.dns-record-add:hover {
+  border-color: #0071e3;
+  color: #0071e3;
+  background: rgba(0, 113, 227, 0.05);
+}
+
+.dns-record-add svg {
+  width: 15px;
+  height: 15px;
+}
+
+.dns-records-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  border: 1px dashed var(--field-border, #d2d2d7);
+  border-radius: 12px;
+  color: var(--text-tertiary, #86868b);
+  font-size: 13px;
+}
+
+.dns-records-empty svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.dashboard-app input.is-invalid {
+  border-color: #e0342d;
+}
+
+.dashboard-app input.is-invalid:focus {
+  border-color: #e0342d;
+  outline: 3px solid rgba(224, 52, 45, 0.14);
+}
+
+/* ── WireGuard outbound client tunnel ──────────────────────────────────── */
+
+.wg-client-card {
+  margin-top: 22px;
+  padding: 22px;
+}
+
+.wg-client-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.wg-client-title {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.wg-client-ico {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(0, 113, 227, 0.09);
+  color: #0071e3;
+  flex: 0 0 auto;
+}
+
+.wg-client-ico svg {
+  width: 20px;
+  height: 20px;
+}
+
+.wg-client-title h3 {
+  margin: 0 0 3px 0;
+  font-size: 15px;
+}
+
+.wg-client-title p {
+  margin: 0;
+  color: var(--text-secondary, #6e6e73);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.wg-client-toggle {
+  flex: 0 0 auto;
+}
+
+.wg-client-toggle span {
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary, #6e6e73);
+}
+
+.wg-client-status {
+  margin-bottom: 18px;
+}
+
+.wg-client-keygen {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.wg-client-keygen-hint {
+  color: var(--text-secondary, #6e6e73);
+  font-size: 12px;
+}
+
+.wg-client-pubkey {
+  grid-column: 1 / -1;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--dashboard-panel-accent, rgba(0, 0, 0, 0.03));
+  font-size: 11.5px;
+  word-break: break-all;
+  user-select: all;
+}

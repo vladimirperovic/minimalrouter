@@ -34,8 +34,12 @@ const (
 	nftRuntimePath       = "/run/minimalrouter/nftables.nft"
 	wireGuardConfigPath  = "/run/minimalrouter/wg0.conf"
 	wireGuardRuntimePath = "/run/minimalrouter/wg0.runtime.conf"
-	lastTxPath           = "/var/lib/minimalrouter-applyd/last-transaction.json"
-	pendingPath          = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
+	// wireGuardClientRuntimePath carries the outbound tunnel (wg1) peer config.
+	// The interface is created, addressed and routed by the same activation
+	// code path used for wg0, without wg-quick or shell hooks.
+	wireGuardClientRuntimePath = "/run/minimalrouter/wg1.runtime.conf"
+	lastTxPath                 = "/var/lib/minimalrouter-applyd/last-transaction.json"
+	pendingPath                = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
 )
 
 var applyMu sync.Mutex
@@ -439,6 +443,14 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 	if err != nil {
 		return nil, err
 	}
+	wireGuardClientRuntime := []byte("# WireGuard client disabled\n")
+	if cfg.WGClient.Enabled {
+		generated, genErr := services.GenerateWireGuardClientRuntime(&cfg.WGClient)
+		if genErr != nil {
+			return nil, genErr
+		}
+		wireGuardClientRuntime = []byte(generated)
+	}
 	squidConfig, err := services.GenerateSquidConfig(&cfg)
 	if err != nil {
 		return nil, err
@@ -511,6 +523,11 @@ func generateArtifacts(cfg config.SystemConfig) (map[string]artifact, error) {
 			data: []byte(wireGuardRuntime),
 			mode: 0600,
 		},
+		"wireguard-client-runtime": {
+			path: wireGuardClientRuntimePath,
+			data: wireGuardClientRuntime,
+			mode: 0600,
+		},
 		"squid":        {path: "/etc/squid/squid.conf", data: []byte(squidConfig), mode: 0644},
 		"squid-passwd": {path: "/etc/squid/passwd", data: squidPassword, mode: 0640},
 		"resolv-conf":  {path: "/etc/resolv.conf", data: []byte(resolvConf), mode: 0644},
@@ -563,6 +580,11 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 			return fmt.Errorf("WireGuard: %w", err)
 		}
 	}
+	if cfg.WGClient.Enabled {
+		if err := preflightWireGuard(candidates["wireguard-client-runtime"]); err != nil {
+			return fmt.Errorf("WireGuard client: %w", err)
+		}
+	}
 	if cfg.WiFi.Enabled {
 		if err := preflightWiFi(cfg.WiFi.Interface); err != nil {
 			return fmt.Errorf("Wi-Fi: %w", err)
@@ -586,7 +608,7 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
+	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "wireguard-client-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
@@ -646,6 +668,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		}
 	}
 	if err := activateWireGuard(cfg); err != nil {
+		return err
+	}
+	if err := activateWireGuardClient(cfg); err != nil {
 		return err
 	}
 	if cfg.WiFi.Enabled {
@@ -898,6 +923,52 @@ func activateWireGuard(cfg config.SystemConfig) error {
 	return nil
 }
 
+// activateWireGuardClient brings the outbound tunnel (wg1) up: a WireGuard
+// interface, the local tunnel address, MTU, and a route for each remote
+// network. The remote peer is expected to be reachable for handshakes; a
+// missing endpoint only means the tunnel stays quiet until it is.
+func activateWireGuardClient(cfg config.SystemConfig) error {
+	interfaceName := cfg.WGClient.Interface
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	if err := removeWireGuard(interfaceName); err != nil {
+		return fmt.Errorf("stop WireGuard client: %w", err)
+	}
+	if !cfg.WGClient.Enabled {
+		return nil
+	}
+
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = removeWireGuard(interfaceName)
+		}
+	}()
+
+	if err := runFixed("/sbin/ip", "link", "add", "dev", interfaceName, "type", "wireguard"); err != nil {
+		return fmt.Errorf("create WireGuard client interface: %w", err)
+	}
+	if err := runFixed("/usr/bin/wg", "setconf", interfaceName, wireGuardClientRuntimePath); err != nil {
+		return fmt.Errorf("load WireGuard client configuration: %w", err)
+	}
+	if cfg.WGClient.Address != "" {
+		if err := runFixed("/sbin/ip", "-4", "address", "add", cfg.WGClient.Address, "dev", interfaceName); err != nil {
+			return fmt.Errorf("assign WireGuard client address: %w", err)
+		}
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", interfaceName, "mtu", strconv.Itoa(wireGuardMTU(cfg)), "up"); err != nil {
+		return fmt.Errorf("bring WireGuard client up: %w", err)
+	}
+	for _, allowedIP := range cfg.WGClient.AllowedIPs {
+		if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+			return fmt.Errorf("install WireGuard client route: %w", err)
+		}
+	}
+	cleanup = false
+	return nil
+}
+
 func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 	result := make([]previousFile, 0, len(generated))
 	for _, item := range generated {
@@ -974,8 +1045,12 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		if err := activateWireGuard(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
+		if err := activateWireGuardClient(*previousConfig); err != nil {
+			errs = append(errs, safeError(err))
+		}
 	} else {
 		_ = removeWireGuard("wg0")
+		_ = removeWireGuard("wg1")
 	}
 	if previousConfig != nil && previousConfig.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {

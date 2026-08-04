@@ -4,6 +4,20 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During early
 alpha, compatibility may change between commits.
 
+## [Unreleased]
+
+### Added
+
+- Static DNS records (`dns.records`): fixed name → IP entries served by the
+  local resolver via `host-record=` regardless of DHCP, for hosts with static
+  addressing (e.g. `immich.local` on the isolated media network).
+- Isolated extra LAN segments (`firewall.extra_lans`): a second network behind a
+  dedicated router interface with no WAN/LAN egress and no router services
+  (no DHCP/DNS). Only the listed source networks may reach the single exposed
+  service (`dst_ip:dst_port`); input is anti-spoofed and ICMP-only, everything
+  else is dropped by the default policy. Used for the isolated Immich media
+  network (`10.20.30.0/24`).
+
 ## [v0.1.0] — 2026-08-03
 
 Beta milestone: the full system is validated and running in production on

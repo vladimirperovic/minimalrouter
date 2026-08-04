@@ -62,6 +62,13 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("# DHCP disabled\n")
 	}
 
+	if len(cfg.DNS.Records) > 0 {
+		buf.WriteString("\n# Static DNS records\n")
+		for _, rec := range cfg.DNS.Records {
+			buf.WriteString(fmt.Sprintf("host-record=%s,%s\n", rec.Name, rec.IP))
+		}
+	}
+
 	if cfg.AdGuard.Enabled {
 		buf.WriteString("\n# DNS Filter global sinkhole blocklist\n")
 		buf.WriteString("conf-file=/etc/dnsmasq.d/adblock_hosts.conf\n")
