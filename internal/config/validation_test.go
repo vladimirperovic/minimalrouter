@@ -243,14 +243,14 @@ func TestValidateDNSRecords(t *testing.T) {
 }
 
 func TestValidateWGClient(t *testing.T) {
-	validKey := "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU="
+	validKey := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	cfg := DefaultConfig()
 	cfg.WGClient = WGClientConfig{
 		Enabled:             true,
 		Interface:           "wg1",
 		PrivateKey:          validKey,
 		Address:             "10.7.0.2/32",
-		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		PublicKey:           "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
 		Endpoint:            "office.example.com:51820",
 		AllowedIPs:          []string{"10.7.0.0/24"},
 		PersistentKeepalive: 25,

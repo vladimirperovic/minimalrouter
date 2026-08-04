@@ -101,9 +101,9 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	cfg := config.WGClientConfig{
 		Enabled:             true,
 		Interface:           "wg1",
-		PrivateKey:          "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		PrivateKey:          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		Address:             "10.7.0.2/32",
-		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		PublicKey:           "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
 		Endpoint:            "office.example.com:51820",
 		AllowedIPs:          []string{"10.7.0.0/24", "10.7.1.0/24"},
 		PersistentKeepalive: 25,
@@ -114,9 +114,9 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[Interface]",
-		"PrivateKey = WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		"PrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 		"[Peer]",
-		"PublicKey = DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		"PublicKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
 		"AllowedIPs = 10.7.0.0/24, 10.7.1.0/24",
 		"Endpoint = office.example.com:51820",
 		"PersistentKeepalive = 25",
@@ -144,8 +144,8 @@ func TestGenerateNftablesWireGuardClient(t *testing.T) {
 		Address:    "10.7.0.2/32",
 		Endpoint:   "office.example.com:51820",
 		AllowedIPs: []string{"10.7.0.0/24"},
-		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
-		PublicKey:  "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		PrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		PublicKey:  "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
 	}
 	out, err := GenerateNftables(&cfg)
 	if err != nil {
