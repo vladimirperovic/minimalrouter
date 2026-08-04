@@ -1,0 +1,73 @@
+name: Apply minimalrouterhome sync
+
+on:
+  push:
+    branches:
+      - sync/minimalrouterhome-20260804
+    paths:
+      - .github/workflows/apply-home-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out sync branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: sync/minimalrouterhome-20260804
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Verify exact patches apply cleanly
+        run: |
+          git apply --check .github/sync/backend-core.patch
+          git apply --check .github/sync/backend-runtime.patch
+          git apply --check .github/sync/backend-firewall.patch
+          git apply --check .github/sync/frontend.patch
+
+      - name: Apply minimalrouterhome delta
+        run: |
+          git apply .github/sync/backend-core.patch
+          git apply .github/sync/backend-runtime.patch
+          git apply .github/sync/backend-firewall.patch
+          git apply .github/sync/frontend.patch
+
+      - name: Verify Go formatting and tests
+        run: |
+          make fmt-check
+          go test ./...
+
+      - name: Verify dashboard build
+        run: |
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web build
+
+      - name: Commit synchronized sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md cmd internal web/src
+          git diff --cached --quiet && { echo "No source changes to commit"; exit 1; }
+          git commit -m "sync: bring public repo to minimalrouterhome parity"
+          git push origin HEAD:sync/minimalrouterhome-20260804
