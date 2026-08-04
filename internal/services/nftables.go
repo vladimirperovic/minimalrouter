@@ -28,9 +28,30 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 		if action == "allow" {
 			verdict = "accept"
 		}
-		buf.WriteString(fmt.Sprintf("    # Custom LAN %s %s rule: %s\n", direction, action, rule.Name))
+		buf.WriteString(fmt.Sprintf("    # Custom LAN %s %s rule: %s\n", direction, action, sanitizeComment(rule.Name)))
 		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), verdict))
 	}
+}
+
+// sanitizeComment strips line breaks and control characters from user text
+// before it is embedded in generated firewall comments. Validation already
+// rejects control characters, but the generator must stay safe even if a
+// future caller skips validation.
+func sanitizeComment(value string) string {
+	value = strings.ReplaceAll(value, "\r", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\t", " ")
+	for _, r := range value {
+		if r < 0x20 && r != ' ' {
+			return strings.Map(func(c rune) rune {
+				if c < 0x20 && c != ' ' {
+					return '?'
+				}
+				return c
+			}, value)
+		}
+	}
+	return value
 }
 
 // extraLANSourceInterface maps an AllowFrom CIDR to the router interface that
@@ -44,13 +65,6 @@ func extraLANSourceInterface(cfg *config.SystemConfig, srcCIDR string) string {
 	if cfg.WireGuard.Enabled {
 		if _, wgNetwork, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil && srcCIDR == wgNetwork.String() {
 			return cfg.WireGuard.Interface
-		}
-	}
-	if cfg.WGClient.Enabled {
-		for _, allowed := range cfg.WGClient.AllowedIPs {
-			if _, network, err := net.ParseCIDR(strings.TrimSpace(allowed)); err == nil && srcCIDR == network.String() {
-				return cfg.WGClient.Interface
-			}
 		}
 	}
 	return ""
@@ -78,21 +92,17 @@ func writeWGClientInputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	buf.WriteString(fmt.Sprintf("    iifname \"%s\" ct state new drop\n\n", iface))
 }
 
-// writeWGClientForwardRules lets home networks (LAN, extra LANs, wg0) dial out
+// writeWGClientForwardRules lets trusted home networks (LAN, wg0) dial out
 // through the tunnel; remote initiations are dropped while responses ride the
-// global established rule.
+// global established rule. Isolated extra LANs are deliberately NOT included:
+// granting them tunnel egress would break their isolation model.
 func writeWGClientForwardRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	if !cfg.WGClient.Enabled {
 		return
 	}
 	iface := wgClientInterface(cfg)
-	buf.WriteString(fmt.Sprintf("    # WireGuard client %s: home may dial out, remote site may only respond\n", iface))
+	buf.WriteString(fmt.Sprintf("    # WireGuard client %s: trusted home networks may dial out, remote site may only respond\n", iface))
 	forwardSources := []string{cfg.LAN.Interface}
-	for _, lan := range cfg.Firewall.ExtraLANs {
-		if lan.Enabled && lan.Interface != "" {
-			forwardSources = append(forwardSources, lan.Interface)
-		}
-	}
 	if cfg.WireGuard.Enabled && cfg.WireGuard.Interface != "" {
 		forwardSources = append(forwardSources, cfg.WireGuard.Interface)
 	}
@@ -134,11 +144,26 @@ func writeWGClientMasquerade(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	buf.WriteString(fmt.Sprintf("    oifname \"%s\" masquerade\n", wgClientInterface(cfg)))
 }
 
-// writeExtraLANs emits rules for isolated extra LAN segments. Each segment is
-// reachable only from the configured AllowFrom networks, and only toward the
-// single service DstIP:DstPort. The router hosts no services on the segment
-// itself (input is anti-spoofed and ICMP-only).
-func writeExtraLANs(buf *bytes.Buffer, cfg *config.SystemConfig) {
+// writeExtraLANInputRules protects the router itself from the isolated
+// segment: source anti-spoofing plus the documented minimum (ICMP ping to the
+// router). No router service is reachable from an extra LAN.
+func writeExtraLANInputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.CIDR == "" {
+			continue
+		}
+		buf.WriteString(fmt.Sprintf("    # Extra LAN %s (%s): isolated segment, router hosts no services here\n", lan.Interface, sanitizeComment(lan.Name)))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != { %s } drop\n", lan.Interface, lan.CIDR))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n", lan.Interface))
+	}
+}
+
+// writeExtraLANForwardRules allows exactly the configured AllowFrom networks
+// toward the single service DstIP:DstPort on the segment. The default policy
+// and the absence of any generic egress rule keep the segment isolated: no
+// WAN, LAN, wg0 or wg1 egress is possible from it, and replies to allowed
+// initiations ride the global established rule.
+func writeExtraLANForwardRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	for _, lan := range cfg.Firewall.ExtraLANs {
 		if !lan.Enabled || lan.Interface == "" || lan.CIDR == "" || lan.DstIP == "" {
 			continue
@@ -147,16 +172,16 @@ func writeExtraLANs(buf *bytes.Buffer, cfg *config.SystemConfig) {
 		if proto == "" {
 			proto = "tcp"
 		}
-		buf.WriteString(fmt.Sprintf("    # Extra LAN %s (%s): isolated segment, only %s sources reach %s:%d\n", lan.Interface, lan.Name, lan.CIDR, lan.DstIP, lan.DstPort))
-		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != { %s } drop\n", lan.Interface, lan.CIDR))
-		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n", lan.Interface))
+		buf.WriteString(fmt.Sprintf("    # Extra LAN %s (%s): isolated segment, only %s sources reach %s:%d on %s\n",
+			lan.Interface, sanitizeComment(lan.Name), lan.CIDR, lan.DstIP, lan.DstPort, lan.Interface))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", lan.Interface, lan.CIDR))
 		for _, src := range lan.AllowFrom {
 			iface := extraLANSourceInterface(cfg, src)
 			if iface == "" {
 				continue
 			}
-			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d accept\n",
-				iface, src, lan.DstIP, proto, lan.DstPort))
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s ip daddr %s %s dport %d oifname \"%s\" accept\n",
+				iface, src, lan.DstIP, proto, lan.DstPort, lan.Interface))
 		}
 	}
 }
@@ -247,7 +272,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n", cfg.LAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip protocol icmp accept\n\n", cfg.LAN.Interface))
 	}
-	writeExtraLANs(&buf, cfg)
+	writeExtraLANInputRules(&buf, cfg)
 	if cfg.WireGuard.Enabled {
 		_, wgNetwork, _ := net.ParseCIDR(cfg.WireGuard.Address)
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n\n", cfg.WireGuard.Interface, wgNetwork.String()))
@@ -283,13 +308,11 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("    jump device_profiles\n")
 	}
 	writeCustomRules(&buf, cfg, "forward", "deny")
-	buf.WriteString("    # Allow established/related\n")
-	buf.WriteString("    ct state established,related accept\n\n")
 
-	buf.WriteString("    # TCP MSS clamping prevents PPPoE fragmentation stalls\n")
-	buf.WriteString("    tcp flags syn tcp option maxseg size set rt mtu\n\n")
-
-	// Block direct WAN access for Restricted IP Alias (Forced through Squid Proxy)
+	// Restricted IP Alias devices (forced through Squid) must never reach the
+	// WAN directly. The deny precedes established/related acceptance so an
+	// already-open direct flow is cut the moment the policy is enabled, the
+	// same semantics as device-profile denies.
 	if cfg.SquidProxy.Enabled && len(cfg.SquidProxy.RestrictedIPs) > 0 {
 		buf.WriteString("    # Block direct WAN traffic for Restricted IP Alias (Must use Squid Proxy)\n")
 		for _, item := range cfg.SquidProxy.RestrictedIPs {
@@ -301,9 +324,15 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n")
 	}
 
+	buf.WriteString("    # Allow established/related\n")
+	buf.WriteString("    ct state established,related accept\n\n")
+
+	buf.WriteString("    # TCP MSS clamping prevents PPPoE fragmentation stalls\n")
+	buf.WriteString("    tcp flags syn tcp option maxseg size set rt mtu\n\n")
+
 	// Custom allow rules can only govern traffic originating on the LAN.
 	writeCustomRules(&buf, cfg, "forward", "allow")
-	writeExtraLANs(&buf, cfg)
+	writeExtraLANForwardRules(&buf, cfg)
 
 	if cfg.WAN.Enabled && cfg.LAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    # Allow LAN (%s) out to WAN\n", cfg.LAN.Interface))

@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Revision represents an optimistic concurrency token for config changes.
 type Revision uint64
@@ -256,16 +259,20 @@ type FirewallConfig struct {
 // network). Only hosts inside AllowFrom CIDRs may reach the single service
 // DstIP:DstPort; the segment has no WAN/LAN egress and hosts no router
 // services (no DHCP/DNS), so everything else is dropped by the default policy.
+// RouterAddress is the router-side gateway address on the segment (for
+// example "192.168.50.1/24"); it lets the router reconstruct the segment
+// itself after a clean reboot instead of relying on manual interface state.
 type ExtraLANConfig struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Interface string   `json:"interface"`
-	CIDR      string   `json:"cidr"`
-	DstIP     string   `json:"dst_ip"`
-	DstPort   int      `json:"dst_port"`
-	Protocol  string   `json:"protocol,omitempty"` // tcp (default), udp
-	AllowFrom []string `json:"allow_from"`
-	Enabled   bool     `json:"enabled"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Interface     string   `json:"interface"`
+	CIDR          string   `json:"cidr"`
+	RouterAddress string   `json:"router_address,omitempty"`
+	DstIP         string   `json:"dst_ip"`
+	DstPort       int      `json:"dst_port"`
+	Protocol      string   `json:"protocol,omitempty"` // tcp (default), udp
+	AllowFrom     []string `json:"allow_from"`
+	Enabled       bool     `json:"enabled"`
 }
 
 type PortForwardRule struct {
@@ -287,6 +294,51 @@ type FirewallRule struct {
 	SrcIP     string `json:"src_ip,omitempty"`
 	DstPort   int    `json:"dst_port,omitempty"`
 	Enabled   bool   `json:"enabled"`
+}
+
+// DeepCopy returns a fully detached copy of the configuration. Every slice
+// and map in the model is copied, so mutating the returned value can never
+// mutate the source. Callers that read canonical state and then modify it
+// (redaction, diagnostics, candidate editing) must use DeepCopy.
+func (c SystemConfig) DeepCopy() SystemConfig {
+	out := c
+	out.TrustedNetworks = slices.Clone(c.TrustedNetworks)
+	out.WireGuard.Peers = make([]WireGuardPeer, len(c.WireGuard.Peers))
+	for i, peer := range c.WireGuard.Peers {
+		out.WireGuard.Peers[i] = peer
+		out.WireGuard.Peers[i].AllowedIPs = slices.Clone(peer.AllowedIPs)
+	}
+	out.WGClient.AllowedIPs = slices.Clone(c.WGClient.AllowedIPs)
+	out.DHCP.DNSServers = slices.Clone(c.DHCP.DNSServers)
+	out.DHCP.StaticLeases = slices.Clone(c.DHCP.StaticLeases)
+	out.DNS.Records = slices.Clone(c.DNS.Records)
+	out.Firewall.PortForwards = slices.Clone(c.Firewall.PortForwards)
+	out.Firewall.CustomRules = slices.Clone(c.Firewall.CustomRules)
+	out.Firewall.ExtraLANs = make([]ExtraLANConfig, len(c.Firewall.ExtraLANs))
+	for i, lan := range c.Firewall.ExtraLANs {
+		out.Firewall.ExtraLANs[i] = lan
+		out.Firewall.ExtraLANs[i].AllowFrom = slices.Clone(lan.AllowFrom)
+	}
+	out.SquidProxy.RestrictedIPs = slices.Clone(c.SquidProxy.RestrictedIPs)
+	out.AdGuard.FilterDevices = slices.Clone(c.AdGuard.FilterDevices)
+	out.AdGuard.DeviceProfiles = deepCopyDeviceProfiles(c.AdGuard.DeviceProfiles)
+	return out
+}
+
+func deepCopyDeviceProfiles(in []DeviceProfile) []DeviceProfile {
+	out := make([]DeviceProfile, len(in))
+	for i, profile := range in {
+		out[i] = profile
+		out[i].IPAddresses = slices.Clone(profile.IPAddresses)
+		out[i].Services = slices.Clone(profile.Services)
+		out[i].Schedule.DayWindows = make(map[string][]AccessWindow, len(profile.Schedule.DayWindows))
+		for day, windows := range profile.Schedule.DayWindows {
+			out[i].Schedule.DayWindows[day] = slices.Clone(windows)
+		}
+		out[i].Schedule.WeekdayWindows = slices.Clone(profile.Schedule.WeekdayWindows)
+		out[i].Schedule.WeekendWindows = slices.Clone(profile.Schedule.WeekendWindows)
+	}
+	return out
 }
 
 // DefaultConfig returns a secure default Minimal Router configuration.

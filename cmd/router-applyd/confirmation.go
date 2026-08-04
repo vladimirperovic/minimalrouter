@@ -9,6 +9,8 @@ import (
 // confirmationModeAllowed limits provisional configuration to changes that can
 // affect the administrator's path back to the appliance. The previous LAN
 // interface must remain present so rollback always has a known local path.
+// The outbound tunnel (wg1) is confirmation-required but does not affect the
+// management path, so its changes remain confirmable.
 func confirmationModeAllowed(previous *config.SystemConfig, candidate config.SystemConfig) bool {
 	if previous == nil || previous.LAN.Interface != candidate.LAN.Interface {
 		return false
@@ -21,5 +23,6 @@ func confirmationModeAllowed(previous *config.SystemConfig, candidate config.Sys
 	wireGuardManagementChanged :=
 		(previous.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
 			!reflect.DeepEqual(previous.WireGuard, candidate.WireGuard)
-	return lanChanged || managementChanged || topologyChanged || wireGuardManagementChanged
+	wgClientChanged := !reflect.DeepEqual(previous.WGClient, candidate.WGClient)
+	return lanChanged || managementChanged || topologyChanged || wireGuardManagementChanged || wgClientChanged
 }

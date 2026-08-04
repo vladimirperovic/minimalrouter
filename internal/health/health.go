@@ -182,10 +182,19 @@ func Build(input Input) Snapshot {
 		}
 
 		if input.Config.WGClient.Enabled {
-			if input.Facts.WireGuardClientInterfaceUp {
-				add("wireguard-client", "WireGuard client tunnel", StateHealthy, "The outbound WireGuard client tunnel is up.")
-			} else {
+			// An interface that is up but has never handshaked (or whose
+			// handshake is stale) is not a connected tunnel: the remote site
+			// is unreachable. Degrade rather than report healthy on interface
+			// presence alone.
+			switch {
+			case !input.Facts.WireGuardClientInterfaceUp:
 				add("wireguard-client", "WireGuard client tunnel", StateDegraded, "WireGuard client is enabled but its tunnel interface is unavailable or down.")
+			case input.Facts.WireGuardClientLastHandshake == 0:
+				add("wireguard-client", "WireGuard client tunnel", StateDegraded, "The outbound tunnel is up but no handshake has completed; the remote endpoint may be unreachable.")
+			case now.Sub(time.Unix(input.Facts.WireGuardClientLastHandshake, 0)) > 3*time.Minute:
+				add("wireguard-client", "WireGuard client tunnel", StateDegraded, "The outbound tunnel handshake is stale; the remote endpoint may be unreachable.")
+			default:
+				add("wireguard-client", "WireGuard client tunnel", StateHealthy, "The outbound WireGuard client tunnel is connected.")
 			}
 		}
 	}

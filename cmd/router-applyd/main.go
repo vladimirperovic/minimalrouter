@@ -603,12 +603,24 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 	return nil
 }
 
+// restoreArtifacts is the canonical write order for generated configuration
+// artifacts on both install-apply and startup reconcile. One shared list
+// prevents a reboot from restoring a partial runtime (for example activating
+// the outbound tunnel without its peer configuration, which would fail closed
+// an otherwise healthy appliance).
+var restoreArtifacts = []string{
+	"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns",
+	"cf-tunnel", "doh-proxy", "hostapd", "wireguard",
+	"wireguard-runtime", "wireguard-client-runtime",
+	"squid", "squid-passwd", "resolv-conf", "nftables",
+}
+
 func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, previous *config.SystemConfig, provisional bool) error {
 	dnsmasqChanged, err := dnsmasqArtifactsChanged(generated, previous)
 	if err != nil {
 		return err
 	}
-	for _, name := range []string{"pppoe", "chap", "dnsmasq", "adblock", "qos", "cf-ddns", "cf-tunnel", "doh-proxy", "hostapd", "wireguard", "wireguard-runtime", "wireguard-client-runtime", "squid", "squid-passwd", "resolv-conf", "nftables"} {
+	for _, name := range restoreArtifacts {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
@@ -634,6 +646,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if err := configureRuntimeLAN(cfg); err != nil {
 			return err
 		}
+	}
+	if err := configureExtraLANs(cfg); err != nil {
+		return err
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
@@ -778,6 +793,22 @@ func verifyActive(cfg config.SystemConfig, requireWAN bool) error {
 		}
 		if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", cfg.WireGuard.Interface); err != nil {
 			return fmt.Errorf("WireGuard address unavailable: %w", err)
+		}
+	}
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.RouterAddress == "" {
+			continue
+		}
+		addressOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", lan.Interface)
+		if err != nil {
+			return fmt.Errorf("extra LAN %s interface unavailable: %w", lan.Interface, err)
+		}
+		addressPrefix := lan.RouterAddress
+		if slash := strings.IndexByte(addressPrefix, '/'); slash >= 0 {
+			addressPrefix = addressPrefix[:slash]
+		}
+		if !strings.Contains(addressOutput, "inet "+addressPrefix+"/") {
+			return fmt.Errorf("extra LAN %s router address is not active", lan.Interface)
 		}
 	}
 	if cfg.WiFi.Enabled {
@@ -1016,6 +1047,9 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		if err := configureRuntimeLAN(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
+		if err := configureExtraLANs(*previousConfig); err != nil {
+			errs = append(errs, safeError(err))
+		}
 	}
 	if hadPreviousNft {
 		if err := runNftFile(nftRuntimePath, false); err != nil {
@@ -1249,6 +1283,29 @@ func sendGratuitousARP(iface, cidr string) {
 	// Send an unsolicited ARP reply (-A) or request (-U) to update peers
 	// using busybox arping (which typically supports -U for Unsolicited)
 	_ = runFixed("/usr/sbin/arping", "-U", "-c", "3", "-I", iface, ip)
+}
+
+// configureExtraLANs reconstructs every enabled isolated segment on the
+// kernel: interface up, deterministic address flush, then the configured
+// router-side address. The nftables rules (loaded separately) provide the
+// routing and isolation; without this reconstruction the segment interface
+// would carry no address after a reboot or rollback.
+func configureExtraLANs(cfg config.SystemConfig) error {
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled || lan.Interface == "" || lan.RouterAddress == "" {
+			continue
+		}
+		if err := runFixed("/sbin/ip", "link", "set", "dev", lan.Interface, "up"); err != nil {
+			return fmt.Errorf("bring extra LAN %s up: %w", lan.Interface, err)
+		}
+		if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", lan.Interface, "scope", "global"); err != nil {
+			return fmt.Errorf("clear extra LAN %s addresses: %w", lan.Interface, err)
+		}
+		if err := runFixed("/sbin/ip", "-4", "addr", "add", lan.RouterAddress, "dev", lan.Interface); err != nil {
+			return fmt.Errorf("configure extra LAN %s address: %w", lan.Interface, err)
+		}
+	}
+	return nil
 }
 
 func applyKernelHardening(cfg config.SystemConfig) error {
