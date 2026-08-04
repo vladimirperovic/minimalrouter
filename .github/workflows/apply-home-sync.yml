@@ -1,17 +1,16 @@
 name: Apply minimalrouterhome sync
 
 on:
-  push:
+  pull_request:
     branches:
-      - sync/minimalrouterhome-20260804
-    paths:
-      - .github/workflows/apply-home-sync.yml
+      - main
 
 permissions:
   contents: write
 
 jobs:
   apply-sync:
+    if: github.head_ref == 'sync/minimalrouterhome-20260804'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
