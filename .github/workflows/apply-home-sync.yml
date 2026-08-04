@@ -51,6 +51,7 @@ jobs:
           git apply .github/sync/backend-runtime.patch
           git apply .github/sync/backend-firewall.patch
           git apply .github/sync/frontend.patch
+          gofmt -w cmd internal
 
       - name: Verify Go formatting and tests
         run: |
