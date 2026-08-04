@@ -1,0 +1,48 @@
+name: Fix dashboard audit
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix-dashboard-audit:
+    if: github.head_ref == 'sync/minimalrouterhome-20260804'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: sync/minimalrouterhome-20260804
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+      - name: Pin patched brace-expansion
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('web/package.json')
+          data = json.loads(p.read_text())
+          data.setdefault('pnpm', {}).setdefault('overrides', {})['brace-expansion'] = '>=5.0.9'
+          p.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+          pnpm --dir web install --lockfile-only
+          pnpm --dir web install --frozen-lockfile
+          pnpm --dir web audit --audit-level high
+          pnpm --dir web lint
+          pnpm --dir web test
+          pnpm --dir web build
+      - name: Commit dependency fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/package.json web/pnpm-lock.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(web): pin patched brace-expansion"
+          git push origin HEAD:sync/minimalrouterhome-20260804
