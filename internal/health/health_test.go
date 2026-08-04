@@ -50,6 +50,58 @@ func TestBuildHealthyAppliance(t *testing.T) {
 	}
 }
 
+func TestWGClientHealthFollowsHandshakeNotInterface(t *testing.T) {
+	base := healthyInput()
+	base.Config.WGClient.Enabled = true
+	base.Config.WGClient.Interface = "wg1"
+	now := base.Now
+
+	// Interface down: degraded.
+	down := base
+	down.Facts.WireGuardClientInterfaceUp = false
+	down.Facts.WireGuardClientLastHandshake = now.Add(-1 * time.Minute).Unix()
+	if got := Build(down).State; got != StateDegraded {
+		t.Fatalf("interface down state = %q, want degraded", got)
+	}
+
+	// Interface up but no handshake ever: degraded, not healthy.
+	noHandshake := base
+	noHandshake.Facts.WireGuardClientInterfaceUp = true
+	noHandshake.Facts.WireGuardClientLastHandshake = 0
+	if got := Build(noHandshake).State; got != StateDegraded {
+		t.Fatalf("no-handshake state = %q, want degraded", got)
+	}
+
+	// Stale handshake: degraded.
+	stale := base
+	stale.Facts.WireGuardClientInterfaceUp = true
+	stale.Facts.WireGuardClientLastHandshake = now.Add(-10 * time.Minute).Unix()
+	if got := Build(stale).State; got != StateDegraded {
+		t.Fatalf("stale handshake state = %q, want degraded", got)
+	}
+
+	// Recent handshake: healthy.
+	connected := base
+	connected.Facts.WireGuardClientInterfaceUp = true
+	connected.Facts.WireGuardClientLastHandshake = now.Add(-30 * time.Second).Unix()
+	snapshot := Build(connected)
+	if snapshot.State != StateHealthy {
+		t.Fatalf("connected state = %q, want healthy; checks=%+v", snapshot.State, snapshot.Checks)
+	}
+	found := false
+	for _, check := range snapshot.Checks {
+		if check.ID == "wireguard-client" {
+			found = true
+			if check.State != StateHealthy {
+				t.Fatalf("wireguard-client check = %q, want healthy", check.State)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("wireguard-client health check is missing")
+	}
+}
+
 func TestRecoveryRequiredOverridesOtherSignals(t *testing.T) {
 	input := healthyInput()
 	input.Engine.RecoveryRequired = true

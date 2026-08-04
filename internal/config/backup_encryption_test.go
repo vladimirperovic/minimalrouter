@@ -49,3 +49,36 @@ func TestEncryptedConfigBackupRoundTripAndTamperRejection(t *testing.T) {
 		t.Fatal("tampered backup was accepted")
 	}
 }
+
+func TestDecryptBackupRejectsUnboundedArgon2Parameters(t *testing.T) {
+	// A crafted backup must never be able to force the importer into a
+	// resource-exhausting KDF run. The envelope bounds are the import side of
+	// the security boundary.
+	valid, err := EncryptConfigBackup(DefaultConfig(), "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope BackupEnvelope
+	if err := json.Unmarshal(valid, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutate := range []struct {
+		name   string
+		change func(*BackupEnvelope)
+	}{
+		{"memory bomb", func(e *BackupEnvelope) { e.ArgonMemory = 4 * 1024 * 1024 }},
+		{"thread bomb", func(e *BackupEnvelope) { e.ArgonThreads = 64 }},
+		{"time bomb", func(e *BackupEnvelope) { e.ArgonTime = 1000 }},
+		{"zero cost", func(e *BackupEnvelope) { e.ArgonTime, e.ArgonMemory, e.ArgonThreads = 0, 0, 0 }},
+	} {
+		attack := envelope
+		mutate.change(&attack)
+		raw, err := json.Marshal(attack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecryptConfigBackup(raw, "correct horse battery staple"); err == nil {
+			t.Fatalf("backup with %s was accepted", mutate.name)
+		}
+	}
+}

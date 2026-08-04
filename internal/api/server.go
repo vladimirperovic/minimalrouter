@@ -1313,11 +1313,19 @@ func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
 		copy(packet[i*6:], hwAddr)
 	}
 	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:9")
-	if err == nil {
-		if conn, err := net.DialUDP("udp", nil, addr); err == nil {
-			defer conn.Close()
-			conn.Write(packet)
-		}
+	if err != nil {
+		http.Error(w, "WoL send failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		http.Error(w, "WoL send failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+	if _, err := conn.Write(packet); err != nil {
+		http.Error(w, "WoL send failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

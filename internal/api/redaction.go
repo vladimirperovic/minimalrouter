@@ -7,12 +7,11 @@ import (
 
 const redactedSecret = "[REDACTED]"
 
-// redactConfig returns a detached public view. In particular, the peer slice
-// must not share backing storage with canonical state before preshared keys are
-// overwritten.
+// redactConfig returns a detached public view. The deep copy guarantees the
+// redaction can never mutate canonical engine state, including preshared keys
+// inside the peer slice.
 func redactConfig(cfg config.SystemConfig) config.SystemConfig {
-	public := cfg
-	public.WireGuard.Peers = append([]config.WireGuardPeer(nil), cfg.WireGuard.Peers...)
+	public := cfg.DeepCopy()
 
 	public.WAN.Password = redactedSecret
 	public.WireGuard.PrivateKey = redactedSecret

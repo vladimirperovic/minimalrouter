@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"testing"
@@ -210,5 +211,63 @@ func TestWireGuardMTUBoundsSurviveStartupReconstruction(t *testing.T) {
 	cfg.WAN.MTU = 500
 	if got := wireGuardMTU(cfg); got != 576 {
 		t.Fatalf("small WAN WireGuard MTU = %d, want floor 576", got)
+	}
+}
+
+// TestStartupRestoreIncludesWireGuardClientRuntime is the regression test for
+// the reboot bug where the outbound tunnel (wg1) peer configuration was not
+// restored: activation then ran "wg setconf" against a missing file and the
+// entire appliance failed closed at every boot. The startup artifact list and
+// the install-apply list must stay one shared list.
+func TestStartupRestoreIncludesWireGuardClientRuntime(t *testing.T) {
+	for _, name := range []string{"wireguard-client-runtime", "resolv-conf"} {
+		found := false
+		for _, item := range restoreArtifacts {
+			if item == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("startup artifact restore list is missing %s: a wg1 reboot would fail closed", name)
+		}
+	}
+
+	// Every listed artifact must always be produced, and the wg1 peer file
+	// must carry the real endpoint when the tunnel is enabled (never the
+	// disabled placeholder a stale /run file would otherwise serve).
+	cfg := validStartupConfig()
+	generated, err := generateArtifacts(cfg)
+	if err != nil {
+		t.Fatalf("generate default artifacts: %v", err)
+	}
+	for _, name := range restoreArtifacts {
+		item, ok := generated[name]
+		if !ok || item.path == "" || len(item.data) == 0 {
+			t.Fatalf("startup artifact %s is missing or empty", name)
+		}
+	}
+	// The disabled placeholder must still be written so "wg setconf" never
+	// reads a stale tunnel configuration left in volatile /run.
+	if !bytes.Contains(generated["wireguard-client-runtime"].data, []byte("disabled")) {
+		t.Fatalf("disabled wg1 must produce a placeholder artifact:\n%s", generated["wireguard-client-runtime"].data)
+	}
+
+	cfg.WGClient.Enabled = true
+	cfg.WGClient.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WGClient.PublicKey = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA="
+	cfg.WGClient.Address = "10.7.0.2/32"
+	cfg.WGClient.Endpoint = "office.example.com:51820"
+	cfg.WGClient.AllowedIPs = []string{"10.9.0.0/24"}
+	enabled, err := generateArtifacts(cfg)
+	if err != nil {
+		t.Fatalf("generate wg1 artifacts: %v", err)
+	}
+	runtimeFile := enabled["wireguard-client-runtime"]
+	if !bytes.Contains(runtimeFile.data, []byte("office.example.com:51820")) {
+		t.Fatalf("startup wg1 runtime artifact lacks the remote endpoint:\n%s", runtimeFile.data)
+	}
+	if !bytes.Contains(runtimeFile.data, []byte("10.9.0.0/24")) {
+		t.Fatalf("startup wg1 runtime artifact lacks the remote networks:\n%s", runtimeFile.data)
 	}
 }

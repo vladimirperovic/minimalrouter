@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,6 +61,30 @@ func interfaceUp(name string) bool {
 	return err == nil && iface.Flags&net.FlagUp != 0
 }
 
+// readWireGuardClientHandshake returns the epoch of the last completed wg1
+// handshake, or 0 when the tunnel has no handshake yet. The single remote
+// peer is the first peer line of `wg show wg1 dump` (field 4). Same doas
+// privilege as the telemetry probe.
+func readWireGuardClientHandshake() int64 {
+	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg1", "dump")
+	out, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[0] == "interface" {
+			continue
+		}
+		ts, parseErr := strconv.ParseInt(fields[4], 10, 64)
+		if parseErr != nil || ts <= 0 {
+			return 0
+		}
+		return ts
+	}
+	return 0
+}
+
 func inspectRuntimeFacts(cfg config.SystemConfig) RuntimeFacts {
 	facts := RuntimeFacts{Available: pathExists("/run/openrc")}
 	if !facts.Available {
@@ -78,6 +103,7 @@ func inspectRuntimeFacts(cfg config.SystemConfig) RuntimeFacts {
 	}
 	if cfg.WGClient.Enabled {
 		facts.WireGuardClientInterfaceUp = interfaceUp(cfg.WGClient.Interface)
+		facts.WireGuardClientLastHandshake = readWireGuardClientHandshake()
 	}
 
 	if data, err := os.ReadFile("/var/lib/minimalrouter-update/state.json"); err == nil {

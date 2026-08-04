@@ -343,12 +343,18 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	wireGuardManagementChanged :=
 		(current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
 			!reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
+	// The outbound tunnel (wg1) silently controls remote-site reachability: a
+	// wrong endpoint, rotated key, or mis-scoped allowed network must never
+	// commit without a 90-second confirmation window, exactly like a Wi-Fi
+	// bridge change.
+	wgClientChanged := !reflect.DeepEqual(current.WGClient, candidate.WGClient)
 	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
 		current.LAN.CIDR != candidate.LAN.CIDR ||
 		current.System.ManagementAccess != candidate.System.ManagementAccess ||
 		current.WiFi.Enabled != candidate.WiFi.Enabled ||
 		current.WiFi.Interface != candidate.WiFi.Interface ||
-		wireGuardManagementChanged
+		wireGuardManagementChanged ||
+		wgClientChanged
 }
 
 func (e *Engine) GetPendingTransaction() *Transaction {
@@ -542,10 +548,13 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 	return nil
 }
 
+// GetCurrentConfig returns a detached deep copy of the canonical in-memory
+// configuration. Callers may read and modify the result freely; the canonical
+// engine state can only change through a processed transaction.
 func (e *Engine) GetCurrentConfig() config.SystemConfig {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.currentConfig
+	return e.currentConfig.DeepCopy()
 }
 
 func (e *Engine) GetStatus() EngineStatus {
