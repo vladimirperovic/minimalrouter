@@ -241,3 +241,57 @@ func TestValidateDNSRecords(t *testing.T) {
 		t.Fatal("invalid IP accepted")
 	}
 }
+
+func TestValidateWGClient(t *testing.T) {
+	validKey := "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU="
+	cfg := DefaultConfig()
+	cfg.WGClient = WGClientConfig{
+		Enabled:             true,
+		Interface:           "wg1",
+		PrivateKey:          validKey,
+		Address:             "10.7.0.2/32",
+		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
+		Endpoint:            "office.example.com:51820",
+		AllowedIPs:          []string{"10.7.0.0/24"},
+		PersistentKeepalive: 25,
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid wg_client rejected: %v", err)
+	}
+
+	cfg.WGClient.PrivateKey = "not-a-key"
+	if err := cfg.Validate(); err == nil {
+		t.Error("invalid private key must be rejected")
+	}
+
+	cfg.WGClient.PrivateKey = validKey
+	cfg.WGClient.Interface = "wg0"
+	if err := cfg.Validate(); err == nil {
+		t.Error("non-wg1 interface must be rejected")
+	}
+	cfg.WGClient.Interface = "wg1"
+
+	cfg.WGClient.AllowedIPs = []string{"192.168.1.0/24"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("allowed network overlapping the LAN must be rejected")
+	}
+	cfg.WGClient.AllowedIPs = []string{"10.7.0.0/24"}
+
+	cfg.WGClient.Address = "192.168.1.50/24"
+	if err := cfg.Validate(); err == nil {
+		t.Error("address overlapping the LAN must be rejected")
+	}
+	cfg.WGClient.Address = "10.7.0.2/32"
+
+	cfg.WGClient.Endpoint = "office.example.com"
+	if err := cfg.Validate(); err == nil {
+		t.Error("endpoint without port must be rejected")
+	}
+	cfg.WGClient.Endpoint = "office.example.com:51820"
+
+	cfg.WGClient.Enabled = false
+	cfg.WGClient.AllowedIPs = nil
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("disabled wg_client must validate: %v", err)
+	}
+}

@@ -16,6 +16,12 @@ type SystemConfig struct {
 	DNS        DNSSettings      `json:"dns"`
 	Firewall   FirewallConfig   `json:"firewall"`
 	WireGuard  WireGuardConfig  `json:"wireguard"`
+	// WGClient is the outbound WireGuard tunnel (client mode) used to reach
+	// remote sites such as an office network. Unlike WireGuard (server, wg0)
+	// the remote peer initiates nothing: nftables only accepts established
+	// traffic from this interface, so the remote site can never open a
+	// connection back into the home network.
+	WGClient   WGClientConfig   `json:"wg_client"`
 	Cloudflare CloudflareConfig `json:"cloudflare"`
 	SquidProxy SquidProxyConfig `json:"squid_proxy"`
 	// AdGuard is the retained JSON compatibility key. The user-facing feature
@@ -47,6 +53,22 @@ type WireGuardPeer struct {
 	AllowedIPs   []string `json:"allowed_ips"`
 	Endpoint     string   `json:"endpoint,omitempty"`
 	Enabled      bool     `json:"enabled"`
+}
+
+// WGClientConfig configures the outbound WireGuard tunnel (wg1). This router
+// dials the remote endpoint; the remote peer is provisioned to accept this
+// device only. AllowedIPs lists the remote networks reachable through the
+// tunnel (for example the office LAN).
+type WGClientConfig struct {
+	Enabled             bool     `json:"enabled"`
+	Interface           string   `json:"interface"` // "wg1"
+	PrivateKey          string   `json:"private_key,omitempty"`
+	Address             string   `json:"address"` // local tunnel address, e.g. "10.7.0.2/32"
+	PublicKey           string   `json:"public_key"` // remote peer public key
+	PresharedKey        string   `json:"preshared_key,omitempty"`
+	Endpoint            string   `json:"endpoint"` // remote endpoint host:port
+	AllowedIPs          []string `json:"allowed_ips"`
+	PersistentKeepalive int      `json:"persistent_keepalive"`
 }
 
 // CloudflareConfig retains its historical JSON key so existing backups remain
@@ -290,6 +312,7 @@ func DefaultConfig() SystemConfig {
 			PortForwards: []PortForwardRule{}, CustomRules: []FirewallRule{},
 		},
 		WireGuard:  WireGuardConfig{Enabled: false, Interface: "wg0", ListenPort: 51820, Address: "10.8.0.1/24", Peers: []WireGuardPeer{}},
+		WGClient:   WGClientConfig{Enabled: false, Interface: "wg1", PersistentKeepalive: 25, AllowedIPs: []string{}},
 		Cloudflare: CloudflareConfig{DDNSProvider: "noip"},
 		SquidProxy: SquidProxyConfig{Enabled: false, Port: 3128, Username: "proxyadmin", RestrictedIPs: []RestrictedIPItem{}},
 		AdGuard: DNSFilterConfig{

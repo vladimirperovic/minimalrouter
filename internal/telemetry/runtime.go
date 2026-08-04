@@ -41,7 +41,19 @@ type RuntimeStatus struct {
 	DHCPLeases            []DHCPLease           `json:"dhcp_leases"`
 	WireguardActivePeers  int                   `json:"wireguard_active_peers,omitempty"`
 	WireguardPeers        []WireGuardPeerStatus `json:"wireguard_peers,omitempty"`
+	WireGuardClient       *WireGuardClientStatus `json:"wireguard_client,omitempty"`
 	DDNS                  DDNSStatus            `json:"ddns"`
+}
+
+// WireGuardClientStatus mirrors the live state of the outbound tunnel (wg1):
+// the remote endpoint, last handshake and cumulative transfer. Online means a
+// handshake succeeded within the last 3 minutes.
+type WireGuardClientStatus struct {
+	Endpoint      string `json:"endpoint,omitempty"`
+	LastHandshake int64  `json:"last_handshake_epoch,omitempty"`
+	RXBytes       uint64 `json:"rx_bytes,omitempty"`
+	TXBytes       uint64 `json:"tx_bytes,omitempty"`
+	Online        bool   `json:"online"`
 }
 
 // WireGuardPeerStatus mirrors one peer line of `wg show wg0 dump`: the live

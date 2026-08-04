@@ -173,6 +173,7 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
 	status.WireguardPeers = readWireGuardPeers()
 	status.WireguardActivePeers = countActive(status.WireguardPeers)
+	status.WireGuardClient = readWireGuardClientStatus()
 	status.DDNS = inspectDDNS()
 	return status
 }
@@ -253,4 +254,27 @@ func readWireGuardPeers() []WireGuardPeerStatus {
 		return nil
 	}
 	return parseWireGuardDump(string(out))
+}
+
+// readWireGuardClientStatus reports the outbound tunnel (wg1) peer state, or
+// nil when the interface is not configured or the command fails. The single
+// remote peer is the first dump line after the interface header.
+func readWireGuardClientStatus() *WireGuardClientStatus {
+	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg1", "dump")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	peers := parseWireGuardDump(string(out))
+	if len(peers) == 0 {
+		return &WireGuardClientStatus{}
+	}
+	peer := peers[0]
+	return &WireGuardClientStatus{
+		Endpoint:      peer.Endpoint,
+		LastHandshake: peer.LastHandshake,
+		RXBytes:       peer.RXBytes,
+		TXBytes:       peer.TXBytes,
+		Online:        peer.Online,
+	}
 }

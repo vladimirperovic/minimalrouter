@@ -39,6 +39,12 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 	if clean.WireGuard.PrivateKey != "" {
 		clean.WireGuard.PrivateKey = "[REDACTED]"
 	}
+	if clean.WGClient.PrivateKey != "" {
+		clean.WGClient.PrivateKey = "[REDACTED]"
+	}
+	if clean.WGClient.PresharedKey != "" {
+		clean.WGClient.PresharedKey = "[REDACTED]"
+	}
 	for i := range clean.WireGuard.Peers {
 		if clean.WireGuard.Peers[i].PresharedKey != "" {
 			clean.WireGuard.Peers[i].PresharedKey = "[REDACTED]"

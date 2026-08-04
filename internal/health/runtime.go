@@ -10,6 +10,7 @@ type RuntimeFacts struct {
 	DnsmasqStarted       bool   `json:"dnsmasq_started"`
 	PPPoEStarted         bool   `json:"pppoe_started"`
 	WireGuardInterfaceUp bool   `json:"wireguard_interface_up"`
+	WireGuardClientInterfaceUp bool `json:"wireguard_client_interface_up"`
 	UpdateStateAvailable bool   `json:"update_state_available"`
 	UpdateCurrent        string `json:"update_current,omitempty"`
 	UpdatePrevious       string `json:"update_previous,omitempty"`

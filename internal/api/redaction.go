@@ -16,6 +16,10 @@ func redactConfig(cfg config.SystemConfig) config.SystemConfig {
 
 	public.WAN.Password = redactedSecret
 	public.WireGuard.PrivateKey = redactedSecret
+	public.WGClient.PrivateKey = redactedSecret
+	if public.WGClient.PresharedKey != "" {
+		public.WGClient.PresharedKey = redactedSecret
+	}
 	for i := range public.WireGuard.Peers {
 		if public.WireGuard.Peers[i].PresharedKey != "" {
 			public.WireGuard.Peers[i].PresharedKey = redactedSecret
