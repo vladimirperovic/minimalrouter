@@ -197,11 +197,11 @@ type SystemSettings struct {
 
 // WANSettings holds PPPoE internet connection configuration.
 type WANSettings struct {
-	Interface  string `json:"interface"`
-	Enabled    bool   `json:"enabled"`
-	Username   string `json:"username"`
-	Password   string `json:"password,omitempty"`
-	MTU        int    `json:"mtu"`
+	Interface string `json:"interface"`
+	Enabled   bool   `json:"enabled"`
+	Username  string `json:"username"`
+	Password  string `json:"password,omitempty"`
+	MTU       int    `json:"mtu"`
 }
 
 // LANSettings holds local network configuration.

@@ -114,7 +114,7 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[Interface]",
-		"PrivateKey = WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		"PrivateKey = WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=", // gitleaks:allow -- synthetic test fixture
 		"[Peer]",
 		"PublicKey = DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 		"AllowedIPs = 10.7.0.0/24, 10.7.1.0/24",
