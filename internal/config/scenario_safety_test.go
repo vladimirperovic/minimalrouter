@@ -35,6 +35,39 @@ func TestScenarioSafetyAcceptsDeterministicWGClientAddress(t *testing.T) {
 	}
 }
 
+func TestScenarioSafetyRejectsPublicWGClientRouteCapture(t *testing.T) {
+	cfg := scenarioWGClientConfig()
+	for _, route := range []string{"203.0.113.0/24", "8.8.8.0/24", "100.64.0.0/10"} {
+		cfg.WGClient.AllowedIPs = []string{route}
+		if err := cfg.ValidateScenarioSafety(); err == nil {
+			t.Fatalf("site-to-site wg1 accepted non-RFC1918 route %s", route)
+		}
+	}
+}
+
+func TestScenarioSafetyAcceptsRFC1918SiteNetworks(t *testing.T) {
+	cfg := scenarioWGClientConfig()
+	cfg.WGClient.AllowedIPs = []string{"10.50.0.0/16", "172.20.1.0/24", "192.168.200.0/24"}
+	if err := cfg.ValidateScenarioSafety(); err != nil {
+		t.Fatalf("valid private site networks rejected: %v", err)
+	}
+}
+
+func TestScenarioSafetyRejectsMalformedDNSLabels(t *testing.T) {
+	for _, domain := range []string{"home..arpa", "-home.arpa", "home-.arpa", ".home.arpa", "home.arpa."} {
+		cfg := DefaultConfig()
+		cfg.System.Domain = domain
+		if err := cfg.ValidateScenarioSafety(); err == nil {
+			t.Fatalf("malformed system domain %q was accepted", domain)
+		}
+	}
+	cfg := DefaultConfig()
+	cfg.DNS.Records = []DNSRecord{{Name: "immich..home.arpa", IP: "192.168.1.20"}}
+	if err := cfg.ValidateScenarioSafety(); err == nil {
+		t.Fatal("malformed static DNS hostname was accepted")
+	}
+}
+
 func TestScenarioSafetyRejectsCustomInputDeny(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Firewall.CustomRules = []FirewallRule{{
