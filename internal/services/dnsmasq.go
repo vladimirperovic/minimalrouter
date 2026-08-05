@@ -19,7 +19,18 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("# File: /etc/dnsmasq.d/minimalrouter.conf\n\n")
 	buf.WriteString(fmt.Sprintf("domain=%s\n", cfg.System.Domain))
 	buf.WriteString(fmt.Sprintf("interface=%s\n", cfg.LAN.Interface))
-	buf.WriteString(fmt.Sprintf("listen-address=127.0.0.1,%s\n", cfg.LAN.IPAddress))
+	listenAddresses := []string{"127.0.0.1", cfg.LAN.IPAddress}
+	// The firewall intentionally exposes DNS to authenticated wg0 peers. Bind
+	// dnsmasq to the tunnel as well so policy and service availability agree;
+	// ExtraLAN remains deliberately absent and therefore hosts no DNS service.
+	if cfg.WireGuard.Enabled && cfg.WireGuard.Interface != "" && cfg.WireGuard.Address != "" {
+		wgIP := strings.SplitN(cfg.WireGuard.Address, "/", 2)[0]
+		if wgIP != "" {
+			buf.WriteString(fmt.Sprintf("interface=%s\n", cfg.WireGuard.Interface))
+			listenAddresses = append(listenAddresses, wgIP)
+		}
+	}
+	buf.WriteString(fmt.Sprintf("listen-address=%s\n", strings.Join(listenAddresses, ",")))
 	buf.WriteString("bind-interfaces\n")
 	buf.WriteString("no-resolv\n")
 	buf.WriteString("strict-order\n")
@@ -43,7 +54,10 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 
 	if cfg.DHCP.Enabled {
 		buf.WriteString("# DHCP pool\n")
-		buf.WriteString("dhcp-leasefile=/run/minimalrouter/dnsmasq.leases\n")
+		// Keep leases across appliance reboots. Clients retain their DHCP lease
+		// for hours; storing the server lease database in /run can make a reboot
+		// forget still-valid assignments and create avoidable collision risk.
+		buf.WriteString("dhcp-leasefile=/var/lib/minimalrouter/dnsmasq.leases\n")
 		buf.WriteString(fmt.Sprintf("dhcp-range=%s,%s,%s,%s\n", cfg.DHCP.RangeStart, cfg.DHCP.RangeEnd, cfg.LAN.Netmask, cfg.DHCP.LeaseTime))
 		buf.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", cfg.LAN.IPAddress))
 		buf.WriteString(fmt.Sprintf("dhcp-option=option:dns-server,%s\n\n", cfg.LAN.IPAddress))
