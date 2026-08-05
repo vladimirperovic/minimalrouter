@@ -420,7 +420,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "invalid_credentials"})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+		// A wrong password and a missing TOTP respond identically so a
+		// caller cannot learn which credential component was correct.
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":         "TOTP code required",
+			"totp_required": "true",
+		})
 		return
 	}
 
@@ -1134,6 +1139,22 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 			http.Error(w, "WireGuard connectivity must be used to confirm this change", http.StatusForbidden)
 			return
 		}
+	} else if pending.Config.LAN.IPAddress != "" &&
+		pending.Config.LAN.IPAddress != s.engine.GetCurrentConfig().LAN.IPAddress {
+		// A LAN address change is confirmed only when the request arrived on
+		// the candidate address: the administrator must prove the new
+		// management path, not just click Confirm from the old IP.
+		var localIP string
+		if localAddr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			localIP = localAddr.String()
+			if host, _, splitErr := net.SplitHostPort(localIP); splitErr == nil {
+				localIP = host
+			}
+		}
+		if !confirmViaCandidateLAN(localIP, pending.Config.LAN.IPAddress) {
+			http.Error(w, "Reach the router at the new LAN address to confirm this change", http.StatusForbidden)
+			return
+		}
 	}
 	tx, err := s.engine.ConfirmTransaction(r.PathValue("id"))
 	if err != nil {
@@ -1142,6 +1163,19 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(redactTransaction(tx))
+}
+
+// confirmViaCandidateLAN reports whether a confirmation request reached the
+// router at the candidate LAN address rather than the previous one.
+func confirmViaCandidateLAN(localAddr, candidateIP string) bool {
+	if candidateIP == "" {
+		return true
+	}
+	host := localAddr
+	if parsed, _, err := net.SplitHostPort(localAddr); err == nil {
+		host = parsed
+	}
+	return host == candidateIP
 }
 
 func (s *Server) handleGetPendingTransaction(w http.ResponseWriter, _ *http.Request) {
@@ -1312,7 +1346,19 @@ func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
 	for i := 1; i <= 16; i++ {
 		copy(packet[i*6:], hwAddr)
 	}
-	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:9")
+	// Prefer the LAN subnet broadcast so the packet stays on the local
+	// segment; the output firewall only permits this destination.
+	broadcast := "255.255.255.255"
+	if _, lanNet, err := net.ParseCIDR(s.engine.GetCurrentConfig().LAN.CIDR); err == nil {
+		if ipv4 := lanNet.IP.To4(); ipv4 != nil {
+			bc := make(net.IP, len(ipv4))
+			for i := range ipv4 {
+				bc[i] = ipv4[i] | ^lanNet.Mask[i]
+			}
+			broadcast = bc.String()
+		}
+	}
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(broadcast, "9"))
 	if err != nil {
 		http.Error(w, "WoL send failed: "+err.Error(), http.StatusInternalServerError)
 		return

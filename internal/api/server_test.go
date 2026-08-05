@@ -445,3 +445,22 @@ func TestAdministratorCanReadPersistedAuditMetadata(t *testing.T) {
 		t.Fatal("audit endpoint leaked an authentication secret")
 	}
 }
+
+func TestConfirmViaCandidateLAN(t *testing.T) {
+	for _, tc := range []struct {
+		localAddr   string
+		candidateIP string
+		want        bool
+	}{
+		{"192.168.1.50:8443", "192.168.1.50", true},
+		{"192.168.1.50:8443", "192.168.1.51", false},
+		{"192.168.1.50", "192.168.1.50", true},
+		{"192.168.1.50", "192.168.1.51", false},
+		{"", "192.168.1.51", false},
+		{"192.168.1.50:8443", "", true},
+	} {
+		if got := confirmViaCandidateLAN(tc.localAddr, tc.candidateIP); got != tc.want {
+			t.Errorf("confirmViaCandidateLAN(%q, %q) = %v, want %v", tc.localAddr, tc.candidateIP, got, tc.want)
+		}
+	}
+}
