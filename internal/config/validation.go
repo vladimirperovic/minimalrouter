@@ -559,8 +559,11 @@ func (c *SystemConfig) Validate() error {
 				}
 				seenPeerIPs[key] = struct{}{}
 			}
-			if hasUnsafeControl(peer.Endpoint) || len(peer.Endpoint) > 255 {
-				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].endpoint", i), "contains forbidden characters or is too long")
+			host, _, splitErr := net.SplitHostPort(peer.Endpoint)
+			if peer.Endpoint == "" {
+				// endpointless peers are valid for a server: they dial in
+			} else if splitErr != nil || net.ParseIP(host) == nil {
+				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].endpoint", i), "must be a static IPv4/IPv6 address in host:port form; hostnames are not resolved")
 			}
 		}
 	}

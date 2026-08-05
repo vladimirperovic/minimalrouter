@@ -186,6 +186,30 @@ func TestValidationRejectsWireGuardRouteWiderThanTunnelSubnet(t *testing.T) {
 	}
 }
 
+func TestValidationRejectsWireGuardPeerHostnameEndpoint(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Peers = []WireGuardPeer{{
+		ID:         "peer-1",
+		Name:       "peer-one",
+		PublicKey:  "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		AllowedIPs: []string{"10.8.0.2/32"},
+		Endpoint:   "peer.example.com:51820",
+		Enabled:    true,
+	}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("hostname peer endpoint must be rejected")
+	}
+	cfg.WireGuard.Peers[0].Endpoint = "203.0.113.7:51820"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("static peer endpoint must validate: %v", err)
+	}
+}
+
 func TestValidationAcceptsMostFragmentedHourlyKidsSchedule(t *testing.T) {
 	windows := make([]AccessWindow, 0, 12)
 	for hour := 0; hour < 24; hour += 2 {
