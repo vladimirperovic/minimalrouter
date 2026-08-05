@@ -116,32 +116,26 @@ func TestFailedTimeoutRollbackSurfacesRecoveryRequired(t *testing.T) {
 	}
 }
 
-type closeStoreOnConfirmClient struct {
-	store *config.FileStore
-	calls int
-}
-
-func (c *closeStoreOnConfirmClient) Apply(_ context.Context, req ApplyRequest) (*ApplyResponse, error) {
-	c.calls++
-	if c.calls == 2 {
-		if err := c.store.Close(); err != nil {
-			return nil, err
-		}
-	}
-	return &ApplyResponse{ID: req.ID, Success: true, Verified: true}, nil
-}
-
-func TestConfirmedRuntimeWithCanonicalStoreFailureRemainsRecoverable(t *testing.T) {
+func TestConfirmedPathWithCanonicalStoreFailureRemainsRecoverable(t *testing.T) {
 	store := newScenarioStore(t)
 	initial, err := store.GetLatestConfig()
 	if err != nil {
 		t.Fatalf("read initial config: %v", err)
 	}
-	client := &closeStoreOnConfirmClient{store: store}
+	// First helper call applies the provisional candidate. The second helper
+	// call is reserved for the verified rollback after the SQLite commit below
+	// is deliberately made unavailable.
+	client := &scenarioApplyClient{steps: []scenarioApplyStep{
+		successfulScenarioStep(),
+		successfulScenarioStep(),
+	}}
 	engine := NewEngineWithClient(initial, store, client)
 	tx, err := engine.ProcessTransaction("tx-confirm-store-failure", candidateWithNewLAN(initial))
 	if err != nil {
 		t.Fatalf("create pending change: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close canonical store: %v", err)
 	}
 
 	confirmed, confirmErr := engine.ConfirmTransaction(tx.ID)
@@ -153,6 +147,9 @@ func TestConfirmedRuntimeWithCanonicalStoreFailureRemainsRecoverable(t *testing.
 	}
 	if engine.GetPendingTransaction() == nil {
 		t.Fatal("pending recovery context was discarded after store failure")
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("helper canonical ack ran despite failed SQLite commit; requests=%d", len(client.requests))
 	}
 
 	engine.pending.timer.Stop()
@@ -186,7 +183,7 @@ func TestConfirmationHelperFailureSurfacesRecoveryRequired(t *testing.T) {
 	}()
 	confirmed, confirmErr := engine.ConfirmTransaction(tx.ID)
 	if confirmErr == nil {
-		t.Fatal("helper confirmation failure was accepted")
+		t.Fatal("canonical helper acknowledgement failure was accepted")
 	}
 	if confirmed.CurrentState != StateRecoveryRequired {
 		t.Fatalf("confirmation failure state=%s", confirmed.CurrentState)
