@@ -325,9 +325,50 @@ func TestValidateWGClient(t *testing.T) {
 	}
 	cfg.WGClient.Endpoint = "office.example.com:51820"
 
+	cfg.WGClient.Endpoint = "10.9.0.5:51820"
+	cfg.WGClient.AllowedIPs = []string{"10.9.0.0/24"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("allowed network capturing the peer endpoint must be rejected")
+	}
+	cfg.WGClient.Endpoint = "office.example.com:51820"
+	cfg.WGClient.AllowedIPs = []string{"10.8.0.0/24"}
+
+	cfg.WGClient.AllowedIPs = []string{"1.0.0.0/8"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("allowed network capturing a configured DNS upstream must be rejected")
+	}
+	cfg.WGClient.AllowedIPs = []string{"10.8.0.0/24"}
+
 	cfg.WGClient.Enabled = false
 	cfg.WGClient.AllowedIPs = nil
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("disabled wg_client must validate: %v", err)
+	}
+}
+
+func TestValidateExtraLANAllowFromSubnets(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "long-enough-test-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Address = "10.6.0.1/24"
+	cfg.Firewall.ExtraLANs = []ExtraLANConfig{{
+		ID: "x", Name: "X", Interface: "eth2", CIDR: "10.20.30.0/24", RouterAddress: "10.20.30.1/24",
+		DstIP: "10.20.30.10", DstPort: 2283, AllowFrom: []string{"192.168.1.20/32", "10.6.0.5/32"}, Enabled: true,
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("trusted-device /32 sources must validate: %v", err)
+	}
+
+	cfg.Firewall.ExtraLANs[0].AllowFrom = []string{"10.6.0.0/16"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("subnet broader than the WireGuard zone must be rejected")
+	}
+
+	cfg.Firewall.ExtraLANs[0].AllowFrom = []string{"10.99.0.0/24"}
+	if err := cfg.Validate(); err == nil {
+		t.Error("source outside LAN and WireGuard zones must be rejected")
 	}
 }

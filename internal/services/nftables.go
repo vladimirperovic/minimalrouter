@@ -9,6 +9,24 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+// lanBroadcastAddress computes the IPv4 broadcast address of a CIDR, or ""
+// when the prefix is not a valid IPv4 network.
+func lanBroadcastAddress(cidr string) string {
+	_, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return ""
+	}
+	ipv4 := ipNet.IP.To4()
+	if ipv4 == nil {
+		return ""
+	}
+	broadcast := make(net.IP, len(ipv4))
+	for i := range ipv4 {
+		broadcast[i] = ipv4[i] | ^ipNet.Mask[i]
+	}
+	return broadcast.String()
+}
+
 func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, action string) {
 	for _, rule := range cfg.Firewall.CustomRules {
 		if !rule.Enabled || rule.Direction != direction || rule.Action != action {
@@ -23,6 +41,15 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 		}
 		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
 			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
+		}
+		if direction == "forward" && action == "allow" {
+			// Custom forward allows are strictly LAN -> WAN egress. They must
+			// never match traffic toward an extra LAN or a tunnel, or a generic
+			// rule could silently override segment isolation policies.
+			if !cfg.WAN.Enabled {
+				continue
+			}
+			match = append(match, "oifname { "+cfg.WAN.Interface+", ppp* }")
 		}
 		verdict := "drop"
 		if action == "allow" {
@@ -55,16 +82,25 @@ func sanitizeComment(value string) string {
 }
 
 // extraLANSourceInterface maps an AllowFrom CIDR to the router interface that
-// carries it: the LAN segment or the WireGuard tunnel. Anything else is not a
-// trusted source for an extra LAN and is silently skipped (validation rejects
-// such configs).
+// carries it: any subnet of the LAN segment or the WireGuard tunnel, down to a
+// single-device /32. Anything outside a trusted source zone is silently
+// skipped (validation rejects such configs).
 func extraLANSourceInterface(cfg *config.SystemConfig, srcCIDR string) string {
-	if srcCIDR == cfg.LAN.CIDR {
-		return cfg.RuntimeLANInterface()
+	_, srcNet, err := net.ParseCIDR(srcCIDR)
+	if err != nil {
+		return ""
+	}
+	srcOnes, _ := srcNet.Mask.Size()
+	if _, lanNet, err := net.ParseCIDR(cfg.LAN.CIDR); err == nil {
+		if zoneOnes, _ := lanNet.Mask.Size(); lanNet.Contains(srcNet.IP) && srcOnes >= zoneOnes {
+			return cfg.RuntimeLANInterface()
+		}
 	}
 	if cfg.WireGuard.Enabled {
-		if _, wgNetwork, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil && srcCIDR == wgNetwork.String() {
-			return cfg.WireGuard.Interface
+		if _, wgNetwork, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil {
+			if zoneOnes, _ := wgNetwork.Mask.Size(); wgNetwork.Contains(srcNet.IP) && srcOnes >= zoneOnes {
+				return cfg.WireGuard.Interface
+			}
 		}
 	}
 	return ""
@@ -384,6 +420,12 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    ip protocol icmp accept\n\n")
 	buf.WriteString("    # The unprivileged management daemon opens outbound HTTPS for the QoS speed test\n")
 	buf.WriteString("    meta skuid routerd tcp dport 443 accept\n")
+	if cfg.LAN.Interface != "" {
+		if broadcast := lanBroadcastAddress(cfg.LAN.CIDR); broadcast != "" {
+			buf.WriteString("    # Wake-on-LAN magic packets may only leave via the local LAN segment\n")
+			buf.WriteString(fmt.Sprintf("    meta skuid routerd oifname \"%s\" ip daddr %s udp dport 9 accept\n", cfg.LAN.Interface, broadcast))
+		}
+	}
 	if cfg.Cloudflare.DDNSEnabled {
 		buf.WriteString("    # Cloudflare DDNS needs HTTPS for the root-run verification and inadyn daemon\n")
 		buf.WriteString("    meta skuid root tcp dport 443 accept\n")
