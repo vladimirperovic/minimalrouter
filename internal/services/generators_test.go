@@ -72,8 +72,8 @@ func TestGenerateDnsmasq(t *testing.T) {
 	if !strings.Contains(out, "dhcp-range=192.168.1.10,192.168.1.50,255.255.255.0,12h") {
 		t.Errorf("Expected dnsmasq config to contain rendered dhcp-range")
 	}
-	if !strings.Contains(out, "dhcp-leasefile=/var/lib/minimalrouter/dnsmasq.leases") {
-		t.Errorf("Expected dnsmasq leases to survive appliance reboot")
+	if !strings.Contains(out, "dhcp-leasefile=/var/lib/minimalrouter-dhcp/dnsmasq.leases") {
+		t.Errorf("Expected dnsmasq leases to survive appliance reboot in dedicated dnsmasq state")
 	}
 	if strings.Contains(out, "dhcp-leasefile=/run/") {
 		t.Errorf("DHCP lease database must not live on the volatile /run filesystem")
@@ -138,9 +138,6 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 		t.Error("empty allowed networks must be rejected")
 	}
 
-	// An explicit zero keepalive means "disabled" and must reach wg verbatim,
-	// never be coerced to the 25-second default (which would keep a tunnel
-	// alive the administrator explicitly turned off).
 	cfg.AllowedIPs = []string{"10.7.0.0/24"}
 	cfg.PersistentKeepalive = 0
 	out, err = GenerateWireGuardClientRuntime(&cfg)
