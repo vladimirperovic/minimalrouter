@@ -9,9 +9,16 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+// QoSInterfaceName is the dummy interface that carries the download (ingress)
+// shaping. Ingress qdiscs on the WAN cannot queue: they only see packets
+// after the link has consumed them, so a police/drop rule would discard
+// instead of shaping. mirred redirects WAN ingress into ifb0 where CAKE or
+// fq_codel can actually queue.
+const QoSInterfaceName = "ifb0"
+
 // QoSCommands returns argv-only tc operations for CAKE or fq_codel. The
 // privileged helper executes these directly; no generated text reaches a
-// shell.
+// shell. The caller must create and raise QoSInterfaceName beforehand.
 func QoSCommands(cfg *config.SystemConfig) ([][]string, error) {
 	if !cfg.QoS.Enabled {
 		return nil, nil
@@ -28,13 +35,17 @@ func QoSCommands(cfg *config.SystemConfig) ([][]string, error) {
 			{"class", "add", "dev", iface, "parent", "1:", "classid", "1:10", "htb", "rate", upKbit + "kbit", "ceil", upKbit + "kbit", "burst", "64k"},
 			{"qdisc", "add", "dev", iface, "parent", "1:10", "handle", "10:", "fq_codel", "target", "5ms", "interval", "100ms", "limit", "10240"},
 			{"qdisc", "add", "dev", iface, "handle", "ffff:", "ingress"},
-			{"filter", "add", "dev", iface, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "police", "rate", downKbit + "kbit", "burst", "64k", "drop", "flowid", ":1"},
+			{"filter", "add", "dev", iface, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "action", "mirred", "egress", "redirect", "dev", QoSInterfaceName},
+			{"qdisc", "add", "dev", QoSInterfaceName, "root", "handle", "1:", "htb", "default", "10"},
+			{"class", "add", "dev", QoSInterfaceName, "parent", "1:", "classid", "1:10", "htb", "rate", downKbit + "kbit", "ceil", downKbit + "kbit", "burst", "64k"},
+			{"qdisc", "add", "dev", QoSInterfaceName, "parent", "1:10", "handle", "10:", "fq_codel", "target", "5ms", "interval", "100ms", "limit", "10240"},
 		}, nil
 	case "cake":
 		return [][]string{
 			{"qdisc", "add", "dev", iface, "root", "cake", "bandwidth", upKbit + "kbit", "besteffort", "nat", "wash", "no-split-gso"},
 			{"qdisc", "add", "dev", iface, "handle", "ffff:", "ingress"},
-			{"filter", "add", "dev", iface, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "police", "rate", downKbit + "kbit", "burst", "64k", "drop", "flowid", ":1"},
+			{"filter", "add", "dev", iface, "parent", "ffff:", "protocol", "ip", "u32", "match", "u32", "0", "0", "action", "mirred", "egress", "redirect", "dev", QoSInterfaceName},
+			{"qdisc", "add", "dev", QoSInterfaceName, "root", "cake", "bandwidth", downKbit + "kbit", "besteffort", "nat", "wash", "no-split-gso"},
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported QoS algorithm: %s", cfg.QoS.Algorithm)

@@ -1439,6 +1439,19 @@ func applyQoS(cfg config.SystemConfig) error {
 	if err != nil {
 		return err
 	}
+	if len(commands) == 0 {
+		return nil
+	}
+	// Download shaping lives on the ifb0 dummy; create it once, raise it, and
+	// let tc attach everything else.
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", services.QoSInterfaceName); err != nil {
+		if err := runFixed("/sbin/ip", "link", "add", services.QoSInterfaceName, "type", "ifb"); err != nil {
+			return fmt.Errorf("create %s: %w", services.QoSInterfaceName, err)
+		}
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", services.QoSInterfaceName, "up"); err != nil {
+		return err
+	}
 	for _, args := range commands {
 		if err := runFixed("/sbin/tc", args...); err != nil {
 			clearQoS(cfg)
@@ -1458,6 +1471,7 @@ func clearQoS(cfg config.SystemConfig) {
 	}
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "root")
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "ingress")
+	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", services.QoSInterfaceName, "root")
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {
