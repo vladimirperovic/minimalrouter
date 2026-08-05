@@ -326,7 +326,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			return failure(req.ID, "dynamic DNS verification failed; previous configuration restored: "+safeError(err), true)
 		}
 	}
-	if req.RequireConfirmation {
+	if req.RequireConfirmation || req.DeferLastGood {
 		hash, hashErr := hashConfig(req.Config)
 		pendingErr := savePendingConfirmation(pendingConfirmation{
 			ConfigHash: hash,
@@ -393,7 +393,7 @@ func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmed commit does not match pending configuration", false)
 	}
-	if err := verifyActive(req.Config, true); err != nil {
+	if err := verifyActive(req.Config, !req.SkipWANVerify); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime is no longer active; canonical reconciliation is required")
 	}
 	if err := saveLastGood(req.Config); err != nil {

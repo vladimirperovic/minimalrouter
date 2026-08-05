@@ -49,6 +49,15 @@ type ApplyRequest struct {
 	WireGuard           string              `json:"wireguard,omitempty"`
 	ServiceName         string              `json:"service_name,omitempty"`
 	RequireConfirmation bool                `json:"require_confirmation,omitempty"`
+	// DeferLastGood withholds the helper's last-good write until the caller
+	// has committed the canonical store; the transaction is then finalized
+	// with OpCommitConfirmed. This keeps last-good from ever advancing ahead
+	// of the canonical SQLite state.
+	DeferLastGood bool `json:"defer_last_good,omitempty"`
+	// SkipWANVerify relaxes the commit-ack verification for the automatic
+	// two-phase commit of routine saves (the apply already verified WAN when
+	// required; a down ISP must not strand an already-correct commit).
+	SkipWANVerify bool `json:"skip_wan_verify,omitempty"`
 }
 
 // ApplyResponse represents the structured execution output from router-applyd.
