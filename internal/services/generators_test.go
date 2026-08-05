@@ -72,24 +72,27 @@ func TestGenerateDnsmasq(t *testing.T) {
 	if !strings.Contains(out, "dhcp-range=192.168.1.10,192.168.1.50,255.255.255.0,12h") {
 		t.Errorf("Expected dnsmasq config to contain rendered dhcp-range")
 	}
-	if !strings.Contains(out, "dhcp-leasefile=/run/minimalrouter/dnsmasq.leases") {
-		t.Errorf("Expected dnsmasq leases to use the runtime-only path")
+	if !strings.Contains(out, "dhcp-leasefile=/var/lib/minimalrouter/dnsmasq.leases") {
+		t.Errorf("Expected dnsmasq leases to survive appliance reboot")
+	}
+	if strings.Contains(out, "dhcp-leasefile=/run/") {
+		t.Errorf("DHCP lease database must not live on the volatile /run filesystem")
 	}
 }
 
 func TestGenerateDnsmasqStaticRecords(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DNS.Records = []config.DNSRecord{
-		{Name: "immich.local", IP: "10.20.30.10"},
-		{Name: "nas.home", IP: "192.168.1.2"},
+		{Name: "immich.home.arpa", IP: "10.20.30.10"},
+		{Name: "nas.home.arpa", IP: "192.168.1.2"},
 	}
 	out, err := GenerateDnsmasq(&cfg)
 	if err != nil {
 		t.Fatalf("GenerateDnsmasq: %v", err)
 	}
 	for _, want := range []string{
-		"host-record=immich.local,10.20.30.10",
-		"host-record=nas.home,192.168.1.2",
+		"host-record=immich.home.arpa,10.20.30.10",
+		"host-record=nas.home.arpa,192.168.1.2",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("dnsmasq config missing %q:\n%s", want, out)
