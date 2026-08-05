@@ -1,9 +1,29 @@
 #!/bin/ash
 # Static packaging hook (not generated, not user-driven): pppd recreates
-# ppp0 on every reconnect, which wipes the router's tc qdiscs. Ask
-# router-applyd to rebuild traffic shaping from its last-good config.
-# No argument from the peer file reaches a shell.
+# ppp0 on every reconnect, which wipes the router's tc qdiscs. Signal the
+# already-running privileged helper; its SIGUSR1 handler takes the same
+# process-wide applyMu as every configuration transaction, so reconnect QoS
+# can never race a normal apply. No peer-provided argument reaches a shell.
 set -eu
 
 [ "${1:-}" = "ppp0" ] || exit 0
-exec /usr/sbin/router-applyd --reapply-qos
+
+supervisor_pid=""
+[ -r /run/router-applyd.supervisor.pid ] && supervisor_pid="$(cat /run/router-applyd.supervisor.pid 2>/dev/null || true)"
+case "$supervisor_pid" in
+    ''|*[!0-9]*) exit 0 ;;
+esac
+
+children_file="/proc/${supervisor_pid}/task/${supervisor_pid}/children"
+[ -r "$children_file" ] || exit 0
+set -- $(cat "$children_file" 2>/dev/null || true)
+child_pid="${1:-}"
+case "$child_pid" in
+    ''|*[!0-9]*) exit 0 ;;
+esac
+
+# Best effort by design: PPP connectivity must never fail merely because the
+# optional shaping reapply could not be signalled. The next config apply or
+# reconnect will converge QoS again.
+kill -USR1 "$child_pid" 2>/dev/null || true
+exit 0
