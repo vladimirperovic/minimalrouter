@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -811,6 +812,18 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// managementContinuityErr is the single anti-lockout policy for every
+// configuration mutation: a candidate whose trusted_networks would exclude
+// the caller's source address is rejected before it can be applied. All
+// mutation paths (PUT /config, snapshot restore, backup and pfSense imports)
+// must route through it.
+func managementContinuityErr(candidate config.SystemConfig, remoteAddr string) error {
+	if !candidate.IsTrustedClientAddress(remoteAddr) {
+		return errors.New("this change removes the caller's source address from trusted_networks and would lock out the administrator")
+	}
+	return nil
+}
+
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapID := r.PathValue("id")
 	log.Printf("[API] POST /api/v1/snapshots/%s/restore from %s\n", snapID, r.RemoteAddr)
@@ -838,6 +851,12 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	// Snapshot revisions describe history; optimistic concurrency must compare
 	// against the currently active revision before creating a new revision.
 	restoredCfg.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(restoredCfg, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Restore rejected: " + err.Error()})
+		return
+	}
 
 	txID := fmt.Sprintf("restore-%s-%d", snapID, time.Now().UnixNano())
 	tx, err := s.engine.ProcessTransaction(txID, restoredCfg)
@@ -940,6 +959,12 @@ func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request
 	}
 
 	pending.config.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Import rejected: " + err.Error()})
+		return
+	}
 	tx, err := s.engine.ProcessTransaction("pfsense-import-"+importID, pending.config)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1086,7 +1111,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// If the new list would not admit the caller's own source address, the
 	// change is rejected before it can be applied. Loopback callers always
 	// pass (loopback is unconditionally trusted).
-	if !newCfg.IsTrustedClientAddress(r.RemoteAddr) {
+	if err := managementContinuityErr(newCfg, r.RemoteAddr); err != nil {
 		log.Printf("[API] PUT %s - Rejected trusted_networks change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
 		s.appendAudit("config.lockout_prevented", auditActor(r.RemoteAddr), map[string]string{
 			"path": r.URL.Path,
@@ -1312,6 +1337,12 @@ func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pending.config.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Restore rejected: " + err.Error()})
+		return
+	}
 	tx, err := s.engine.ProcessTransaction("backup-restore-"+importID, pending.config)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
