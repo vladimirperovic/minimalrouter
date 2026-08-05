@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -25,30 +26,34 @@ type CertManager struct {
 	keyPath  string
 }
 
-// NewCertManager creates a certificate manager for the given data directory.
 func NewCertManager(dataDir string) *CertManager {
 	return &CertManager{certPath: filepath.Join(dataDir, "server.crt"), keyPath: filepath.Join(dataDir, "server.key")}
 }
 
-// EnsureCertificate generates a self-signed certificate if none exists, or
-// loads an existing certificate/key pair that covers the canonical addresses.
 func (cm *CertManager) EnsureCertificate(cfg *config.SystemConfig) ([]byte, []byte, error) {
-	return cm.EnsureCertificateWithAdditionalIPs(cfg, nil)
+	return cm.EnsureCertificateWithAdditionalSANs(cfg, nil, nil)
 }
 
-// EnsureCertificateWithAdditionalIPs additionally requires temporary SANs.
-// During commit-confirm, routerd uses this for the candidate LAN/WireGuard IP
-// while keeping the canonical address in the same certificate. This prevents a
-// strict TLS client from being forced to confirm a management path whose IP is
-// missing from the certificate exactly during the rollback window.
+// EnsureCertificateWithAdditionalIPs is kept as a focused convenience wrapper
+// for callers that only need temporary address SANs.
 func (cm *CertManager) EnsureCertificateWithAdditionalIPs(cfg *config.SystemConfig, additionalIPs []net.IP) ([]byte, []byte, error) {
+	return cm.EnsureCertificateWithAdditionalSANs(cfg, additionalIPs, nil)
+}
+
+// EnsureCertificateWithAdditionalSANs additionally requires temporary SANs.
+// During commit-confirm, routerd uses this for candidate LAN/WireGuard IPs and
+// candidate DNS identity while keeping all canonical identities in the same
+// certificate. After commit the same certificate remains valid because extra
+// SANs are harmless.
+func (cm *CertManager) EnsureCertificateWithAdditionalSANs(cfg *config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) ([]byte, []byte, error) {
 	additionalIPs = normalizeIPs(additionalIPs)
+	additionalDNS = normalizeDNSNames(additionalDNS)
 	if certPEM, keyPEM, err := cm.loadExisting(); err == nil {
-		if certificateMatchesConfig(certPEM, cfg, additionalIPs) {
+		if certificateMatchesConfig(certPEM, cfg, additionalIPs, additionalDNS) {
 			return certPEM, keyPEM, nil
 		}
 	}
-	return cm.generateSelfSigned(cfg, additionalIPs)
+	return cm.generateSelfSigned(cfg, additionalIPs, additionalDNS)
 }
 
 func normalizeIPs(in []net.IP) []net.IP {
@@ -75,7 +80,24 @@ func normalizeIPs(in []net.IP) []net.IP {
 	return out
 }
 
-func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, additionalIPs []net.IP) bool {
+func normalizeDNSNames(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(raw), "."))
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
+}
+
+func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) bool {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		return false
@@ -88,7 +110,7 @@ func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, addition
 	if lanIP == nil || time.Until(cert.NotAfter) < 30*24*time.Hour {
 		return false
 	}
-	if err := cert.VerifyHostname(cfg.LAN.IPAddress); err != nil {
+	if cert.VerifyHostname(cfg.LAN.IPAddress) != nil {
 		return false
 	}
 	wgAddress, _, err := net.ParseCIDR(cfg.WireGuard.Address)
@@ -100,6 +122,11 @@ func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, addition
 	}
 	for _, ip := range normalizeIPs(additionalIPs) {
 		if cert.VerifyHostname(ip.String()) != nil {
+			return false
+		}
+	}
+	for _, name := range normalizeDNSNames(additionalDNS) {
+		if cert.VerifyHostname(name) != nil {
 			return false
 		}
 	}
@@ -134,7 +161,20 @@ func appendUniqueIP(list []net.IP, ip net.IP) []net.IP {
 	return append(list, ip)
 }
 
-func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIPs []net.IP) ([]byte, []byte, error) {
+func appendUniqueDNS(list []string, name string) []string {
+	name = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+	if name == "" {
+		return list
+	}
+	for _, existing := range list {
+		if strings.EqualFold(existing, name) {
+			return list
+		}
+	}
+	return append(list, name)
+}
+
+func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) ([]byte, []byte, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
@@ -149,6 +189,10 @@ func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIP
 	for _, ip := range normalizeIPs(additionalIPs) {
 		ipAddresses = appendUniqueIP(ipAddresses, ip)
 	}
+	dnsNames := []string{cfg.System.Hostname + "." + cfg.System.Domain, "localhost"}
+	for _, name := range normalizeDNSNames(additionalDNS) {
+		dnsNames = appendUniqueDNS(dnsNames, name)
+	}
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
@@ -161,7 +205,7 @@ func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIP
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IPAddresses:           ipAddresses,
-		DNSNames:              []string{cfg.System.Hostname + "." + cfg.System.Domain, "localhost"},
+		DNSNames:              dnsNames,
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
@@ -218,7 +262,6 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	return handle.Sync()
 }
 
-// GetCertificateFingerprint returns SHA256 fingerprint for display during setup.
 func GetCertificateFingerprint(certPEM []byte) (string, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
