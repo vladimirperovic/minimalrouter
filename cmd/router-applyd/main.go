@@ -735,6 +735,14 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := configureExtraLANs(cfg); err != nil {
 		return err
 	}
+	// A segment disabled or removed in this change keeps its kernel address
+	// and connected route unless explicitly flushed: the firewall rules are
+	// already gone, so the stale segment would otherwise keep routing.
+	if previous != nil {
+		if err := cleanRemovedExtraLANs(*previous, cfg); err != nil {
+			return err
+		}
+	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
 	}
@@ -1230,11 +1238,14 @@ func extraLANInterfaces(cfg config.SystemConfig) map[string]struct{} {
 // candidate introduced: an interface that carried an extra LAN in the
 // candidate but is not an extra LAN in the previous configuration keeps its
 // address and connected route unless explicitly flushed.
-func cleanCandidateOnlyExtraLANs(previous, candidate config.SystemConfig) error {
-	owned := extraLANInterfaces(previous)
+// cleanExtraLANState flushes and takes down the interfaces in `stale` that
+// are not owned by the surviving configuration. Kernel state for a removed
+// segment must not linger: the nftables rules are gone, but the address and
+// connected route would still be served.
+func cleanExtraLANState(stale, keep map[string]struct{}) error {
 	var errs []string
-	for iface := range extraLANInterfaces(candidate) {
-		if _, keep := owned[iface]; keep {
+	for iface := range stale {
+		if _, ok := keep[iface]; ok {
 			continue
 		}
 		if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", iface, "scope", "global"); err != nil {
@@ -1248,6 +1259,14 @@ func cleanCandidateOnlyExtraLANs(previous, candidate config.SystemConfig) error 
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func cleanCandidateOnlyExtraLANs(previous, candidate config.SystemConfig) error {
+	return cleanExtraLANState(extraLANInterfaces(candidate), extraLANInterfaces(previous))
+}
+
+func cleanRemovedExtraLANs(previous, current config.SystemConfig) error {
+	return cleanExtraLANState(extraLANInterfaces(previous), extraLANInterfaces(current))
 }
 
 func applyQoS(cfg config.SystemConfig) error {
