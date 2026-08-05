@@ -174,3 +174,27 @@ func TestWGHandshakeRejectsNoPeer(t *testing.T) {
 		t.Fatal("tunnel without a peer accepted")
 	}
 }
+
+func TestRemovedAllowedIPs(t *testing.T) {
+	old := []string{"10.8.0.2/32", "10.8.0.3/32", "10.8.0.4/32"}
+	cur := []string{"10.8.0.2/32", "10.8.0.5/32"}
+	got := removedAllowedIPs(old, cur)
+	if len(got) != 2 {
+		t.Fatalf("stale routes = %v, want 2", got)
+	}
+	for _, want := range []string{"10.8.0.3/32", "10.8.0.4/32"} {
+		found := false
+		for _, r := range got {
+			if r == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("stale route %s missing from %v", want, got)
+		}
+	}
+	// Plain host addresses and CIDR variants normalize to the same key.
+	if got := removedAllowedIPs([]string{"10.8.0.9", "10.8.0.0/24"}, []string{"10.8.0.9/32", "10.8.0.0/24"}); len(got) != 0 {
+		t.Fatalf("normalized duplicates reported stale: %v", got)
+	}
+}

@@ -714,9 +714,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
-	// Determine deltas to avoid unnecessary network drops.
+	// Determine deltas to avoid unnecessary network drops. Unchanged
+	// subsystems must not be torn down: an unrelated Save must never drop
+	// wg0/wg1 sessions or restart Squid/DDNS.
 	wifiChanged := previous == nil || !reflect.DeepEqual(cfg.WiFi, previous.WiFi)
 	wanChanged := previous == nil || !reflect.DeepEqual(cfg.WAN, previous.WAN)
+	wgChanged := previous == nil || !reflect.DeepEqual(cfg.WireGuard, previous.WireGuard)
+	wgClientChanged := previous == nil || !reflect.DeepEqual(cfg.WGClient, previous.WGClient)
+	ddnsChanged := previous == nil || !reflect.DeepEqual(cfg.Cloudflare, previous.Cloudflare)
+	squidChanged := previous == nil || !reflect.DeepEqual(cfg.SquidProxy, previous.SquidProxy)
 
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
 	// topology change so enabling, disabling, and rollback are deterministic.
@@ -775,11 +781,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 		}
 	}
-	if err := activateWireGuard(cfg); err != nil {
-		return err
+	if wgChanged {
+		if err := syncOrActivateWireGuard(cfg, previous); err != nil {
+			return err
+		}
 	}
-	if err := activateWireGuardClient(cfg); err != nil {
-		return err
+	if wgClientChanged {
+		if err := syncOrActivateWireGuardClient(cfg, previous); err != nil {
+			return err
+		}
 	}
 	if cfg.WiFi.Enabled {
 		if wifiChanged {
@@ -802,12 +812,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
 
-		// Inadyn is restarted asynchronously. Provider credentials are verified
-		// after PPPoE/link verification and only when DDNS settings changed.
-		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
-			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
+		// Inadyn is restarted asynchronously only when DDNS settings changed;
+		// the ownership check stays per-apply so a rogue or broken file owner
+		// is corrected on the next Save even without a restart.
+		if ddnsChanged {
+			if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+				return fmt.Errorf("restart Cloudflare DDNS: %w", err)
+			}
 		}
-	} else {
+	} else if ddnsChanged {
 		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 	}
 	if cfg.QoS.Enabled {
@@ -831,10 +844,12 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
 			return errors.New("could not secure Squid password file ownership")
 		}
-		if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
-			return fmt.Errorf("restart Squid: %w", err)
+		if squidChanged {
+			if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
+				return fmt.Errorf("restart Squid: %w", err)
+			}
 		}
-	} else {
+	} else if squidChanged {
 		_ = runFixed("/sbin/rc-service", "squid", "stop")
 	}
 	return nil
@@ -1000,6 +1015,155 @@ func wireGuardMTU(cfg config.SystemConfig) int {
 		return 1420
 	}
 	return mtu
+}
+
+// wireGuardFullRecreate reports whether the change requires rebuilding the
+// interface: address, interface name, enabled state, or MTU edits cannot be
+// applied by syncconf. Peer, key, and endpoint edits are synced live.
+func wireGuardFullRecreate(cfg, previous config.SystemConfig) bool {
+	return cfg.WireGuard.Interface != previous.WireGuard.Interface ||
+		cfg.WireGuard.Address != previous.WireGuard.Address ||
+		cfg.WireGuard.Enabled != previous.WireGuard.Enabled ||
+		wireGuardMTU(cfg) != wireGuardMTU(previous)
+}
+
+// wireGuardClientFullRecreate reports whether the outbound tunnel change
+// cannot be applied by syncconf.
+func wireGuardClientFullRecreate(cfg, previous config.SystemConfig) bool {
+	return cfg.WGClient.Interface != previous.WGClient.Interface ||
+		cfg.WGClient.Address != previous.WGClient.Address ||
+		cfg.WGClient.Enabled != previous.WGClient.Enabled ||
+		wireGuardMTU(cfg) != wireGuardMTU(previous)
+}
+
+// syncOrActivateWireGuard applies a WireGuard change with the least
+// disruption: peer/key/endpoint edits go through `wg syncconf` on the live
+// interface (sessions survive), while topology changes rebuild it. Routes are
+// reconciled afterwards because syncconf never touches them.
+func syncOrActivateWireGuard(cfg config.SystemConfig, previous *config.SystemConfig) error {
+	if previous == nil || wireGuardFullRecreate(cfg, *previous) {
+		return activateWireGuard(cfg)
+	}
+	interfaceName := cfg.WireGuard.Interface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+	if !cfg.WireGuard.Enabled {
+		return removeWireGuard(interfaceName)
+	}
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", interfaceName); err != nil {
+		// The interface does not exist (sessionless boot or prior failure):
+		// nothing to preserve, rebuild from scratch.
+		return activateWireGuard(cfg)
+	}
+	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardRuntimePath); err != nil {
+		return fmt.Errorf("sync WireGuard configuration: %w", err)
+	}
+	if err := syncWireGuardRoutes(cfg.WireGuard.Peers, previous.WireGuard.Peers, interfaceName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncOrActivateWireGuardClient(cfg config.SystemConfig, previous *config.SystemConfig) error {
+	if previous == nil || wireGuardClientFullRecreate(cfg, *previous) {
+		return activateWireGuardClient(cfg)
+	}
+	interfaceName := cfg.WGClient.Interface
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	if !cfg.WGClient.Enabled {
+		return removeWireGuard(interfaceName)
+	}
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", interfaceName); err != nil {
+		return activateWireGuardClient(cfg)
+	}
+	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardClientRuntimePath); err != nil {
+		return fmt.Errorf("sync WireGuard client configuration: %w", err)
+	}
+	if err := syncWireGuardClientRoutes(cfg.WGClient.AllowedIPs, previous.WGClient.AllowedIPs, interfaceName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncWireGuardRoutes(peers, oldPeers []config.WireGuardPeer, interfaceName string) error {
+	for _, peer := range peers {
+		if !peer.Enabled {
+			continue
+		}
+		for _, allowedIP := range peer.AllowedIPs {
+			if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+				return fmt.Errorf("install WireGuard peer route: %w", err)
+			}
+		}
+	}
+	for _, stale := range removedAllowedIPs(peerAllowedIPs(oldPeers), peerAllowedIPs(peers)) {
+		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
+	}
+	return nil
+}
+
+func syncWireGuardClientRoutes(allowed, oldAllowed []string, interfaceName string) error {
+	for _, allowedIP := range allowed {
+		if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+			return fmt.Errorf("install WireGuard client route: %w", err)
+		}
+	}
+	for _, stale := range removedAllowedIPs(oldAllowed, allowed) {
+		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
+	}
+	return nil
+}
+
+func peerAllowedIPs(peers []config.WireGuardPeer) []string {
+	var out []string
+	for _, peer := range peers {
+		if !peer.Enabled {
+			continue
+		}
+		out = append(out, peer.AllowedIPs...)
+	}
+	return out
+}
+
+// removedAllowedIPs returns the normalized routes present in oldRoutes but
+// not in newRoutes: syncconf leaves their kernel routes behind.
+func removedAllowedIPs(oldRoutes, newRoutes []string) []string {
+	keep := make(map[string]struct{}, len(newRoutes))
+	for _, r := range newRoutes {
+		keep[normalizeCIDR(r)] = struct{}{}
+	}
+	var stale []string
+	seen := make(map[string]struct{})
+	for _, r := range oldRoutes {
+		key := normalizeCIDR(r)
+		if _, ok := keep[key]; ok {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		stale = append(stale, key)
+	}
+	return stale
+}
+
+func normalizeCIDR(value string) string {
+	value = strings.TrimSpace(value)
+	if ip := net.ParseIP(value); ip != nil {
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		return ip.String() + fmt.Sprintf("/%d", bits)
+	}
+	if _, network, err := net.ParseCIDR(value); err == nil {
+		return network.String()
+	}
+	return value
 }
 
 func activateWireGuard(cfg config.SystemConfig) error {
