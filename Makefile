@@ -106,6 +106,7 @@ dist-arm64: build-linux-arm64 web-build
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-arm64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-arm64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-arm64/logrotate/minimalrouter
+	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-arm64/ip-up.d-minimalrouter-qos
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install.sh
 	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/slot-exec
 	@tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
@@ -136,6 +137,7 @@ dist-amd64: build-linux-amd64 web-build
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-amd64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-amd64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-amd64/logrotate/minimalrouter
+	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-amd64/ip-up.d-minimalrouter-qos
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install.sh
 	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/slot-exec
 	@tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64

@@ -74,6 +74,23 @@ type pendingConfirmation struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--reapply-qos" {
+		// pppd recreates ppp0 on every reconnect, wiping the qdiscs. The
+		// static /etc/ppp/ip-up.d script invokes this mode to rebuild them
+		// from last-good; a failure is logged and pppd proceeds regardless.
+		cfg, err := loadLastGood()
+		if err != nil {
+			log.Printf("reapply-qos: no last-good config: %v", err)
+			return
+		}
+		if cfg.QoS.Enabled {
+			if err := applyQoS(*cfg); err != nil {
+				log.Printf("reapply-qos: %v", err)
+			}
+		}
+		return
+	}
+
 	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 64 MB.
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(64 << 20)
