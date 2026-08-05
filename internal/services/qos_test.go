@@ -48,8 +48,8 @@ func TestQoSCommandsAreArgvOnlyAndMatchAlgorithm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(commands) != 3 {
-		t.Fatalf("expected three direct tc commands, got %d", len(commands))
+	if len(commands) != 4 {
+		t.Fatalf("expected four direct tc commands (upload, ingress, mirred redirect, ifb0 download), got %d", len(commands))
 	}
 	for _, args := range commands {
 		for _, arg := range args {
@@ -57,5 +57,28 @@ func TestQoSCommandsAreArgvOnlyAndMatchAlgorithm(t *testing.T) {
 				t.Fatalf("shell metacharacter reached QoS argv: %q", arg)
 			}
 		}
+	}
+}
+
+func TestQoSDownloadShapingUsesIfbMirrorInsteadOfPoliceDrop(t *testing.T) {
+	for _, algorithm := range []string{"cake", "fq_codel"} {
+		t.Run(algorithm, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.QoS.Enabled = true
+			cfg.QoS.Algorithm = algorithm
+			script, err := GenerateQoS(&cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(script, "police") {
+				t.Fatalf("download is still a police/drop policer instead of queuing on %s:\n%s", QoSInterfaceName, script)
+			}
+			if !strings.Contains(script, "mirred") || !strings.Contains(script, QoSInterfaceName) {
+				t.Fatalf("WAN ingress is not redirected into %s:\n%s", QoSInterfaceName, script)
+			}
+			if strings.Count(script, " qdisc add dev "+QoSInterfaceName+" root ") != 1 {
+				t.Fatalf("expected exactly one download root qdisc on %s:\n%s", QoSInterfaceName, script)
+			}
+		})
 	}
 }

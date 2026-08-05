@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -420,7 +421,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "invalid_credentials"})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+		// A wrong password and a missing TOTP respond identically so a
+		// caller cannot learn which credential component was correct.
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":         "TOTP code required",
+			"totp_required": "true",
+		})
 		return
 	}
 
@@ -806,6 +812,18 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// managementContinuityErr is the single anti-lockout policy for every
+// configuration mutation: a candidate whose trusted_networks would exclude
+// the caller's source address is rejected before it can be applied. All
+// mutation paths (PUT /config, snapshot restore, backup and pfSense imports)
+// must route through it.
+func managementContinuityErr(candidate config.SystemConfig, remoteAddr string) error {
+	if !candidate.IsTrustedClientAddress(remoteAddr) {
+		return errors.New("this change removes the caller's source address from trusted_networks and would lock out the administrator")
+	}
+	return nil
+}
+
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	snapID := r.PathValue("id")
 	log.Printf("[API] POST /api/v1/snapshots/%s/restore from %s\n", snapID, r.RemoteAddr)
@@ -833,6 +851,12 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	// Snapshot revisions describe history; optimistic concurrency must compare
 	// against the currently active revision before creating a new revision.
 	restoredCfg.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(restoredCfg, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Restore rejected: " + err.Error()})
+		return
+	}
 
 	txID := fmt.Sprintf("restore-%s-%d", snapID, time.Now().UnixNano())
 	tx, err := s.engine.ProcessTransaction(txID, restoredCfg)
@@ -935,6 +959,12 @@ func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request
 	}
 
 	pending.config.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Import rejected: " + err.Error()})
+		return
+	}
 	tx, err := s.engine.ProcessTransaction("pfsense-import-"+importID, pending.config)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1081,7 +1111,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// If the new list would not admit the caller's own source address, the
 	// change is rejected before it can be applied. Loopback callers always
 	// pass (loopback is unconditionally trusted).
-	if !newCfg.IsTrustedClientAddress(r.RemoteAddr) {
+	if err := managementContinuityErr(newCfg, r.RemoteAddr); err != nil {
 		log.Printf("[API] PUT %s - Rejected trusted_networks change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
 		s.appendAudit("config.lockout_prevented", auditActor(r.RemoteAddr), map[string]string{
 			"path": r.URL.Path,
@@ -1134,6 +1164,22 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 			http.Error(w, "WireGuard connectivity must be used to confirm this change", http.StatusForbidden)
 			return
 		}
+	} else if pending.Config.LAN.IPAddress != "" &&
+		pending.Config.LAN.IPAddress != s.engine.GetCurrentConfig().LAN.IPAddress {
+		// A LAN address change is confirmed only when the request arrived on
+		// the candidate address: the administrator must prove the new
+		// management path, not just click Confirm from the old IP.
+		var localIP string
+		if localAddr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			localIP = localAddr.String()
+			if host, _, splitErr := net.SplitHostPort(localIP); splitErr == nil {
+				localIP = host
+			}
+		}
+		if !confirmViaCandidateLAN(localIP, pending.Config.LAN.IPAddress) {
+			http.Error(w, "Reach the router at the new LAN address to confirm this change", http.StatusForbidden)
+			return
+		}
 	}
 	tx, err := s.engine.ConfirmTransaction(r.PathValue("id"))
 	if err != nil {
@@ -1142,6 +1188,19 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(redactTransaction(tx))
+}
+
+// confirmViaCandidateLAN reports whether a confirmation request reached the
+// router at the candidate LAN address rather than the previous one.
+func confirmViaCandidateLAN(localAddr, candidateIP string) bool {
+	if candidateIP == "" {
+		return true
+	}
+	host := localAddr
+	if parsed, _, err := net.SplitHostPort(localAddr); err == nil {
+		host = parsed
+	}
+	return host == candidateIP
 }
 
 func (s *Server) handleGetPendingTransaction(w http.ResponseWriter, _ *http.Request) {
@@ -1278,6 +1337,12 @@ func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pending.config.Revision = s.engine.GetCurrentConfig().Revision
+	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Restore rejected: " + err.Error()})
+		return
+	}
 	tx, err := s.engine.ProcessTransaction("backup-restore-"+importID, pending.config)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1312,7 +1377,19 @@ func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
 	for i := 1; i <= 16; i++ {
 		copy(packet[i*6:], hwAddr)
 	}
-	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:9")
+	// Prefer the LAN subnet broadcast so the packet stays on the local
+	// segment; the output firewall only permits this destination.
+	broadcast := "255.255.255.255"
+	if _, lanNet, err := net.ParseCIDR(s.engine.GetCurrentConfig().LAN.CIDR); err == nil {
+		if ipv4 := lanNet.IP.To4(); ipv4 != nil {
+			bc := make(net.IP, len(ipv4))
+			for i := range ipv4 {
+				bc[i] = ipv4[i] | ^lanNet.Mask[i]
+			}
+			broadcast = bc.String()
+		}
+	}
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(broadcast, "9"))
 	if err != nil {
 		http.Error(w, "WoL send failed: "+err.Error(), http.StatusInternalServerError)
 		return

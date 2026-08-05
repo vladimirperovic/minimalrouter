@@ -74,6 +74,23 @@ type pendingConfirmation struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--reapply-qos" {
+		// pppd recreates ppp0 on every reconnect, wiping the qdiscs. The
+		// static /etc/ppp/ip-up.d script invokes this mode to rebuild them
+		// from last-good; a failure is logged and pppd proceeds regardless.
+		cfg, err := loadLastGood()
+		if err != nil {
+			log.Printf("reapply-qos: no last-good config: %v", err)
+			return
+		}
+		if cfg.QoS.Enabled {
+			if err := applyQoS(*cfg); err != nil {
+				log.Printf("reapply-qos: %v", err)
+			}
+		}
+		return
+	}
+
 	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 64 MB.
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(64 << 20)
@@ -99,13 +116,19 @@ func main() {
 	}
 
 	log.Printf("router-applyd listening on unix://%s", apply.DefaultSocketPath)
+	available := make(chan struct{}, 8)
 	for {
+		available <- struct{}{}
 		conn, err := listener.Accept()
 		if err != nil {
+			<-available
 			log.Printf("accept connection: %v", err)
 			continue
 		}
-		go handleConnection(conn)
+		go func() {
+			defer func() { <-available }()
+			handleConnection(conn)
+		}()
 	}
 }
 
@@ -133,6 +156,12 @@ func secureSocketForRouterd(path string) error {
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
+	// A compromised routerd could otherwise hold RPC connections open and
+	// exhaust the helper's descriptor budget with idle sockets.
+	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		return
+	}
+
 	if err := validatePeer(conn); err != nil {
 		writeResponse(conn, apply.ApplyResponse{Success: false, Error: "unauthorized local peer"})
 		log.Printf("rejected apply peer: %v", err)
@@ -159,9 +188,16 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	switch req.Op {
-	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile:
+	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile, apply.OpWGTunnelStatus:
 	default:
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "operation is not allowlisted"})
+		return
+	}
+
+	// Telemetry queries are read-only and non-transactional: no transaction
+	// intent is persisted and no replay state is consulted.
+	if req.Op == apply.OpWGTunnelStatus {
+		writeResponse(conn, wgTunnelStatus(req))
 		return
 	}
 
@@ -214,6 +250,48 @@ func handleConnection(conn net.Conn) {
 	writeResponse(conn, resp)
 }
 
+// wgTunnelStatus answers the read-only telemetry query with a sanitized dump
+// projection. The raw `wg show <if> dump` output carries private and
+// preshared keys; only endpoint, handshake epoch, and transfer counters are
+// returned across the privilege boundary.
+func wgTunnelStatus(req apply.ApplyRequest) apply.ApplyResponse {
+	interfaceName := req.Config.WGClient.Interface
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	if !interfaceNamePattern.MatchString(interfaceName) {
+		return failure(req.ID, "invalid WireGuard interface name", false)
+	}
+	out, err := runFixedOutput("/usr/bin/wg", "show", interfaceName, "dump")
+	if err != nil {
+		return failure(req.ID, "WireGuard status unavailable: "+safeError(err), false)
+	}
+	return apply.ApplyResponse{
+		ID: req.ID, Success: true, Verified: true,
+		Logs: "sanitized WireGuard tunnel status", TunnelStatus: parseWGTunnelStatus(interfaceName, out),
+	}
+}
+
+// parseWGTunnelStatus projects a `wg show <if> dump` to the status fields
+// that may cross the privilege boundary. fields[0] of a peer line is the
+// public key and is deliberately never copied; the first line contains the
+// interface's private key and is skipped entirely.
+func parseWGTunnelStatus(interfaceName, dump string) *apply.TunnelStatus {
+	status := &apply.TunnelStatus{Interface: interfaceName}
+	for _, line := range strings.Split(dump, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[0] == "interface" {
+			continue
+		}
+		status.Endpoint = fields[2]
+		status.LastHandshake, _ = strconv.ParseInt(fields[4], 10, 64)
+		status.RxBytes, _ = strconv.ParseInt(fields[5], 10, 64)
+		status.TxBytes, _ = strconv.ParseInt(fields[6], 10, 64)
+		break
+	}
+	return status
+}
+
 func hashRequest(req apply.ApplyRequest) (string, error) {
 	data, err := json.Marshal(req)
 	if err != nil {
@@ -257,7 +335,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not write candidate files", false)
 	}
-	if err := preflight(req.Config, candidates); err != nil {
+	if err := preflight(req.Config, candidates, false); err != nil {
 		return failure(req.ID, "component preflight failed: "+safeError(err), false)
 	}
 
@@ -275,7 +353,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q activation failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return recoveryFailure(req.ID, "apply failed and rollback could not be verified")
@@ -284,7 +362,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
 	}
 	if err := verifyActive(req.Config, requireWANVerification(req.Op)); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return recoveryFailure(req.ID, "verification failed and rollback could not be verified")
@@ -294,7 +372,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	if requiresFunctionalDNSVerification(previousConfig, req.Config) {
 		if err := verifyFunctionalDNS(); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				log.Printf("apply transaction %q functional DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 				return recoveryFailure(req.ID, "functional DNS verification failed and rollback could not be verified")
@@ -305,7 +383,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	if requiresDDNSVerification(previousConfig, req.Config) {
 		if err := verifyDDNSUpdate(); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				log.Printf("apply transaction %q dynamic DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 				return recoveryFailure(req.ID, "dynamic DNS verification failed and rollback could not be verified")
@@ -314,14 +392,14 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			return failure(req.ID, "dynamic DNS verification failed; previous configuration restored: "+safeError(err), true)
 		}
 	}
-	if req.RequireConfirmation {
+	if req.RequireConfirmation || req.DeferLastGood {
 		hash, hashErr := hashConfig(req.Config)
 		pendingErr := savePendingConfirmation(pendingConfirmation{
 			ConfigHash: hash,
 			Config:     req.Config,
 		})
 		if hashErr != nil || pendingErr != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return recoveryFailure(req.ID, "could not persist pending state and rollback failed")
 			}
@@ -329,7 +407,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		}
 	} else {
 		if err := saveLastGood(req.Config); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return recoveryFailure(req.ID, "could not persist last-good state and rollback failed")
 			}
@@ -364,9 +442,57 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err := verifyActive(req.Config, true); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime verification failed; verified rollback is required")
 	}
+	if req.Config.WGClient.Enabled {
+		// Confirm must prove the outbound tunnel actually works: a wrong
+		// remote key, endpoint, or mis-scoped network must never commit from
+		// a handshake-less interface.
+		if err := verifyWGClientHandshake(req.Config.WGClient.Interface, req.Config.WGClient.PersistentKeepalive); err != nil {
+			return recoveryFailure(req.ID, "confirmed WireGuard client tunnel is not functional: "+safeError(err)+"; verified rollback is required")
+		}
+	}
 	return apply.ApplyResponse{
 		ID: req.ID, Success: true, Verified: true, Logs: "runtime confirmation verified; canonical commit pending",
 	}
+}
+
+// verifyWGClientHandshake requires a completed and, when keepalive is
+// configured, recently refreshed wg1 handshake. A keepalive-0 tunnel may sit
+// idle indefinitely, so any completed handshake is accepted for it.
+func verifyWGClientHandshake(interfaceName string, keepalive int) error {
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	out, err := runFixedOutput("/usr/bin/wg", "show", interfaceName, "dump")
+	if err != nil {
+		return fmt.Errorf("WireGuard client interface unavailable: %w", err)
+	}
+	return wgHandshakeFresh(out, keepalive)
+}
+
+// wgHandshakeFresh inspects `wg show <if> dump` output: line 1 is the
+// interface, each peer line has latest-handshake as field 5 (index 4).
+func wgHandshakeFresh(dump string, keepalive int) error {
+	for _, line := range strings.Split(dump, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[0] == "interface" {
+			continue
+		}
+		ts, parseErr := strconv.ParseInt(fields[4], 10, 64)
+		if parseErr != nil || ts <= 0 {
+			return errors.New("WireGuard client tunnel has no completed handshake")
+		}
+		if keepalive > 0 {
+			maxAge := 3 * time.Minute
+			if age := time.Duration(keepalive) * 3 * time.Second; age > maxAge {
+				maxAge = age
+			}
+			if lastSeen := time.Since(time.Unix(ts, 0)); lastSeen > maxAge {
+				return fmt.Errorf("WireGuard client handshake is stale (last %s ago)", lastSeen.Round(time.Second))
+			}
+		}
+		return nil
+	}
+	return errors.New("WireGuard client tunnel has no peer")
 }
 
 func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
@@ -381,7 +507,7 @@ func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil || hash != pending.ConfigHash {
 		return failure(req.ID, "confirmed commit does not match pending configuration", false)
 	}
-	if err := verifyActive(req.Config, true); err != nil {
+	if err := verifyActive(req.Config, !req.SkipWANVerify); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime is no longer active; canonical reconciliation is required")
 	}
 	if err := saveLastGood(req.Config); err != nil {
@@ -563,7 +689,7 @@ func writeCandidates(dir string, generated map[string]artifact) (map[string]stri
 	return paths, nil
 }
 
-func preflight(cfg config.SystemConfig, candidates map[string]string) error {
+func preflight(cfg config.SystemConfig, candidates map[string]string, tolerateWGClient bool) error {
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}
@@ -582,7 +708,15 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 	}
 	if cfg.WGClient.Enabled {
 		if err := preflightWireGuard(candidates["wireguard-client-runtime"]); err != nil {
-			return fmt.Errorf("WireGuard client: %w", err)
+			if tolerateWGClient {
+				// Startup: the optional outbound tunnel must not fail-closed the
+				// core router. At boot the resolver is 127.0.0.1 and dnsmasq is
+				// not up yet, so a hostname endpoint cannot resolve here; the
+				// activation below is already non-fatal and health reports it.
+				log.Printf("startup WireGuard client preflight skipped (non-fatal): %v", err)
+			} else {
+				return fmt.Errorf("WireGuard client: %w", err)
+			}
 		}
 	}
 	if cfg.WiFi.Enabled {
@@ -629,9 +763,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
-	// Determine deltas to avoid unnecessary network drops.
+	// Determine deltas to avoid unnecessary network drops. Unchanged
+	// subsystems must not be torn down: an unrelated Save must never drop
+	// wg0/wg1 sessions or restart Squid/DDNS.
 	wifiChanged := previous == nil || !reflect.DeepEqual(cfg.WiFi, previous.WiFi)
 	wanChanged := previous == nil || !reflect.DeepEqual(cfg.WAN, previous.WAN)
+	wgChanged := previous == nil || !reflect.DeepEqual(cfg.WireGuard, previous.WireGuard)
+	wgClientChanged := previous == nil || !reflect.DeepEqual(cfg.WGClient, previous.WGClient)
+	ddnsChanged := previous == nil || !reflect.DeepEqual(cfg.Cloudflare, previous.Cloudflare)
+	squidChanged := previous == nil || !reflect.DeepEqual(cfg.SquidProxy, previous.SquidProxy)
 
 	// A running AP owns the wireless bridge membership. Stop it before any LAN
 	// topology change so enabling, disabling, and rollback are deterministic.
@@ -649,6 +789,14 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	}
 	if err := configureExtraLANs(cfg); err != nil {
 		return err
+	}
+	// A segment disabled or removed in this change keeps its kernel address
+	// and connected route unless explicitly flushed: the firewall rules are
+	// already gone, so the stale segment would otherwise keep routing.
+	if previous != nil {
+		if err := cleanRemovedExtraLANs(*previous, cfg); err != nil {
+			return err
+		}
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
@@ -682,11 +830,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 		}
 	}
-	if err := activateWireGuard(cfg); err != nil {
-		return err
+	if wgChanged {
+		if err := syncOrActivateWireGuard(cfg, previous); err != nil {
+			return err
+		}
 	}
-	if err := activateWireGuardClient(cfg); err != nil {
-		return err
+	if wgClientChanged {
+		if err := syncOrActivateWireGuardClient(cfg, previous); err != nil {
+			return err
+		}
 	}
 	if cfg.WiFi.Enabled {
 		if wifiChanged {
@@ -709,12 +861,15 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 			return errors.New("could not secure Cloudflare DDNS configuration ownership")
 		}
 
-		// Inadyn is restarted asynchronously. Provider credentials are verified
-		// after PPPoE/link verification and only when DDNS settings changed.
-		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
-			return fmt.Errorf("restart Cloudflare DDNS: %w", err)
+		// Inadyn is restarted asynchronously only when DDNS settings changed;
+		// the ownership check stays per-apply so a rogue or broken file owner
+		// is corrected on the next Save even without a restart.
+		if ddnsChanged {
+			if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+				return fmt.Errorf("restart Cloudflare DDNS: %w", err)
+			}
 		}
-	} else {
+	} else if ddnsChanged {
 		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 	}
 	if cfg.QoS.Enabled {
@@ -738,10 +893,12 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		if parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
 			return errors.New("could not secure Squid password file ownership")
 		}
-		if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
-			return fmt.Errorf("restart Squid: %w", err)
+		if squidChanged {
+			if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
+				return fmt.Errorf("restart Squid: %w", err)
+			}
 		}
-	} else {
+	} else if squidChanged {
 		_ = runFixed("/sbin/rc-service", "squid", "stop")
 	}
 	return nil
@@ -909,6 +1066,155 @@ func wireGuardMTU(cfg config.SystemConfig) int {
 	return mtu
 }
 
+// wireGuardFullRecreate reports whether the change requires rebuilding the
+// interface: address, interface name, enabled state, or MTU edits cannot be
+// applied by syncconf. Peer, key, and endpoint edits are synced live.
+func wireGuardFullRecreate(cfg, previous config.SystemConfig) bool {
+	return cfg.WireGuard.Interface != previous.WireGuard.Interface ||
+		cfg.WireGuard.Address != previous.WireGuard.Address ||
+		cfg.WireGuard.Enabled != previous.WireGuard.Enabled ||
+		wireGuardMTU(cfg) != wireGuardMTU(previous)
+}
+
+// wireGuardClientFullRecreate reports whether the outbound tunnel change
+// cannot be applied by syncconf.
+func wireGuardClientFullRecreate(cfg, previous config.SystemConfig) bool {
+	return cfg.WGClient.Interface != previous.WGClient.Interface ||
+		cfg.WGClient.Address != previous.WGClient.Address ||
+		cfg.WGClient.Enabled != previous.WGClient.Enabled ||
+		wireGuardMTU(cfg) != wireGuardMTU(previous)
+}
+
+// syncOrActivateWireGuard applies a WireGuard change with the least
+// disruption: peer/key/endpoint edits go through `wg syncconf` on the live
+// interface (sessions survive), while topology changes rebuild it. Routes are
+// reconciled afterwards because syncconf never touches them.
+func syncOrActivateWireGuard(cfg config.SystemConfig, previous *config.SystemConfig) error {
+	if previous == nil || wireGuardFullRecreate(cfg, *previous) {
+		return activateWireGuard(cfg)
+	}
+	interfaceName := cfg.WireGuard.Interface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+	if !cfg.WireGuard.Enabled {
+		return removeWireGuard(interfaceName)
+	}
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", interfaceName); err != nil {
+		// The interface does not exist (sessionless boot or prior failure):
+		// nothing to preserve, rebuild from scratch.
+		return activateWireGuard(cfg)
+	}
+	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardRuntimePath); err != nil {
+		return fmt.Errorf("sync WireGuard configuration: %w", err)
+	}
+	if err := syncWireGuardRoutes(cfg.WireGuard.Peers, previous.WireGuard.Peers, interfaceName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncOrActivateWireGuardClient(cfg config.SystemConfig, previous *config.SystemConfig) error {
+	if previous == nil || wireGuardClientFullRecreate(cfg, *previous) {
+		return activateWireGuardClient(cfg)
+	}
+	interfaceName := cfg.WGClient.Interface
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	if !cfg.WGClient.Enabled {
+		return removeWireGuard(interfaceName)
+	}
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", interfaceName); err != nil {
+		return activateWireGuardClient(cfg)
+	}
+	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardClientRuntimePath); err != nil {
+		return fmt.Errorf("sync WireGuard client configuration: %w", err)
+	}
+	if err := syncWireGuardClientRoutes(cfg.WGClient.AllowedIPs, previous.WGClient.AllowedIPs, interfaceName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncWireGuardRoutes(peers, oldPeers []config.WireGuardPeer, interfaceName string) error {
+	for _, peer := range peers {
+		if !peer.Enabled {
+			continue
+		}
+		for _, allowedIP := range peer.AllowedIPs {
+			if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+				return fmt.Errorf("install WireGuard peer route: %w", err)
+			}
+		}
+	}
+	for _, stale := range removedAllowedIPs(peerAllowedIPs(oldPeers), peerAllowedIPs(peers)) {
+		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
+	}
+	return nil
+}
+
+func syncWireGuardClientRoutes(allowed, oldAllowed []string, interfaceName string) error {
+	for _, allowedIP := range allowed {
+		if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
+			return fmt.Errorf("install WireGuard client route: %w", err)
+		}
+	}
+	for _, stale := range removedAllowedIPs(oldAllowed, allowed) {
+		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
+	}
+	return nil
+}
+
+func peerAllowedIPs(peers []config.WireGuardPeer) []string {
+	var out []string
+	for _, peer := range peers {
+		if !peer.Enabled {
+			continue
+		}
+		out = append(out, peer.AllowedIPs...)
+	}
+	return out
+}
+
+// removedAllowedIPs returns the normalized routes present in oldRoutes but
+// not in newRoutes: syncconf leaves their kernel routes behind.
+func removedAllowedIPs(oldRoutes, newRoutes []string) []string {
+	keep := make(map[string]struct{}, len(newRoutes))
+	for _, r := range newRoutes {
+		keep[normalizeCIDR(r)] = struct{}{}
+	}
+	var stale []string
+	seen := make(map[string]struct{})
+	for _, r := range oldRoutes {
+		key := normalizeCIDR(r)
+		if _, ok := keep[key]; ok {
+			continue
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		stale = append(stale, key)
+	}
+	return stale
+}
+
+func normalizeCIDR(value string) string {
+	value = strings.TrimSpace(value)
+	if ip := net.ParseIP(value); ip != nil {
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		return ip.String() + fmt.Sprintf("/%d", bits)
+	}
+	if _, network, err := net.ParseCIDR(value); err == nil {
+		return network.String()
+	}
+	return value
+}
+
 func activateWireGuard(cfg config.SystemConfig) error {
 	interfaceName := cfg.WireGuard.Interface
 	if interfaceName == "" {
@@ -1022,7 +1328,7 @@ func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 	return result, nil
 }
 
-func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
+func rollback(previousConfig *config.SystemConfig, candidateConfig *config.SystemConfig, files []previousFile) error {
 	var errs []string
 	hadPreviousNft := false
 	for _, file := range files {
@@ -1049,6 +1355,11 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		}
 		if err := configureExtraLANs(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
+		}
+		if candidateConfig != nil {
+			if err := cleanCandidateOnlyExtraLANs(*previousConfig, *candidateConfig); err != nil {
+				errs = append(errs, safeError(err))
+			}
 		}
 	}
 	if hadPreviousNft {
@@ -1119,15 +1430,75 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 	}
 	if previousConfig != nil {
 		_ = os.Remove(pendingPath)
-		return verifyActive(*previousConfig, true)
+		// Rollback verification is structural only: an ISP outage must never
+		// convert a successful local rollback into RecoveryRequired.
+		return verifyActive(*previousConfig, false)
 	}
 	return nil
+}
+
+func extraLANInterfaces(cfg config.SystemConfig) map[string]struct{} {
+	interfaces := make(map[string]struct{})
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if lan.Enabled && lan.Interface != "" {
+			interfaces[lan.Interface] = struct{}{}
+		}
+	}
+	return interfaces
+}
+
+// cleanCandidateOnlyExtraLANs removes kernel state that only the failed
+// candidate introduced: an interface that carried an extra LAN in the
+// candidate but is not an extra LAN in the previous configuration keeps its
+// address and connected route unless explicitly flushed.
+// cleanExtraLANState flushes and takes down the interfaces in `stale` that
+// are not owned by the surviving configuration. Kernel state for a removed
+// segment must not linger: the nftables rules are gone, but the address and
+// connected route would still be served.
+func cleanExtraLANState(stale, keep map[string]struct{}) error {
+	var errs []string
+	for iface := range stale {
+		if _, ok := keep[iface]; ok {
+			continue
+		}
+		if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", iface, "scope", "global"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+		if err := runFixed("/sbin/ip", "link", "set", "dev", iface, "down"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func cleanCandidateOnlyExtraLANs(previous, candidate config.SystemConfig) error {
+	return cleanExtraLANState(extraLANInterfaces(candidate), extraLANInterfaces(previous))
+}
+
+func cleanRemovedExtraLANs(previous, current config.SystemConfig) error {
+	return cleanExtraLANState(extraLANInterfaces(previous), extraLANInterfaces(current))
 }
 
 func applyQoS(cfg config.SystemConfig) error {
 	clearQoS(cfg)
 	commands, err := services.QoSCommands(&cfg)
 	if err != nil {
+		return err
+	}
+	if len(commands) == 0 {
+		return nil
+	}
+	// Download shaping lives on the ifb0 dummy; create it once, raise it, and
+	// let tc attach everything else.
+	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", services.QoSInterfaceName); err != nil {
+		if err := runFixed("/sbin/ip", "link", "add", services.QoSInterfaceName, "type", "ifb"); err != nil {
+			return fmt.Errorf("create %s: %w", services.QoSInterfaceName, err)
+		}
+	}
+	if err := runFixed("/sbin/ip", "link", "set", "dev", services.QoSInterfaceName, "up"); err != nil {
 		return err
 	}
 	for _, args := range commands {
@@ -1149,6 +1520,7 @@ func clearQoS(cfg config.SystemConfig) {
 	}
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "root")
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "ingress")
+	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", services.QoSInterfaceName, "root")
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

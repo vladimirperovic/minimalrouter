@@ -61,7 +61,7 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
@@ -129,7 +129,9 @@ install -d -m 0755 -o root -g root \
     /var/lib/minimalrouter-update \
     /var/lib/minimalrouter-update/slots
 install -d -m 0700 -o root -g root /etc/ppp/peers /etc/hostapd
+install -d -m 0755 -o root -g root /etc/ppp/ip-up.d /etc/ppp/ip-down.d
 install -d -m 0755 -o root -g root /etc/dnsmasq.d /etc/modules-load.d /etc/logrotate.d
+install -m 0755 ip-up.d-minimalrouter-qos /etc/ppp/ip-up.d/minimalrouter-qos
 
 install -m 0755 "bin/routerd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"
 install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"

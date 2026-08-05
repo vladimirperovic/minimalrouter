@@ -197,12 +197,11 @@ type SystemSettings struct {
 
 // WANSettings holds PPPoE internet connection configuration.
 type WANSettings struct {
-	Interface  string `json:"interface"`
-	Enabled    bool   `json:"enabled"`
-	Username   string `json:"username"`
-	Password   string `json:"password,omitempty"`
-	MTU        int    `json:"mtu"`
-	UsePeerDNS bool   `json:"use_peer_dns"`
+	Interface string `json:"interface"`
+	Enabled   bool   `json:"enabled"`
+	Username  string `json:"username"`
+	Password  string `json:"password,omitempty"`
+	MTU       int    `json:"mtu"`
 }
 
 // LANSettings holds local network configuration.
@@ -353,7 +352,7 @@ func DefaultConfig() SystemConfig {
 			HTTPSPort:        8443,
 			ManagementAccess: "lan_and_wireguard",
 		},
-		WAN: WANSettings{Interface: "eth0", Enabled: false, MTU: 1492, UsePeerDNS: true},
+		WAN: WANSettings{Interface: "eth0", Enabled: false, MTU: 1492},
 		LAN: LANSettings{Interface: "eth1", IPAddress: "192.168.1.1", Netmask: "255.255.255.0", CIDR: "192.168.1.1/24"},
 		DHCP: DHCPSettings{
 			Enabled: true, RangeStart: "192.168.1.100", RangeEnd: "192.168.1.200", LeaseTime: "12h",

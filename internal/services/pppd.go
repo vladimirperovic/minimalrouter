@@ -32,10 +32,6 @@ func GeneratePPPoE(cfg *config.SystemConfig) (PPPoEConfigBundle, error) {
 	peerBuf.WriteString("defaultroute\n")
 	peerBuf.WriteString("replacedefaultroute\n")
 
-	if cfg.WAN.UsePeerDNS {
-		peerBuf.WriteString("usepeerdns\n")
-	}
-
 	peerBuf.WriteString("persist\n")
 	peerBuf.WriteString("maxfail 0\n")
 	peerBuf.WriteString("holdoff 5\n")

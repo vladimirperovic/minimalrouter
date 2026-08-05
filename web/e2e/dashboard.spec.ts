@@ -11,7 +11,7 @@ test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page, isM
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({
         revision: 1,
         system: { hostname: "minimalrouter", domain: "lan", https_enabled: true, https_port: 8443, management_access: "lan_and_wireguard" },
-        wan: { interface: "eth0", enabled: false, username: "", password: "", mtu: 1492, use_peer_dns: true },
+        wan: { interface: "eth0", enabled: false, username: "", password: "", mtu: 1492 },
         lan: { interface: "eth1", ip_address: "192.168.1.1", netmask: "255.255.255.0", cidr: "192.168.1.1/24" },
         dhcp: { enabled: true, dns_enabled: false, range_start: "192.168.1.100", range_end: "192.168.1.200", lease_time: "12h", dns_servers: ["1.1.1.1"], static_leases: [] },
         firewall: { default_wan_input_policy: "deny", wan_ingress_mode: "wireguard_only", stateful_firewall: true, port_forwards: [], custom_rules: [] },

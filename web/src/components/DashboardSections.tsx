@@ -202,7 +202,7 @@ function WGClientPanel({
           </label>
           <label className="field"><span>Local tunnel address</span><input defaultValue={cfg.address} name="client_address" placeholder="10.7.0.2/32" required /></label>
           <label className="field"><span>Remote networks, comma separated</span><input defaultValue={(cfg.allowed_ips || []).join(", ")} name="client_allowed_ips" placeholder="10.7.0.0/24" required /></label>
-          <label className="field"><span>Persistent keepalive (s)</span><input defaultValue={cfg.persistent_keepalive || 25} min="0" max="65535" name="client_keepalive" type="number" /></label>
+          <label className="field"><span>Persistent keepalive (s)</span><input defaultValue={cfg.persistent_keepalive ?? 25} min="0" max="65535" name="client_keepalive" type="number" /></label>
           <label className="field"><span>Preshared key (optional)</span><input autoComplete="new-password" name="client_preshared_key" placeholder="Configured — leave blank to keep" type="password" /></label>
           <label className="field"><span>Local private key</span><input autoComplete="new-password" name="client_private_key" onChange={(e) => setPrivateKey(e.target.value)} placeholder={cfg.private_key ? "Configured — leave blank to keep" : "Generate a key pair below"} type="password" value={privateKey} /></label>
         </div>
@@ -240,7 +240,7 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
   return (
     <fieldset className="dns-records-fieldset">
       <legend>Static DNS records</legend>
-      <p className="form-note">Names resolved by the router itself (host-record), useful for fixed devices and local services — e.g. <code>immich.local → 10.20.30.10</code>.</p>
+      <p className="form-note">Names resolved by the router itself (host-record), useful for fixed devices and local services — e.g. <code>immich.home.arpa → 10.20.30.10</code>.</p>
       {rows.length === 0 ? (
         <div className="dns-records-empty">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z" /><path d="M12 8v5" /><path d="M12 16.5v.5" /></svg>
@@ -257,7 +257,7 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
                   name={`dns_record_name_${i}`}
                   onChange={(e) => update(i, { name: e.target.value })}
                   pattern="[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?"
-                  placeholder="immich.local"
+                  placeholder="immich.home.arpa"
                   title="Lowercase hostname, dots allowed"
                   value={row.name}
                 />

@@ -362,3 +362,99 @@ func TestNftablesWANHasOnlyWireGuardNewIngress(t *testing.T) {
 		}
 	}
 }
+
+// TestNftablesCustomForwardAllowIsWANOnly proves a generic custom forward
+// allow rule is confined to LAN -> WAN egress: it must carry the oifname
+// clamp so it can never match traffic toward an extra LAN and override its
+// isolation policy.
+func TestNftablesCustomForwardAllowIsWANOnly(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "long-enough-test-password"
+	cfg.LAN.CIDR = "192.168.1.1/24"
+	cfg.LAN.Interface = "eth0"
+	cfg.Firewall.ExtraLANs = []config.ExtraLANConfig{{
+		ID: "immich", Name: "Immich", Interface: "eth2", CIDR: "10.20.30.0/24",
+		DstIP: "10.20.30.10", DstPort: 2283, AllowFrom: []string{cfg.LAN.CIDR}, Enabled: true,
+	}}
+	cfg.Firewall.CustomRules = []config.FirewallRule{{
+		ID: "r1", Name: "port 2283", Enabled: true, Direction: "forward", Action: "allow",
+		Protocol: "tcp", DstPort: 2283, SrcIP: "",
+	}}
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The comment marks the custom rule; the following line is the rule
+	// itself and must carry the WAN egress clamp.
+	lines := strings.Split(rules, "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "# Custom LAN forward allow rule: port 2283" {
+			continue
+		}
+		rule := ""
+		for _, next := range lines[i+1:] {
+			if strings.TrimSpace(next) != "" {
+				rule = strings.TrimSpace(next)
+				break
+			}
+		}
+		if !strings.Contains(rule, `oifname { eth0, ppp* }`) || strings.Contains(rule, `oifname "eth2"`) {
+			t.Fatalf("custom forward allow rule is not WAN-only: %s", rule)
+		}
+		return
+	}
+	t.Fatal("custom LAN forward allow rule was not generated")
+}
+
+// TestNftablesExtraLANTrustedDeviceACL proves AllowFrom accepts a single
+// trusted device /32 and generates the exact source-scoped rule.
+func TestNftablesExtraLANTrustedDeviceACL(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "long-enough-test-password"
+	cfg.LAN.CIDR = "192.168.1.1/24"
+	cfg.LAN.Interface = "eth0"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.Address = "10.6.0.1/24"
+	cfg.Firewall.ExtraLANs = []config.ExtraLANConfig{{
+		ID: "immich", Name: "Immich", Interface: "eth2", CIDR: "10.20.30.0/24",
+		DstIP: "10.20.30.10", DstPort: 2283, AllowFrom: []string{"192.168.1.20/32", "10.6.0.5/32"}, Enabled: true,
+	}}
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`iifname "eth0" ip saddr 192.168.1.20/32 ip daddr 10.20.30.10 tcp dport 2283 oifname "eth2" accept`,
+		`iifname "wg0" ip saddr 10.6.0.5/32 ip daddr 10.20.30.10 tcp dport 2283 oifname "eth2" accept`,
+	} {
+		if !strings.Contains(rules, expected) {
+			t.Fatalf("trusted-device ACL rule is missing %q", expected)
+		}
+	}
+	if !strings.Contains(rules, `iifname "eth2" ip saddr != 10.20.30.0/24 drop`) {
+		t.Fatal("segment anti-spoof rule is missing")
+	}
+}
+
+// TestLanBroadcastAddress covers the WOL broadcast computation used by both
+// the firewall generator and the API handler.
+func TestLanBroadcastAddress(t *testing.T) {
+	for cidr, want := range map[string]string{
+		"192.168.1.0/24": "192.168.1.255",
+		"10.20.30.0/26":  "10.20.30.63",
+		"10.0.0.1/8":     "10.255.255.255",
+	} {
+		if got := lanBroadcastAddress(cidr); got != want {
+			t.Errorf("lanBroadcastAddress(%s) = %s, want %s", cidr, got, want)
+		}
+	}
+	if got := lanBroadcastAddress("not-a-cidr"); got != "" {
+		t.Errorf("lanBroadcastAddress(invalid) = %s, want empty", got)
+	}
+}

@@ -242,6 +242,10 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 	}
 	tx.CurrentState = StateSnapshotted
 
+	commitConfig := commit
+	if commitConfig == nil && e.store != nil {
+		commitConfig = e.store.SaveConfig
+	}
 	applyReq := ApplyRequest{
 		ID:                  txID,
 		Op:                  OpApplyAll,
@@ -255,6 +259,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		WireGuard:           wireGuardCfg,
 		RequireConfirmation: !allowInterfaceChange && requiresConfirmation(e.currentConfig, newCfg),
 	}
+	// Routine saves commit canonical state before the helper's last-good
+	// acknowledgement, so power loss can never leave last-good ahead of
+	// SQLite. Confirmation flows already use this order; setup keeps its own
+	// single-phase commit (no canonical state exists to protect yet).
+	applyReq.DeferLastGood = !applyReq.RequireConfirmation && commitConfig != nil && !allowInterfaceChange
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	defer cancel()
 	e.applying = true
@@ -302,10 +311,6 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		e.pending = pending
 		return tx, nil
 	}
-	commitConfig := commit
-	if commitConfig == nil && e.store != nil {
-		commitConfig = e.store.SaveConfig
-	}
 	if commitConfig != nil {
 		if err := commitConfig(newCfg); err != nil {
 			tx.Error = fmt.Sprintf("failed to commit config store: %v", err)
@@ -333,6 +338,30 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 			}
 			return tx, err
 		}
+		if applyReq.DeferLastGood {
+			// Finalize the two-phase commit: canonical SQLite is now the
+			// candidate, so the helper may advance last-good and clear its
+			// pending marker.
+			ackID := txID + "-commit-canonical-0"
+			ackReq := ApplyRequest{ID: ackID, Op: OpCommitConfirmed, Revision: newCfg.Revision, Config: newCfg, SkipWANVerify: true}
+			ackCtx, ackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+			e.applying = true
+			e.mu.Unlock()
+			ackResp, ackErr := e.applyPrivileged(ackCtx, ackReq)
+			e.mu.Lock()
+			e.applying = false
+			ackCancel()
+			if ackErr != nil || !ackResp.Success || !ackResp.Verified {
+				tx.CurrentState = StateRecoveryRequired
+				if ackErr != nil {
+					tx.Error = fmt.Sprintf("canonical configuration was committed but helper last-good acknowledgement is unknown: %v", ackErr)
+				} else {
+					tx.Error = "canonical configuration was committed but the helper last-good acknowledgement failed: " + ackResp.Error
+				}
+				e.requireRecovery(tx.Error)
+				return tx, fmt.Errorf("helper commit acknowledgement failed")
+			}
+		}
 	}
 	tx.CurrentState = StateCommitted
 	e.currentConfig = newCfg
@@ -348,13 +377,18 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	// commit without a 90-second confirmation window, exactly like a Wi-Fi
 	// bridge change.
 	wgClientChanged := !reflect.DeepEqual(current.WGClient, candidate.WGClient)
+	// A trusted_networks change can silently move the management boundary;
+	// combined with the per-request anti-lockout gate it must be visible in
+	// the confirmation window.
+	trustedNetworksChanged := !reflect.DeepEqual(current.TrustedNetworks, candidate.TrustedNetworks)
 	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
 		current.LAN.CIDR != candidate.LAN.CIDR ||
 		current.System.ManagementAccess != candidate.System.ManagementAccess ||
 		current.WiFi.Enabled != candidate.WiFi.Enabled ||
 		current.WiFi.Interface != candidate.WiFi.Interface ||
 		wireGuardManagementChanged ||
-		wgClientChanged
+		wgClientChanged ||
+		trustedNetworksChanged
 }
 
 func (e *Engine) GetPendingTransaction() *Transaction {

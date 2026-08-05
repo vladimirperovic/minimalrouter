@@ -470,14 +470,31 @@ func (c *SystemConfig) Validate() error {
 			appendFieldError(&errs, prefix+".allow_from", "must list at least one source CIDR")
 		}
 		seenSrc := make(map[string]struct{})
+		var wgNetwork *net.IPNet
+		if wgNetworkCIDR != "" {
+			_, wgNetwork, _ = net.ParseCIDR(wgNetworkCIDR)
+		}
 		for _, src := range lan.AllowFrom {
 			src = strings.TrimSpace(src)
-			if src != c.LAN.CIDR && (wgNetworkCIDR == "" || src != wgNetworkCIDR) {
-				appendFieldError(&errs, prefix+".allow_from", "only the LAN and WireGuard networks may reach an extra LAN")
+			_, srcNet, cidrErr := net.ParseCIDR(src)
+			if cidrErr != nil {
+				appendFieldError(&errs, prefix+".allow_from", "must be canonical CIDR notation")
 				break
 			}
-			if _, _, cidrErr := net.ParseCIDR(src); cidrErr != nil {
-				appendFieldError(&errs, prefix+".allow_from", "must be canonical CIDR notation")
+			// Any subnet fully contained in a trusted source zone is allowed,
+			// including a single-device /32 ACL.
+			srcOnes, _ := srcNet.Mask.Size()
+			trusted := false
+			if lanNetwork != nil {
+				zoneOnes, _ := lanNetwork.Mask.Size()
+				trusted = lanNetwork.Contains(srcNet.IP) && srcOnes >= zoneOnes
+			}
+			if !trusted && wgNetwork != nil {
+				zoneOnes, _ := wgNetwork.Mask.Size()
+				trusted = wgNetwork.Contains(srcNet.IP) && srcOnes >= zoneOnes
+			}
+			if !trusted {
+				appendFieldError(&errs, prefix+".allow_from", "only subnets of the LAN and WireGuard networks may reach an extra LAN")
 				break
 			}
 			if _, dup := seenSrc[src]; dup {
@@ -542,8 +559,11 @@ func (c *SystemConfig) Validate() error {
 				}
 				seenPeerIPs[key] = struct{}{}
 			}
-			if hasUnsafeControl(peer.Endpoint) || len(peer.Endpoint) > 255 {
-				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].endpoint", i), "contains forbidden characters or is too long")
+			host, _, splitErr := net.SplitHostPort(peer.Endpoint)
+			if peer.Endpoint == "" {
+				// endpointless peers are valid for a server: they dial in
+			} else if splitErr != nil || net.ParseIP(host) == nil {
+				appendFieldError(&errs, fmt.Sprintf("wireguard.peers[%d].endpoint", i), "must be a static IPv4/IPv6 address in host:port form; hostnames are not resolved")
 			}
 		}
 	}
@@ -794,6 +814,16 @@ func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs
 	if len(c.WGClient.AllowedIPs) == 0 {
 		appendFieldError(errs, "wg_client.allowed_ips", "must list at least one remote network")
 	}
+	var endpointIP net.IP
+	if host, _, splitErr := net.SplitHostPort(c.WGClient.Endpoint); splitErr == nil {
+		endpointIP = net.ParseIP(host)
+	}
+	var dnsUpstreams []net.IP
+	for _, server := range c.DHCP.DNSServers {
+		if ip := net.ParseIP(strings.TrimSpace(server)); ip != nil && ip.To4() != nil {
+			dnsUpstreams = append(dnsUpstreams, ip)
+		}
+	}
 	seenNets := make(map[string]struct{})
 	for i, entry := range c.WGClient.AllowedIPs {
 		ip, network, err := net.ParseCIDR(strings.TrimSpace(entry))
@@ -805,6 +835,21 @@ func validateWGClient(c *SystemConfig, lanIP net.IP, lanNetwork *net.IPNet, errs
 		if ones < 8 {
 			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i),
 				"must not be broader than a /8: default-route capture (0.0.0.0/0 and /1 split tricks) is not supported")
+		}
+		// The tunnel must never capture the peer endpoint itself: routing the
+		// endpoint address through wg1 would black-hole the tunnel bootstrap.
+		if endpointIP != nil && network.Contains(endpointIP) {
+			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i),
+				"must not contain the peer endpoint address; the endpoint needs a real route outside the tunnel")
+		}
+		// Capturing a configured DNS upstream would silently reroute every
+		// resolution through the tunnel and break name-based reachability.
+		for _, upstream := range dnsUpstreams {
+			if network.Contains(upstream) {
+				appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i),
+					"must not contain a configured DNS upstream; the resolver path needs a real route outside the tunnel")
+				break
+			}
 		}
 		if lanNetwork != nil && networksOverlap(lanNetwork, network) {
 			appendFieldError(errs, fmt.Sprintf("wg_client.allowed_ips[%d]", i), "must not overlap the LAN subnet")

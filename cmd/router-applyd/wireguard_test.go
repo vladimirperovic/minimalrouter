@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
@@ -141,5 +142,77 @@ func TestBashlessWireGuardLifecycleIntegration(t *testing.T) {
 	handshakes, err := runFixedOutput("/usr/bin/wg", "show", "wg0", "latest-handshakes")
 	if err != nil || strings.HasSuffix(strings.TrimSpace(handshakes), "\t0") {
 		t.Fatalf("WireGuard handshake missing: %q (%v)", handshakes, err)
+	}
+}
+
+func wgDump(handshake int64) string {
+	return fmt.Sprintf("interface\tprivkey\t51820\t0\nABCpubkey\t(off)\t203.0.113.9:51820\t10.6.0.0/24\t%d\t1234\t5678\t25\n", handshake)
+}
+
+func TestWGHandshakeFresh(t *testing.T) {
+	fresh := time.Now().Unix() - 30
+	if err := wgHandshakeFresh(wgDump(fresh), 25); err != nil {
+		t.Fatalf("fresh handshake rejected: %v", err)
+	}
+	if err := wgHandshakeFresh(wgDump(fresh), 0); err != nil {
+		t.Fatalf("keepalive-0 fresh handshake rejected: %v", err)
+	}
+	stale := time.Now().Unix() - 10*60
+	if err := wgHandshakeFresh(wgDump(stale), 25); err == nil {
+		t.Fatal("stale handshake accepted with keepalive")
+	}
+	if err := wgHandshakeFresh(wgDump(stale), 0); err != nil {
+		t.Fatalf("keepalive-0 idle tunnel needlessly rejected: %v", err)
+	}
+	if err := wgHandshakeFresh("interface\tprivkey\t51820\t0\nABCpubkey\t(off)\t203.0.113.9:51820\t10.6.0.0/24\t0\t0\t0\toff\n", 25); err == nil {
+		t.Fatal("peer with zero latest-handshake accepted with keepalive")
+	}
+}
+
+func TestWGHandshakeRejectsNoPeer(t *testing.T) {
+	if err := wgHandshakeFresh("interface\tprivkey\t51820\t0\n", 25); err == nil {
+		t.Fatal("tunnel without a peer accepted")
+	}
+}
+
+func TestRemovedAllowedIPs(t *testing.T) {
+	old := []string{"10.8.0.2/32", "10.8.0.3/32", "10.8.0.4/32"}
+	cur := []string{"10.8.0.2/32", "10.8.0.5/32"}
+	got := removedAllowedIPs(old, cur)
+	if len(got) != 2 {
+		t.Fatalf("stale routes = %v, want 2", got)
+	}
+	for _, want := range []string{"10.8.0.3/32", "10.8.0.4/32"} {
+		found := false
+		for _, r := range got {
+			if r == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("stale route %s missing from %v", want, got)
+		}
+	}
+	// Plain host addresses and CIDR variants normalize to the same key.
+	if got := removedAllowedIPs([]string{"10.8.0.9", "10.8.0.0/24"}, []string{"10.8.0.9/32", "10.8.0.0/24"}); len(got) != 0 {
+		t.Fatalf("normalized duplicates reported stale: %v", got)
+	}
+}
+
+func TestParseWGTunnelStatusSanitizesKeys(t *testing.T) {
+	dump := "interface\tINTERFACE-PRIVATE-KEY\t51820\t0\n" +
+		"PEER-PUBLIC-KEY\tPEER-PRESHARED-KEY\t203.0.113.9:51820\t10.6.0.0/24\t1750000000\t1234\t5678\t25\n"
+	status := parseWGTunnelStatus("wg1", dump)
+	if status.LastHandshake != 1750000000 || status.RxBytes != 1234 || status.TxBytes != 5678 {
+		t.Fatalf("status fields not projected: %+v", status)
+	}
+	if status.Endpoint != "203.0.113.9:51820" {
+		t.Fatalf("endpoint %q", status.Endpoint)
+	}
+	serialized := fmt.Sprintf("%+v", status)
+	for _, secret := range []string{"PEER-PUBLIC-KEY", "PEER-PRESHARED-KEY", "INTERFACE-PRIVATE-KEY"} {
+		if strings.Contains(serialized, secret) {
+			t.Fatalf("WireGuard key crossed the privilege boundary: %q", secret)
+		}
 	}
 }

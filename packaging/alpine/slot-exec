@@ -27,6 +27,18 @@ case "$command_name" in
 esac
 
 active_root="/var/lib/minimalrouter-update/current"
+
+# Pin the whole process to one concrete release tree. 'current' is a moving
+# symlink; following it per request would let an activation serve the new
+# frontend against the still-running old backend (and a flip between resolve
+# and exec could mix trees even for the binary).
+if [ -e "$active_root" ]; then
+    pinned_root="$(readlink -f "$active_root" 2>/dev/null || true)"
+    if [ -n "$pinned_root" ]; then
+        active_root="$pinned_root"
+    fi
+fi
+
 bootstrap_root="/usr/libexec/minimalrouter/bootstrap"
 bootstrap_binary="$bootstrap_root/bin/${command_name}-${arch}"
 

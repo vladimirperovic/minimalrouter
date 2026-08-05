@@ -101,9 +101,9 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	cfg := config.WGClientConfig{
 		Enabled:             true,
 		Interface:           "wg1",
-		PrivateKey:          "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		PrivateKey:          "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
 		Address:             "10.7.0.2/32",
-		PublicKey:           "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		PublicKey:           "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 		Endpoint:            "office.example.com:51820",
 		AllowedIPs:          []string{"10.7.0.0/24", "10.7.1.0/24"},
 		PersistentKeepalive: 25,
@@ -114,9 +114,9 @@ func TestGenerateWireGuardClientRuntime(t *testing.T) {
 	}
 	for _, want := range []string{
 		"[Interface]",
-		"PrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+		"PrivateKey = WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=", // gitleaks:allow -- synthetic test fixture
 		"[Peer]",
-		"PublicKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		"PublicKey = DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 		"AllowedIPs = 10.7.0.0/24, 10.7.1.0/24",
 		"Endpoint = office.example.com:51820",
 		"PersistentKeepalive = 25",
@@ -157,8 +157,8 @@ func TestGenerateNftablesWireGuardClient(t *testing.T) {
 		Address:    "10.7.0.2/32",
 		Endpoint:   "office.example.com:51820",
 		AllowedIPs: []string{"10.7.0.0/24"},
-		PrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-		PublicKey:  "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=", // gitleaks:allow -- synthetic test fixture
+		PublicKey:  "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 	}
 	out, err := GenerateNftables(&cfg)
 	if err != nil {

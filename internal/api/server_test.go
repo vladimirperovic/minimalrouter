@@ -445,3 +445,41 @@ func TestAdministratorCanReadPersistedAuditMetadata(t *testing.T) {
 		t.Fatal("audit endpoint leaked an authentication secret")
 	}
 }
+
+func TestConfirmViaCandidateLAN(t *testing.T) {
+	for _, tc := range []struct {
+		localAddr   string
+		candidateIP string
+		want        bool
+	}{
+		{"192.168.1.50:8443", "192.168.1.50", true},
+		{"192.168.1.50:8443", "192.168.1.51", false},
+		{"192.168.1.50", "192.168.1.50", true},
+		{"192.168.1.50", "192.168.1.51", false},
+		{"", "192.168.1.51", false},
+		{"192.168.1.50:8443", "", true},
+	} {
+		if got := confirmViaCandidateLAN(tc.localAddr, tc.candidateIP); got != tc.want {
+			t.Errorf("confirmViaCandidateLAN(%q, %q) = %v, want %v", tc.localAddr, tc.candidateIP, got, tc.want)
+		}
+	}
+}
+
+func TestManagementContinuityErr(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.TrustedNetworks = []string{"192.168.1.0/24"}
+	if err := managementContinuityErr(cfg, "192.168.1.5:8443"); err != nil {
+		t.Fatalf("matching source must pass: %v", err)
+	}
+	if err := managementContinuityErr(cfg, "10.0.0.5:8443"); err == nil {
+		t.Fatal("source outside trusted_networks must be rejected")
+	}
+	if err := managementContinuityErr(cfg, "127.0.0.1:8443"); err != nil {
+		t.Fatalf("loopback must always pass: %v", err)
+	}
+
+	cfg.TrustedNetworks = []string{"192.168.50.0/24"}
+	if err := managementContinuityErr(cfg, "192.168.1.5:8443"); err == nil {
+		t.Fatal("a restored/imported default trust boundary on a different LAN must be rejected")
+	}
+}
