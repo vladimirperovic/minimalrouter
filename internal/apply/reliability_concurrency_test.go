@@ -102,8 +102,11 @@ func TestConfirmAndRollbackCannotRunConcurrently(t *testing.T) {
 	}()
 	select {
 	case req := <-client.started:
-		if req.Op != OpConfirm {
-			t.Fatalf("first blocked operation=%s, want confirm", req.Op)
+		if req.Op != OpCommitConfirmed {
+			t.Fatalf("first blocked operation=%s, want canonical commit acknowledgement", req.Op)
+		}
+		if !req.SkipWANVerify {
+			t.Fatal("confirmed canonical acknowledgement must not depend on WAN availability")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("confirmation did not start")
@@ -119,15 +122,17 @@ func TestConfirmAndRollbackCannotRunConcurrently(t *testing.T) {
 		t.Fatal("rollback ran concurrently with confirmation")
 	case <-time.After(100 * time.Millisecond):
 	}
-	// Confirm performs two helper operations; release both sequentially.
+
+	// A LAN confirmation performs the canonical helper acknowledgement and a
+	// best-effort final reconcile that removes the temporary old LAN address.
 	client.release <- struct{}{}
 	select {
 	case req := <-client.started:
-		if req.Op != OpCommitConfirmed {
-			t.Fatalf("second operation=%s, want commit-confirmed", req.Op)
+		if req.Op != OpReconcile {
+			t.Fatalf("second operation=%s, want LAN finalize reconcile", req.Op)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("confirmed commit did not start")
+		t.Fatal("LAN finalize reconcile did not start")
 	}
 	client.release <- struct{}{}
 	if err := <-confirmDone; err != nil {
