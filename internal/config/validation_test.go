@@ -293,7 +293,7 @@ func TestValidateDNSRecords(t *testing.T) {
 }
 
 func TestValidateWGClient(t *testing.T) {
-	validKey := "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU="
+	validKey := "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=" // gitleaks:allow -- synthetic test fixture
 	cfg := DefaultConfig()
 	cfg.WGClient = WGClientConfig{
 		Enabled:             true,

@@ -157,7 +157,7 @@ func TestGenerateNftablesWireGuardClient(t *testing.T) {
 		Address:    "10.7.0.2/32",
 		Endpoint:   "office.example.com:51820",
 		AllowedIPs: []string{"10.7.0.0/24"},
-		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=",
+		PrivateKey: "WXK/gT9H1IPzj59FYyi7AERtHnpOqjR9nlUBFzYXjUU=", // gitleaks:allow -- synthetic test fixture
 		PublicKey:  "DTSyebsPi8mscQzOPRpiarNste8XHvViiVVNpnZQ7AY=",
 	}
 	out, err := GenerateNftables(&cfg)
