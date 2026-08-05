@@ -21,14 +21,16 @@ func (c *confirmationOrderingClient) Apply(_ context.Context, req ApplyRequest) 
 		return nil, err
 	}
 	switch req.Op {
-	case OpApplyAll, OpConfirm:
+	case OpApplyAll:
 		if stored.LAN.CIDR != c.initial.LAN.CIDR {
-			testingError := "canonical store changed before runtime confirmation completed"
-			return &ApplyResponse{ID: req.ID, Success: false, Error: testingError}, nil
+			return &ApplyResponse{ID: req.ID, Success: false, Error: "canonical store changed before candidate verification completed"}, nil
 		}
-	case OpCommitConfirmed:
+	case OpCommitConfirmed, OpReconcile:
 		if stored.LAN.CIDR != c.candidate.LAN.CIDR {
-			return &ApplyResponse{ID: req.ID, Success: false, Error: "helper commit ran before canonical store commit"}, nil
+			return &ApplyResponse{ID: req.ID, Success: false, Error: "helper canonical/finalize operation ran before canonical store commit"}, nil
+		}
+		if req.Op == OpCommitConfirmed && !req.SkipWANVerify {
+			return &ApplyResponse{ID: req.ID, Success: false, Error: "confirmed canonical ack must not depend on WAN availability"}, nil
 		}
 	}
 	return &ApplyResponse{ID: req.ID, Success: true, Verified: true}, nil
@@ -55,7 +57,11 @@ func TestConfirmationCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 	if confirmed.CurrentState != StateCommitted {
 		t.Fatalf("confirmation state=%s", confirmed.CurrentState)
 	}
-	want := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed}
+	// The API request itself proves the candidate management path. The helper
+	// no longer runs a monolithic OpConfirm that couples LAN/Wi-Fi confirmation
+	// to unrelated ISP or wg1 health. Canonical commit is acknowledged first;
+	// a best-effort reconcile then collapses the provisional dual-LAN address.
+	want := []OperationType{OpApplyAll, OpCommitConfirmed, OpReconcile}
 	if len(client.requests) != len(want) {
 		t.Fatalf("request count=%d, want %d", len(client.requests), len(want))
 	}
@@ -64,12 +70,12 @@ func TestConfirmationCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 		}
 	}
-	if client.requests[2].ID != tx.ID+"-commit-confirmed-1" {
-		t.Fatalf("first confirmed commit ID=%q", client.requests[2].ID)
+	if client.requests[1].ID != tx.ID+"-commit-confirmed-1" {
+		t.Fatalf("first confirmed commit ID=%q", client.requests[1].ID)
 	}
 }
 
-func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *testing.T) {
+func TestHelperCommitFailureRetriesCommitWithoutRepeatingPathProof(t *testing.T) {
 	store := newScenarioStore(t)
 	initial, err := store.GetLatestConfig()
 	if err != nil {
@@ -77,9 +83,9 @@ func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *
 	}
 	client := &scenarioApplyClient{steps: []scenarioApplyStep{
 		successfulScenarioStep(),
-		successfulScenarioStep(),
 		{response: ApplyResponse{Success: false, RecoveryRequired: true, Error: "last-good storage unavailable"}},
 		successfulScenarioStep(),
+		successfulScenarioStep(), // post-commit LAN finalize reconcile
 	}}
 	engine := NewEngineWithClient(initial, store, client)
 	tx, err := engine.ProcessTransaction("tx-two-phase-retry", candidateWithNewLAN(initial))
@@ -100,7 +106,7 @@ func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *
 	if confirmed.CurrentState != StateCommitted {
 		t.Fatalf("retry state=%s", confirmed.CurrentState)
 	}
-	want := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed, OpCommitConfirmed}
+	want := []OperationType{OpApplyAll, OpCommitConfirmed, OpCommitConfirmed, OpReconcile}
 	if len(client.requests) != len(want) {
 		t.Fatalf("request count=%d, want %d", len(client.requests), len(want))
 	}
@@ -109,11 +115,11 @@ func TestHelperCommitFailureRetriesCommitWithoutRepeatingRuntimeConfirmation(t *
 			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, op)
 		}
 	}
-	if client.requests[2].ID == client.requests[3].ID {
-		t.Fatalf("explicit confirmed-commit retry reused cached transaction ID %q", client.requests[2].ID)
+	if client.requests[1].ID == client.requests[2].ID {
+		t.Fatalf("explicit confirmed-commit retry reused cached transaction ID %q", client.requests[1].ID)
 	}
-	if client.requests[2].ID != tx.ID+"-commit-confirmed-1" || client.requests[3].ID != tx.ID+"-commit-confirmed-2" {
-		t.Fatalf("unexpected confirmed-commit retry IDs: %q, %q", client.requests[2].ID, client.requests[3].ID)
+	if client.requests[1].ID != tx.ID+"-commit-confirmed-1" || client.requests[2].ID != tx.ID+"-commit-confirmed-2" {
+		t.Fatalf("unexpected confirmed-commit retry IDs: %q, %q", client.requests[1].ID, client.requests[2].ID)
 	}
 }
 
