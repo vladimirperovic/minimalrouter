@@ -125,7 +125,7 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("write startup candidates: %w", err)
 	}
-	if err := preflight(cfg, candidates); err != nil {
+	if err := preflight(cfg, candidates, true); err != nil {
 		return fmt.Errorf("preflight last-good runtime: %w", err)
 	}
 

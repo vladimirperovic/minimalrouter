@@ -99,13 +99,19 @@ func main() {
 	}
 
 	log.Printf("router-applyd listening on unix://%s", apply.DefaultSocketPath)
+	available := make(chan struct{}, 8)
 	for {
+		available <- struct{}{}
 		conn, err := listener.Accept()
 		if err != nil {
+			<-available
 			log.Printf("accept connection: %v", err)
 			continue
 		}
-		go handleConnection(conn)
+		go func() {
+			defer func() { <-available }()
+			handleConnection(conn)
+		}()
 	}
 }
 
@@ -132,6 +138,12 @@ func secureSocketForRouterd(path string) error {
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
+
+	// A compromised routerd could otherwise hold RPC connections open and
+	// exhaust the helper's descriptor budget with idle sockets.
+	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		return
+	}
 
 	if err := validatePeer(conn); err != nil {
 		writeResponse(conn, apply.ApplyResponse{Success: false, Error: "unauthorized local peer"})
@@ -257,7 +269,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not write candidate files", false)
 	}
-	if err := preflight(req.Config, candidates); err != nil {
+	if err := preflight(req.Config, candidates, false); err != nil {
 		return failure(req.ID, "component preflight failed: "+safeError(err), false)
 	}
 
@@ -275,7 +287,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q activation failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return recoveryFailure(req.ID, "apply failed and rollback could not be verified")
@@ -284,7 +296,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		return failure(req.ID, "apply failed; previous configuration restored: "+safeError(err), true)
 	}
 	if err := verifyActive(req.Config, requireWANVerification(req.Op)); err != nil {
-		rollbackErr := rollback(previousConfig, previous)
+		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
 			log.Printf("apply transaction %q verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 			return recoveryFailure(req.ID, "verification failed and rollback could not be verified")
@@ -294,7 +306,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	if requiresFunctionalDNSVerification(previousConfig, req.Config) {
 		if err := verifyFunctionalDNS(); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				log.Printf("apply transaction %q functional DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 				return recoveryFailure(req.ID, "functional DNS verification failed and rollback could not be verified")
@@ -305,7 +317,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	if requiresDDNSVerification(previousConfig, req.Config) {
 		if err := verifyDDNSUpdate(); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				log.Printf("apply transaction %q dynamic DNS verification failed: %s; rollback failed: %s", req.ID, safeError(err), safeError(rollbackErr))
 				return recoveryFailure(req.ID, "dynamic DNS verification failed and rollback could not be verified")
@@ -321,7 +333,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			Config:     req.Config,
 		})
 		if hashErr != nil || pendingErr != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return recoveryFailure(req.ID, "could not persist pending state and rollback failed")
 			}
@@ -329,7 +341,7 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 		}
 	} else {
 		if err := saveLastGood(req.Config); err != nil {
-			rollbackErr := rollback(previousConfig, previous)
+			rollbackErr := rollback(previousConfig, &req.Config, previous)
 			if rollbackErr != nil {
 				return recoveryFailure(req.ID, "could not persist last-good state and rollback failed")
 			}
@@ -563,7 +575,7 @@ func writeCandidates(dir string, generated map[string]artifact) (map[string]stri
 	return paths, nil
 }
 
-func preflight(cfg config.SystemConfig, candidates map[string]string) error {
+func preflight(cfg config.SystemConfig, candidates map[string]string, tolerateWGClient bool) error {
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}
@@ -582,7 +594,15 @@ func preflight(cfg config.SystemConfig, candidates map[string]string) error {
 	}
 	if cfg.WGClient.Enabled {
 		if err := preflightWireGuard(candidates["wireguard-client-runtime"]); err != nil {
-			return fmt.Errorf("WireGuard client: %w", err)
+			if tolerateWGClient {
+				// Startup: the optional outbound tunnel must not fail-closed the
+				// core router. At boot the resolver is 127.0.0.1 and dnsmasq is
+				// not up yet, so a hostname endpoint cannot resolve here; the
+				// activation below is already non-fatal and health reports it.
+				log.Printf("startup WireGuard client preflight skipped (non-fatal): %v", err)
+			} else {
+				return fmt.Errorf("WireGuard client: %w", err)
+			}
 		}
 	}
 	if cfg.WiFi.Enabled {
@@ -1022,7 +1042,7 @@ func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 	return result, nil
 }
 
-func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
+func rollback(previousConfig *config.SystemConfig, candidateConfig *config.SystemConfig, files []previousFile) error {
 	var errs []string
 	hadPreviousNft := false
 	for _, file := range files {
@@ -1049,6 +1069,11 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 		}
 		if err := configureExtraLANs(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
+		}
+		if candidateConfig != nil {
+			if err := cleanCandidateOnlyExtraLANs(*previousConfig, *candidateConfig); err != nil {
+				errs = append(errs, safeError(err))
+			}
 		}
 	}
 	if hadPreviousNft {
@@ -1119,7 +1144,43 @@ func rollback(previousConfig *config.SystemConfig, files []previousFile) error {
 	}
 	if previousConfig != nil {
 		_ = os.Remove(pendingPath)
-		return verifyActive(*previousConfig, true)
+		// Rollback verification is structural only: an ISP outage must never
+		// convert a successful local rollback into RecoveryRequired.
+		return verifyActive(*previousConfig, false)
+	}
+	return nil
+}
+
+func extraLANInterfaces(cfg config.SystemConfig) map[string]struct{} {
+	interfaces := make(map[string]struct{})
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if lan.Enabled && lan.Interface != "" {
+			interfaces[lan.Interface] = struct{}{}
+		}
+	}
+	return interfaces
+}
+
+// cleanCandidateOnlyExtraLANs removes kernel state that only the failed
+// candidate introduced: an interface that carried an extra LAN in the
+// candidate but is not an extra LAN in the previous configuration keeps its
+// address and connected route unless explicitly flushed.
+func cleanCandidateOnlyExtraLANs(previous, candidate config.SystemConfig) error {
+	owned := extraLANInterfaces(previous)
+	var errs []string
+	for iface := range extraLANInterfaces(candidate) {
+		if _, keep := owned[iface]; keep {
+			continue
+		}
+		if err := runFixed("/sbin/ip", "-4", "addr", "flush", "dev", iface, "scope", "global"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+		if err := runFixed("/sbin/ip", "link", "set", "dev", iface, "down"); err != nil {
+			errs = append(errs, safeError(err))
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
 }
