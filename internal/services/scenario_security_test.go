@@ -107,7 +107,10 @@ func TestDnsmasqPersistsLeasesAndListensOnWGServer(t *testing.T) {
 	if !strings.Contains(out, "interface=wg0") || !strings.Contains(out, "listen-address=127.0.0.1,192.168.1.1,10.8.0.1") {
 		t.Fatal("dnsmasq is not bound to authenticated wg0 clients")
 	}
-	if !strings.Contains(out, "dhcp-leasefile=/var/lib/minimalrouter/dnsmasq.leases") {
-		t.Fatal("DHCP leases are not persisted outside /run")
+	if !strings.Contains(out, "dhcp-leasefile=/var/lib/minimalrouter-dhcp/dnsmasq.leases") {
+		t.Fatal("DHCP leases are not persisted in the dedicated dnsmasq state directory")
+	}
+	if strings.Contains(out, "dhcp-leasefile=/run/") {
+		t.Fatal("DHCP leases still use volatile /run storage")
 	}
 }
