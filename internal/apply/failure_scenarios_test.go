@@ -98,11 +98,11 @@ func TestAmbiguousPrivilegedApplyRetriesSameTransaction(t *testing.T) {
 	}
 }
 
-func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
+func TestConfirmationResponseLossRetriesSameCanonicalAck(t *testing.T) {
 	initial := config.DefaultConfig()
 	client := &scenarioApplyClient{steps: []scenarioApplyStep{
 		successfulScenarioStep(),
-		{err: errors.New("confirmation response lost")},
+		{err: errors.New("canonical acknowledgement response lost")},
 		successfulScenarioStep(),
 		successfulScenarioStep(),
 	}}
@@ -120,22 +120,25 @@ func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
 
 	confirmed, err := engine.ConfirmTransaction(tx.ID)
 	if err != nil {
-		t.Fatalf("confirmation should recover a lost response: %v", err)
+		t.Fatalf("confirmation should recover a lost canonical-ack response: %v", err)
 	}
 	if confirmed.CurrentState != StateCommitted {
 		t.Fatalf("expected committed confirmation, got %s", confirmed.CurrentState)
 	}
 	if len(client.requests) != 4 {
-		t.Fatalf("expected apply, two runtime-confirm attempts, and canonical commit, got %d requests", len(client.requests))
+		t.Fatalf("expected apply, two canonical-ack attempts, and LAN finalize reconcile, got %d requests", len(client.requests))
 	}
-	if client.requests[1].Op != OpConfirm || client.requests[2].Op != OpConfirm {
-		t.Fatalf("runtime confirmation retry used unexpected operations: %s, %s", client.requests[1].Op, client.requests[2].Op)
+	if client.requests[1].Op != OpCommitConfirmed || client.requests[2].Op != OpCommitConfirmed {
+		t.Fatalf("canonical acknowledgement retry used unexpected operations: %s, %s", client.requests[1].Op, client.requests[2].Op)
 	}
 	if client.requests[1].ID != client.requests[2].ID {
-		t.Fatalf("confirmation retry changed transaction ID: %q != %q", client.requests[1].ID, client.requests[2].ID)
+		t.Fatalf("ambiguous acknowledgement retry changed transaction ID: %q != %q", client.requests[1].ID, client.requests[2].ID)
 	}
-	if client.requests[3].Op != OpCommitConfirmed {
-		t.Fatalf("final helper operation=%s, want %s", client.requests[3].Op, OpCommitConfirmed)
+	if !client.requests[1].SkipWANVerify || !client.requests[2].SkipWANVerify {
+		t.Fatal("canonical acknowledgement retry must remain independent of transient WAN availability")
+	}
+	if client.requests[3].Op != OpReconcile {
+		t.Fatalf("final helper operation=%s, want LAN finalize %s", client.requests[3].Op, OpReconcile)
 	}
 	for i := 1; i < len(client.requests); i++ {
 		if client.requests[i].Revision != client.requests[0].Revision {
