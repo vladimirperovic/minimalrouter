@@ -372,10 +372,13 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	wireGuardManagementChanged :=
 		(current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
 			!reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
+	// Any active Wi-Fi configuration change can disconnect the administrator
+	// immediately (SSID, passphrase, band, channel, hidden state, interface or
+	// enabled state), so the entire Wi-Fi object is connectivity-critical.
+	wifiChanged := !reflect.DeepEqual(current.WiFi, candidate.WiFi)
 	// The outbound tunnel (wg1) silently controls remote-site reachability: a
 	// wrong endpoint, rotated key, or mis-scoped allowed network must never
-	// commit without a 90-second confirmation window, exactly like a Wi-Fi
-	// bridge change.
+	// commit without a 90-second confirmation window.
 	wgClientChanged := !reflect.DeepEqual(current.WGClient, candidate.WGClient)
 	// A trusted_networks change can silently move the management boundary;
 	// combined with the per-request anti-lockout gate it must be visible in
@@ -384,8 +387,7 @@ func requiresConfirmation(current, candidate config.SystemConfig) bool {
 	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
 		current.LAN.CIDR != candidate.LAN.CIDR ||
 		current.System.ManagementAccess != candidate.System.ManagementAccess ||
-		current.WiFi.Enabled != candidate.WiFi.Enabled ||
-		current.WiFi.Interface != candidate.WiFi.Interface ||
+		wifiChanged ||
 		wireGuardManagementChanged ||
 		wgClientChanged ||
 		trustedNetworksChanged
@@ -411,7 +413,12 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	}
 	pending := e.pending
 	if !pending.canonicalCommitted {
-		req := ApplyRequest{ID: txID + "-confirm-runtime", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+		verifyWGClient := !reflect.DeepEqual(pending.previous.WGClient, pending.tx.Config.WGClient)
+		req := ApplyRequest{
+			ID: txID + "-confirm-runtime", Op: OpConfirm,
+			Revision: pending.tx.Config.Revision, Config: pending.tx.Config,
+			VerifyWGClient: verifyWGClient,
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 		e.applying = true
 		e.mu.Unlock()
@@ -447,7 +454,13 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 
 	pending.commitAttempts++
 	commitID := fmt.Sprintf("%s-commit-confirmed-%d", txID, pending.commitAttempts)
-	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+	// Canonical SQLite is already committed at this point. The helper ack must
+	// verify local structural state only; an ISP flap in this tiny window must
+	// not convert a valid confirmed configuration into RecoveryRequired.
+	commitReq := ApplyRequest{
+		ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision,
+		Config: pending.tx.Config, SkipWANVerify: true,
+	}
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	e.applying = true
 	e.mu.Unlock()
