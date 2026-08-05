@@ -39,13 +39,6 @@ func readUint(path string) uint64 {
 	return value
 }
 
-// readCPULoadPercent returns real CPU utilization since the previous call,
-// computed as the busy-jiffies delta from /proc/stat (matching what Proxmox
-// reports), falling back to 0 on the first sample.
-//
-// ponytail: minimum 200ms window between samples; concurrent HTTP calls
-// within that window reuse the last value instead of producing a
-// sub-jiffy-quantized bogus 100%.
 func readCPULoadPercent() float64 {
 	cpuSampleMu.Lock()
 	defer cpuSampleMu.Unlock()
@@ -60,12 +53,11 @@ func readCPULoadPercent() float64 {
 	if len(line) < 5 || line[0] != "cpu" {
 		return 0
 	}
-	// cpu user nice system idle iowait irq softirq steal
 	var total, idle uint64
 	for i, field := range line[1:] {
 		value, _ := strconv.ParseUint(field, 10, 64)
 		total += value
-		if i == 3 || i == 4 { // idle + iowait
+		if i == 3 || i == 4 {
 			idle += value
 		}
 	}
@@ -90,12 +82,7 @@ func readCPULoadPercent() float64 {
 }
 
 func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
-	status := RuntimeStatus{
-		Available:    true,
-		OS:           runtime.GOOS,
-		Architecture: runtime.GOARCH,
-		CPUCount:     runtime.NumCPU(),
-	}
+	status := RuntimeStatus{Available: true, OS: runtime.GOOS, Architecture: runtime.GOARCH, CPUCount: runtime.NumCPU()}
 	var timex unix.Timex
 	clockState, clockErr := unix.Adjtimex(&timex)
 	status.TimeSynchronized = clockErr == nil && clockState != unix.TIME_ERROR
@@ -170,7 +157,7 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 			status.ConntrackUsagePercent = 100
 		}
 	}
-	status.DHCPLeases = readDHCPLeases(dnsmasqLeasePath)
+	status.DHCPLeases = readDHCPLeases("/var/lib/minimalrouter-dhcp/dnsmasq.leases")
 	status.WireguardPeers = readWireGuardPeers()
 	status.WireguardActivePeers = countActive(status.WireguardPeers)
 	status.WireGuardClient = readWireGuardClientStatus()
@@ -178,8 +165,6 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 	return status
 }
 
-// interfaceMAC returns the hardware address for the named interface, or ""
-// when the interface does not exist or has no address assigned.
 func interfaceMAC(name string) string {
 	iface, err := net.InterfaceByName(name)
 	if err != nil || iface.HardwareAddr == nil {
@@ -188,10 +173,6 @@ func interfaceMAC(name string) string {
 	return iface.HardwareAddr.String()
 }
 
-// inspectDDNS reads the live inadyn state so the dashboard can show the
-// pfSense-style status card. Alpine's inadyn runs under OpenRC
-// supervise-daemon (pidfile /run/supervise-inadyn.pid); its cache holds the
-// last registered IP (v1) or "<epoch> <ip>" (v2), one file per host.
 func inspectDDNS() DDNSStatus {
 	st := DDNSStatus{}
 	if _, err := os.Stat("/run/supervise-inadyn.pid"); err == nil {
@@ -230,8 +211,6 @@ func inspectDDNS() DDNSStatus {
 	return st
 }
 
-// inadynHostname pulls the update target from the generated configuration,
-// which is authoritative (the cache filename is "<user>@<provider>-<host>").
 func inadynHostname() string {
 	data, err := os.ReadFile("/etc/inadyn/inadyn.conf")
 	if err != nil {
@@ -246,28 +225,107 @@ func inadynHostname() string {
 	return ""
 }
 
-// readWireGuardPeers runs `wg show wg0 dump` and parses the per-peer status.
-func readWireGuardPeers() []WireGuardPeerStatus {
-	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg0", "dump")
+// safeWGShow executes only one of the installer-authorized, non-secret
+// WireGuard status projections. Unlike `wg show ... dump`, none returns an
+// interface private key or peer preshared key. The doas policy matches the
+// complete command+argument vector, so routerd cannot turn this telemetry path
+// into general CAP_NET_ADMIN/root command execution.
+func safeWGShow(interfaceName, field string) (string, error) {
+	if interfaceName != "wg0" && interfaceName != "wg1" {
+		return "", os.ErrPermission
+	}
+	switch field {
+	case "endpoints", "allowed-ips", "latest-handshakes", "transfer":
+	default:
+		return "", os.ErrPermission
+	}
+	cmd := exec.Command("doas", "/usr/bin/wg", "show", interfaceName, field)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return "", err
 	}
-	return parseWireGuardDump(string(out))
+	return string(out), nil
 }
 
-// readWireGuardClientStatus reports the outbound tunnel (wg1) peer state, or
-// nil when the interface is not configured or the command fails. The single
-// remote peer is the first dump line after the interface header.
-func readWireGuardClientStatus() *WireGuardClientStatus {
-	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg1", "dump")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
+func ensureWGPeer(peers map[string]*WireGuardPeerStatus, order *[]string, publicKey string) *WireGuardPeerStatus {
+	if peer, ok := peers[publicKey]; ok {
+		return peer
 	}
-	peers := parseWireGuardDump(string(out))
+	peer := &WireGuardPeerStatus{PublicKey: publicKey}
+	peers[publicKey] = peer
+	*order = append(*order, publicKey)
+	return peer
+}
+
+func readWireGuardInterface(interfaceName string) []WireGuardPeerStatus {
+	peers := make(map[string]*WireGuardPeerStatus)
+	order := make([]string, 0, 8)
+
+	if out, err := safeWGShow(interfaceName, "allowed-ips"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			peer := ensureWGPeer(peers, &order, fields[0])
+			peer.AllowedIPs = strings.Join(fields[1:], ", ")
+		}
+	}
+	if out, err := safeWGShow(interfaceName, "endpoints"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			peer := ensureWGPeer(peers, &order, fields[0])
+			if fields[1] != "(none)" {
+				peer.Endpoint = fields[1]
+			}
+		}
+	}
+	if out, err := safeWGShow(interfaceName, "latest-handshakes"); err == nil {
+		now := time.Now().Unix()
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			peer := ensureWGPeer(peers, &order, fields[0])
+			if ts, parseErr := strconv.ParseInt(fields[1], 10, 64); parseErr == nil && ts > 0 {
+				peer.LastHandshake = ts
+				peer.Online = now >= ts && now-ts < 180
+			}
+		}
+	}
+	if out, err := safeWGShow(interfaceName, "transfer"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				continue
+			}
+			peer := ensureWGPeer(peers, &order, fields[0])
+			peer.RXBytes, _ = strconv.ParseUint(fields[1], 10, 64)
+			peer.TXBytes, _ = strconv.ParseUint(fields[2], 10, 64)
+		}
+	}
+
+	result := make([]WireGuardPeerStatus, 0, len(order))
+	for _, publicKey := range order {
+		if peer := peers[publicKey]; peer != nil {
+			result = append(result, *peer)
+		}
+	}
+	return result
+}
+
+func readWireGuardPeers() []WireGuardPeerStatus {
+	return readWireGuardInterface("wg0")
+}
+
+func readWireGuardClientStatus() *WireGuardClientStatus {
+	peers := readWireGuardInterface("wg1")
 	if len(peers) == 0 {
-		return &WireGuardClientStatus{}
+		return nil
 	}
 	peer := peers[0]
 	return &WireGuardClientStatus{

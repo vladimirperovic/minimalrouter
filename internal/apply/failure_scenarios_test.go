@@ -39,13 +39,15 @@ func successfulScenarioStep() scenarioApplyStep {
 	return scenarioApplyStep{response: ApplyResponse{Success: true, Verified: true}}
 }
 
+// candidateWithNewLAN is deliberately a same-subnet gateway move. Generic
+// commit-confirm/failure tests should exercise the confirmation protocol
+// without accidentally testing cross-subnet migration, which has its own
+// explicit two-step trusted-network test matrix in transition_safety_test.go.
 func candidateWithNewLAN(initial config.SystemConfig) config.SystemConfig {
-	candidate := initial
-	candidate.LAN.IPAddress = "10.23.0.1"
-	candidate.LAN.CIDR = "10.23.0.1/24"
+	candidate := initial.DeepCopy()
+	candidate.LAN.IPAddress = "192.168.1.254"
+	candidate.LAN.CIDR = "192.168.1.254/24"
 	candidate.LAN.Netmask = "255.255.255.0"
-	candidate.DHCP.RangeStart = "10.23.0.100"
-	candidate.DHCP.RangeEnd = "10.23.0.200"
 	return candidate
 }
 
@@ -98,11 +100,11 @@ func TestAmbiguousPrivilegedApplyRetriesSameTransaction(t *testing.T) {
 	}
 }
 
-func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
+func TestConfirmationResponseLossRetriesSameCanonicalAck(t *testing.T) {
 	initial := config.DefaultConfig()
 	client := &scenarioApplyClient{steps: []scenarioApplyStep{
 		successfulScenarioStep(),
-		{err: errors.New("confirmation response lost")},
+		{err: errors.New("canonical acknowledgement response lost")},
 		successfulScenarioStep(),
 		successfulScenarioStep(),
 	}}
@@ -120,22 +122,25 @@ func TestConfirmationResponseLossRetriesSameTransaction(t *testing.T) {
 
 	confirmed, err := engine.ConfirmTransaction(tx.ID)
 	if err != nil {
-		t.Fatalf("confirmation should recover a lost response: %v", err)
+		t.Fatalf("confirmation should recover a lost canonical-ack response: %v", err)
 	}
 	if confirmed.CurrentState != StateCommitted {
 		t.Fatalf("expected committed confirmation, got %s", confirmed.CurrentState)
 	}
 	if len(client.requests) != 4 {
-		t.Fatalf("expected apply, two runtime-confirm attempts, and canonical commit, got %d requests", len(client.requests))
+		t.Fatalf("expected apply, two canonical-ack attempts, and LAN finalize reconcile, got %d requests", len(client.requests))
 	}
-	if client.requests[1].Op != OpConfirm || client.requests[2].Op != OpConfirm {
-		t.Fatalf("runtime confirmation retry used unexpected operations: %s, %s", client.requests[1].Op, client.requests[2].Op)
+	if client.requests[1].Op != OpCommitConfirmed || client.requests[2].Op != OpCommitConfirmed {
+		t.Fatalf("canonical acknowledgement retry used unexpected operations: %s, %s", client.requests[1].Op, client.requests[2].Op)
 	}
 	if client.requests[1].ID != client.requests[2].ID {
-		t.Fatalf("confirmation retry changed transaction ID: %q != %q", client.requests[1].ID, client.requests[2].ID)
+		t.Fatalf("ambiguous acknowledgement retry changed transaction ID: %q != %q", client.requests[1].ID, client.requests[2].ID)
 	}
-	if client.requests[3].Op != OpCommitConfirmed {
-		t.Fatalf("final helper operation=%s, want %s", client.requests[3].Op, OpCommitConfirmed)
+	if !client.requests[1].SkipWANVerify || !client.requests[2].SkipWANVerify {
+		t.Fatal("canonical acknowledgement retry must remain independent of transient WAN availability")
+	}
+	if client.requests[3].Op != OpReconcile {
+		t.Fatalf("final helper operation=%s, want LAN finalize %s", client.requests[3].Op, OpReconcile)
 	}
 	for i := 1; i < len(client.requests); i++ {
 		if client.requests[i].Revision != client.requests[0].Revision {
@@ -172,9 +177,7 @@ func TestWireGuardOnlyControlPlaneChangesRequireConfirmation(t *testing.T) {
 
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			candidate := current
-			candidate.WireGuard.Peers = append([]config.WireGuardPeer(nil), current.WireGuard.Peers...)
-			candidate.WireGuard.Peers[0].AllowedIPs = append([]string(nil), current.WireGuard.Peers[0].AllowedIPs...)
+			candidate := current.DeepCopy()
 			mutate(&candidate)
 			if !requiresConfirmation(current, candidate) {
 				t.Fatal("WireGuard-only management change must remain provisional until connectivity is confirmed")
@@ -189,7 +192,7 @@ func TestLANManagedWireGuardChangeDoesNotCreateUnnecessaryConfirmation(t *testin
 	current.WAN.Username = "test-user"
 	current.WAN.Password = "test-password"
 	current.WireGuard = validWireGuardConfig()
-	candidate := current
+	candidate := current.DeepCopy()
 	candidate.WireGuard.ListenPort++
 
 	if requiresConfirmation(current, candidate) {
@@ -288,9 +291,7 @@ func TestUnverifiedPrivilegedResponseNeverCommits(t *testing.T) {
 	initial := config.DefaultConfig()
 	candidate := initial
 	candidate.System.Hostname = "unverified-candidate"
-	client := &scenarioApplyClient{steps: []scenarioApplyStep{{
-		response: ApplyResponse{Success: true, Verified: false},
-	}}}
+	client := &scenarioApplyClient{steps: []scenarioApplyStep{{response: ApplyResponse{Success: true, Verified: false}}}}
 	engine := NewEngineWithClient(initial, nil, client)
 
 	tx, err := engine.ProcessTransaction("tx-unverified", candidate)

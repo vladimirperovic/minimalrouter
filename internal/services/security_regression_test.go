@@ -33,7 +33,7 @@ func TestWireGuardInputDropsInvalidBeforeAcceptAndUsesPerSourceMeter(t *testing.
 	}
 }
 
-func TestCloudflareDDNSGetsConditionalHTTPSEgress(t *testing.T) {
+func TestCloudflareDDNSGetsConditionalWANOnlyHTTPSEgress(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Cloudflare.DDNSEnabled = true
 
@@ -42,12 +42,24 @@ func TestCloudflareDDNSGetsConditionalHTTPSEgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		`meta skuid routerd oifname "eth0" tcp dport 443 accept`,
+		`meta skuid routerd oifname "ppp*" tcp dport 443 accept`,
+		`meta skuid root oifname "eth0" tcp dport 443 accept`,
+		`meta skuid root oifname "ppp*" tcp dport 443 accept`,
+		`meta skuid inadyn oifname "eth0" tcp dport 443 accept`,
+		`meta skuid inadyn oifname "ppp*" tcp dport 443 accept`,
+	} {
+		if !strings.Contains(rules, expected) {
+			t.Fatalf("WAN-scoped HTTPS egress rule %q is missing:\n%s", expected, rules)
+		}
+	}
+	for _, unsafe := range []string{
 		"meta skuid routerd tcp dport 443 accept",
 		"meta skuid root tcp dport 443 accept",
 		"meta skuid inadyn tcp dport 443 accept",
 	} {
-		if !strings.Contains(rules, expected) {
-			t.Fatalf("DDNS egress rule %q is missing:\n%s", expected, rules)
+		if strings.Contains(rules, unsafe) {
+			t.Fatalf("unscoped HTTPS egress rule reappeared: %q", unsafe)
 		}
 	}
 
@@ -56,8 +68,11 @@ func TestCloudflareDDNSGetsConditionalHTTPSEgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(rules, "meta skuid inadyn tcp dport 443 accept") {
+	if strings.Contains(rules, "meta skuid inadyn") {
 		t.Fatal("inadyn HTTPS egress must disappear when DDNS is disabled")
+	}
+	if strings.Contains(rules, "meta skuid root oifname") {
+		t.Fatal("DDNS root HTTPS egress must disappear when DDNS is disabled")
 	}
 }
 

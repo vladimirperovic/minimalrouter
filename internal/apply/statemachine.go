@@ -87,11 +87,7 @@ func NewEngine(initial config.SystemConfig, store *config.FileStore) *Engine {
 }
 
 func NewEngineWithClient(initial config.SystemConfig, store *config.FileStore, client Client) *Engine {
-	return &Engine{
-		currentConfig: initial,
-		store:         store,
-		client:        client,
-	}
+	return &Engine{currentConfig: initial, store: store, client: client}
 }
 
 // applyPrivileged retries only ambiguous transport failures. The helper
@@ -148,12 +144,7 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	tx := &Transaction{
-		ID:           txID,
-		CurrentState: StateReceived,
-		Config:       newCfg,
-		CreatedAt:    time.Now(),
-	}
+	tx := &Transaction{ID: txID, CurrentState: StateReceived, Config: newCfg, CreatedAt: time.Now()}
 	e.activeTx = tx
 	if e.recoveryRequired {
 		tx.CurrentState = StateRecoveryRequired
@@ -184,9 +175,7 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		tx.Error = "live management-port changes are unsupported"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
-	if newCfg.System.ManagementAccess == "wireguard_only" &&
-		e.currentConfig.System.ManagementAccess != "wireguard_only" &&
-		!e.currentConfig.WireGuard.Enabled {
+	if newCfg.System.ManagementAccess == "wireguard_only" && e.currentConfig.System.ManagementAccess != "wireguard_only" && !e.currentConfig.WireGuard.Enabled {
 		tx.CurrentState = StateRejected
 		tx.Error = "enable and verify WireGuard in a separate transaction before restricting management access"
 		return tx, fmt.Errorf("%s", tx.Error)
@@ -196,6 +185,19 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		tx.Error = fmt.Sprintf("Validation failed: %v", err)
 		return tx, err
 	}
+	if err := newCfg.ValidateScenarioSafety(); err != nil {
+		tx.CurrentState = StateRejected
+		tx.Error = fmt.Sprintf("Scenario safety validation failed: %v", err)
+		return tx, err
+	}
+	if !allowInterfaceChange {
+		if err := validateTransitionSafety(e.currentConfig, newCfg); err != nil {
+			tx.CurrentState = StateRejected
+			tx.Error = "Transition safety validation failed: " + err.Error()
+			return tx, err
+		}
+	}
+
 	newCfg.Revision = e.currentConfig.Revision + 1
 	newCfg.UpdatedAt = time.Now()
 	tx.Config = newCfg
@@ -247,22 +249,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		commitConfig = e.store.SaveConfig
 	}
 	applyReq := ApplyRequest{
-		ID:                  txID,
-		Op:                  OpApplyAll,
-		Revision:            newCfg.Revision,
-		Config:              newCfg,
-		Nftables:            nftablesCfg,
-		PPPoEPeer:           pppoeBundle.PeerConfig,
-		PPPoESecret:         pppoeBundle.ChapSecrets,
-		Dnsmasq:             dnsmasqCfg,
-		Hostapd:             hostapdCfg,
-		WireGuard:           wireGuardCfg,
+		ID: txID, Op: OpApplyAll, Revision: newCfg.Revision, Config: newCfg,
+		Nftables: nftablesCfg, PPPoEPeer: pppoeBundle.PeerConfig, PPPoESecret: pppoeBundle.ChapSecrets,
+		Dnsmasq: dnsmasqCfg, Hostapd: hostapdCfg, WireGuard: wireGuardCfg,
 		RequireConfirmation: !allowInterfaceChange && requiresConfirmation(e.currentConfig, newCfg),
 	}
-	// Routine saves commit canonical state before the helper's last-good
-	// acknowledgement, so power loss can never leave last-good ahead of
-	// SQLite. Confirmation flows already use this order; setup keeps its own
-	// single-phase commit (no canonical state exists to protect yet).
 	applyReq.DeferLastGood = !applyReq.RequireConfirmation && commitConfig != nil && !allowInterfaceChange
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	defer cancel()
@@ -339,9 +330,6 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 			return tx, err
 		}
 		if applyReq.DeferLastGood {
-			// Finalize the two-phase commit: canonical SQLite is now the
-			// candidate, so the helper may advance last-good and clear its
-			// pending marker.
 			ackID := txID + "-commit-canonical-0"
 			ackReq := ApplyRequest{ID: ackID, Op: OpCommitConfirmed, Revision: newCfg.Revision, Config: newCfg, SkipWANVerify: true}
 			ackCtx, ackCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
@@ -369,26 +357,12 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 }
 
 func requiresConfirmation(current, candidate config.SystemConfig) bool {
-	wireGuardManagementChanged :=
-		(current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
-			!reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
-	// The outbound tunnel (wg1) silently controls remote-site reachability: a
-	// wrong endpoint, rotated key, or mis-scoped allowed network must never
-	// commit without a 90-second confirmation window, exactly like a Wi-Fi
-	// bridge change.
+	wireGuardManagementChanged := (current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") && !reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
+	wifiChanged := !reflect.DeepEqual(current.WiFi, candidate.WiFi) && (current.WiFi.Enabled || candidate.WiFi.Enabled)
 	wgClientChanged := !reflect.DeepEqual(current.WGClient, candidate.WGClient)
-	// A trusted_networks change can silently move the management boundary;
-	// combined with the per-request anti-lockout gate it must be visible in
-	// the confirmation window.
 	trustedNetworksChanged := !reflect.DeepEqual(current.TrustedNetworks, candidate.TrustedNetworks)
-	return current.LAN.IPAddress != candidate.LAN.IPAddress ||
-		current.LAN.CIDR != candidate.LAN.CIDR ||
-		current.System.ManagementAccess != candidate.System.ManagementAccess ||
-		current.WiFi.Enabled != candidate.WiFi.Enabled ||
-		current.WiFi.Interface != candidate.WiFi.Interface ||
-		wireGuardManagementChanged ||
-		wgClientChanged ||
-		trustedNetworksChanged
+	return current.LAN.IPAddress != candidate.LAN.IPAddress || current.LAN.CIDR != candidate.LAN.CIDR ||
+		current.System.ManagementAccess != candidate.System.ManagementAccess || wifiChanged || wireGuardManagementChanged || wgClientChanged || trustedNetworksChanged
 }
 
 func (e *Engine) GetPendingTransaction() *Transaction {
@@ -401,6 +375,24 @@ func (e *Engine) GetPendingTransaction() *Transaction {
 	return &copy
 }
 
+func verifyWGClientStatusForConfirmation(status *TunnelStatus, keepalive int) error {
+	if status == nil || status.LastHandshake <= 0 {
+		return fmt.Errorf("WireGuard client tunnel has no completed handshake")
+	}
+	if keepalive <= 0 {
+		return nil
+	}
+	maxAge := 3 * time.Minute
+	if age := time.Duration(keepalive) * 3 * time.Second; age > maxAge {
+		maxAge = age
+	}
+	age := time.Since(time.Unix(status.LastHandshake, 0))
+	if age > maxAge {
+		return fmt.Errorf("WireGuard client handshake is stale (last %s ago)", age.Round(time.Second))
+	}
+	return nil
+}
+
 func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	e.operationMu.Lock()
 	defer e.operationMu.Unlock()
@@ -411,30 +403,28 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	}
 	pending := e.pending
 	if !pending.canonicalCommitted {
-		req := ApplyRequest{ID: txID + "-confirm-runtime", Op: OpConfirm, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
-		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-		e.applying = true
-		e.mu.Unlock()
-		resp, err := e.applyPrivileged(ctx, req)
-		e.mu.Lock()
-		e.applying = false
-		cancel()
-		if err != nil {
-			pending.tx.CurrentState = StateRecoveryRequired
-			pending.tx.Error = fmt.Sprintf("privileged runtime confirmation outcome is unknown; verified rollback or retry is required: %v", err)
-			e.requireRecovery(pending.tx.Error)
-			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %w", err)
-		}
-		if !resp.Success || !resp.Verified {
-			pending.tx.CurrentState = StateRecoveryRequired
-			pending.tx.Error = "privileged runtime confirmation failed; verified rollback or retry is required: " + resp.Error
-			e.requireRecovery(pending.tx.Error)
-			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %s", resp.Error)
+		if !reflect.DeepEqual(pending.previous.WGClient, pending.tx.Config.WGClient) && pending.tx.Config.WGClient.Enabled {
+			statusReq := ApplyRequest{ID: txID + "-wg1-status", Op: OpWGTunnelStatus, Config: pending.tx.Config, TunnelInterface: pending.tx.Config.WGClient.Interface}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			e.applying = true
+			e.mu.Unlock()
+			statusResp, statusErr := e.applyPrivileged(ctx, statusReq)
+			e.mu.Lock()
+			e.applying = false
+			cancel()
+			if statusErr != nil || statusResp == nil || !statusResp.Success || statusResp.TunnelStatus == nil {
+				pending.tx.Error = "WireGuard client confirmation failed: tunnel status is unavailable"
+				return pending.tx, fmt.Errorf("%s", pending.tx.Error)
+			}
+			if err := verifyWGClientStatusForConfirmation(statusResp.TunnelStatus, pending.tx.Config.WGClient.PersistentKeepalive); err != nil {
+				pending.tx.Error = "WireGuard client confirmation failed: " + err.Error()
+				return pending.tx, err
+			}
 		}
 		if e.store != nil {
 			if err := e.store.SaveConfig(pending.tx.Config); err != nil {
 				pending.tx.CurrentState = StateRecoveryRequired
-				pending.tx.Error = "runtime confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
+				pending.tx.Error = "management-path confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
 				return pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
 			}
 		}
@@ -447,7 +437,7 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 
 	pending.commitAttempts++
 	commitID := fmt.Sprintf("%s-commit-confirmed-%d", txID, pending.commitAttempts)
-	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config}
+	commitReq := ApplyRequest{ID: commitID, Op: OpCommitConfirmed, Revision: pending.tx.Config.Revision, Config: pending.tx.Config, SkipWANVerify: true}
 	commitCtx, commitCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	e.applying = true
 	e.mu.Unlock()
@@ -464,6 +454,20 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 		}
 		e.requireRecovery(pending.tx.Error)
 		return pending.tx, fmt.Errorf("confirmed helper commit failed")
+	}
+
+	lanChanged := pending.previous.LAN.IPAddress != pending.tx.Config.LAN.IPAddress || pending.previous.LAN.CIDR != pending.tx.Config.LAN.CIDR
+	if lanChanged {
+		if finalizeReq, buildErr := buildApplyRequest(txID+"-finalize-lan", pending.tx.Config); buildErr == nil {
+			finalizeReq.Op = OpReconcile
+			finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+			e.applying = true
+			e.mu.Unlock()
+			_, _ = e.applyPrivileged(finalizeCtx, finalizeReq)
+			e.mu.Lock()
+			e.applying = false
+			finalizeCancel()
+		}
 	}
 
 	now := time.Now()
@@ -594,11 +598,7 @@ func (e *Engine) GetCurrentConfig() config.SystemConfig {
 func (e *Engine) GetStatus() EngineStatus {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	status := EngineStatus{
-		Applying:         e.applying,
-		RecoveryRequired: e.recoveryRequired,
-		RecoveryReason:   e.recoveryReason,
-	}
+	status := EngineStatus{Applying: e.applying, RecoveryRequired: e.recoveryRequired, RecoveryReason: e.recoveryReason}
 	if e.activeTx != nil {
 		status.ActiveTransactionID = e.activeTx.ID
 		status.ActiveState = e.activeTx.CurrentState

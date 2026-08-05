@@ -90,8 +90,6 @@ function Dashboard() {
         setSystem((await systemResult.value.json()) as SystemStatus);
         setLastRefresh(new Date());
       } else {
-        // Never keep old CPU/RAM/leases/service state beside a fresh-looking
-        // timestamp. An empty runtime renders unavailable/zero values instead.
         setSystem({});
         setLastRefresh(null);
         unavailable.push("system status");
@@ -234,8 +232,6 @@ function Dashboard() {
   const submitWireGuardClient = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    // An explicit 0 means keepalives disabled and must reach the backend
-    // verbatim, not be coerced to the 25-second default.
     const keepalive = Number(field(form, "client_keepalive"));
     const persistentKeepalive = Number.isFinite(keepalive) && keepalive >= 0 ? keepalive : 25;
     void applyConfig((next) => {
@@ -542,6 +538,7 @@ function Dashboard() {
 
         {active !== "security" && (
           <DashboardSections
+            key={`dashboard-sections-${config.revision}`}
             active={active}
             applyConfig={applyConfig}
             applyGatewayMonitoring={applyGatewayMonitoring}

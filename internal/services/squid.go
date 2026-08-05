@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
-// GenerateSquidConfig renders a non-caching, authenticated forward proxy configuration for Alpine Linux.
+// GenerateSquidConfig renders a non-caching, authenticated forward proxy
+// configuration for Alpine Linux. Squid is intentionally an Internet-only
+// egress proxy: authenticated LAN clients must never be able to use the
+// router-local proxy as a pivot around nftables segmentation toward LAN,
+// ExtraLAN, WireGuard, loopback, link-local, CGNAT or other non-public space.
 func GenerateSquidConfig(cfg *config.SystemConfig) (string, error) {
 	var buf bytes.Buffer
 
@@ -29,6 +34,39 @@ func GenerateSquidConfig(cfg *config.SystemConfig) (string, error) {
 		_, lanNetwork, _ := net.ParseCIDR(cfg.LAN.CIDR)
 		buf.WriteString(fmt.Sprintf("acl localnet src %s\n", lanNetwork.String()))
 		buf.WriteString("acl authenticated proxy_auth REQUIRED\n")
+
+		// Defense in depth for segmentation. The nftables output chain also
+		// confines the squid UID to WAN interfaces, but Squid itself must reject
+		// destinations that are never valid Internet proxy targets. Explicit
+		// configured zones are included even when they use unusual/public test
+		// prefixes, so a future topology change cannot turn the proxy into a
+		// router-local SSRF/pivot primitive.
+		blocked := []string{
+			"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+			"169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
+			"192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
+			"224.0.0.0/4", "240.0.0.0/4",
+		}
+		blocked = append(blocked, lanNetwork.String())
+		if cfg.WireGuard.Enabled {
+			if _, wgNet, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil {
+				blocked = append(blocked, wgNet.String())
+			}
+		}
+		for _, lan := range cfg.Firewall.ExtraLANs {
+			if lan.Enabled && strings.TrimSpace(lan.CIDR) != "" {
+				if _, extraNet, err := net.ParseCIDR(lan.CIDR); err == nil {
+					blocked = append(blocked, extraNet.String())
+				}
+			}
+		}
+		for _, remote := range cfg.WGClient.AllowedIPs {
+			if _, remoteNet, err := net.ParseCIDR(strings.TrimSpace(remote)); err == nil && remoteNet.IP.To4() != nil {
+				blocked = append(blocked, remoteNet.String())
+			}
+		}
+		buf.WriteString("acl blocked_dst dst " + strings.Join(blocked, " ") + "\n")
+		buf.WriteString("http_access deny blocked_dst\n")
 		buf.WriteString("http_access allow localnet authenticated\n")
 	} else {
 		buf.WriteString("# Proxy disabled\n")

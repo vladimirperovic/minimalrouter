@@ -54,25 +54,45 @@ type ApplyRequest struct {
 	WireGuard           string              `json:"wireguard,omitempty"`
 	ServiceName         string              `json:"service_name,omitempty"`
 	RequireConfirmation bool                `json:"require_confirmation,omitempty"`
+	// VerifyWGClient scopes the expensive/availability-sensitive wg1 handshake
+	// proof to transactions that actually changed wg1. A temporary office VPN
+	// outage must never block confirmation of an unrelated LAN/Wi-Fi/trust
+	// change merely because wg1 happens to be enabled.
+	VerifyWGClient bool `json:"verify_wg_client,omitempty"`
+	// TunnelInterface selects the interface for the read-only WG telemetry RPC.
+	// The helper validates the name and returns a sanitized projection only.
+	TunnelInterface string `json:"tunnel_interface,omitempty"`
 	// DeferLastGood withholds the helper's last-good write until the caller
 	// has committed the canonical store; the transaction is then finalized
 	// with OpCommitConfirmed. This keeps last-good from ever advancing ahead
 	// of the canonical SQLite state.
 	DeferLastGood bool `json:"defer_last_good,omitempty"`
 	// SkipWANVerify relaxes the commit-ack verification for the automatic
-	// two-phase commit of routine saves (the apply already verified WAN when
-	// required; a down ISP must not strand an already-correct commit).
+	// two-phase commit of routine saves and user-confirmed commits. The apply
+	// phase already verifies WAN when required; an ISP flap after canonical
+	// commit must not turn a correct local configuration into RecoveryRequired.
 	SkipWANVerify bool `json:"skip_wan_verify,omitempty"`
 }
 
-// TunnelStatus is the sanitized projection of a WireGuard dump: endpoint,
-// handshake epoch, and transfer counters only. Keys are never included.
-type TunnelStatus struct {
-	Interface     string `json:"interface"`
+// TunnelPeerStatus is the sanitized per-peer WireGuard projection. Public keys
+// are identities, not secrets; private and preshared keys never cross the root
+// helper boundary.
+type TunnelPeerStatus struct {
+	PublicKey     string `json:"public_key,omitempty"`
 	Endpoint      string `json:"endpoint,omitempty"`
 	LastHandshake int64  `json:"last_handshake"`
 	RxBytes       int64  `json:"rx_bytes"`
 	TxBytes       int64  `json:"tx_bytes"`
+}
+
+// TunnelStatus is the sanitized projection of a WireGuard dump.
+type TunnelStatus struct {
+	Interface     string             `json:"interface"`
+	Endpoint      string             `json:"endpoint,omitempty"`
+	LastHandshake int64              `json:"last_handshake"`
+	RxBytes       int64              `json:"rx_bytes"`
+	TxBytes       int64              `json:"tx_bytes"`
+	Peers         []TunnelPeerStatus `json:"peers,omitempty"`
 }
 
 // ApplyResponse represents the structured execution output from router-applyd.

@@ -61,7 +61,7 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
@@ -74,7 +74,7 @@ if [ "$OFFLINE_MODE" -eq 1 ]; then
             MISSING_PKGS="$MISSING_PKGS $pkg"
         fi
     done
-    
+
     if [ -n "$MISSING_PKGS" ]; then
         echo "ERROR: The following required packages are missing for offline installation:" >&2
         echo "$MISSING_PKGS" >&2
@@ -110,15 +110,40 @@ if [ -f /etc/conf.d/chronyd ]; then
     fi
 fi
 
-echo "[2/7] Creating user..."
+echo "[2/7] Creating users and private state directories..."
 if ! id -u routerd >/dev/null 2>&1; then
     addgroup -S routerd
     adduser -S -D -H -h /var/lib/minimalrouter -s /sbin/nologin -G routerd routerd
 fi
+if ! id -u dnsmasq >/dev/null 2>&1; then
+    echo "ERROR: the installed dnsmasq package did not create its service account" >&2
+    exit 1
+fi
+
+# Canonical config/auth state belongs only to routerd; DHCP leases use a
+# separate persistent directory owned by dnsmasq so persistence never requires
+# weakening the 0700 routerd data directory.
+install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
+install -d -m 0750 -o dnsmasq -g dnsmasq /var/lib/minimalrouter-dhcp
+install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
+
+# routerd needs read-only live WireGuard statistics, but `wg show ... dump`
+# contains interface private and peer preshared keys. Grant exactly the four
+# non-secret projections for wg0/wg1 and no other root command or argument.
+install -d -m 0755 -o root -g root /etc/doas.d
+cat > /etc/doas.d/50-minimalrouter.conf <<'DOAS_CONFIG'
+permit nopass routerd as root cmd /usr/bin/wg args show wg0 endpoints
+permit nopass routerd as root cmd /usr/bin/wg args show wg0 allowed-ips
+permit nopass routerd as root cmd /usr/bin/wg args show wg0 latest-handshakes
+permit nopass routerd as root cmd /usr/bin/wg args show wg0 transfer
+permit nopass routerd as root cmd /usr/bin/wg args show wg1 endpoints
+permit nopass routerd as root cmd /usr/bin/wg args show wg1 allowed-ips
+permit nopass routerd as root cmd /usr/bin/wg args show wg1 latest-handshakes
+permit nopass routerd as root cmd /usr/bin/wg args show wg1 transfer
+DOAS_CONFIG
+chmod 0400 /etc/doas.d/50-minimalrouter.conf
 
 echo "[3/7] Installing bootstrap payload and stable command dispatcher..."
-install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
-install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 install -d -m 0750 -o root -g routerd /run/minimalrouter
 install -d -m 0750 -o root -g inadyn /etc/inadyn
 install -d -m 0755 -o root -g root \

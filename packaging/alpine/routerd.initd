@@ -25,6 +25,10 @@ depend() {
 
 start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
+    # DHCP leases live in a dedicated dnsmasq-owned 0750 directory. Give the
+    # management daemon only the supplementary group needed to read that live
+    # status; canonical config/auth storage stays private to routerd.
+    addgroup routerd dnsmasq >/dev/null 2>&1 || true
 }
 
 start_post() {

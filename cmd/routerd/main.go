@@ -26,7 +26,6 @@ import (
 )
 
 func main() {
-	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 128 MB.
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(128 << 20)
 
@@ -53,7 +52,6 @@ func main() {
 		log.Fatalf("Refusing startup because canonical configuration is unavailable: %v", err)
 	}
 
-	// Load persisted admin password hash from SQLite
 	adminHash := ""
 	if hash, err := store.GetAdminHash(); err == nil {
 		adminHash = hash
@@ -77,10 +75,6 @@ func main() {
 	} else {
 		engine = apply.NewEngine(initialCfg, store)
 	}
-	// A factory-fresh appliance has only placeholder interface names. Start the
-	// wizard before reconciliation so the administrator can select the real
-	// interfaces (ens18, enp2s0, and similar). Configured appliances reconcile
-	// before accepting mutations, but the read-only status plane remains online.
 	if adminHash != "" {
 		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
 		if err := engine.Reconcile(reconcileCtx); err != nil {
@@ -89,12 +83,10 @@ func main() {
 		reconcileCancel()
 	}
 
-	// Setup persistent session manager and rate limiter
 	sessionMgr := persistent.NewPersistentSessionManagerWithSecureCookies(store, !previewHTTP)
 	rateLimiter := persistent.NewPersistentRateLimiter(store, 5, 60*time.Second)
 	globalRateLimiter := persistent.NewPersistentRateLimiter(store, 100, 60*time.Second)
 
-	// Setup API server with persistent auth
 	server := api.NewServerWithAuth(engine, sessionMgr, rateLimiter, adminHash, store)
 	server.ConfigureGlobalLoginLimiter(globalRateLimiter)
 	server.ConfigureLoopbackHTTPPreview(previewHTTP)
@@ -116,19 +108,14 @@ func main() {
 		log.Printf("Serving dashboard from %s", webDir)
 	}
 
-	// TLS Certificate management
 	certMgr := tlsutil.NewCertManager(absDir)
 	certPEM, keyPEM, err := certMgr.EnsureCertificate(&initialCfg)
 	if err != nil {
 		log.Fatalf("Failed to setup TLS certificate: %v", err)
 	}
-
-	// Display certificate fingerprint for setup verification
 	if fp, err := tlsutil.GetCertificateFingerprint(certPEM); err == nil {
 		log.Printf("TLS Certificate Fingerprint (SHA256): %s", fp)
 	}
-
-	// Parse certificate and key for the server
 	cert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		log.Fatalf("Failed to load TLS key pair: %v", err)
@@ -141,8 +128,32 @@ func main() {
 		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
 			certMu.Lock()
 			defer certMu.Unlock()
+
 			active := engine.GetCurrentConfig()
-			activeCertPEM, activeKeyPEM, certErr := certMgr.EnsureCertificate(&active)
+			additionalIPs := make([]net.IP, 0, 2)
+			additionalDNS := make([]string, 0, 1)
+			if pending := engine.GetPendingTransaction(); pending != nil {
+				if pending.Config.LAN.IPAddress != "" && pending.Config.LAN.IPAddress != active.LAN.IPAddress {
+					if ip := net.ParseIP(pending.Config.LAN.IPAddress); ip != nil {
+						additionalIPs = append(additionalIPs, ip)
+					}
+				}
+				if pending.Config.WireGuard.Enabled {
+					if ip, _, parseErr := net.ParseCIDR(pending.Config.WireGuard.Address); parseErr == nil {
+						activeWG, _, _ := net.ParseCIDR(active.WireGuard.Address)
+						if activeWG == nil || !ip.Equal(activeWG) {
+							additionalIPs = append(additionalIPs, ip)
+						}
+					}
+				}
+				candidateName := strings.TrimSuffix(strings.TrimSpace(pending.Config.System.Hostname+"."+pending.Config.System.Domain), ".")
+				activeName := strings.TrimSuffix(strings.TrimSpace(active.System.Hostname+"."+active.System.Domain), ".")
+				if candidateName != "" && !strings.EqualFold(candidateName, activeName) {
+					additionalDNS = append(additionalDNS, candidateName)
+				}
+			}
+
+			activeCertPEM, activeKeyPEM, certErr := certMgr.EnsureCertificateWithAdditionalSANs(&active, additionalIPs, additionalDNS)
 			if certErr != nil {
 				return nil, certErr
 			}
@@ -152,7 +163,6 @@ func main() {
 			}
 			return &activeCert, nil
 		},
-		// Security hardening
 		PreferServerCipherSuites: true,
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
@@ -176,12 +186,9 @@ func main() {
 		TLSConfig:         tlsConfig,
 		ReadTimeout:       10 * time.Second,
 		ReadHeaderTimeout: 5 * time.Second,
-		// Configuration handlers have their own bounded operation contexts. A
-		// server-wide write deadline would make a successful apply look failed to
-		// the browser after the response socket is closed.
-		WriteTimeout:   0,
-		IdleTimeout:    15 * time.Second,
-		MaxHeaderBytes: 32 << 10,
+		WriteTimeout:      0,
+		IdleTimeout:       15 * time.Second,
+		MaxHeaderBytes:    32 << 10,
 	}
 
 	if previewHTTP {
@@ -249,8 +256,6 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 		} else if pending.Config.System.ManagementAccess == "wireguard_only" {
 			addConfigAddresses(pending.Config, false)
 		} else {
-			// LAN address changes are provisionally configured with both old
-			// and candidate addresses until connectivity is confirmed.
 			addConfigAddresses(current, true)
 			addConfigAddresses(pending.Config, true)
 		}
