@@ -36,7 +36,6 @@ export type RouterConfig = {
     username: string;
     password?: string;
     mtu: number;
-    use_peer_dns: boolean;
   };
   lan: { interface: string; ip_address: string; netmask: string; cidr: string };
   dhcp: {
