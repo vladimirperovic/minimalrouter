@@ -41,10 +41,9 @@ func init() {
 		restoreRuntime: restoreLastGoodRuntime,
 		clearPending:   clearPendingConfirmation,
 	}); err != nil {
-		// Errors that occur before restoreLastGoodRuntime begins (for example a
-		// corrupt last-good file or an orphaned pending marker) must also disable
-		// forwarding. Otherwise the persistent sysctl could leave a booted host
-		// forwarding packets without a verified helper-owned firewall table.
+		// Only failures of the security/core dataplane reach this point. Optional
+		// features are restored best-effort and reported as degraded instead of
+		// taking a safe LAN/firewall/router offline.
 		failClosedStartup(config.SystemConfig{})
 		log.Fatalf("applyd startup reconciliation failed closed: %v", err)
 	}
@@ -64,7 +63,6 @@ func reconcileStartup(h startupReconcileHooks) error {
 		if pending {
 			return errors.New("pending configuration exists without a recoverable last-good configuration")
 		}
-		// A fresh installation has no canonical state until setup completes.
 		return nil
 	}
 	if err != nil {
@@ -76,10 +74,10 @@ func reconcileStartup(h startupReconcileHooks) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("last-good configuration is invalid: %w", err)
 	}
+	if err := cfg.ValidateScenarioSafety(); err != nil {
+		return fmt.Errorf("last-good scenario safety is invalid: %w", err)
+	}
 
-	// /run is volatile and kernel interfaces disappear on power loss, so every
-	// installed boot restores the confirmed state even when no transaction was
-	// pending. This also deliberately rolls back an unconfirmed topology change.
 	if err := h.restoreRuntime(*cfg); err != nil {
 		return fmt.Errorf("restore confirmed runtime: %w", err)
 	}
@@ -104,6 +102,53 @@ func clearPendingConfirmation() error {
 	return os.Remove(pendingPath)
 }
 
+// preflightStartup separates security/core syntax from optional feature
+// availability. Invalid nftables/dnsmasq/PPPoE/wg0 configuration must fail
+// closed; an unavailable office VPN, Wi-Fi radio, DDNS provider or proxy must
+// not prevent the wired LAN management plane from booting.
+func preflightStartup(cfg config.SystemConfig, candidates map[string]string) error {
+	if err := runNftFile(candidates["nftables"], true); err != nil {
+		return fmt.Errorf("nftables: %w", err)
+	}
+	if err := runFixed("/usr/sbin/dnsmasq", "--test", "--conf-file="+candidates["dnsmasq"]); err != nil {
+		return fmt.Errorf("dnsmasq: %w", err)
+	}
+	if cfg.WAN.Enabled {
+		if err := runFixed("/usr/sbin/pppd", "dryrun", "file", candidates["pppoe"]); err != nil {
+			return fmt.Errorf("pppd: %w", err)
+		}
+	}
+	if cfg.WireGuard.Enabled {
+		if err := preflightWireGuard(candidates["wireguard-runtime"]); err != nil {
+			if cfg.System.ManagementAccess == "wireguard_only" {
+				return fmt.Errorf("management WireGuard: %w", err)
+			}
+			log.Printf("startup WireGuard server preflight degraded (LAN management remains available): %v", err)
+		}
+	}
+	if cfg.WGClient.Enabled {
+		if err := preflightWireGuard(candidates["wireguard-client-runtime"]); err != nil {
+			log.Printf("startup WireGuard client preflight degraded (non-fatal): %v", err)
+		}
+	}
+	if cfg.WiFi.Enabled {
+		if err := preflightWiFi(cfg.WiFi.Interface); err != nil {
+			log.Printf("startup Wi-Fi preflight degraded (wired LAN remains available): %v", err)
+		}
+	}
+	if cfg.Cloudflare.DDNSEnabled {
+		if err := runFixed("/usr/sbin/inadyn", "--check-config", "-f", candidates["cf-ddns"]); err != nil {
+			log.Printf("startup DDNS preflight degraded (non-fatal): %v", err)
+		}
+	}
+	if cfg.SquidProxy.Enabled {
+		if err := runFixed("/usr/sbin/squid", "-k", "parse", "-f", candidates["squid"]); err != nil {
+			log.Printf("startup Squid preflight degraded (non-fatal): %v", err)
+		}
+	}
+	return nil
+}
+
 func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := os.MkdirAll(socketDir, 0750); err != nil {
 		return fmt.Errorf("create runtime directory: %w", err)
@@ -125,13 +170,10 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("write startup candidates: %w", err)
 	}
-	if err := preflight(cfg, candidates, true); err != nil {
+	if err := preflightStartup(cfg, candidates); err != nil {
 		return fmt.Errorf("preflight last-good runtime: %w", err)
 	}
 
-	// Once activation begins, any failure leaves the appliance deliberately
-	// non-routing. This is safer than serving an unknown mixture of old kernel
-	// state and newly written service files.
 	activated := false
 	defer func() {
 		if !activated {
@@ -153,8 +195,18 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := configureRuntimeLAN(cfg); err != nil {
 		return err
 	}
-	if err := configureExtraLANs(cfg); err != nil {
-		return err
+	// ExtraLAN is a service segment, not a prerequisite for the core home LAN.
+	// Configure each segment independently; missing dedicated hardware leaves
+	// that segment unavailable while nftables still keeps the interface denied.
+	for _, lan := range cfg.Firewall.ExtraLANs {
+		if !lan.Enabled {
+			continue
+		}
+		single := cfg.DeepCopy()
+		single.Firewall.ExtraLANs = []config.ExtraLANConfig{lan}
+		if err := configureExtraLANs(single); err != nil {
+			log.Printf("startup extra LAN %s degraded (non-fatal): %v", lan.Interface, err)
+		}
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load startup nftables: %w", err)
@@ -163,18 +215,15 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		return fmt.Errorf("restart startup dnsmasq: %w", err)
 	}
 	if cfg.WAN.Enabled {
-		// Starting pppd is a local requirement; an ISP outage must not prevent the
-		// LAN management plane from booting. Runtime health can reconnect later.
+		// ISP/carrier/hardware availability is external to local correctness.
+		// Keep the secure LAN management plane available and let pppd/OpenRC
+		// reconnect later if the WAN cannot start at this instant.
 		if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
-			return fmt.Errorf("restart startup PPPoE service: %w", err)
+			log.Printf("startup PPPoE unavailable (LAN management remains online): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
 	}
-	// QoS attaches to ppp0, which only exists after PPPoE negotiates. It is a
-	// traffic-shaping optimization, not a security boundary: a failed tc attach
-	// must never fail-closed the appliance, or a slow ISP handshake would block
-	// routing entirely at every boot.
 	if cfg.QoS.Enabled {
 		if err := applyQoS(cfg); err != nil {
 			log.Printf("startup QoS not applied (non-fatal): %v", err)
@@ -183,50 +232,43 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		clearQoS(cfg)
 	}
 	if err := activateWireGuard(cfg); err != nil {
-		return fmt.Errorf("restore startup WireGuard: %w", err)
+		if cfg.System.ManagementAccess == "wireguard_only" {
+			return fmt.Errorf("restore startup management WireGuard: %w", err)
+		}
+		log.Printf("startup WireGuard server degraded (LAN management remains online): %v", err)
 	}
 	if err := activateWireGuardClient(cfg); err != nil {
-		// The outbound tunnel (wg1) is optional: its remote site cannot reach
-		// the router (input rules accept only established), so a boot where
-		// wg1 stays down must never fail-closed the core appliance. Runtime
-		// health reports the tunnel as degraded instead.
 		log.Printf("startup WireGuard client not brought up (non-fatal): %v", err)
 	}
 	if cfg.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
-			return fmt.Errorf("restart startup hostapd: %w", err)
+			log.Printf("startup Wi-Fi unavailable (wired LAN remains online): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	}
 	if cfg.Cloudflare.DDNSEnabled {
-		group, lookupErr := user.LookupGroup("inadyn")
-		if lookupErr != nil {
-			return errors.New("Cloudflare DDNS service group is unavailable")
-		}
-		gid, parseErr := strconv.Atoi(group.Gid)
-		if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
-			return errors.New("could not secure Cloudflare DDNS configuration ownership")
-		}
-		// Do not perform the normal forced external update here. Power recovery
-		// must succeed while the ISP is unavailable; inadyn retries asynchronously.
-		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
-			return fmt.Errorf("restart startup Cloudflare DDNS: %w", err)
+		if group, lookupErr := user.LookupGroup("inadyn"); lookupErr != nil {
+			log.Printf("startup DDNS unavailable: service group missing: %v", lookupErr)
+			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+		} else if gid, parseErr := strconv.Atoi(group.Gid); parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
+			log.Printf("startup DDNS unavailable: could not secure configuration ownership")
+			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+		} else if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+			log.Printf("startup DDNS unavailable (non-fatal): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 	}
 	if cfg.SquidProxy.Enabled {
-		group, lookupErr := user.LookupGroup("squid")
-		if lookupErr != nil {
-			return errors.New("Squid service group is unavailable")
-		}
-		gid, parseErr := strconv.Atoi(group.Gid)
-		if parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
-			return errors.New("could not secure Squid password file ownership")
-		}
-		if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
-			return fmt.Errorf("restart startup Squid: %w", err)
+		if group, lookupErr := user.LookupGroup("squid"); lookupErr != nil {
+			log.Printf("startup Squid unavailable: service group missing: %v", lookupErr)
+			_ = runFixed("/sbin/rc-service", "squid", "stop")
+		} else if gid, parseErr := strconv.Atoi(group.Gid); parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
+			log.Printf("startup Squid unavailable: could not secure password-file ownership")
+			_ = runFixed("/sbin/rc-service", "squid", "stop")
+		} else if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
+			log.Printf("startup Squid unavailable (non-fatal): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "squid", "stop")
@@ -238,6 +280,9 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	return nil
 }
 
+// verifyStartupLocal proves only security/core invariants. Optional components
+// are inspected and logged but never decide whether LAN/firewall management is
+// allowed to boot, except wg0 when management is explicitly wireguard-only.
 func verifyStartupLocal(cfg config.SystemConfig) error {
 	forwarding, err := runFixedOutput("/sbin/sysctl", "-n", "net.ipv4.ip_forward")
 	if err != nil || strings.TrimSpace(forwarding) != "1" {
@@ -266,11 +311,13 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 		if interfaceName == "" {
 			interfaceName = "wg0"
 		}
-		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
-			return fmt.Errorf("startup WireGuard interface unhealthy: %w", err)
-		}
-		if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName); err != nil {
-			return fmt.Errorf("startup WireGuard address unavailable: %w", err)
+		wgErr := runFixed("/usr/bin/wg", "show", interfaceName)
+		addrErr := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName)
+		if wgErr != nil || addrErr != nil {
+			if cfg.System.ManagementAccess == "wireguard_only" {
+				return errors.New("startup management WireGuard is unavailable")
+			}
+			log.Printf("startup WireGuard server degraded (non-fatal): wg=%v address=%v", wgErr, addrErr)
 		}
 	}
 	if cfg.WGClient.Enabled {
@@ -279,8 +326,6 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 			interfaceName = "wg1"
 		}
 		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
-			// Same optional-tunnel semantics as activation: an outbound tunnel
-			// that cannot come up must not block the core router from booting.
 			log.Printf("startup WireGuard client interface not available (non-fatal): %v", err)
 		} else if cfg.WGClient.Address != "" {
 			if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName); err != nil {
@@ -294,23 +339,22 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 		}
 		addressOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", lan.Interface)
 		if err != nil {
-			return fmt.Errorf("startup extra LAN %s interface unavailable: %w", lan.Interface, err)
+			log.Printf("startup extra LAN %s unavailable (non-fatal): %v", lan.Interface, err)
+			continue
 		}
 		addressPrefix := lan.RouterAddress
 		if slash := strings.IndexByte(addressPrefix, '/'); slash >= 0 {
 			addressPrefix = addressPrefix[:slash]
 		}
 		if !strings.Contains(addressOutput, "inet "+addressPrefix+"/") {
-			return fmt.Errorf("startup extra LAN %s router address is not active", lan.Interface)
+			log.Printf("startup extra LAN %s router address unavailable (non-fatal)", lan.Interface)
 		}
 	}
 	if cfg.WiFi.Enabled {
 		if err := runFixed("/sbin/rc-service", "hostapd", "status"); err != nil {
-			return fmt.Errorf("startup hostapd unhealthy: %w", err)
-		}
-		bridgeLink, err := os.Readlink(filepath.Join("/sys/class/net", cfg.WiFi.Interface, "master"))
-		if err != nil || filepath.Base(bridgeLink) != config.WiFiBridgeInterface {
-			return errors.New("startup Wi-Fi interface is not attached to the LAN bridge")
+			log.Printf("startup hostapd unhealthy (wired LAN remains available): %v", err)
+		} else if bridgeLink, linkErr := os.Readlink(filepath.Join("/sys/class/net", cfg.WiFi.Interface, "master")); linkErr != nil || filepath.Base(bridgeLink) != config.WiFiBridgeInterface {
+			log.Printf("startup Wi-Fi interface is not attached to LAN bridge (non-fatal)")
 		}
 	}
 	if cfg.SquidProxy.Enabled {
@@ -319,13 +363,14 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 			port = 3128
 		}
 		address := net.JoinHostPort(cfg.LAN.IPAddress, strconv.Itoa(port))
-		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
-		if err != nil {
-			return fmt.Errorf("startup Squid listener unavailable: %w", err)
+		conn, dialErr := net.DialTimeout("tcp", address, 2*time.Second)
+		if dialErr != nil {
+			log.Printf("startup Squid listener unavailable (non-fatal): %v", dialErr)
+		} else {
+			_ = conn.Close()
 		}
-		_ = conn.Close()
 		if err := runFixed("/sbin/rc-service", "squid", "status"); err != nil {
-			return fmt.Errorf("startup Squid unhealthy: %w", err)
+			log.Printf("startup Squid service unhealthy (non-fatal): %v", err)
 		}
 	}
 	return nil
