@@ -198,3 +198,21 @@ func TestRemovedAllowedIPs(t *testing.T) {
 		t.Fatalf("normalized duplicates reported stale: %v", got)
 	}
 }
+
+func TestParseWGTunnelStatusSanitizesKeys(t *testing.T) {
+	dump := "interface\tINTERFACE-PRIVATE-KEY\t51820\t0\n" +
+		"PEER-PUBLIC-KEY\tPEER-PRESHARED-KEY\t203.0.113.9:51820\t10.6.0.0/24\t1750000000\t1234\t5678\t25\n"
+	status := parseWGTunnelStatus("wg1", dump)
+	if status.LastHandshake != 1750000000 || status.RxBytes != 1234 || status.TxBytes != 5678 {
+		t.Fatalf("status fields not projected: %+v", status)
+	}
+	if status.Endpoint != "203.0.113.9:51820" {
+		t.Fatalf("endpoint %q", status.Endpoint)
+	}
+	serialized := fmt.Sprintf("%+v", status)
+	for _, secret := range []string{"PEER-PUBLIC-KEY", "PEER-PRESHARED-KEY", "INTERFACE-PRIVATE-KEY"} {
+		if strings.Contains(serialized, secret) {
+			t.Fatalf("WireGuard key crossed the privilege boundary: %q", secret)
+		}
+	}
+}

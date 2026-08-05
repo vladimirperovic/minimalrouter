@@ -32,6 +32,11 @@ const (
 	OpLoadNftables    OperationType = "LOAD_NFTABLES"
 	OpReloadService   OperationType = "RELOAD_SERVICE"
 	OpRestoreSnapshot OperationType = "RESTORE_SNAPSHOT"
+	// OpWGTunnelStatus is a read-only telemetry query: router-applyd runs
+	// `wg show ... dump` and returns only sanitized fields. WireGuard dump
+	// lines carry private and preshared keys; they must never cross the
+	// privilege boundary.
+	OpWGTunnelStatus OperationType = "WG_TUNNEL_STATUS"
 )
 
 // ApplyRequest represents a size-limited RPC payload sent from routerd to router-applyd.
@@ -60,6 +65,16 @@ type ApplyRequest struct {
 	SkipWANVerify bool `json:"skip_wan_verify,omitempty"`
 }
 
+// TunnelStatus is the sanitized projection of a WireGuard dump: endpoint,
+// handshake epoch, and transfer counters only. Keys are never included.
+type TunnelStatus struct {
+	Interface     string `json:"interface"`
+	Endpoint      string `json:"endpoint,omitempty"`
+	LastHandshake int64  `json:"last_handshake"`
+	RxBytes       int64  `json:"rx_bytes"`
+	TxBytes       int64  `json:"tx_bytes"`
+}
+
 // ApplyResponse represents the structured execution output from router-applyd.
 type ApplyResponse struct {
 	ID               string `json:"id"`
@@ -70,6 +85,8 @@ type ApplyResponse struct {
 	RolledBack       bool   `json:"rolled_back,omitempty"`
 	RecoveryRequired bool   `json:"recovery_required,omitempty"`
 	Timestamp        int64  `json:"timestamp"`
+	// TunnelStatus is populated only by OpWGTunnelStatus responses.
+	TunnelStatus *TunnelStatus `json:"tunnel_status,omitempty"`
 }
 
 // Validate rejects contradictory privileged outcomes. The management plane must

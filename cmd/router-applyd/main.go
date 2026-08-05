@@ -188,9 +188,16 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 	switch req.Op {
-	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile:
+	case apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed, apply.OpReconcile, apply.OpWGTunnelStatus:
 	default:
 		writeResponse(conn, apply.ApplyResponse{ID: req.ID, Success: false, Error: "operation is not allowlisted"})
+		return
+	}
+
+	// Telemetry queries are read-only and non-transactional: no transaction
+	// intent is persisted and no replay state is consulted.
+	if req.Op == apply.OpWGTunnelStatus {
+		writeResponse(conn, wgTunnelStatus(req))
 		return
 	}
 
@@ -241,6 +248,48 @@ func handleConnection(conn net.Conn) {
 	record, resp = persistTransactionOutcome(record, saveLastTransaction)
 	lastTransactionMemory = &record
 	writeResponse(conn, resp)
+}
+
+// wgTunnelStatus answers the read-only telemetry query with a sanitized dump
+// projection. The raw `wg show <if> dump` output carries private and
+// preshared keys; only endpoint, handshake epoch, and transfer counters are
+// returned across the privilege boundary.
+func wgTunnelStatus(req apply.ApplyRequest) apply.ApplyResponse {
+	interfaceName := req.Config.WGClient.Interface
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	if !interfaceNamePattern.MatchString(interfaceName) {
+		return failure(req.ID, "invalid WireGuard interface name", false)
+	}
+	out, err := runFixedOutput("/usr/bin/wg", "show", interfaceName, "dump")
+	if err != nil {
+		return failure(req.ID, "WireGuard status unavailable: "+safeError(err), false)
+	}
+	return apply.ApplyResponse{
+		ID: req.ID, Success: true, Verified: true,
+		Logs: "sanitized WireGuard tunnel status", TunnelStatus: parseWGTunnelStatus(interfaceName, out),
+	}
+}
+
+// parseWGTunnelStatus projects a `wg show <if> dump` to the status fields
+// that may cross the privilege boundary. fields[0] of a peer line is the
+// public key and is deliberately never copied; the first line contains the
+// interface's private key and is skipped entirely.
+func parseWGTunnelStatus(interfaceName, dump string) *apply.TunnelStatus {
+	status := &apply.TunnelStatus{Interface: interfaceName}
+	for _, line := range strings.Split(dump, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[0] == "interface" {
+			continue
+		}
+		status.Endpoint = fields[2]
+		status.LastHandshake, _ = strconv.ParseInt(fields[4], 10, 64)
+		status.RxBytes, _ = strconv.ParseInt(fields[5], 10, 64)
+		status.TxBytes, _ = strconv.ParseInt(fields[6], 10, 64)
+		break
+	}
+	return status
 }
 
 func hashRequest(req apply.ApplyRequest) (string, error) {

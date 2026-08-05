@@ -61,7 +61,7 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping doas ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."

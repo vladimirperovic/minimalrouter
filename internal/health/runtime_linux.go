@@ -3,13 +3,14 @@
 package health
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -62,27 +63,24 @@ func interfaceUp(name string) bool {
 }
 
 // readWireGuardClientHandshake returns the epoch of the last completed wg1
-// handshake, or 0 when the tunnel has no handshake yet. The single remote
-// peer is the first peer line of `wg show wg1 dump` (field 4). Same doas
-// privilege as the telemetry probe.
+// handshake, or 0 when the tunnel has no handshake yet, applyd is down, or
+// the telemetry query fails. The dump is read by the privileged helper and
+// returned sanitized: WireGuard dump lines carry private and preshared keys,
+// which must never cross the privilege boundary.
 func readWireGuardClientHandshake() int64 {
-	cmd := exec.Command("doas", "/usr/bin/wg", "show", "wg1", "dump")
-	out, err := cmd.Output()
-	if err != nil {
+	client := apply.NewUnixClient(apply.DefaultSocketPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	resp, err := client.Apply(ctx, apply.ApplyRequest{
+		Version: apply.ProtocolVersion,
+		ID:      "health-wg1",
+		Op:      apply.OpWGTunnelStatus,
+		Config:  config.SystemConfig{},
+	})
+	if err != nil || resp == nil || !resp.Success || resp.TunnelStatus == nil {
 		return 0
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 8 || fields[0] == "interface" {
-			continue
-		}
-		ts, parseErr := strconv.ParseInt(fields[4], 10, 64)
-		if parseErr != nil || ts <= 0 {
-			return 0
-		}
-		return ts
-	}
-	return 0
+	return resp.TunnelStatus.LastHandshake
 }
 
 func inspectRuntimeFacts(cfg config.SystemConfig) RuntimeFacts {
