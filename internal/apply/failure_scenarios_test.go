@@ -39,13 +39,15 @@ func successfulScenarioStep() scenarioApplyStep {
 	return scenarioApplyStep{response: ApplyResponse{Success: true, Verified: true}}
 }
 
+// candidateWithNewLAN is deliberately a same-subnet gateway move. Generic
+// commit-confirm/failure tests should exercise the confirmation protocol
+// without accidentally testing cross-subnet migration, which has its own
+// explicit two-step trusted-network test matrix in transition_safety_test.go.
 func candidateWithNewLAN(initial config.SystemConfig) config.SystemConfig {
-	candidate := initial
-	candidate.LAN.IPAddress = "10.23.0.1"
-	candidate.LAN.CIDR = "10.23.0.1/24"
+	candidate := initial.DeepCopy()
+	candidate.LAN.IPAddress = "192.168.1.254"
+	candidate.LAN.CIDR = "192.168.1.254/24"
 	candidate.LAN.Netmask = "255.255.255.0"
-	candidate.DHCP.RangeStart = "10.23.0.100"
-	candidate.DHCP.RangeEnd = "10.23.0.200"
 	return candidate
 }
 
@@ -158,26 +160,18 @@ func TestWireGuardOnlyControlPlaneChangesRequireConfirmation(t *testing.T) {
 			keyBytes[0] = 2
 			candidate.WireGuard.PrivateKey = base64.StdEncoding.EncodeToString(keyBytes)
 		},
-		"listen port change": func(candidate *config.SystemConfig) {
-			candidate.WireGuard.ListenPort++
-		},
+		"listen port change": func(candidate *config.SystemConfig) { candidate.WireGuard.ListenPort++ },
 		"tunnel address change": func(candidate *config.SystemConfig) {
 			candidate.WireGuard.Address = "10.9.0.1/24"
 			candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.9.0.2/32"}
 		},
-		"peer removal": func(candidate *config.SystemConfig) {
-			candidate.WireGuard.Peers = nil
-		},
-		"peer route change": func(candidate *config.SystemConfig) {
-			candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.3/32"}
-		},
+		"peer removal": func(candidate *config.SystemConfig) { candidate.WireGuard.Peers = nil },
+		"peer route change": func(candidate *config.SystemConfig) { candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.3/32"} },
 	}
 
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
-			candidate := current
-			candidate.WireGuard.Peers = append([]config.WireGuardPeer(nil), current.WireGuard.Peers...)
-			candidate.WireGuard.Peers[0].AllowedIPs = append([]string(nil), current.WireGuard.Peers[0].AllowedIPs...)
+			candidate := current.DeepCopy()
 			mutate(&candidate)
 			if !requiresConfirmation(current, candidate) {
 				t.Fatal("WireGuard-only management change must remain provisional until connectivity is confirmed")
@@ -192,7 +186,7 @@ func TestLANManagedWireGuardChangeDoesNotCreateUnnecessaryConfirmation(t *testin
 	current.WAN.Username = "test-user"
 	current.WAN.Password = "test-password"
 	current.WireGuard = validWireGuardConfig()
-	candidate := current
+	candidate := current.DeepCopy()
 	candidate.WireGuard.ListenPort++
 
 	if requiresConfirmation(current, candidate) {
@@ -291,9 +285,7 @@ func TestUnverifiedPrivilegedResponseNeverCommits(t *testing.T) {
 	initial := config.DefaultConfig()
 	candidate := initial
 	candidate.System.Hostname = "unverified-candidate"
-	client := &scenarioApplyClient{steps: []scenarioApplyStep{{
-		response: ApplyResponse{Success: true, Verified: false},
-	}}}
+	client := &scenarioApplyClient{steps: []scenarioApplyStep{{response: ApplyResponse{Success: true, Verified: false}}}}
 	engine := NewEngineWithClient(initial, nil, client)
 
 	tx, err := engine.ProcessTransaction("tx-unverified", candidate)
