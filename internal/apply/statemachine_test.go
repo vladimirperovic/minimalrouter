@@ -37,16 +37,13 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 	}
 
 	initialCfg := config.DefaultConfig()
-	client := &testApplyClient{
-		response: &ApplyResponse{Success: true, Verified: true},
-	}
+	client := &testApplyClient{response: &ApplyResponse{Success: true, Verified: true}}
 	engine := NewEngineWithClient(initialCfg, store, client)
 
 	if engine.GetStore() == nil {
 		t.Errorf("Expected store to be attached to engine")
 	}
 
-	// Process valid transaction
 	newCfg := initialCfg
 	newCfg.LAN.IPAddress = "10.0.0.1"
 	newCfg.LAN.CIDR = "10.0.0.1/24"
@@ -57,7 +54,6 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessTransaction failed: %v", err)
 	}
-
 	if tx.CurrentState != StateAwaitingConfirmation {
 		t.Errorf("Expected state StateAwaitingConfirmation, got %s", tx.CurrentState)
 	}
@@ -67,6 +63,7 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 	if len(client.requests) != 1 || client.requests[0].Config.Revision != tx.Config.Revision {
 		t.Fatalf("privileged helper and pending transaction used different revisions")
 	}
+
 	tx, err = engine.ConfirmTransaction(tx.ID)
 	if err != nil {
 		t.Fatalf("ConfirmTransaction failed: %v", err)
@@ -75,9 +72,9 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 		t.Errorf("Expected confirmed state StateCommitted, got %s", tx.CurrentState)
 	}
 	if len(client.requests) != 3 {
-		t.Fatalf("expected apply, runtime confirmation, and canonical helper commit; got %d requests", len(client.requests))
+		t.Fatalf("expected apply, canonical helper commit, and LAN finalize reconcile; got %d requests", len(client.requests))
 	}
-	wantOps := []OperationType{OpApplyAll, OpConfirm, OpCommitConfirmed}
+	wantOps := []OperationType{OpApplyAll, OpCommitConfirmed, OpReconcile}
 	for i, wantOp := range wantOps {
 		if client.requests[i].Op != wantOp {
 			t.Fatalf("request %d op=%s, want %s", i, client.requests[i].Op, wantOp)
@@ -85,6 +82,9 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 		if client.requests[i].Config.Revision != client.requests[0].Config.Revision {
 			t.Fatalf("request %d did not use the exact applied revision", i)
 		}
+	}
+	if !client.requests[1].SkipWANVerify {
+		t.Fatal("canonical helper acknowledgement after user confirmation must not depend on WAN availability")
 	}
 
 	if engine.GetCurrentConfig().LAN.IPAddress != "10.0.0.1" {
@@ -105,11 +105,8 @@ func TestEngineInvalidTransactionRejection(t *testing.T) {
 	}
 
 	initialCfg := config.DefaultConfig()
-	engine := NewEngineWithClient(initialCfg, store, &testApplyClient{
-		response: &ApplyResponse{Success: true, Verified: true},
-	})
+	engine := NewEngineWithClient(initialCfg, store, &testApplyClient{response: &ApplyResponse{Success: true, Verified: true}})
 
-	// Process invalid transaction (collision WAN = LAN)
 	invalidCfg := initialCfg
 	invalidCfg.WAN.Interface = "eth0"
 	invalidCfg.LAN.Interface = "eth0"
@@ -118,7 +115,6 @@ func TestEngineInvalidTransactionRejection(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Expected validation error for collision WAN=LAN")
 	}
-
 	if tx.CurrentState != StateRejected {
 		t.Errorf("Expected state StateRejected, got %s", tx.CurrentState)
 	}
@@ -141,8 +137,14 @@ func TestWiFiTopologyChangesRequireConfirmation(t *testing.T) {
 
 	newSSID := enabled
 	newSSID.WiFi.SSID = "Renamed-Network"
-	if requiresConfirmation(enabled, newSSID) {
-		t.Fatal("an SSID-only change does not alter management topology")
+	if !requiresConfirmation(enabled, newSSID) {
+		t.Fatal("SSID changes on an active AP can disconnect the administrator and must require confirmation")
+	}
+
+	newPassphrase := enabled
+	newPassphrase.WiFi.Passphrase = "replacement-passphrase-123"
+	if !requiresConfirmation(enabled, newPassphrase) {
+		t.Fatal("passphrase changes on an active AP can disconnect the administrator and must require confirmation")
 	}
 }
 
@@ -161,7 +163,7 @@ func TestWGClientChangesRequireConfirmation(t *testing.T) {
 	}
 
 	newEndpoint := enabled
-	newEndpoint.WGClient.Endpoint = "dr.evil.example.com:51820"
+	newEndpoint.WGClient.Endpoint = "backup.example.com:51820"
 	if !requiresConfirmation(enabled, newEndpoint) {
 		t.Fatal("changing the tunnel endpoint must require confirmation")
 	}
@@ -184,8 +186,6 @@ func TestWGClientChangesRequireConfirmation(t *testing.T) {
 		t.Fatal("changing the tunnel keepalive must require confirmation")
 	}
 
-	// The LAN management path and the outbound tunnel are independent: a wg1
-	// change alone must not flag the Wi-Fi or LAN topologies.
 	disabled := enabled
 	disabled.WGClient.Enabled = false
 	if !requiresConfirmation(enabled, disabled) {
@@ -209,7 +209,7 @@ func TestGetCurrentConfigReturnsDetachedCopy(t *testing.T) {
 	view := engine.GetCurrentConfig()
 	view.WireGuard.Peers[0].PresharedKey = "MUTATED"
 	view.WireGuard.Peers[0].AllowedIPs[0] = "10.8.0.99/32"
-	view.WireGuard.Peers = append(view.WireGuard.Peers, config.WireGuardPeer{ID: "evil", PublicKey: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC="})
+	view.WireGuard.Peers = append(view.WireGuard.Peers, config.WireGuardPeer{ID: "other", PublicKey: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC="})
 	view.WGClient.AllowedIPs[0] = "0.0.0.0/0"
 	view.Firewall.ExtraLANs[0].AllowFrom[0] = "0.0.0.0/0"
 	view.DNS.Records[0].Name = "mutated.home.arpa"
