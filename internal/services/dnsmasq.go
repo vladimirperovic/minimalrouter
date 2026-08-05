@@ -54,10 +54,9 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 
 	if cfg.DHCP.Enabled {
 		buf.WriteString("# DHCP pool\n")
-		// Keep leases across appliance reboots. Clients retain their DHCP lease
-		// for hours; storing the server lease database in /run can make a reboot
-		// forget still-valid assignments and create avoidable collision risk.
-		buf.WriteString("dhcp-leasefile=/var/lib/minimalrouter/dnsmasq.leases\n")
+		// Keep leases across appliance reboots in a dnsmasq-owned directory,
+		// separate from routerd's 0700 canonical config/auth store.
+		buf.WriteString("dhcp-leasefile=/var/lib/minimalrouter-dhcp/dnsmasq.leases\n")
 		buf.WriteString(fmt.Sprintf("dhcp-range=%s,%s,%s,%s\n", cfg.DHCP.RangeStart, cfg.DHCP.RangeEnd, cfg.LAN.Netmask, cfg.DHCP.LeaseTime))
 		buf.WriteString(fmt.Sprintf("dhcp-option=option:router,%s\n", cfg.LAN.IPAddress))
 		buf.WriteString(fmt.Sprintf("dhcp-option=option:dns-server,%s\n\n", cfg.LAN.IPAddress))
