@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
@@ -141,5 +142,35 @@ func TestBashlessWireGuardLifecycleIntegration(t *testing.T) {
 	handshakes, err := runFixedOutput("/usr/bin/wg", "show", "wg0", "latest-handshakes")
 	if err != nil || strings.HasSuffix(strings.TrimSpace(handshakes), "\t0") {
 		t.Fatalf("WireGuard handshake missing: %q (%v)", handshakes, err)
+	}
+}
+
+func wgDump(handshake int64) string {
+	return fmt.Sprintf("interface\tprivkey\t51820\t0\nABCpubkey\t(off)\t203.0.113.9:51820\t10.6.0.0/24\t%d\t1234\t5678\t25\n", handshake)
+}
+
+func TestWGHandshakeFresh(t *testing.T) {
+	fresh := time.Now().Unix() - 30
+	if err := wgHandshakeFresh(wgDump(fresh), 25); err != nil {
+		t.Fatalf("fresh handshake rejected: %v", err)
+	}
+	if err := wgHandshakeFresh(wgDump(fresh), 0); err != nil {
+		t.Fatalf("keepalive-0 fresh handshake rejected: %v", err)
+	}
+	stale := time.Now().Unix() - 10*60
+	if err := wgHandshakeFresh(wgDump(stale), 25); err == nil {
+		t.Fatal("stale handshake accepted with keepalive")
+	}
+	if err := wgHandshakeFresh(wgDump(stale), 0); err != nil {
+		t.Fatalf("keepalive-0 idle tunnel needlessly rejected: %v", err)
+	}
+	if err := wgHandshakeFresh("interface\tprivkey\t51820\t0\nABCpubkey\t(off)\t203.0.113.9:51820\t10.6.0.0/24\t0\t0\t0\toff\n", 25); err == nil {
+		t.Fatal("peer with zero latest-handshake accepted with keepalive")
+	}
+}
+
+func TestWGHandshakeRejectsNoPeer(t *testing.T) {
+	if err := wgHandshakeFresh("interface\tprivkey\t51820\t0\n", 25); err == nil {
+		t.Fatal("tunnel without a peer accepted")
 	}
 }

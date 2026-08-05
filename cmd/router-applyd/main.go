@@ -376,9 +376,57 @@ func confirmApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err := verifyActive(req.Config, true); err != nil {
 		return recoveryFailure(req.ID, "confirmed runtime verification failed; verified rollback is required")
 	}
+	if req.Config.WGClient.Enabled {
+		// Confirm must prove the outbound tunnel actually works: a wrong
+		// remote key, endpoint, or mis-scoped network must never commit from
+		// a handshake-less interface.
+		if err := verifyWGClientHandshake(req.Config.WGClient.Interface, req.Config.WGClient.PersistentKeepalive); err != nil {
+			return recoveryFailure(req.ID, "confirmed WireGuard client tunnel is not functional: "+safeError(err)+"; verified rollback is required")
+		}
+	}
 	return apply.ApplyResponse{
 		ID: req.ID, Success: true, Verified: true, Logs: "runtime confirmation verified; canonical commit pending",
 	}
+}
+
+// verifyWGClientHandshake requires a completed and, when keepalive is
+// configured, recently refreshed wg1 handshake. A keepalive-0 tunnel may sit
+// idle indefinitely, so any completed handshake is accepted for it.
+func verifyWGClientHandshake(interfaceName string, keepalive int) error {
+	if interfaceName == "" {
+		interfaceName = "wg1"
+	}
+	out, err := runFixedOutput("/usr/bin/wg", "show", interfaceName, "dump")
+	if err != nil {
+		return fmt.Errorf("WireGuard client interface unavailable: %w", err)
+	}
+	return wgHandshakeFresh(out, keepalive)
+}
+
+// wgHandshakeFresh inspects `wg show <if> dump` output: line 1 is the
+// interface, each peer line has latest-handshake as field 5 (index 4).
+func wgHandshakeFresh(dump string, keepalive int) error {
+	for _, line := range strings.Split(dump, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || fields[0] == "interface" {
+			continue
+		}
+		ts, parseErr := strconv.ParseInt(fields[4], 10, 64)
+		if parseErr != nil || ts <= 0 {
+			return errors.New("WireGuard client tunnel has no completed handshake")
+		}
+		if keepalive > 0 {
+			maxAge := 3 * time.Minute
+			if age := time.Duration(keepalive) * 3 * time.Second; age > maxAge {
+				maxAge = age
+			}
+			if lastSeen := time.Since(time.Unix(ts, 0)); lastSeen > maxAge {
+				return fmt.Errorf("WireGuard client handshake is stale (last %s ago)", lastSeen.Round(time.Second))
+			}
+		}
+		return nil
+	}
+	return errors.New("WireGuard client tunnel has no peer")
 }
 
 func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
