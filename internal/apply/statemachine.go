@@ -196,6 +196,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		tx.Error = fmt.Sprintf("Validation failed: %v", err)
 		return tx, err
 	}
+	if err := newCfg.ValidateScenarioSafety(); err != nil {
+		tx.CurrentState = StateRejected
+		tx.Error = fmt.Sprintf("Scenario safety validation failed: %v", err)
+		return tx, err
+	}
 	newCfg.Revision = e.currentConfig.Revision + 1
 	newCfg.UpdatedAt = time.Now()
 	tx.Config = newCfg
@@ -403,6 +408,28 @@ func (e *Engine) GetPendingTransaction() *Transaction {
 	return &copy
 }
 
+// verifyWGClientStatusForConfirmation proves only the path that changed. A
+// dead office tunnel must not block a LAN or Wi-Fi confirmation merely because
+// wg1 happens to be enabled. Conversely, when wg1 itself changes, a completed
+// handshake is mandatory before canonical commit.
+func verifyWGClientStatusForConfirmation(status *TunnelStatus, keepalive int) error {
+	if status == nil || status.LastHandshake <= 0 {
+		return fmt.Errorf("WireGuard client tunnel has no completed handshake")
+	}
+	if keepalive <= 0 {
+		return nil
+	}
+	maxAge := 3 * time.Minute
+	if age := time.Duration(keepalive) * 3 * time.Second; age > maxAge {
+		maxAge = age
+	}
+	age := time.Since(time.Unix(status.LastHandshake, 0))
+	if age > maxAge {
+		return fmt.Errorf("WireGuard client handshake is stale (last %s ago)", age.Round(time.Second))
+	}
+	return nil
+}
+
 func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	e.operationMu.Lock()
 	defer e.operationMu.Unlock()
@@ -413,35 +440,35 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 	}
 	pending := e.pending
 	if !pending.canonicalCommitted {
-		verifyWGClient := !reflect.DeepEqual(pending.previous.WGClient, pending.tx.Config.WGClient)
-		req := ApplyRequest{
-			ID: txID + "-confirm-runtime", Op: OpConfirm,
-			Revision: pending.tx.Config.Revision, Config: pending.tx.Config,
-			VerifyWGClient: verifyWGClient,
+		// The HTTP/API layer has already proved candidate management-path
+		// continuity (including LocalAddr for LAN-IP changes). Only wg1 needs an
+		// additional privileged functional proof, and only when wg1 changed.
+		if !reflect.DeepEqual(pending.previous.WGClient, pending.tx.Config.WGClient) && pending.tx.Config.WGClient.Enabled {
+			statusReq := ApplyRequest{
+				ID: txID + "-wg1-status", Op: OpWGTunnelStatus,
+				Config: pending.tx.Config, TunnelInterface: pending.tx.Config.WGClient.Interface,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			e.applying = true
+			e.mu.Unlock()
+			statusResp, statusErr := e.applyPrivileged(ctx, statusReq)
+			e.mu.Lock()
+			e.applying = false
+			cancel()
+			if statusErr != nil || statusResp == nil || !statusResp.Success || statusResp.TunnelStatus == nil {
+				pending.tx.Error = "WireGuard client confirmation failed: tunnel status is unavailable"
+				return pending.tx, fmt.Errorf("%s", pending.tx.Error)
+			}
+			if err := verifyWGClientStatusForConfirmation(statusResp.TunnelStatus, pending.tx.Config.WGClient.PersistentKeepalive); err != nil {
+				pending.tx.Error = "WireGuard client confirmation failed: " + err.Error()
+				return pending.tx, err
+			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-		e.applying = true
-		e.mu.Unlock()
-		resp, err := e.applyPrivileged(ctx, req)
-		e.mu.Lock()
-		e.applying = false
-		cancel()
-		if err != nil {
-			pending.tx.CurrentState = StateRecoveryRequired
-			pending.tx.Error = fmt.Sprintf("privileged runtime confirmation outcome is unknown; verified rollback or retry is required: %v", err)
-			e.requireRecovery(pending.tx.Error)
-			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %w", err)
-		}
-		if !resp.Success || !resp.Verified {
-			pending.tx.CurrentState = StateRecoveryRequired
-			pending.tx.Error = "privileged runtime confirmation failed; verified rollback or retry is required: " + resp.Error
-			e.requireRecovery(pending.tx.Error)
-			return pending.tx, fmt.Errorf("privileged runtime confirmation failed: %s", resp.Error)
-		}
+
 		if e.store != nil {
 			if err := e.store.SaveConfig(pending.tx.Config); err != nil {
 				pending.tx.CurrentState = StateRecoveryRequired
-				pending.tx.Error = "runtime confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
+				pending.tx.Error = "management-path confirmation succeeded but canonical configuration could not be committed; retry confirmation or allow verified rollback"
 				return pending.tx, fmt.Errorf("failed to commit confirmed configuration: %w", err)
 			}
 		}
@@ -477,6 +504,24 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 		}
 		e.requireRecovery(pending.tx.Error)
 		return pending.tx, fmt.Errorf("confirmed helper commit failed")
+	}
+
+	// LAN confirmation is provisionally applied with both old and candidate
+	// addresses. After canonical + last-good commit, best-effort reconciliation
+	// collapses that temporary dual-address state to the canonical LAN. Failure
+	// here is not a split-brain: boot reconciliation will converge it later.
+	lanChanged := pending.previous.LAN.IPAddress != pending.tx.Config.LAN.IPAddress || pending.previous.LAN.CIDR != pending.tx.Config.LAN.CIDR
+	if lanChanged {
+		if finalizeReq, buildErr := buildApplyRequest(txID+"-finalize-lan", pending.tx.Config); buildErr == nil {
+			finalizeReq.Op = OpReconcile
+			finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+			e.applying = true
+			e.mu.Unlock()
+			_, _ = e.applyPrivileged(finalizeCtx, finalizeReq)
+			e.mu.Lock()
+			e.applying = false
+			finalizeCancel()
+		}
 	}
 
 	now := time.Now()
