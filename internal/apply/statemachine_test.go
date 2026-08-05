@@ -37,6 +37,7 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 	}
 
 	initialCfg := config.DefaultConfig()
+	initialCfg.TrustedNetworks = []string{"192.168.1.0/24", "10.0.0.0/24"}
 	client := &testApplyClient{response: &ApplyResponse{Success: true, Verified: true}}
 	engine := NewEngineWithClient(initialCfg, store, client)
 
