@@ -160,13 +160,19 @@ func TestWireGuardOnlyControlPlaneChangesRequireConfirmation(t *testing.T) {
 			keyBytes[0] = 2
 			candidate.WireGuard.PrivateKey = base64.StdEncoding.EncodeToString(keyBytes)
 		},
-		"listen port change": func(candidate *config.SystemConfig) { candidate.WireGuard.ListenPort++ },
+		"listen port change": func(candidate *config.SystemConfig) {
+			candidate.WireGuard.ListenPort++
+		},
 		"tunnel address change": func(candidate *config.SystemConfig) {
 			candidate.WireGuard.Address = "10.9.0.1/24"
 			candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.9.0.2/32"}
 		},
-		"peer removal": func(candidate *config.SystemConfig) { candidate.WireGuard.Peers = nil },
-		"peer route change": func(candidate *config.SystemConfig) { candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.3/32"} },
+		"peer removal": func(candidate *config.SystemConfig) {
+			candidate.WireGuard.Peers = nil
+		},
+		"peer route change": func(candidate *config.SystemConfig) {
+			candidate.WireGuard.Peers[0].AllowedIPs = []string{"10.8.0.3/32"}
+		},
 	}
 
 	for name, mutate := range tests {
