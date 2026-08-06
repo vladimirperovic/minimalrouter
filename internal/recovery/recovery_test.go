@@ -62,6 +62,46 @@ func TestSetLANCreatesSnapshotAndAdvancesRevision(t *testing.T) {
 	if cfg.DHCP.RangeStart != "10.20.30.100" || cfg.DHCP.RangeEnd != "10.20.30.200" {
 		t.Fatalf("unexpected DHCP range: %s-%s", cfg.DHCP.RangeStart, cfg.DHCP.RangeEnd)
 	}
+	if len(cfg.TrustedNetworks) == 0 || cfg.TrustedNetworks[0] != "10.20.30.0/24" {
+		t.Fatalf("new recovery LAN is not trusted for management: %v", cfg.TrustedNetworks)
+	}
+}
+
+func TestSetLANMigratesManagementTrustAndDropsInvalidStaticLease(t *testing.T) {
+	store := testStore(t)
+	current, err := store.GetLatestConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.TrustedNetworks = []string{"192.168.1.0/24", "10.8.0.0/24"}
+	current.DHCP.StaticLeases = []config.StaticLease{
+		{MAC: "02:00:00:00:00:10", IPAddress: "192.168.1.10", Hostname: "old-device"},
+	}
+	current.Firewall.ExtraLANs = []config.ExtraLANConfig{
+		{ID: "lab-extra", Name: "lab", Interface: "eth3", CIDR: "192.168.50.0/24", RouterAddress: "192.168.50.1/24", DstIP: "192.168.50.10", DstPort: 443, Protocol: "tcp", AllowFrom: []string{"192.168.1.0/24"}, Enabled: true},
+	}
+	current.Revision++
+	if err := store.SaveConfig(current); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := Manager{Store: store}
+	if _, err := manager.SetLAN("eth1", "10.20.30.1/24"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := store.GetLatestConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.TrustedNetworks) != 2 || cfg.TrustedNetworks[0] != "10.20.30.0/24" || cfg.TrustedNetworks[1] != "10.8.0.0/24" {
+		t.Fatalf("trusted networks were not migrated safely: %v", cfg.TrustedNetworks)
+	}
+	if len(cfg.DHCP.StaticLeases) != 0 {
+		t.Fatalf("old-subnet static DHCP assignment survived recovery move: %+v", cfg.DHCP.StaticLeases)
+	}
+	if got := cfg.Firewall.ExtraLANs[0].AllowFrom; len(got) != 1 || got[0] != "10.20.30.0/24" {
+		t.Fatalf("ExtraLAN source allowlist still points at old LAN: %v", got)
+	}
 }
 
 func TestRestoreSnapshotCreatesUndoPoint(t *testing.T) {
