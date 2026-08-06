@@ -41,18 +41,17 @@ func normalizedNetwork(cidr string) string {
 	return network.String()
 }
 
-// replaceTrustedLANNetwork moves an exact old-LAN management/allowlist entry
-// to the new LAN network and always makes the new LAN trusted. Other explicit
-// trusted networks (for example a management VPN network) are preserved.
-func replaceTrustedLANNetwork(entries []string, oldNetwork, newNetwork string) []string {
+// replaceNetworkEntry migrates only exact old-network entries. ensureNew is
+// reserved for management trust: a recovery LAN must always be administrable
+// from its new subnet, while service allowlists must never gain privileges they
+// did not already have merely because the LAN address moved.
+func replaceNetworkEntry(entries []string, oldNetwork, newNetwork string, ensureNew bool) []string {
 	result := make([]string, 0, len(entries)+1)
 	seen := make(map[string]struct{}, len(entries)+1)
-	addedNew := false
 	for _, entry := range entries {
 		normalized := normalizedNetwork(entry)
 		if normalized == oldNetwork {
 			normalized = newNetwork
-			addedNew = true
 		}
 		if normalized == "" {
 			continue
@@ -63,12 +62,16 @@ func replaceTrustedLANNetwork(entries []string, oldNetwork, newNetwork string) [
 		seen[normalized] = struct{}{}
 		result = append(result, normalized)
 	}
-	if !addedNew {
+	if ensureNew {
 		if _, exists := seen[newNetwork]; !exists {
 			result = append(result, newNetwork)
 		}
 	}
 	return result
+}
+
+func replaceTrustedLANNetwork(entries []string, oldNetwork, newNetwork string) []string {
+	return replaceNetworkEntry(entries, oldNetwork, newNetwork, true)
 }
 
 func filterStaticLeasesForNetwork(leases []config.StaticLease, network *net.IPNet) []config.StaticLease {
@@ -119,10 +122,10 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 	// trusted-network middleware reject every client on that new LAN.
 	next.TrustedNetworks = replaceTrustedLANNetwork(next.TrustedNetworks, oldNetwork, newNetwork)
 	// ExtraLAN service allowlists frequently name the home LAN subnet. Move an
-	// exact old-LAN entry with the recovery address so those services do not
-	// silently remain bound to an unreachable source network.
+	// exact old-LAN entry with the recovery address, but never add the new LAN
+	// to an allowlist that did not previously trust the old LAN.
 	for i := range next.Firewall.ExtraLANs {
-		next.Firewall.ExtraLANs[i].AllowFrom = replaceTrustedLANNetwork(next.Firewall.ExtraLANs[i].AllowFrom, oldNetwork, newNetwork)
+		next.Firewall.ExtraLANs[i].AllowFrom = replaceNetworkEntry(next.Firewall.ExtraLANs[i].AllowFrom, oldNetwork, newNetwork, false)
 	}
 	if err := next.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("recovery LAN configuration is invalid: %w", err)
