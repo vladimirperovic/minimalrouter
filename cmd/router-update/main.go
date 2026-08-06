@@ -31,6 +31,7 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 	}
 
 	root := envOr("MINIMALROUTER_UPDATE_ROOT", defaultUpdateRoot)
+	systemRoot := envOr("MINIMALROUTER_SYSTEM_ROOT", "/")
 	manager := firmware.SlotManager{Root: root}
 
 	requireRoot := func() bool {
@@ -72,6 +73,10 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}
+		if err := firmware.ValidateAppliancePayload(manifest); err != nil {
+			fmt.Fprintf(stderr, "ERROR: %v\n", err)
+			return 1
+		}
 		if err := manager.Stage(*directory, manifest); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
@@ -101,11 +106,11 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "ERROR: activation requires --confirm ACTIVATE-UPDATE")
 			return 2
 		}
-		if err := manager.Activate(*version); err != nil {
+		if err := activateAndRestart(manager, *version, systemRoot); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "Update slot activated. Restart router services or reboot, then verify health before pruning the previous slot.")
+		fmt.Fprintln(stdout, "Update slot activated; router-applyd and routerd restarted from the same slot and passed service health checks.")
 		return 0
 
 	case "rollback":
@@ -125,11 +130,11 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "ERROR: rollback requires --confirm ROLLBACK-UPDATE")
 			return 2
 		}
-		if err := manager.Rollback(); err != nil {
+		if err := rollbackAndRestart(manager); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "Previous verified update slot restored. Restart router services or reboot to run it.")
+		fmt.Fprintln(stdout, "Previous verified update slot restored and both router services restarted from it.")
 		return 0
 
 	case "status":
