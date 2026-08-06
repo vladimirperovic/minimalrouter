@@ -90,6 +90,23 @@ else
     apk add --no-cache $REQUIRED_PACKAGES
 fi
 
+# Fail before replacing appliance runtime files if the running kernel cannot
+# support a required router feature. Loading an already-available module is
+# harmless and avoids a half-installed system whose A/B pointer still claims a
+# healthy release after a late module failure.
+while IFS= read -r module; do
+    case "$module" in ""|\#*) continue ;; esac
+    if ! modprobe "$module"; then
+        if [ "$module" = "pppoe" ]; then
+            echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
+            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
+        else
+            echo "ERROR: required kernel module '$module' could not be loaded." >&2
+        fi
+        exit 1
+    fi
+done < modules/minimalrouter.conf
+
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:
 # no NTP server socket and no remote command socket are exposed.
@@ -201,11 +218,43 @@ cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
-# Seed an immutable rollback target for the very first A/B activation. Without
-# this baseline the first activated release has no Previous slot, so a failed
-# daemon restart cannot be rolled back. The synthetic semver build metadata is
-# derived from the installed runtime payload and is therefore unique for this
-# full distribution without pretending to be a published release version.
+echo "[6/7] Loading router kernel modules and sysctls..."
+while IFS= read -r module; do
+    case "$module" in ""|\#*) continue ;; esac
+    grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
+    # Required modules were preflighted before root runtime replacement. Load
+    # again here after persistence so the installed state and current kernel
+    # are proven together.
+    modprobe "$module"
+done < modules/minimalrouter.conf
+
+sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
+[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || {
+    echo "ERROR: first-run IPv4 forwarding did not remain disabled" >&2
+    exit 1
+}
+[ "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "2" ] || {
+    echo "ERROR: loose reverse-path filtering did not activate" >&2
+    exit 1
+}
+[ "$(sysctl -n net.netfilter.nf_conntrack_max)" = "131072" ] || {
+    echo "ERROR: conntrack state ceiling did not activate" >&2
+    exit 1
+}
+
+echo "[7/7] Enabling services..."
+for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+    rc-service "$svc" stop >/dev/null 2>&1 || true
+    rc-update del "$svc" default >/dev/null 2>&1 || true
+done
+rc-update add chronyd default
+rc-update add router-applyd default
+rc-update add routerd default
+
+# Commit the first A/B rollback target only after every critical kernel/sysctl
+# check and OpenRC registration has succeeded. A failed full installer may
+# leave newly copied files for the operator to rerun, but it must never advance
+# current/state.json to a baseline that was not proven installable.
 BASELINE_HASH="$({ \
     sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"; \
     sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"; \
@@ -248,44 +297,6 @@ printf '{"current":"%s","previous":"%s","pending":""}\n' "$BASELINE_VERSION" "$O
 chmod 0644 "$STATE_TMP"
 mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
 sync
-
-echo "[6/7] Loading router kernel modules and sysctls..."
-while IFS= read -r module; do
-    case "$module" in ""|\#*) continue ;; esac
-    grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
-    if ! modprobe "$module"; then
-        if [ "$module" = "pppoe" ]; then
-            echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
-            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
-        else
-            echo "ERROR: required kernel module '$module' could not be loaded." >&2
-        fi
-        exit 1
-    fi
-done < modules/minimalrouter.conf
-
-sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
-[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || {
-    echo "ERROR: first-run IPv4 forwarding did not remain disabled" >&2
-    exit 1
-}
-[ "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "2" ] || {
-    echo "ERROR: loose reverse-path filtering did not activate" >&2
-    exit 1
-}
-[ "$(sysctl -n net.netfilter.nf_conntrack_max)" = "131072" ] || {
-    echo "ERROR: conntrack state ceiling did not activate" >&2
-    exit 1
-}
-
-echo "[7/7] Enabling services..."
-for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
-    rc-service "$svc" stop >/dev/null 2>&1 || true
-    rc-update del "$svc" default >/dev/null 2>&1 || true
-done
-rc-update add chronyd default
-rc-update add router-applyd default
-rc-update add routerd default
 
 echo "=== Installation complete ==="
 echo "Start now: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
