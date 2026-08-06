@@ -1248,6 +1248,7 @@ func syncWireGuardRoutes(peers, oldPeers []config.WireGuardPeer, interfaceName s
 			if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
 				return fmt.Errorf("install WireGuard peer route: %w", err)
 			}
+		}
 	}
 	for _, stale := range removedAllowedIPs(peerAllowedIPs(oldPeers), peerAllowedIPs(peers)) {
 		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
