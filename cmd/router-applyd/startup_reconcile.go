@@ -18,11 +18,11 @@ import (
 const startupReconcileEnv = "MINIMALROUTER_APPLYD_STARTUP_RECONCILE"
 
 type startupReconcileHooks struct {
-	loadLastGood   func() (*config.SystemConfig, error)
-	pendingExists  func() (bool, error)
-	restoreRuntime func(config.SystemConfig) error
+	loadLastGood    func() (*config.SystemConfig, error)
+	pendingExists   func() (bool, error)
+	restoreRuntime  func(config.SystemConfig) error
 	restoreFirstRun func() error
-	clearPending   func() error
+	clearPending    func() error
 }
 
 // init runs only for the installed OpenRC service. Keeping the opt-in in the
@@ -181,12 +181,27 @@ func restoreFirstRunRuntime() (retErr error) {
 			return fmt.Errorf("install first-run %s: %w", name, err)
 		}
 	}
-	if group, lookupErr := user.LookupGroup("dnsmasq"); lookupErr == nil {
-		if gid, parseErr := strconv.Atoi(group.Gid); parseErr == nil {
-			_ = os.MkdirAll("/var/lib/minimalrouter-dhcp", 0750)
-			_ = os.Chown("/var/lib/minimalrouter-dhcp", 0, gid)
-			_ = os.Chmod("/var/lib/minimalrouter-dhcp", 0750)
-		}
+	// The installer normally creates this directory, but startup must also be
+	// self-healing after an older-slot upgrade or partial filesystem restore.
+	// dnsmasq needs ownership, not merely group membership, because 0750 does
+	// not grant group write access for creating the lease file.
+	dnsmasqUser, lookupErr := user.Lookup("dnsmasq")
+	if lookupErr != nil {
+		return fmt.Errorf("first-run dnsmasq service account unavailable: %w", lookupErr)
+	}
+	dnsmasqUID, uidErr := strconv.Atoi(dnsmasqUser.Uid)
+	dnsmasqGID, gidErr := strconv.Atoi(dnsmasqUser.Gid)
+	if uidErr != nil || gidErr != nil {
+		return errors.New("first-run dnsmasq service account has invalid numeric IDs")
+	}
+	if err := os.MkdirAll("/var/lib/minimalrouter-dhcp", 0750); err != nil {
+		return fmt.Errorf("create persistent DHCP lease directory: %w", err)
+	}
+	if err := os.Chown("/var/lib/minimalrouter-dhcp", dnsmasqUID, dnsmasqGID); err != nil {
+		return fmt.Errorf("own persistent DHCP lease directory: %w", err)
+	}
+	if err := os.Chmod("/var/lib/minimalrouter-dhcp", 0750); err != nil {
+		return fmt.Errorf("secure persistent DHCP lease directory: %w", err)
 	}
 
 	// Reassert hardening first, then explicitly disable forwarding for setup.
