@@ -184,9 +184,6 @@ func main() {
 		serverAddr = net.JoinHostPort("127.0.0.1", "8080")
 	}
 
-	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
-	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
-
 	srv := &http.Server{
 		Addr:              serverAddr,
 		Handler:           managementDestinationHandler(engine, storagePressureHandler(absDir, mux)),
@@ -198,14 +195,26 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 
+	listener, err := net.Listen("tcp", serverAddr)
+	if err != nil {
+		log.Fatalf("Refusing startup because management listener could not bind: %v", err)
+	}
+	defer listener.Close()
+	if err := signalRouterdReady(initialCfg.Revision); err != nil {
+		log.Fatalf("Refusing startup because OpenRC readiness could not be published: %v", err)
+	}
+
+	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
+	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
+
 	if previewHTTP {
 		log.Printf("[PREVIEW] Dashboard available on loopback-only http://127.0.0.1:8080")
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("Preview server error: %v", err)
 		}
 		return
 	}
-	if err := srv.ListenAndServeTLS("", ""); err != nil {
+	if err := srv.ServeTLS(listener, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Server error: %v", err)
 	}
 }
