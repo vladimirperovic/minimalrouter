@@ -35,7 +35,8 @@ for required in \
     "init.d/pppoe-wan" \
     "sysctl/99-minimalrouter.conf" \
     "modules/minimalrouter.conf" \
-    "logrotate/minimalrouter"
+    "logrotate/minimalrouter" \
+    "ip-up.d-minimalrouter-qos"
 do
     [ -f "$required" ] || {
         echo "ERROR: Missing distribution file: $required" >&2
@@ -197,6 +198,54 @@ cp modules/minimalrouter.conf /etc/modules-load.d/minimalrouter.conf
 cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
+
+# Seed an immutable rollback target for the very first A/B activation. Without
+# this baseline the first activated release has no Previous slot, so a failed
+# daemon restart cannot be rolled back. The synthetic semver build metadata is
+# derived from the installed runtime payload and is therefore unique for this
+# full distribution without pretending to be a published release version.
+BASELINE_HASH="$({ \
+    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"; \
+    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"; \
+    sha256sum /usr/libexec/minimalrouter/bootstrap/web/dist/index.html; \
+} | sha256sum | cut -c1-16)"
+BASELINE_VERSION="0.0.0+bootstrap.${BASELINE_HASH}"
+BASELINE_SLOT="/var/lib/minimalrouter-update/slots/${BASELINE_VERSION}"
+rm -rf "$BASELINE_SLOT"
+install -d -m 0755 -o root -g root "$BASELINE_SLOT/bin" "$BASELINE_SLOT/web/dist"
+install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}" "$BASELINE_SLOT/bin/routerd-${BIN_ARCH}"
+install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-applyd-${BIN_ARCH}"
+install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-recovery-${BIN_ARCH}"
+install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-update-${BIN_ARCH}"
+cp -R /usr/libexec/minimalrouter/bootstrap/web/dist/. "$BASELINE_SLOT/web/dist/"
+chown -R root:root "$BASELINE_SLOT"
+chmod -R a+rX "$BASELINE_SLOT/web"
+
+OLD_CURRENT_TARGET="$(readlink /var/lib/minimalrouter-update/current 2>/dev/null || true)"
+OLD_CURRENT_VERSION=""
+case "$OLD_CURRENT_TARGET" in
+    slots/*) OLD_CURRENT_VERSION="${OLD_CURRENT_TARGET#slots/}" ;;
+esac
+
+rm -f /var/lib/minimalrouter-update/.current-new
+ln -s "slots/${BASELINE_VERSION}" /var/lib/minimalrouter-update/.current-new
+mv -f /var/lib/minimalrouter-update/.current-new /var/lib/minimalrouter-update/current
+
+if [ -n "$OLD_CURRENT_VERSION" ] && [ "$OLD_CURRENT_VERSION" != "$BASELINE_VERSION" ] && \
+   [ -d "/var/lib/minimalrouter-update/slots/${OLD_CURRENT_VERSION}" ]; then
+    rm -f /var/lib/minimalrouter-update/.previous-new
+    ln -s "slots/${OLD_CURRENT_VERSION}" /var/lib/minimalrouter-update/.previous-new
+    mv -f /var/lib/minimalrouter-update/.previous-new /var/lib/minimalrouter-update/previous
+else
+    rm -f /var/lib/minimalrouter-update/previous
+    OLD_CURRENT_VERSION=""
+fi
+
+STATE_TMP="/var/lib/minimalrouter-update/.state-install-$$"
+printf '{"current":"%s","previous":"%s","pending":""}\n' "$BASELINE_VERSION" "$OLD_CURRENT_VERSION" > "$STATE_TMP"
+chmod 0644 "$STATE_TMP"
+mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
+sync
 
 echo "[6/7] Loading router kernel modules and sysctls..."
 while IFS= read -r module; do
