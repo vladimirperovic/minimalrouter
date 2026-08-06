@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type runtimeLayoutFile struct {
 
 var runtimeLayoutFiles = []runtimeLayoutFile{
 	{slotPath: "compatibility.json", systemPath: "/etc/minimalrouter/compatibility.json", mode: 0o644},
+	{slotPath: "slot-exec", systemPath: "/usr/libexec/minimalrouter/slot-exec", mode: 0o755},
 	{slotPath: "init.d/routerd", systemPath: "/etc/init.d/routerd", mode: 0o755},
 	{slotPath: "init.d/router-applyd", systemPath: "/etc/init.d/router-applyd", mode: 0o755},
 	{slotPath: "init.d/pppoe-wan", systemPath: "/etc/init.d/pppoe-wan", mode: 0o755},
@@ -38,17 +40,27 @@ func rootedPath(root, absolute string) string {
 	return filepath.Join(root, strings.TrimPrefix(absolute, "/"))
 }
 
-// verifyRuntimeLayoutCompatibility deliberately refuses to mutate operating-
-// system integration files during an A/B activation. Those files run as root
-// outside the slot and cannot safely be rolled back by only changing a symlink.
-// If a release changes them, install the full signed distribution first; an
-// ordinary A/B slot is allowed only when the installed integration layer is an
-// exact content/mode match for the candidate release. compatibility.json is
-// part of that boundary: config schema, RPC protocol, or bootstrap ABI changes
-// therefore force a full installer instead of being discovered on next boot.
-func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) error {
-	slotRoot := filepath.Join(updateRoot, "slots", version)
-	for _, item := range runtimeLayoutFiles {
+func bootstrapRuntimeFiles() ([]runtimeLayoutFile, error) {
+	arch := runtime.GOARCH
+	if arch != "amd64" && arch != "arm64" {
+		return nil, fmt.Errorf("unsupported update architecture %q", arch)
+	}
+	return []runtimeLayoutFile{
+		{
+			slotPath:   "bin/router-update-" + arch,
+			systemPath: "/usr/libexec/minimalrouter/bootstrap/bin/router-update-" + arch,
+			mode:       0o750,
+		},
+		{
+			slotPath:   "bin/router-recovery-" + arch,
+			systemPath: "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-" + arch,
+			mode:       0o750,
+		},
+	}, nil
+}
+
+func verifyLayoutFiles(slotRoot, systemRoot string, files []runtimeLayoutFile) error {
+	for _, item := range files {
 		candidate, err := os.ReadFile(filepath.Join(slotRoot, item.slotPath))
 		if err != nil {
 			return fmt.Errorf("candidate runtime layout missing %s: %w", item.slotPath, err)
@@ -65,6 +77,34 @@ func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) er
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != item.mode {
 			return fmt.Errorf("installed runtime layout has unsafe mode at %s; run the full distribution installer", item.systemPath)
 		}
+	}
+	return nil
+}
+
+// verifyRuntimeLayoutCompatibility deliberately refuses to mutate operating-
+// system integration files during an A/B activation. Those files run as root
+// outside the slot and cannot safely be rolled back by only changing a symlink.
+// If a release changes them, install the full signed distribution first; an
+// ordinary A/B slot is allowed only when the installed integration layer is an
+// exact content/mode match for the candidate release. compatibility.json is
+// part of that boundary: config schema, RPC protocol, or bootstrap ABI changes
+// therefore force a full installer instead of being discovered on next boot.
+//
+// router-update and router-recovery are also intentionally bootstrap-stable:
+// slot-exec never runs them from the candidate slot. Comparing their candidate
+// binaries here prevents a signed release from appearing upgraded while the
+// appliance would silently continue executing older recovery/update code.
+func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) error {
+	slotRoot := filepath.Join(updateRoot, "slots", version)
+	if err := verifyLayoutFiles(slotRoot, systemRoot, runtimeLayoutFiles); err != nil {
+		return err
+	}
+	bootstrapFiles, err := bootstrapRuntimeFiles()
+	if err != nil {
+		return err
+	}
+	if err := verifyLayoutFiles(slotRoot, systemRoot, bootstrapFiles); err != nil {
+		return err
 	}
 
 	leaseDir := rootedPath(systemRoot, "/var/lib/minimalrouter-dhcp")
