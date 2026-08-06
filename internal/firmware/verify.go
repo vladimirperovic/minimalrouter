@@ -158,6 +158,7 @@ func ValidateAppliancePayload(manifest *FirmwareManifest) error {
 	required := []string{
 		"web/dist/index.html",
 		"slot-exec",
+		"compatibility.json",
 		"install.sh",
 		"init.d/routerd",
 		"init.d/router-applyd",
