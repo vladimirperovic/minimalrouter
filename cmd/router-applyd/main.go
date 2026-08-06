@@ -519,12 +519,16 @@ func wgHandshakeFresh(dump string, keepalive int) error {
 		if parseErr != nil || ts <= 0 {
 			return errors.New("WireGuard client tunnel has no completed handshake")
 		}
+		lastSeen := time.Since(time.Unix(ts, 0))
+		if lastSeen < -30*time.Second {
+			return errors.New("WireGuard client handshake timestamp is in the future")
+		}
 		if keepalive > 0 {
 			maxAge := 3 * time.Minute
 			if age := time.Duration(keepalive) * 3 * time.Second; age > maxAge {
 				maxAge = age
 			}
-			if lastSeen := time.Since(time.Unix(ts, 0)); lastSeen > maxAge {
+			if lastSeen > maxAge {
 				return fmt.Errorf("WireGuard client handshake is stale (last %s ago)", lastSeen.Round(time.Second))
 			}
 		}
@@ -987,15 +991,39 @@ func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 		}
 	}
 	if cfg.WireGuard.Enabled && plan.WireGuard {
-		interfaceName := cfg.WireGuard.Interface
-		if interfaceName == "" {
-			interfaceName = "wg0"
-		}
+		interfaceName := wireGuardInterfaceName(cfg.WireGuard)
 		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
 			return fmt.Errorf("WireGuard interface unhealthy: %w", err)
 		}
-		if err := runFixed("/sbin/ip", "-4", "addr", "show", "dev", interfaceName); err != nil {
+		addressOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", interfaceName)
+		if err != nil {
 			return fmt.Errorf("WireGuard address unavailable: %w", err)
+		}
+		expectedAddress := cfg.WireGuard.Address
+		if slash := strings.IndexByte(expectedAddress, '/'); slash >= 0 {
+			expectedAddress = expectedAddress[:slash]
+		}
+		if expectedAddress == "" || !strings.Contains(addressOutput, "inet "+expectedAddress+"/") {
+			return errors.New("configured WireGuard address is not active")
+		}
+	}
+	if cfg.WGClient.Enabled && plan.WGClient {
+		interfaceName := wireGuardClientInterfaceName(cfg.WGClient)
+		if err := runFixed("/usr/bin/wg", "show", interfaceName); err != nil {
+			return fmt.Errorf("WireGuard client interface unhealthy: %w", err)
+		}
+		if cfg.WGClient.Address != "" {
+			addressOutput, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", interfaceName)
+			if err != nil {
+				return fmt.Errorf("WireGuard client address unavailable: %w", err)
+			}
+			expectedAddress := cfg.WGClient.Address
+			if slash := strings.IndexByte(expectedAddress, '/'); slash >= 0 {
+				expectedAddress = expectedAddress[:slash]
+			}
+			if !strings.Contains(addressOutput, "inet "+expectedAddress+"/") {
+				return errors.New("configured WireGuard client address is not active")
+			}
 		}
 	}
 	if plan.ExtraLAN {
@@ -1220,7 +1248,6 @@ func syncWireGuardRoutes(peers, oldPeers []config.WireGuardPeer, interfaceName s
 			if err := runFixed("/sbin/ip", "-4", "route", "replace", allowedIP, "dev", interfaceName); err != nil {
 				return fmt.Errorf("install WireGuard peer route: %w", err)
 			}
-		}
 	}
 	for _, stale := range removedAllowedIPs(peerAllowedIPs(oldPeers), peerAllowedIPs(peers)) {
 		_ = runFixed("/sbin/ip", "-4", "route", "del", stale, "dev", interfaceName)
@@ -1396,6 +1423,41 @@ func capturePrevious(generated map[string]artifact) ([]previousFile, error) {
 	return result, nil
 }
 
+func rollbackWireGuardCleanupInterfaces(previousConfig, candidateConfig *config.SystemConfig) []string {
+	if candidateConfig == nil {
+		return nil
+	}
+	keep := make(map[string]struct{}, 2)
+	if previousConfig != nil {
+		if previousConfig.WireGuard.Enabled {
+			keep[wireGuardInterfaceName(previousConfig.WireGuard)] = struct{}{}
+		}
+		if previousConfig.WGClient.Enabled {
+			keep[wireGuardClientInterfaceName(previousConfig.WGClient)] = struct{}{}
+		}
+	}
+	candidates := make([]string, 0, 2)
+	if candidateConfig.WireGuard.Enabled {
+		candidates = append(candidates, wireGuardInterfaceName(candidateConfig.WireGuard))
+	}
+	if candidateConfig.WGClient.Enabled {
+		candidates = append(candidates, wireGuardClientInterfaceName(candidateConfig.WGClient))
+	}
+	stale := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, interfaceName := range candidates {
+		if _, survives := keep[interfaceName]; survives {
+			continue
+		}
+		if _, duplicate := seen[interfaceName]; duplicate {
+			continue
+		}
+		seen[interfaceName] = struct{}{}
+		stale = append(stale, interfaceName)
+	}
+	return stale
+}
+
 func rollback(previousConfig *config.SystemConfig, candidateConfig *config.SystemConfig, files []previousFile) error {
 	var errs []string
 	hadPreviousNft := false
@@ -1428,6 +1490,11 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 			if err := cleanCandidateOnlyExtraLANs(*previousConfig, *candidateConfig); err != nil {
 				errs = append(errs, safeError(err))
 			}
+		}
+	}
+	for _, interfaceName := range rollbackWireGuardCleanupInterfaces(previousConfig, candidateConfig) {
+		if err := removeWireGuard(interfaceName); err != nil {
+			errs = append(errs, "remove failed candidate WireGuard interface "+interfaceName+": "+safeError(err))
 		}
 	}
 	if hadPreviousNft {
