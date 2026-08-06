@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
+	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
 func TestUnresolvedPreviousTransactionBlocksNewMutationButAllowsReconcile(t *testing.T) {
@@ -34,13 +35,22 @@ func TestCorruptJournalBlocksMutationButAllowsCanonicalReconcile(t *testing.T) {
 	}
 }
 
-func TestCanonicalReconcileDoesNotRequireWANAvailability(t *testing.T) {
-	if requireWANVerification(apply.OpReconcile) {
-		t.Fatal("boot reconciliation must keep the LAN management plane available during an ISP outage")
-	}
-	for _, op := range []apply.OperationType{apply.OpApplyAll, apply.OpConfirm, apply.OpCommitConfirmed} {
-		if !requireWANVerification(op) {
-			t.Fatalf("operation %q unexpectedly skipped WAN verification", op)
+func TestWANVerificationDependsOnOperationAndWANChange(t *testing.T) {
+	previous := config.DefaultConfig()
+	previous.WAN.Enabled = true
+	candidate := previous.DeepCopy()
+
+	for _, op := range []apply.OperationType{apply.OpReconcile, apply.OpConfirm, apply.OpCommitConfirmed} {
+		if verificationPlan(op, &previous, candidate).WAN {
+			t.Fatalf("operation %q must not depend on live ISP availability", op)
 		}
+	}
+	if verificationPlan(apply.OpApplyAll, &previous, candidate).WAN {
+		t.Fatal("unrelated save unexpectedly requires live PPPoE verification")
+	}
+
+	candidate.WAN.Username = "replacement-user"
+	if !verificationPlan(apply.OpApplyAll, &previous, candidate).WAN {
+		t.Fatal("WAN credential change must require live PPPoE verification")
 	}
 }
