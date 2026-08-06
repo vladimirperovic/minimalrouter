@@ -17,6 +17,21 @@ import (
 
 const startupReconcileEnv = "MINIMALROUTER_APPLYD_STARTUP_RECONCILE"
 
+const emergencyNftables = `table inet minimalrouter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iifname "lo" accept
+        ct state established,related accept
+    }
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+`
+
 type startupReconcileHooks struct {
 	loadLastGood    func() (*config.SystemConfig, error)
 	pendingExists   func() (bool, error)
@@ -529,8 +544,28 @@ func verifyStartupLocal(cfg config.SystemConfig) error {
 	return nil
 }
 
+func installEmergencyFirewall() error {
+	// Never delete the last known firewall while trying to fail closed. If the
+	// emergency batch cannot be installed, leaving the previous table in place
+	// is safer than returning the host to the kernel's default ACCEPT policy.
+	if err := os.MkdirAll(socketDir, 0700); err != nil {
+		return err
+	}
+	path := filepath.Join(socketDir, "fail-closed.nft")
+	if err := atomicWrite(path, []byte(emergencyNftables), 0600); err != nil {
+		return err
+	}
+	return runNftFile(path, false)
+}
+
 func failClosedStartup(cfg config.SystemConfig) {
 	_ = runFixed("/sbin/sysctl", "-w", "net.ipv4.ip_forward=0")
+	if err := installEmergencyFirewall(); err != nil {
+		log.Printf("CRITICAL: could not install emergency fail-closed firewall; preserving the existing nftables state: %v", err)
+	}
+	// A helper startup failure must not leave the management API alive behind
+	// uncertain network state. Local console recovery remains available.
+	_ = runFixed("/sbin/rc-service", "routerd", "stop")
 	interfaceName := cfg.WireGuard.Interface
 	if interfaceName == "" {
 		interfaceName = "wg0"
@@ -546,5 +581,4 @@ func failClosedStartup(cfg config.SystemConfig) {
 	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 	_ = runFixed("/sbin/rc-service", "squid", "stop")
-	_ = runFixed("/usr/sbin/nft", "delete", "table", "inet", "minimalrouter")
 }
