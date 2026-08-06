@@ -29,11 +29,33 @@ start_pre() {
     # management daemon only the supplementary group needed to read that live
     # status; canonical config/auth storage stays private to routerd.
     addgroup routerd dnsmasq >/dev/null 2>&1 || true
+
+    # OpenRC must not report the management plane started merely because the
+    # supervise-daemon parent exists. Pre-create a zero-length marker that only
+    # routerd can fill after canonical reconcile and TLS setup have succeeded.
+    checkpath --file --owner routerd:routerd --mode 0600 /run/minimalrouter/routerd.ready
+    : > /run/minimalrouter/routerd.ready
+    chown routerd:routerd /run/minimalrouter/routerd.ready
+    chmod 0600 /run/minimalrouter/routerd.ready
 }
 
 start_post() {
-    chgrp routerd "$pidfile"
-    chmod 0640 "$pidfile"
+    attempts=0
+    while [ "$attempts" -lt 640 ]; do
+        if [ -s /run/minimalrouter/routerd.ready ]; then
+            chgrp routerd "$pidfile"
+            chmod 0640 "$pidfile"
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.25
+    done
+    eerror "routerd did not complete canonical reconciliation and management startup"
+    return 1
+}
+
+stop_post() {
+    : > /run/minimalrouter/routerd.ready 2>/dev/null || true
 }
 
 umask="0077"
@@ -41,3 +63,4 @@ rc_ulimit="-c 0 -n 4096"
 
 export MINIMALROUTER_DATA_DIR="/var/lib/minimalrouter"
 export MINIMALROUTER_WEB_DIR="/usr/share/minimalrouter/web"
+export MINIMALROUTER_READY_FILE="/run/minimalrouter/routerd.ready"
