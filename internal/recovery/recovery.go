@@ -74,13 +74,31 @@ func replaceTrustedLANNetwork(entries []string, oldNetwork, newNetwork string) [
 	return replaceNetworkEntry(entries, oldNetwork, newNetwork, true)
 }
 
-func filterStaticLeasesForNetwork(leases []config.StaticLease, network *net.IPNet) []config.StaticLease {
+func ipv4Uint(ip net.IP) (uint32, bool) {
+	v4 := ip.To4()
+	if v4 == nil {
+		return 0, false
+	}
+	return binary.BigEndian.Uint32(v4), true
+}
+
+func ipInRange(ip net.IP, start, end uint32) bool {
+	value, ok := ipv4Uint(ip)
+	return ok && value >= start && value <= end
+}
+
+// filterStaticLeasesForRecovery keeps only assignments that remain valid after
+// the emergency LAN move. A static address colliding with the new gateway or
+// recovery DHCP pool is dropped rather than making the entire recovery action
+// fail validation when management access is already impaired.
+func filterStaticLeasesForRecovery(leases []config.StaticLease, network *net.IPNet, gateway net.IP, start, end uint32) []config.StaticLease {
 	result := make([]config.StaticLease, 0, len(leases))
 	for _, lease := range leases {
 		ip := net.ParseIP(strings.TrimSpace(lease.IPAddress))
-		if ip != nil && ip.To4() != nil && network.Contains(ip) {
-			result = append(result, lease)
+		if ip == nil || ip.To4() == nil || !network.Contains(ip) || ip.Equal(gateway) || ipInRange(ip, start, end) {
+			continue
 		}
+		result = append(result, lease)
 	}
 	return result
 }
@@ -102,7 +120,9 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 		return config.Snapshot{}, errors.New("LAN interface must be non-empty and distinct from WAN")
 	}
 
-	start, end := dhcpRange(network)
+	startValue, endValue := dhcpRange(network, ip)
+	start := uint32IP(startValue).String()
+	end := uint32IP(endValue).String()
 	oldNetwork := normalizedNetwork(current.LAN.CIDR)
 	newNetwork := network.String()
 	next := current.DeepCopy()
@@ -115,9 +135,10 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 	next.DHCP.RangeStart = start
 	next.DHCP.RangeEnd = end
 	// Static assignments from the old subnet cannot be safely guessed into a
-	// new address space. Keep only entries already valid in the target network;
-	// the operator can reassign the rest after management is restored.
-	next.DHCP.StaticLeases = filterStaticLeasesForNetwork(next.DHCP.StaticLeases, network)
+	// new address space. Keep only entries already valid in the target network
+	// and outside the recovery DHCP pool/gateway; the operator can reassign the
+	// rest after management is restored.
+	next.DHCP.StaticLeases = filterStaticLeasesForRecovery(next.DHCP.StaticLeases, network, ip, startValue, endValue)
 	// Recovery must not successfully move the address only to have the API
 	// trusted-network middleware reject every client on that new LAN.
 	next.TrustedNetworks = replaceTrustedLANNetwork(next.TrustedNetworks, oldNetwork, newNetwork)
@@ -206,9 +227,41 @@ func (m Manager) latest() (config.SystemConfig, error) {
 	return current, nil
 }
 
-func dhcpRange(network *net.IPNet) (string, string) {
+// dhcpRange returns a contiguous recovery pool of up to 101 addresses while
+// never including the gateway. The traditional .100-.200 pool remains the
+// default when safe. If the requested gateway occupies that range, the larger
+// usable side of the subnet is selected instead. Recovery supports /16-/24,
+// so at least one useful side always exists.
+func dhcpRange(network *net.IPNet, gateway net.IP) (uint32, uint32) {
 	base := binary.BigEndian.Uint32(network.IP.To4())
-	return uint32IP(base + 100).String(), uint32IP(base + 200).String()
+	mask := binary.BigEndian.Uint32(network.Mask)
+	broadcast := base | ^mask
+	firstUsable := base + 1
+	lastUsable := broadcast - 1
+	preferredStart := base + 100
+	preferredEnd := base + 200
+	gatewayValue, ok := ipv4Uint(gateway)
+	if !ok || gatewayValue < preferredStart || gatewayValue > preferredEnd {
+		return preferredStart, preferredEnd
+	}
+
+	belowCount := gatewayValue - firstUsable
+	aboveCount := lastUsable - gatewayValue
+	const maxPoolSize uint32 = 101
+	if aboveCount >= belowCount {
+		start := gatewayValue + 1
+		end := start + maxPoolSize - 1
+		if end > lastUsable {
+			end = lastUsable
+		}
+		return start, end
+	}
+	end := gatewayValue - 1
+	start := firstUsable
+	if end-firstUsable+1 > maxPoolSize {
+		start = end - maxPoolSize + 1
+	}
+	return start, end
 }
 
 func uint32IP(value uint32) net.IP {
