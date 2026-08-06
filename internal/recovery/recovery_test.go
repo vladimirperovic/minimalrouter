@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -101,6 +102,76 @@ func TestSetLANMigratesManagementTrustAndDropsInvalidStaticLease(t *testing.T) {
 	}
 	if got := cfg.Firewall.ExtraLANs[0].AllowFrom; len(got) != 1 || got[0] != "10.20.30.0/24" {
 		t.Fatalf("ExtraLAN source allowlist still points at old LAN: %v", got)
+	}
+}
+
+func TestSetLANGatewayInsidePreferredDHCPPoolChoosesSafePool(t *testing.T) {
+	store := testStore(t)
+	manager := Manager{Store: store}
+	if _, err := manager.SetLAN("enp2s0", "10.20.30.150/24"); err != nil {
+		t.Fatalf("gateway inside default recovery pool must remain recoverable: %v", err)
+	}
+	cfg, err := store.GetLatestConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := net.ParseIP(cfg.LAN.IPAddress).To4()
+	start := net.ParseIP(cfg.DHCP.RangeStart).To4()
+	end := net.ParseIP(cfg.DHCP.RangeEnd).To4()
+	if gateway == nil || start == nil || end == nil {
+		t.Fatalf("invalid recovery addresses: gateway=%s pool=%s-%s", cfg.LAN.IPAddress, cfg.DHCP.RangeStart, cfg.DHCP.RangeEnd)
+	}
+	if compare := func(a, b net.IP) int {
+		av, _ := ipv4Uint(a)
+		bv, _ := ipv4Uint(b)
+		switch {
+		case av < bv:
+			return -1
+		case av > bv:
+			return 1
+		default:
+			return 0
+		}
+	}; compare(start, gateway) <= 0 && compare(gateway, end) <= 0 {
+		t.Fatalf("gateway %s remained inside recovery DHCP pool %s-%s", gateway, start, end)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("recovered config must validate: %v", err)
+	}
+}
+
+func TestSetLANDropsStaticLeaseThatCollidesWithRecoveryPool(t *testing.T) {
+	store := testStore(t)
+	current, err := store.GetLatestConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	current.DHCP.StaticLeases = []config.StaticLease{
+		{MAC: "02:00:00:00:00:78", IPAddress: "192.168.1.120", Hostname: "pool-collision"},
+		{MAC: "02:00:00:00:00:14", IPAddress: "192.168.1.20", Hostname: "safe-static"},
+	}
+	current.Revision++
+	// The pre-recovery fixture itself is intentionally valid: move the dynamic
+	// pool away before saving so the static .120 address can exist canonically.
+	current.DHCP.RangeStart = "192.168.1.150"
+	current.DHCP.RangeEnd = "192.168.1.200"
+	if err := current.Validate(); err != nil {
+		t.Fatalf("fixture invalid: %v", err)
+	}
+	if err := store.SaveConfig(current); err != nil {
+		t.Fatal(err)
+	}
+
+	manager := Manager{Store: store}
+	if _, err := manager.SetLAN("eth1", "192.168.1.1/24"); err != nil {
+		t.Fatalf("same-subnet recovery failed: %v", err)
+	}
+	cfg, err := store.GetLatestConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.DHCP.StaticLeases) != 1 || cfg.DHCP.StaticLeases[0].IPAddress != "192.168.1.20" {
+		t.Fatalf("recovery did not remove only the pool-colliding static lease: %+v", cfg.DHCP.StaticLeases)
 	}
 }
 
