@@ -21,6 +21,7 @@ type startupReconcileHooks struct {
 	loadLastGood   func() (*config.SystemConfig, error)
 	pendingExists  func() (bool, error)
 	restoreRuntime func(config.SystemConfig) error
+	restoreFirstRun func() error
 	clearPending   func() error
 }
 
@@ -36,10 +37,11 @@ func init() {
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
 	}
 	if err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:   loadLastGood,
-		pendingExists:  pendingConfirmationExists,
-		restoreRuntime: restoreLastGoodRuntime,
-		clearPending:   clearPendingConfirmation,
+		loadLastGood:    loadLastGood,
+		pendingExists:   pendingConfirmationExists,
+		restoreRuntime:  restoreLastGoodRuntime,
+		restoreFirstRun: restoreFirstRunRuntime,
+		clearPending:    clearPendingConfirmation,
 	}); err != nil {
 		// Only failures of the security/core dataplane reach this point. Optional
 		// features are restored best-effort and reported as degraded instead of
@@ -59,6 +61,23 @@ func reconcileStartup(h startupReconcileHooks) error {
 		pending, pendingErr := h.pendingExists()
 		if pendingErr != nil {
 			return fmt.Errorf("inspect pending confirmation: %w", pendingErr)
+		}
+		// A missing last-good configuration is a legitimate first-run state and
+		// is also the deterministic recovery target for a power loss after a
+		// provisional setup apply but before SQLite/auth committed. Production
+		// supplies restoreFirstRun; tests that omit the hook retain the old pure
+		// no-op behavior so unit tests never touch host networking.
+		if h.restoreFirstRun != nil {
+			if err := h.restoreFirstRun(); err != nil {
+				return fmt.Errorf("restore first-run runtime: %w", err)
+			}
+			if pending {
+				log.Printf("discarding provisional setup state without canonical last-good; first-run runtime restored")
+				if err := h.clearPending(); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return fmt.Errorf("clear provisional first-run state: %w", err)
+				}
+			}
+			return nil
 		}
 		if pending {
 			return errors.New("pending configuration exists without a recoverable last-good configuration")
@@ -100,6 +119,122 @@ func pendingConfirmationExists() (bool, error) {
 
 func clearPendingConfirmation() error {
 	return os.Remove(pendingPath)
+}
+
+// restoreFirstRunRuntime exposes only the local setup plane. It deliberately
+// keeps IPv4 forwarding disabled and WAN/optional services stopped until the
+// wizard has atomically committed both network configuration and administrator
+// credentials. The generated default firewall is still loaded as an
+// independent fail-closed boundary, so setup safety never depends on interface
+// topology or on forwarding merely happening to be unavailable.
+func restoreFirstRunRuntime() (retErr error) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = false
+	cfg.WireGuard.Enabled = false
+	cfg.WGClient.Enabled = false
+	cfg.WiFi.Enabled = false
+	cfg.Cloudflare.DDNSEnabled = false
+	cfg.Cloudflare.TunnelEnabled = false
+	cfg.SquidProxy.Enabled = false
+	cfg.QoS.Enabled = false
+	cfg.Firewall.ExtraLANs = nil
+
+	if err := os.MkdirAll(socketDir, 0750); err != nil {
+		return fmt.Errorf("create first-run runtime directory: %w", err)
+	}
+	generated, err := generateArtifacts(cfg)
+	if err != nil {
+		return fmt.Errorf("generate first-run artifacts: %w", err)
+	}
+	candidateDir, err := os.MkdirTemp(socketDir, "first-run-candidate-")
+	if err != nil {
+		return fmt.Errorf("create first-run candidate directory: %w", err)
+	}
+	defer os.RemoveAll(candidateDir)
+	if err := os.Chmod(candidateDir, 0700); err != nil {
+		return err
+	}
+	candidates, err := writeCandidates(candidateDir, generated)
+	if err != nil {
+		return err
+	}
+	if err := runNftFile(candidates["nftables"], true); err != nil {
+		return fmt.Errorf("first-run nftables preflight: %w", err)
+	}
+	if err := runFixed("/usr/sbin/dnsmasq", "--test", "--conf-file="+candidates["dnsmasq"]); err != nil {
+		return fmt.Errorf("first-run dnsmasq preflight: %w", err)
+	}
+
+	activated := false
+	defer func() {
+		if !activated {
+			failClosedStartup(cfg)
+		}
+	}()
+
+	// Only artifacts required by the setup plane are installed. Optional
+	// credentials/configuration are intentionally not materialized before the
+	// administrator opts into those services.
+	for _, name := range []string{"dnsmasq", "adblock", "resolv-conf", "nftables"} {
+		item := generated[name]
+		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
+			return fmt.Errorf("install first-run %s: %w", name, err)
+		}
+	}
+	if group, lookupErr := user.LookupGroup("dnsmasq"); lookupErr == nil {
+		if gid, parseErr := strconv.Atoi(group.Gid); parseErr == nil {
+			_ = os.MkdirAll("/var/lib/minimalrouter-dhcp", 0750)
+			_ = os.Chown("/var/lib/minimalrouter-dhcp", 0, gid)
+			_ = os.Chmod("/var/lib/minimalrouter-dhcp", 0750)
+		}
+	}
+
+	// Reassert hardening first, then explicitly disable forwarding for setup.
+	// Normal confirmed runtime re-enables forwarding through applyKernelHardening.
+	if err := applyKernelHardening(cfg); err != nil {
+		return err
+	}
+	if err := runFixed("/sbin/sysctl", "-w", "net.ipv4.ip_forward=0"); err != nil {
+		return fmt.Errorf("disable first-run forwarding: %w", err)
+	}
+	_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+	_ = removeWireGuard("wg0")
+	_ = removeWireGuard("wg1")
+	_ = runFixed("/sbin/rc-service", "hostapd", "stop")
+	_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+	_ = runFixed("/sbin/rc-service", "squid", "stop")
+	if err := configureRuntimeLAN(cfg); err != nil {
+		return fmt.Errorf("configure first-run LAN: %w", err)
+	}
+	if err := runNftFile(nftRuntimePath, false); err != nil {
+		return fmt.Errorf("load first-run nftables: %w", err)
+	}
+	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
+		return fmt.Errorf("start first-run dnsmasq: %w", err)
+	}
+	if err := verifyFirstRunRuntime(cfg); err != nil {
+		return err
+	}
+	activated = true
+	return nil
+}
+
+func verifyFirstRunRuntime(cfg config.SystemConfig) error {
+	forwarding, err := runFixedOutput("/sbin/sysctl", "-n", "net.ipv4.ip_forward")
+	if err != nil || strings.TrimSpace(forwarding) != "0" {
+		return errors.New("first-run IPv4 forwarding is not disabled")
+	}
+	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err != nil {
+		return fmt.Errorf("first-run nftables table unavailable: %w", err)
+	}
+	if err := runFixed("/sbin/rc-service", "dnsmasq", "status"); err != nil {
+		return fmt.Errorf("first-run dnsmasq unhealthy: %w", err)
+	}
+	output, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", cfg.RuntimeLANInterface())
+	if err != nil || !strings.Contains(output, "inet "+cfg.LAN.IPAddress+"/") {
+		return errors.New("first-run LAN address is not active")
+	}
+	return nil
 }
 
 // preflightStartup separates security/core syntax from optional feature
@@ -211,6 +346,15 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load startup nftables: %w", err)
 	}
+	// Create management WireGuard before dnsmasq is restarted. bind-dynamic
+	// also tolerates a late interface, but this ordering makes the normal path
+	// deterministic and keeps DNS available immediately on wg0.
+	if err := activateWireGuard(cfg); err != nil {
+		if cfg.System.ManagementAccess == "wireguard_only" {
+			return fmt.Errorf("restore startup management WireGuard: %w", err)
+		}
+		log.Printf("startup WireGuard server degraded (LAN management remains online): %v", err)
+	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 		return fmt.Errorf("restart startup dnsmasq: %w", err)
 	}
@@ -230,12 +374,6 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		}
 	} else {
 		clearQoS(cfg)
-	}
-	if err := activateWireGuard(cfg); err != nil {
-		if cfg.System.ManagementAccess == "wireguard_only" {
-			return fmt.Errorf("restore startup management WireGuard: %w", err)
-		}
-		log.Printf("startup WireGuard server degraded (LAN management remains online): %v", err)
 	}
 	if err := activateWireGuardClient(cfg); err != nil {
 		log.Printf("startup WireGuard client not brought up (non-fatal): %v", err)
