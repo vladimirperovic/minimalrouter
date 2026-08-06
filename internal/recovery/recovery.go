@@ -33,6 +33,55 @@ func (m Manager) ResetAuthentication(password string, disableTOTP bool) error {
 	return nil
 }
 
+func normalizedNetwork(cidr string) string {
+	_, network, err := net.ParseCIDR(strings.TrimSpace(cidr))
+	if err != nil || network == nil {
+		return strings.TrimSpace(cidr)
+	}
+	return network.String()
+}
+
+// replaceTrustedLANNetwork moves an exact old-LAN management/allowlist entry
+// to the new LAN network and always makes the new LAN trusted. Other explicit
+// trusted networks (for example a management VPN network) are preserved.
+func replaceTrustedLANNetwork(entries []string, oldNetwork, newNetwork string) []string {
+	result := make([]string, 0, len(entries)+1)
+	seen := make(map[string]struct{}, len(entries)+1)
+	addedNew := false
+	for _, entry := range entries {
+		normalized := normalizedNetwork(entry)
+		if normalized == oldNetwork {
+			normalized = newNetwork
+			addedNew = true
+		}
+		if normalized == "" {
+			continue
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	if !addedNew {
+		if _, exists := seen[newNetwork]; !exists {
+			result = append(result, newNetwork)
+		}
+	}
+	return result
+}
+
+func filterStaticLeasesForNetwork(leases []config.StaticLease, network *net.IPNet) []config.StaticLease {
+	result := make([]config.StaticLease, 0, len(leases))
+	for _, lease := range leases {
+		ip := net.ParseIP(strings.TrimSpace(lease.IPAddress))
+		if ip != nil && ip.To4() != nil && network.Contains(ip) {
+			result = append(result, lease)
+		}
+	}
+	return result
+}
+
 func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 	current, err := m.latest()
 	if err != nil {
@@ -51,7 +100,9 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 	}
 
 	start, end := dhcpRange(network)
-	next := current
+	oldNetwork := normalizedNetwork(current.LAN.CIDR)
+	newNetwork := network.String()
+	next := current.DeepCopy()
 	next.Revision++
 	next.UpdatedAt = time.Now().UTC()
 	next.LAN.Interface = interfaceName
@@ -60,8 +111,24 @@ func (m Manager) SetLAN(interfaceName, cidr string) (config.Snapshot, error) {
 	next.LAN.Netmask = net.IP(network.Mask).String()
 	next.DHCP.RangeStart = start
 	next.DHCP.RangeEnd = end
+	// Static assignments from the old subnet cannot be safely guessed into a
+	// new address space. Keep only entries already valid in the target network;
+	// the operator can reassign the rest after management is restored.
+	next.DHCP.StaticLeases = filterStaticLeasesForNetwork(next.DHCP.StaticLeases, network)
+	// Recovery must not successfully move the address only to have the API
+	// trusted-network middleware reject every client on that new LAN.
+	next.TrustedNetworks = replaceTrustedLANNetwork(next.TrustedNetworks, oldNetwork, newNetwork)
+	// ExtraLAN service allowlists frequently name the home LAN subnet. Move an
+	// exact old-LAN entry with the recovery address so those services do not
+	// silently remain bound to an unreachable source network.
+	for i := range next.Firewall.ExtraLANs {
+		next.Firewall.ExtraLANs[i].AllowFrom = replaceTrustedLANNetwork(next.Firewall.ExtraLANs[i].AllowFrom, oldNetwork, newNetwork)
+	}
 	if err := next.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("recovery LAN configuration is invalid: %w", err)
+	}
+	if err := next.ValidateScenarioSafety(); err != nil {
+		return config.Snapshot{}, fmt.Errorf("recovery LAN scenario is unsafe: %w", err)
 	}
 	return m.Store.RecoverySaveConfig(current, next, nil, false)
 }
@@ -83,6 +150,9 @@ func (m Manager) RestoreSnapshot(id string) (config.Snapshot, error) {
 	restored.UpdatedAt = time.Now().UTC()
 	if err := restored.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("snapshot configuration is no longer valid: %w", err)
+	}
+	if err := restored.ValidateScenarioSafety(); err != nil {
+		return config.Snapshot{}, fmt.Errorf("snapshot scenario is no longer safe: %w", err)
 	}
 	return m.Store.RecoverySaveConfig(current, restored, nil, false)
 }
@@ -108,6 +178,9 @@ func (m Manager) FactoryReset(wanInterface, lanInterface, password string) (conf
 	reset.LAN.Interface = lanInterface
 	if err := reset.Validate(); err != nil {
 		return config.Snapshot{}, fmt.Errorf("factory defaults are invalid: %w", err)
+	}
+	if err := reset.ValidateScenarioSafety(); err != nil {
+		return config.Snapshot{}, fmt.Errorf("factory defaults are unsafe: %w", err)
 	}
 	return m.Store.RecoverySaveConfig(current, reset, &hash, true)
 }
