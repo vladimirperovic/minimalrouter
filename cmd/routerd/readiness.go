@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strconv"
 )
 
 const routerdReadyFileEnv = "MINIMALROUTER_READY_FILE"
@@ -13,12 +12,12 @@ const routerdReadyFileEnv = "MINIMALROUTER_READY_FILE"
 // waits for this marker before reporting routerd started, so A/B activation
 // cannot mistake a live supervise-daemon parent for a healthy management
 // process.
-func signalRouterdReady(revision uint64) error {
+func signalRouterdReady(revision any) error {
 	path := os.Getenv(routerdReadyFileEnv)
 	if path == "" {
 		return nil
 	}
-	payload := []byte(strconv.FormatUint(revision, 10) + "\n")
+	payload := []byte(fmt.Sprintf("%v\n", revision))
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
 		return fmt.Errorf("open readiness marker: %w", err)
