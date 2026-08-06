@@ -63,13 +63,13 @@ chmod +x /tmp/test-install.sh
 sed -i.bak '/cd "$SCRIPT_DIR"/d' /tmp/test-install.sh
 # Also stub the file checks because we don't have the build artifacts
 sed -i.bak 's/\[ -f "$required" \]/true/g' /tmp/test-install.sh
-# Stop after the dependency phase
-sed -i.bak '/# Router authentication, TLS,/,$d' /tmp/test-install.sh
+# This test intentionally exercises only dependency selection. Stop before the
+# real kernel-module preflight and all root-runtime mutations.
+sed -i.bak '/# Fail before replacing appliance runtime files/,$d' /tmp/test-install.sh
 
 /tmp/test-install.sh "$@"
 EOF
 chmod +x run-installer.sh
-
 
 # Test A: Normal mode
 echo "--- Test A: Normal mode ---"
