@@ -19,6 +19,7 @@ type runtimeLayoutFile struct {
 }
 
 var runtimeLayoutFiles = []runtimeLayoutFile{
+	{slotPath: "compatibility.json", systemPath: "/etc/minimalrouter/compatibility.json", mode: 0o644},
 	{slotPath: "init.d/routerd", systemPath: "/etc/init.d/routerd", mode: 0o755},
 	{slotPath: "init.d/router-applyd", systemPath: "/etc/init.d/router-applyd", mode: 0o755},
 	{slotPath: "init.d/pppoe-wan", systemPath: "/etc/init.d/pppoe-wan", mode: 0o755},
@@ -40,7 +41,9 @@ func rootedPath(root, absolute string) string {
 // outside the slot and cannot safely be rolled back by only changing a symlink.
 // If a release changes them, install the full signed distribution first; an
 // ordinary A/B slot is allowed only when the installed integration layer is an
-// exact content/mode match for the candidate release.
+// exact content/mode match for the candidate release. compatibility.json is
+// part of that boundary: config schema, RPC protocol, or bootstrap ABI changes
+// therefore force a full installer instead of being discovered on next boot.
 func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) error {
 	slotRoot := filepath.Join(updateRoot, "slots", version)
 	for _, item := range runtimeLayoutFiles {
