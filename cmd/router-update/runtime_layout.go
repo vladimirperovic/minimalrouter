@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
@@ -72,10 +74,17 @@ func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) er
 	return nil
 }
 
+const serviceCommandTimeout = 25 * time.Second
+
 var serviceCommand = func(args ...string) error {
-	cmd := exec.Command("/sbin/rc-service", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), serviceCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/sbin/rc-service", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("rc-service %s timed out after %s", strings.Join(args, " "), serviceCommandTimeout)
+		}
 		text := strings.TrimSpace(string(output))
 		if len(text) > 300 {
 			text = text[:300]
