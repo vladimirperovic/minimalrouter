@@ -13,10 +13,13 @@ func TestSetLANDoesNotGrantNewLANAccessToExtraLAN(t *testing.T) {
 		t.Fatal(err)
 	}
 	current.TrustedNetworks = []string{"192.168.1.0/24", "10.8.0.0/24"}
-	// Make 10.8.0.0/24 a real, enabled WireGuard management network. The
-	// previous fixture called the ExtraLAN "wg-only" while leaving WireGuard
-	// disabled, which correctly made the configuration invalid before the LAN
-	// recovery operation was even exercised.
+	// Make 10.8.0.0/24 a real, enabled WireGuard management network. WireGuard
+	// requires an enabled WAN in the canonical model, so the fixture also uses
+	// harmless lab PPPoE credentials; no network process is started by this
+	// storage-only unit test.
+	current.WAN.Enabled = true
+	current.WAN.Username = "lab-user"
+	current.WAN.Password = "lab-password"
 	current.WireGuard.Enabled = true
 	current.WireGuard.Interface = "wg0"
 	current.WireGuard.Address = "10.8.0.1/24"
