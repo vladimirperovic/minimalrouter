@@ -33,7 +33,7 @@ type FirmwareManifest struct {
 	PublicKey string `json:"public_key,omitempty"`
 }
 
-// GenerateKeyPair generates a new Ed25519 key pair for firmware signing.
+// GenerateKeyPair generates a new Ed25519 key pair.
 func GenerateKeyPair() (pubKey, privKey []byte, err error) {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
@@ -58,7 +58,6 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 			return fmt.Errorf("firmware contains non-regular file: %s", path)
 		}
 
-		// Compute SHA256 of file
 		f, err := os.Open(path)
 		if err != nil {
 			return err
@@ -70,7 +69,6 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 			return err
 		}
 
-		// Get relative path
 		relPath, err := filepath.Rel(firmwareDir, path)
 		if err != nil {
 			return err
@@ -95,7 +93,6 @@ func SignFirmware(firmwareDir string, privKey ed25519.PrivateKey) (*FirmwareMani
 		return nil, err
 	}
 
-	// Sign
 	sig := ed25519.Sign(privKey, manifestBytes)
 	manifest.Signature = hex.EncodeToString(sig)
 	manifest.PublicKey = hex.EncodeToString(privKey.Public().(ed25519.PublicKey))
@@ -145,6 +142,61 @@ func VerifyManifest(manifest *FirmwareManifest, trustedKey ed25519.PublicKey) er
 	}
 	if !ed25519.Verify(trustedKey, manifestBytes, sigBytes) {
 		return ErrInvalidSignature
+	}
+	return nil
+}
+
+// ValidateAppliancePayload rejects a correctly signed but incomplete update.
+// A/B slots may replace the application binaries and web bundle, but a release
+// is only a valid Minimal Router appliance when it also carries the exact
+// reviewed system integration files used by the full installer. This prevents
+// an accidentally partial CI artifact from becoming the active router slot.
+func ValidateAppliancePayload(manifest *FirmwareManifest) error {
+	if manifest == nil {
+		return errors.New("missing appliance manifest")
+	}
+	required := []string{
+		"web/dist/index.html",
+		"slot-exec",
+		"install.sh",
+		"init.d/routerd",
+		"init.d/router-applyd",
+		"init.d/pppoe-wan",
+		"sysctl/99-minimalrouter.conf",
+		"modules/minimalrouter.conf",
+		"logrotate/minimalrouter",
+		"ip-up.d-minimalrouter-qos",
+	}
+	for _, path := range required {
+		if _, ok := manifest.Files[path]; !ok {
+			return fmt.Errorf("incomplete appliance payload: missing %s", path)
+		}
+	}
+
+	archSets := [][]string{
+		{"bin/routerd-amd64", "bin/router-applyd-amd64", "bin/router-recovery-amd64", "bin/router-update-amd64"},
+		{"bin/routerd-arm64", "bin/router-applyd-arm64", "bin/router-recovery-arm64", "bin/router-update-arm64"},
+	}
+	completeArchitectures := 0
+	for _, set := range archSets {
+		complete := true
+		present := false
+		for _, path := range set {
+			if _, ok := manifest.Files[path]; ok {
+				present = true
+			} else {
+				complete = false
+			}
+		}
+		if present && !complete {
+			return errors.New("incomplete appliance payload: architecture binary set is partial")
+		}
+		if complete {
+			completeArchitectures++
+		}
+	}
+	if completeArchitectures != 1 {
+		return errors.New("incomplete appliance payload: exactly one supported architecture binary set is required")
 	}
 	return nil
 }
