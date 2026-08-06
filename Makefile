@@ -100,6 +100,7 @@ dist-arm64: build-linux-arm64 web-build
 	@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-arm64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-arm64/slot-exec
+	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-arm64/compatibility.json
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-arm64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-arm64/init.d/router-applyd
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan
@@ -131,6 +132,7 @@ dist-amd64: build-linux-amd64 web-build
 	@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-amd64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-amd64/slot-exec
+	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-amd64/compatibility.json
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-amd64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-amd64/init.d/router-applyd
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan
