@@ -214,8 +214,8 @@ while IFS= read -r module; do
 done < modules/minimalrouter.conf
 
 sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
-[ "$(sysctl -n net.ipv4.ip_forward)" = "1" ] || {
-    echo "ERROR: IPv4 forwarding did not activate" >&2
+[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || {
+    echo "ERROR: first-run IPv4 forwarding did not remain disabled" >&2
     exit 1
 }
 [ "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "2" ] || {
@@ -241,4 +241,4 @@ echo "Start now: rc-service chronyd start && rc-service router-applyd start && r
 echo "Or reboot once; all three services are enabled for the default runlevel."
 LAN_IP="$(ip -4 addr show 2>/dev/null | grep -o 'inet [0-9.]*' | grep -v '127.0.0.1' | head -1 | cut -d' ' -f2)"
 [ -n "$LAN_IP" ] && echo "Current management candidate: https://${LAN_IP}:8443"
-echo "Default first-run management address after routerd reconciliation: https://192.168.1.1:8443"
+echo "Default first-run management address after router-applyd setup reconciliation: https://192.168.1.1:8443"
