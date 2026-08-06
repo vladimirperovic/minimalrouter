@@ -78,7 +78,14 @@ func main() {
 	if adminHash != "" {
 		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
 		if err := engine.Reconcile(reconcileCtx); err != nil {
-			log.Printf("[RECOVERY] Canonical state reconciliation failed: %v", err)
+			reconcileCancel()
+			// Serving the API after a failed canonical reconcile can create a
+			// management lockout: SQLite may contain a recovery LAN address while
+			// the kernel/helper still runs the old last-good address. OpenRC
+			// supervises routerd, so fail this start attempt and retry instead of
+			// exposing a management process whose destination policy describes a
+			// runtime that was never proven active.
+			log.Fatalf("Refusing startup because canonical runtime reconciliation failed: %v", err)
 		}
 		reconcileCancel()
 	}
