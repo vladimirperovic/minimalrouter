@@ -10,10 +10,20 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
 
+func allLayoutFilesForTest(t *testing.T) []runtimeLayoutFile {
+	t.Helper()
+	bootstrap, err := bootstrapRuntimeFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := append([]runtimeLayoutFile(nil), runtimeLayoutFiles...)
+	return append(files, bootstrap...)
+}
+
 func writeLayoutFixture(t *testing.T, updateRoot, version, systemRoot string, mismatch bool) {
 	t.Helper()
 	slotRoot := filepath.Join(updateRoot, "slots", version)
-	for i, item := range runtimeLayoutFiles {
+	for i, item := range allLayoutFilesForTest(t) {
 		candidate := []byte("layout-" + item.slotPath + "\n")
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(slotRoot, item.slotPath)), 0o755); err != nil {
 			t.Fatal(err)
@@ -79,6 +89,40 @@ func TestRuntimeLayoutMismatchBlocksActivationBeforeServiceRestart(t *testing.T)
 	state, stateErr := (firmware.SlotManager{Root: root}).State()
 	if stateErr != nil || state.Current != "1.0.0" {
 		t.Fatalf("current slot changed after rejected layout: state=%+v err=%v", state, stateErr)
+	}
+}
+
+func TestBootstrapBinaryMismatchBlocksABActivation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "updates")
+	systemRoot := filepath.Join(t.TempDir(), "system")
+	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
+
+	bootstrap, err := bootstrapRuntimeFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bootstrap) == 0 {
+		t.Fatal("bootstrap compatibility file list is empty")
+	}
+	candidatePath := filepath.Join(root, "slots", "1.1.0", bootstrap[0].slotPath)
+	if err := os.WriteFile(candidatePath, []byte("new-bootstrap-binary\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	oldServiceCommand := serviceCommand
+	defer func() { serviceCommand = oldServiceCommand }()
+	called := false
+	serviceCommand = func(args ...string) error {
+		called = true
+		return nil
+	}
+
+	if err := activateAndRestart(firmware.SlotManager{Root: root}, "1.1.0", systemRoot); err == nil {
+		t.Fatal("A/B activation accepted a bootstrap-stable binary change")
+	}
+	if called {
+		t.Fatal("service restart occurred before bootstrap compatibility failure")
 	}
 }
 
