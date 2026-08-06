@@ -30,6 +30,7 @@ for required in \
     "bin/router-update-${BIN_ARCH}" \
     "web/dist/index.html" \
     "slot-exec" \
+    "compatibility.json" \
     "init.d/routerd" \
     "init.d/router-applyd" \
     "init.d/pppoe-wan" \
@@ -164,6 +165,7 @@ install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/boot
 install -m 0750 "bin/router-recovery-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}"
 install -m 0750 "bin/router-update-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}"
 install -m 0755 slot-exec /usr/libexec/minimalrouter/slot-exec
+install -m 0644 -o root -g root compatibility.json /etc/minimalrouter/compatibility.json
 
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/bin/routerd
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-applyd
