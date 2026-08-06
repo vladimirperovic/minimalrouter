@@ -106,18 +106,28 @@ func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, addition
 	if err != nil {
 		return false
 	}
+	now := time.Now()
+	// A certificate generated before the clock synchronized may become
+	// not-yet-valid after a large wall-clock correction. Conversely, rotate
+	// with a month of validity left rather than failing a later handshake.
+	if now.Before(cert.NotBefore) || cert.NotAfter.Sub(now) < 30*24*time.Hour {
+		return false
+	}
 	lanIP := net.ParseIP(cfg.LAN.IPAddress)
-	if lanIP == nil || time.Until(cert.NotAfter) < 30*24*time.Hour {
+	if lanIP == nil || cert.VerifyHostname(cfg.LAN.IPAddress) != nil {
 		return false
 	}
-	if cert.VerifyHostname(cfg.LAN.IPAddress) != nil {
-		return false
+	// WireGuard is optional. Requiring its SAN while the service is disabled
+	// caused every TLS handshake to reject and regenerate an otherwise valid
+	// certificate when an old/partial configuration carried no WG address.
+	if cfg.WireGuard.Enabled {
+		wgAddress, _, parseErr := net.ParseCIDR(cfg.WireGuard.Address)
+		if parseErr != nil || cert.VerifyHostname(wgAddress.String()) != nil {
+			return false
+		}
 	}
-	wgAddress, _, err := net.ParseCIDR(cfg.WireGuard.Address)
-	if err != nil || cert.VerifyHostname(wgAddress.String()) != nil {
-		return false
-	}
-	if cert.VerifyHostname(cfg.System.Hostname+"."+cfg.System.Domain) != nil {
+	fqdn := strings.TrimSuffix(strings.TrimSpace(cfg.System.Hostname+"."+cfg.System.Domain), ".")
+	if fqdn == "" || cert.VerifyHostname(fqdn) != nil {
 		return false
 	}
 	for _, ip := range normalizeIPs(additionalIPs) {
@@ -183,8 +193,10 @@ func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIP
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	ipAddresses := []net.IP{net.IPv4(127, 0, 0, 1)}
 	ipAddresses = appendUniqueIP(ipAddresses, net.ParseIP(cfg.LAN.IPAddress))
-	if wgAddress, _, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil {
-		ipAddresses = appendUniqueIP(ipAddresses, wgAddress)
+	if cfg.WireGuard.Enabled {
+		if wgAddress, _, parseErr := net.ParseCIDR(cfg.WireGuard.Address); parseErr == nil {
+			ipAddresses = appendUniqueIP(ipAddresses, wgAddress)
+		}
 	}
 	for _, ip := range normalizeIPs(additionalIPs) {
 		ipAddresses = appendUniqueIP(ipAddresses, ip)
