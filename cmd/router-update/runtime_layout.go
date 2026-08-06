@@ -114,7 +114,11 @@ func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) er
 	return nil
 }
 
-const serviceCommandTimeout = 25 * time.Second
+// routerd's OpenRC start_post waits for canonical reconcile and the management
+// readiness marker. The updater must allow that same bounded startup window;
+// otherwise it can manufacture a false activation failure and needless
+// rollback while the new process is still performing a legitimate recovery.
+const serviceCommandTimeout = 180 * time.Second
 
 var serviceCommand = func(args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), serviceCommandTimeout)
