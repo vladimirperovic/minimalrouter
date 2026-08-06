@@ -7,6 +7,7 @@ func completeAMD64ManifestForTest() *FirmwareManifest {
 	for _, path := range []string{
 		"web/dist/index.html",
 		"slot-exec",
+		"compatibility.json",
 		"install.sh",
 		"init.d/routerd",
 		"init.d/router-applyd",
@@ -36,6 +37,14 @@ func TestValidateAppliancePayloadRejectsMissingSystemIntegration(t *testing.T) {
 	delete(manifest.Files, "ip-up.d-minimalrouter-qos")
 	if err := ValidateAppliancePayload(manifest); err == nil {
 		t.Fatal("payload missing PPP integration was accepted")
+	}
+}
+
+func TestValidateAppliancePayloadRejectsMissingCompatibilityABI(t *testing.T) {
+	manifest := completeAMD64ManifestForTest()
+	delete(manifest.Files, "compatibility.json")
+	if err := ValidateAppliancePayload(manifest); err == nil {
+		t.Fatal("payload missing compatibility ABI was accepted")
 	}
 }
 
