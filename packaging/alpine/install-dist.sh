@@ -30,12 +30,14 @@ for required in \
     "bin/router-update-${BIN_ARCH}" \
     "web/dist/index.html" \
     "slot-exec" \
+    "compatibility.json" \
     "init.d/routerd" \
     "init.d/router-applyd" \
     "init.d/pppoe-wan" \
     "sysctl/99-minimalrouter.conf" \
     "modules/minimalrouter.conf" \
-    "logrotate/minimalrouter"
+    "logrotate/minimalrouter" \
+    "ip-up.d-minimalrouter-qos"
 do
     [ -f "$required" ] || {
         echo "ERROR: Missing distribution file: $required" >&2
@@ -87,6 +89,23 @@ else
     apk update
     apk add --no-cache $REQUIRED_PACKAGES
 fi
+
+# Fail before replacing appliance runtime files if the running kernel cannot
+# support a required router feature. Loading an already-available module is
+# harmless and avoids a half-installed system whose A/B pointer still claims a
+# healthy release after a late module failure.
+while IFS= read -r module; do
+    case "$module" in ""|\#*) continue ;; esac
+    if ! modprobe "$module"; then
+        if [ "$module" = "pppoe" ]; then
+            echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
+            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
+        else
+            echo "ERROR: required kernel module '$module' could not be loaded." >&2
+        fi
+        exit 1
+    fi
+done < modules/minimalrouter.conf
 
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:
@@ -163,6 +182,7 @@ install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/boot
 install -m 0750 "bin/router-recovery-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}"
 install -m 0750 "bin/router-update-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}"
 install -m 0755 slot-exec /usr/libexec/minimalrouter/slot-exec
+install -m 0644 -o root -g root compatibility.json /etc/minimalrouter/compatibility.json
 
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/bin/routerd
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-applyd
@@ -202,20 +222,15 @@ echo "[6/7] Loading router kernel modules and sysctls..."
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
     grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
-    if ! modprobe "$module"; then
-        if [ "$module" = "pppoe" ]; then
-            echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
-            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
-        else
-            echo "ERROR: required kernel module '$module' could not be loaded." >&2
-        fi
-        exit 1
-    fi
+    # Required modules were preflighted before root runtime replacement. Load
+    # again here after persistence so the installed state and current kernel
+    # are proven together.
+    modprobe "$module"
 done < modules/minimalrouter.conf
 
 sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
-[ "$(sysctl -n net.ipv4.ip_forward)" = "1" ] || {
-    echo "ERROR: IPv4 forwarding did not activate" >&2
+[ "$(sysctl -n net.ipv4.ip_forward)" = "0" ] || {
+    echo "ERROR: first-run IPv4 forwarding did not remain disabled" >&2
     exit 1
 }
 [ "$(sysctl -n net.ipv4.conf.all.rp_filter)" = "2" ] || {
@@ -236,9 +251,56 @@ rc-update add chronyd default
 rc-update add router-applyd default
 rc-update add routerd default
 
+# Commit the first A/B rollback target only after every critical kernel/sysctl
+# check and OpenRC registration has succeeded. A failed full installer may
+# leave newly copied files for the operator to rerun, but it must never advance
+# current/state.json to a baseline that was not proven installable.
+BASELINE_HASH="$({ \
+    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"; \
+    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"; \
+    sha256sum /usr/libexec/minimalrouter/bootstrap/web/dist/index.html; \
+} | sha256sum | cut -c1-16)"
+BASELINE_VERSION="0.0.0+bootstrap.${BASELINE_HASH}"
+BASELINE_SLOT="/var/lib/minimalrouter-update/slots/${BASELINE_VERSION}"
+rm -rf "$BASELINE_SLOT"
+install -d -m 0755 -o root -g root "$BASELINE_SLOT/bin" "$BASELINE_SLOT/web/dist"
+install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}" "$BASELINE_SLOT/bin/routerd-${BIN_ARCH}"
+install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-applyd-${BIN_ARCH}"
+install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-recovery-${BIN_ARCH}"
+install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-update-${BIN_ARCH}"
+cp -R /usr/libexec/minimalrouter/bootstrap/web/dist/. "$BASELINE_SLOT/web/dist/"
+chown -R root:root "$BASELINE_SLOT"
+chmod -R a+rX "$BASELINE_SLOT/web"
+
+OLD_CURRENT_TARGET="$(readlink /var/lib/minimalrouter-update/current 2>/dev/null || true)"
+OLD_CURRENT_VERSION=""
+case "$OLD_CURRENT_TARGET" in
+    slots/*) OLD_CURRENT_VERSION="${OLD_CURRENT_TARGET#slots/}" ;;
+esac
+
+rm -f /var/lib/minimalrouter-update/.current-new
+ln -s "slots/${BASELINE_VERSION}" /var/lib/minimalrouter-update/.current-new
+mv -f /var/lib/minimalrouter-update/.current-new /var/lib/minimalrouter-update/current
+
+if [ -n "$OLD_CURRENT_VERSION" ] && [ "$OLD_CURRENT_VERSION" != "$BASELINE_VERSION" ] && \
+   [ -d "/var/lib/minimalrouter-update/slots/${OLD_CURRENT_VERSION}" ]; then
+    rm -f /var/lib/minimalrouter-update/.previous-new
+    ln -s "slots/${OLD_CURRENT_VERSION}" /var/lib/minimalrouter-update/.previous-new
+    mv -f /var/lib/minimalrouter-update/.previous-new /var/lib/minimalrouter-update/previous
+else
+    rm -f /var/lib/minimalrouter-update/previous
+    OLD_CURRENT_VERSION=""
+fi
+
+STATE_TMP="/var/lib/minimalrouter-update/.state-install-$$"
+printf '{"current":"%s","previous":"%s","pending":""}\n' "$BASELINE_VERSION" "$OLD_CURRENT_VERSION" > "$STATE_TMP"
+chmod 0644 "$STATE_TMP"
+mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
+sync
+
 echo "=== Installation complete ==="
 echo "Start now: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
 echo "Or reboot once; all three services are enabled for the default runlevel."
 LAN_IP="$(ip -4 addr show 2>/dev/null | grep -o 'inet [0-9.]*' | grep -v '127.0.0.1' | head -1 | cut -d' ' -f2)"
 [ -n "$LAN_IP" ] && echo "Current management candidate: https://${LAN_IP}:8443"
-echo "Default first-run management address after routerd reconciliation: https://192.168.1.1:8443"
+echo "Default first-run management address after router-applyd setup reconciliation: https://192.168.1.1:8443"

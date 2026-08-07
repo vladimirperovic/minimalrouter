@@ -60,7 +60,7 @@ func TestConfirmationCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 	// The API request itself proves the candidate management path. The helper
 	// no longer runs a monolithic OpConfirm that couples LAN/Wi-Fi confirmation
 	// to unrelated ISP or wg1 health. Canonical commit is acknowledged first;
-	// a best-effort reconcile then collapses the provisional dual-LAN address.
+	// a final reconcile then collapses the provisional dual-LAN address.
 	want := []OperationType{OpApplyAll, OpCommitConfirmed, OpReconcile}
 	if len(client.requests) != len(want) {
 		t.Fatalf("request count=%d, want %d", len(client.requests), len(want))
@@ -139,13 +139,10 @@ func (c *routineCommitOrderingClient) Apply(_ context.Context, req ApplyRequest)
 	}
 	switch req.Op {
 	case OpApplyAll:
-		if c.setupMode {
-			if req.DeferLastGood {
-				return &ApplyResponse{ID: req.ID, Success: false, Error: "setup must not defer last-good"}, nil
-			}
-			return &ApplyResponse{ID: req.ID, Success: true, Verified: true}, nil
-		}
 		if !req.DeferLastGood {
+			if c.setupMode {
+				return &ApplyResponse{ID: req.ID, Success: false, Error: "setup apply must defer last-good until canonical config and credentials commit"}, nil
+			}
 			return &ApplyResponse{ID: req.ID, Success: false, Error: "routine apply must defer last-good until canonical commit"}, nil
 		}
 		if stored.LAN.CIDR != c.initial.LAN.CIDR {
@@ -199,23 +196,37 @@ func TestRoutineSaveCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 	}
 }
 
-func TestInitialSetupDoesNotDeferLastGood(t *testing.T) {
+func TestInitialSetupCommitsCanonicalStoreBeforeHelperLastGood(t *testing.T) {
 	store := newScenarioStore(t)
 	initial, err := store.GetLatestConfig()
 	if err != nil {
 		t.Fatalf("read initial config: %v", err)
 	}
-	client := &routineCommitOrderingClient{store: store, initial: initial, setupMode: true}
+	client := &routineCommitOrderingClient{store: store, initial: initial, candidate: initial, setupMode: true}
 	engine := NewEngineWithClient(initial, store, client)
 
-	_, err = engine.ProcessInitialSetup("tx-setup", initial, func(config.SystemConfig) error { return nil })
+	tx, err := engine.ProcessInitialSetup("tx-setup", initial, func(applied config.SystemConfig) error {
+		return store.SaveConfig(applied)
+	})
 	if err != nil {
 		t.Fatalf("initial setup: %v", err)
 	}
-	if len(client.requests) != 1 || client.requests[0].Op != OpApplyAll {
-		t.Fatalf("setup must stay single-phase, got %d requests", len(client.requests))
+	if tx.CurrentState != StateCommitted {
+		t.Fatalf("setup state=%s error=%s", tx.CurrentState, tx.Error)
 	}
-	if client.requests[0].DeferLastGood {
-		t.Fatal("initial setup must not defer last-good: no canonical state exists to protect and a pending marker on a fresh install would fail-closed the next boot")
+	want := []OperationType{OpApplyAll, OpCommitConfirmed}
+	if len(client.requests) != len(want) {
+		t.Fatalf("setup request count=%d, want %d", len(client.requests), len(want))
+	}
+	for i, op := range want {
+		if client.requests[i].Op != op {
+			t.Fatalf("setup request[%d].Op=%s, want %s", i, client.requests[i].Op, op)
+		}
+	}
+	if !client.requests[0].DeferLastGood {
+		t.Fatal("initial setup must defer helper last-good until canonical config/auth commit")
+	}
+	if !client.requests[1].SkipWANVerify {
+		t.Fatal("setup canonical helper acknowledgement must not depend on ISP availability")
 	}
 }

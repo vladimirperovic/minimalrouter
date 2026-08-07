@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
 	"sync"
 	"time"
@@ -138,6 +139,17 @@ func (e *Engine) ProcessInitialSetup(txID string, newCfg config.SystemConfig, co
 	return e.processTransaction(txID, newCfg, true, commit)
 }
 
+func sameIPv4Network(a, b string) bool {
+	_, aNet, aErr := net.ParseCIDR(a)
+	_, bNet, bErr := net.ParseCIDR(b)
+	if aErr != nil || bErr != nil || aNet.IP.To4() == nil || bNet.IP.To4() == nil {
+		return false
+	}
+	aOnes, aBits := aNet.Mask.Size()
+	bOnes, bBits := bNet.Mask.Size()
+	return aBits == 32 && bBits == 32 && aOnes == bOnes && aNet.IP.Equal(bNet.IP)
+}
+
 func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, allowInterfaceChange bool, commit func(config.SystemConfig) error) (*Transaction, error) {
 	e.operationMu.Lock()
 	defer e.operationMu.Unlock()
@@ -168,6 +180,15 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 	if !allowInterfaceChange && newCfg.LAN.Interface != e.currentConfig.LAN.Interface {
 		tx.CurrentState = StateRejected
 		tx.Error = "live LAN interface changes are unsupported; use the local recovery console"
+		return tx, fmt.Errorf("%s", tx.Error)
+	}
+	// A cross-subnet change cannot safely migrate already leased DHCP clients:
+	// they retain the old gateway/DNS until renewal while the new anti-spoof
+	// policy rejects their old source network. Until a durable dual-policy lease
+	// migration exists, require the local recovery console for subnet changes.
+	if !allowInterfaceChange && !sameIPv4Network(e.currentConfig.LAN.CIDR, newCfg.LAN.CIDR) {
+		tx.CurrentState = StateRejected
+		tx.Error = "live LAN subnet changes are unsupported; use the local recovery console"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
 	if newCfg.System.HTTPSPort != e.currentConfig.System.HTTPSPort {
@@ -254,7 +275,10 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		Dnsmasq: dnsmasqCfg, Hostapd: hostapdCfg, WireGuard: wireGuardCfg,
 		RequireConfirmation: !allowInterfaceChange && requiresConfirmation(e.currentConfig, newCfg),
 	}
-	applyReq.DeferLastGood = !applyReq.RequireConfirmation && commitConfig != nil && !allowInterfaceChange
+	// Canonical persistence always precedes helper last-good persistence when a
+	// commit callback exists, including first-run setup. This removes the setup
+	// power-loss window where root could boot a newer network than SQLite/auth.
+	applyReq.DeferLastGood = !applyReq.RequireConfirmation && commitConfig != nil
 	ctx, cancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
 	defer cancel()
 	e.applying = true
@@ -458,15 +482,32 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 
 	lanChanged := pending.previous.LAN.IPAddress != pending.tx.Config.LAN.IPAddress || pending.previous.LAN.CIDR != pending.tx.Config.LAN.CIDR
 	if lanChanged {
-		if finalizeReq, buildErr := buildApplyRequest(txID+"-finalize-lan", pending.tx.Config); buildErr == nil {
-			finalizeReq.Op = OpReconcile
-			finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
-			e.applying = true
-			e.mu.Unlock()
-			_, _ = e.applyPrivileged(finalizeCtx, finalizeReq)
-			e.mu.Lock()
-			e.applying = false
-			finalizeCancel()
+		finalizeReq, buildErr := buildApplyRequest(txID+"-finalize-lan", pending.tx.Config)
+		if buildErr != nil {
+			pending.tx.CurrentState = StateRecoveryRequired
+			pending.tx.Error = "canonical LAN configuration was committed but final runtime request could not be generated: " + buildErr.Error()
+			e.requireRecovery(pending.tx.Error)
+			return pending.tx, buildErr
+		}
+		finalizeReq.Op = OpReconcile
+		finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), privilegedApplyTimeout)
+		e.applying = true
+		e.mu.Unlock()
+		finalizeResp, finalizeErr := e.applyPrivileged(finalizeCtx, finalizeReq)
+		e.mu.Lock()
+		e.applying = false
+		finalizeCancel()
+		if finalizeErr != nil || finalizeResp == nil || !finalizeResp.Success || !finalizeResp.Verified {
+			pending.tx.CurrentState = StateRecoveryRequired
+			if finalizeErr != nil {
+				pending.tx.Error = "canonical LAN configuration was committed but final runtime reconciliation is unknown: " + finalizeErr.Error()
+			} else if finalizeResp == nil {
+				pending.tx.Error = "canonical LAN configuration was committed but final runtime reconciliation returned no result"
+			} else {
+				pending.tx.Error = "canonical LAN configuration was committed but final runtime reconciliation failed: " + finalizeResp.Error
+			}
+			e.requireRecovery(pending.tx.Error)
+			return pending.tx, fmt.Errorf("LAN runtime finalization failed")
 		}
 	}
 
