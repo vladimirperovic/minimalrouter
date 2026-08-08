@@ -85,18 +85,33 @@ func TestValidationPortForwardRange(t *testing.T) {
 	}
 }
 
-func TestValidationRejectsEveryEnabledWANPortForward(t *testing.T) {
+func TestValidationRejectsPortForwardWithoutWireGuard(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Firewall.PortForwards = []PortForwardRule{{
+		ID: "pf1", Name: "Tunnel Web Server", Protocol: "tcp",
+		ExternalPort: 4080, InternalIP: "192.168.1.50", InternalPort: 8080, Enabled: true,
+	}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "port forwards require WireGuard") {
+		t.Fatalf("expected WireGuard requirement for port forwards, got %v", err)
+	}
+}
+
+func TestValidationAcceptsPortForwardWithWireGuard(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.WAN.Enabled = true
 	cfg.WAN.Username = "isp-user"
 	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.Interface = "wg0"
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	cfg.Firewall.PortForwards = []PortForwardRule{{
-		ID: "pf1", Name: "Forbidden Web Server", Protocol: "tcp",
-		ExternalPort: 443, InternalIP: "192.168.1.50", InternalPort: 443, Enabled: true,
+		ID: "pf1", Name: "Tunnel Web Server", Protocol: "tcp",
+		ExternalPort: 4080, InternalIP: "192.168.1.50", InternalPort: 8080, Enabled: true,
 	}}
 	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "WireGuard is the only allowed external entry point") {
-		t.Fatalf("expected WireGuard-only WAN ingress rejection, got %v", err)
+	if err != nil {
+		t.Fatalf("expected enabled port forward to validate with WireGuard, got %v", err)
 	}
 }
 

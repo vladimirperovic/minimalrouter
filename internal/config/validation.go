@@ -281,11 +281,8 @@ func (c *SystemConfig) Validate() error {
 		appendFieldError(&errs, "firewall.stateful_firewall", "cannot be disabled")
 	}
 	for i, pf := range c.Firewall.PortForwards {
-		if pf.Enabled {
-			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].enabled", i), "WAN port forwards are forbidden; WireGuard is the only allowed external entry point")
-		}
-		if pf.Enabled && !c.WAN.Enabled {
-			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].enabled", i), "cannot be enabled while WAN is disabled")
+		if pf.Enabled && !c.WireGuard.Enabled {
+			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].enabled", i), "port forwards require WireGuard; tunnel-only entry is the only supported external path")
 		}
 		if !safeNamePattern.MatchString(pf.Name) || hasUnsafeControl(pf.Name) {
 			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].name", i), "contains unsupported characters")
