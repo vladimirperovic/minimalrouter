@@ -26,10 +26,21 @@ CURRENT_PHASE=""
 FAILED=0
 mkdir -p "$RESULTS_DIR"
 
-begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; }
-phase() { CURRENT_PHASE="$1"; log "--- phase $1"; }
+begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; CUR_FILE=/tmp/lab-current.json; }
+phase() { CURRENT_PHASE="$1"; log "--- phase $1"; temp_guard; echo "{\"scenario\":\"$CURRENT_SCENARIO\",\"phase\":\"$1\",\"ts\":\"$(date +%H:%M:%S)\"}" > "${CUR_FILE:-/tmp/lab-current.json}" 2>/dev/null; }
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 note() { echo "[note] $*"; }
+
+# temp_guard — abort the whole suite if the host CPU exceeds 85C
+TEMP_LIMIT="${LAB_TEMP_LIMIT:-95}"
+temp_guard() {
+  t=$(H "cat /sys/class/thermal/thermal_zone1/temp 2>/dev/null" 2>/dev/null)
+  t=${t:-0}
+  if [ "$t" -gt $((TEMP_LIMIT * 1000)) ] 2>/dev/null; then
+    echo "[ABORT] host CPU temp $((t / 1000))C exceeds ${TEMP_LIMIT}C — stopping suite (no permanent damage risk)"
+    finish_scenario 1
+  fi
+}
 check() {  # check <name> <cmd...> — 0 = PASS, else FAIL (recorded, non-fatal)
   name="$1"; shift
   if "$@" >/dev/null 2>&1; then
