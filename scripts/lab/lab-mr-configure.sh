@@ -9,8 +9,8 @@ set -eu
 
 HOST="${LAB_HOST:-root@192.168.1.2}"
 SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
-KEY="${LAB_SSH_KEY:-$(dirname "$0")/../../private/secrets/proxmox_codex_ed25519}"
-KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-$(dirname "$0")/../../private/secrets/proxmox_known_hosts}"
+KEY="${LAB_SSH_KEY:-${HOME:-/root}/.ssh/lab_id_ed25519}"
+KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-${HOME:-/root}/.ssh/known_hosts}"
 LABDIR="$(cd "$(dirname "$0")" && pwd)"
 SEC="$(cd "$LABDIR/../../private/secrets" && pwd)"
 H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; }
@@ -38,17 +38,18 @@ MR_API="https://192.168.1.1:8443"
 PPPOE_PW="minimalrouter-lab-pppoe"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
-echo "== wait for MR-TEST pristine boot =="
+echo "== wait for MR-TEST API =="
 i=0
 while [ $i -lt 40 ]; do
+  gx 151 'ip route add 192.168.1.254/32 dev eth1 2>/dev/null || true'
   st="$(H "curl -sk --max-time 5 $MR_API/api/v1/setup/status 2>/dev/null" || true)"
-  if echo "$st" | grep -qE "\"is_configured\": ?false"; then
-    echo "  pristine first boot confirmed"
+  if echo "$st" | grep -qE '"is_configured": ?(false|true)'; then
+    echo "  MR-TEST API up (is_configured=$(echo "$st" | grep -oE '"(is_configured)": ?(false|true)' | grep -oE 'false|true'))"
     break
   fi
   sleep 8; i=$((i+1))
 done
-[ $i -lt 40 ] || { echo "ERROR: MR-TEST did not reach pristine first boot"; exit 1; }
+[ $i -lt 40 ] || { echo "ERROR: MR-TEST API did not come up"; exit 1; }
 
 echo "== pull MR + SIM wireguard keys =="
 MR_WG0_KEY="$(gx 151 'cat /root/lab-wg-keys/mr_wg0.key')"
@@ -62,6 +63,7 @@ echo "  sim_wg0.pub=$SIM_WG0_PUB"
 echo "  mr_wg1.pub=$MR_WG1_PUB"
 echo "  sim_wg1.pub=$SIM_WG1_PUB"
 
+if ! echo "$st" | grep -qE '"is_configured": ?true'; then
 echo "== wizard setup (PPPoE WAN + LAN) =="
 H "curl -sk --max-time 30 -X POST $MR_API/api/v1/setup/apply -H 'Content-Type: application/json' -d '{
   \"wan_interface\": \"eth0\",
@@ -72,6 +74,7 @@ H "curl -sk --max-time 30 -X POST $MR_API/api/v1/setup/apply -H 'Content-Type: a
   \"lan_ip_address\": \"192.168.1.1\"
 }'" | head -c 600
 echo
+fi
 
 echo "== wait for PPPoE session =="
 i=0
@@ -86,35 +89,10 @@ done
 
 echo "== login =="
 COOKIE="/tmp/lab-cookie.txt"
-H "curl -sk --max-time 10 -c $COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" >/dev/null
+CSRF="$(H "curl -sk --max-time 10 -c $COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' 2>/dev/null)"
 CFG="$(H "curl -sk --max-time 10 -b $COOKIE $MR_API/api/v1/config")"
 REV="$(echo "$CFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
 echo "  current revision: $REV"
-
-echo "== full lab profile (DHCP/DNS/ExtraLAN/wg0/wg1) =="
-H "curl -sk --max-time 60 -b $COOKIE -X PUT $MR_API/api/v1/config -H 'Content-Type: application/json' -d '{
-  \"revision\": $REV,
-  \"system\": { \"hostname\": \"mr-test\", \"domain\": \"lab.test\", \"management_access\": \"lan_and_wireguard\" },
-  \"lan\": { \"interface\": \"eth1\", \"ip_address\": \"10.77.0.1\", \"cidr\": \"/24\" },
-  \"dhcp\": { \"enabled\": true, \"dns_enabled\": true, \"range_start\": \"10.77.0.100\", \"range_end\": \"10.77.0.200\", \"lease_time\": \"12h\" },
-  \"dns\": { \"records\": [ { \"name\": \"router.home.arpa\", \"ip\": \"10.77.0.1\" }, { \"name\": \"client.home.arpa\", \"ip\": \"10.77.0.100\" } ] },
-  \"firewall\": { \"extra_lans\": [ { \"id\": \"elab1\", \"name\": \"lab-extra\", \"interface\": \"eth2\", \"cidr\": \"10.78.0.0/24\", \"router_address\": \"10.78.0.1/24\", \"dst_ip\": \"10.78.0.10\", \"dst_port\": 8080, \"allow_from\": [\"10.77.0.0/24\"], \"enabled\": true } ] },
-  \"wireguard\": { \"enabled\": true, \"interface\": \"wg0\", \"private_key\": \"$MR_WG0_KEY\", \"listen_port\": 51820, \"address\": \"10.6.0.1/24\", \"peers\": [ { \"id\": \"sim-peer\", \"name\": \"sim-lab\", \"public_key\": \"$SIM_WG0_PUB\", \"allowed_ips\": [\"10.6.0.10/32\"], \"endpoint\": \"10.250.0.10:51820\", \"enabled\": true } ] },
-  \"wg_client\": { \"enabled\": true, \"interface\": \"wg1\", \"private_key\": \"$MR_WG1_KEY\", \"address\": \"10.79.0.1/32\", \"public_key\": \"$SIM_WG1_PUB\", \"endpoint\": \"10.79.0.2:51821\", \"allowed_ips\": [\"10.79.1.0/24\", \"10.79.0.2/32\"], \"persistent_keepalive\": 25 }
-}'" | head -c 900
-echo
-sleep 5
-
-echo "== confirmation window handling =="
-PEND="$(H "curl -sk --max-time 10 -b $COOKIE $MR_API/api/v1/transactions/pending")"
-if echo "$PEND" | grep -q '"state": "AwaitingConfirmation"'; then
-  TXID="$(echo "$PEND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-  echo "  confirming transaction $TXID"
-  H "curl -sk --max-time 120 -b $COOKIE -X POST $MR_API/api/v1/transactions/$TXID/confirm" | head -c 400
-  echo
-else
-  echo "  no pending confirmation"
-fi
 
 echo "== push MR keys into SIM-LAB wg peers =="
 gx 153 "cat > /etc/wireguard/wg0.conf <<EOF
@@ -141,6 +119,52 @@ PublicKey = $MR_WG1_PUB
 AllowedIPs = 10.79.0.1/32
 EOF
 systemctl restart wg-quick@wg1 || true"
+
+
+echo "== full lab profile (DHCP/DNS/ExtraLAN/wg0/wg1) =="
+# Merge lab fields into the CURRENT config (PUT replaces the whole object; the
+# WAN/PPPoE section must survive). LAN subnet stays 192.168.1.1 — the product
+# rejects live LAN subnet changes (use the recovery console for that), and the
+# scenarios' lib.sh expects MR_LAN_IP=192.168.1.1 anyway.
+BODY="$(echo "$CFG" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)
+c["system"]["hostname"]="mr-test"; c["system"]["domain"]="lab.test"
+c["system"]["management_access"]="lan_and_wireguard"
+c["lan"]["ip_address"]="192.168.1.1"; c["lan"]["cidr"]="192.168.1.1/24"
+c["dhcp"]={"enabled":True,"dns_enabled":False,"range_start":"192.168.1.100","range_end":"192.168.1.200","lease_time":"12h","dns_servers":["1.1.1.1","1.0.0.1"]}
+c["dns"]={"records":[{"name":"router.home.arpa","ip":"192.168.1.1"},{"name":"client.home.arpa","ip":"192.168.1.100"}]}
+c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":"eth2","cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
+c["wireguard"]={"enabled":True,"interface":"wg0","private_key":"'"$MR_WG0_KEY"'","listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":"'"$SIM_WG0_PUB"'","allowed_ips":["10.6.0.10/32"],"endpoint":"10.250.0.10:51820","enabled":True}]}
+c["wg_client"]={"enabled":False,"interface":"wg1","private_key":"'$MR_WG1_KEY'","address":"10.79.0.1/32","public_key":"'$SIM_WG1_PUB'","endpoint":"10.79.0.2:51821","allowed_ips":["10.79.1.0/24"],"persistent_keepalive":25}
+c["trusted_networks"]=["192.168.1.0/24","10.6.0.0/24"]
+print(json.dumps(c))
+')"
+H "curl -sk --max-time 60 -b $COOKIE -X PUT $MR_API/api/v1/config -H 'Content-Type: application/json' -H 'X-CSRF-Token: $CSRF' -d '$BODY'" | head -c 900
+echo
+sleep 5
+
+echo "== confirmation window handling =="
+# The apply's network reconfiguration wipes the host route to MR-TEST; restore
+# it from inside the VM (no host access needed), then confirm the pending tx.
+# Window is 90s — retry a few times in case of a race.
+sleep 3
+for attempt in 1 2 3 4 5; do
+  gx 151 'ip route add 192.168.1.254/32 dev eth1 2>/dev/null || true'
+  PEND="$(H "curl -sk --max-time 10 -b $COOKIE $MR_API/api/v1/transactions/pending")"
+  if echo "$PEND" | grep -qE '"pending": ?true'; then
+    TXID="$(echo "$PEND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+    echo "  confirming transaction $TXID (attempt $attempt)"
+    R="$(H "curl -sk --max-time 120 -b $COOKIE -X POST $MR_API/api/v1/transactions/$TXID/confirm -H 'Content-Type: application/json' -H 'X-CSRF-Token: $CSRF'")"
+    echo "$R" | head -c 400
+    echo
+    if echo "$R" | grep -q '"success": true\|"state": "Confirmed"'; then
+      echo "  CONFIRMED"
+      break
+    fi
+  fi
+  sleep 5
+done
 
 echo "== verify handshakes =="
 sleep 8

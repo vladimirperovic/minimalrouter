@@ -245,6 +245,12 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("table inet minimalrouter {\n")
 	writeDeviceProfileObjects(&buf, cfg)
 
+	// DNAT chain: tunnel-only port forwards. Traffic arriving at the router's
+	// WireGuard address on an external port is redirected to an internal host.
+	// The forward chain's existing wg0->LAN accept carries it the rest of the
+	// way; WAN ingress stays closed (WireGuard is the only external entry).
+	writePortForwardDNAT(&buf, cfg)
+
 	// Input Chain
 	buf.WriteString("  chain input {\n")
 	buf.WriteString("    type filter hook input priority filter; policy drop;\n\n")
@@ -486,4 +492,36 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
+}
+
+// writePortForwardDNAT renders the prerouting DNAT rules for tunnel-only port
+// forwards. Each enabled rule is matched on the WireGuard interface and
+// redirected to the internal host. Returns the count of rendered rules.
+func writePortForwardDNAT(buf *bytes.Buffer, cfg *config.SystemConfig) int {
+	rules := 0
+	if !cfg.WireGuard.Enabled {
+		return 0 // fail closed: forwards are tunnel-only
+	}
+	for _, pf := range cfg.Firewall.PortForwards {
+		if !pf.Enabled {
+			continue
+		}
+		if rules == 0 {
+			buf.WriteString("  chain dnat {\n")
+			buf.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
+		}
+		protocols := []string{pf.Protocol}
+		if strings.ToLower(pf.Protocol) == "both" {
+			protocols = []string{"tcp", "udp"}
+		}
+		for _, proto := range protocols {
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" %s dport %d dnat to %s:%d\n",
+				cfg.WireGuard.Interface, strings.ToLower(proto), pf.ExternalPort, pf.InternalIP, pf.InternalPort))
+			rules++
+		}
+	}
+	if rules > 0 {
+		buf.WriteString("  }\n\n")
+	}
+	return rules
 }

@@ -961,6 +961,23 @@ func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err != nil {
 		return fmt.Errorf("nftables table unavailable: %w", err)
 	}
+	ruleset, err := runFixedOutput("/usr/sbin/nft", "list", "table", "inet", "minimalrouter")
+	if err != nil {
+		return fmt.Errorf("nftables table unavailable: %w", err)
+	}
+	for _, pf := range cfg.Firewall.PortForwards {
+		if !pf.Enabled || !cfg.WireGuard.Enabled {
+			continue
+		}
+		want := fmt.Sprintf("iifname \"%s\" %s dport %d dnat to %s:%d",
+			cfg.WireGuard.Interface, strings.ToLower(pf.Protocol), pf.ExternalPort, pf.InternalIP, pf.InternalPort)
+		if strings.ToLower(pf.Protocol) == "both" {
+			want = fmt.Sprintf("iifname \"%s\" dnat to %s:%d", cfg.WireGuard.Interface, pf.InternalIP, pf.InternalPort)
+		}
+		if !strings.Contains(ruleset, want) {
+			return fmt.Errorf("port forward %q is not active in the firewall ruleset", pf.Name)
+		}
+	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "status"); err != nil {
 		return fmt.Errorf("dnsmasq unhealthy: %w", err)
 	}

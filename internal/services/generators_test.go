@@ -10,6 +10,11 @@ import (
 func TestGenerateNftables(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.Interface = "wg0"
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 	cfg.Firewall.PortForwards = []config.PortForwardRule{
 		{
 			ID:           "pf1",
@@ -30,8 +35,32 @@ func TestGenerateNftables(t *testing.T) {
 	if !strings.Contains(out, "table inet minimalrouter") {
 		t.Errorf("Expected output to contain table definition")
 	}
-	if strings.Contains(out, "tcp dport 8080") || strings.Contains(out, "dnat to 192.168.1.50:80") {
-		t.Errorf("secure appliance profile emitted a forbidden WAN port forward")
+	if !strings.Contains(out, `iifname "wg0" tcp dport 8080 dnat to 192.168.1.50:80`) {
+		t.Errorf("Expected WireGuard-interface DNAT rule for the enabled port forward")
+	}
+	if !strings.Contains(out, "type nat hook prerouting priority dstnat") {
+		t.Errorf("Expected a prerouting DNAT chain")
+	}
+}
+
+func TestGenerateNftablesForwardsRequireWGInterface(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.Firewall.PortForwards = []config.PortForwardRule{
+		{ID: "pf2", Name: "Both Proto", Protocol: "both", ExternalPort: 9090, InternalIP: "192.168.1.51", InternalPort: 90, Enabled: true},
+	}
+
+	out, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatalf("GenerateNftables failed: %v", err)
+	}
+	if !strings.Contains(out, `iifname "wg0" tcp dport 9090 dnat to 192.168.1.51:90`) {
+		t.Errorf("missing tcp half of 'both' port forward")
+	}
+	if !strings.Contains(out, `iifname "wg0" udp dport 9090 dnat to 192.168.1.51:90`) {
+		t.Errorf("missing udp half of 'both' port forward")
 	}
 }
 

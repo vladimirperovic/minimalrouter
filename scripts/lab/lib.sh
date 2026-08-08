@@ -7,8 +7,8 @@ HOST="${LAB_HOST:-root@192.168.1.2}"
 SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
 # ponytail: absolute path — $(dirname "$0") breaks when scenarios are invoked
 # as `sh scenarios/xx.sh` ($0 = scenarios/xx.sh -> wrong relative base).
-KEY="${LAB_SSH_KEY:-$HOME/Documents/minimalrouter/private/secrets/proxmox_codex_ed25519}"
-KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-$HOME/Documents/minimalrouter/private/secrets/proxmox_known_hosts}"
+KEY="${LAB_SSH_KEY:-${HOME:-/root}/.ssh/lab_id_ed25519}"
+KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-${HOME:-/root}/.ssh/known_hosts}"
 H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; }
 
 MR_API="https://192.168.1.1:8443"
@@ -27,7 +27,7 @@ FAILED=0
 mkdir -p "$RESULTS_DIR"
 
 begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; CUR_FILE=/tmp/lab-current.json; }
-phase() { CURRENT_PHASE="$1"; log "--- phase $1"; temp_guard; echo "{\"scenario\":\"$CURRENT_SCENARIO\",\"phase\":\"$1\",\"ts\":\"$(date +%H:%M:%S)\"}" > "${CUR_FILE:-/tmp/lab-current.json}" 2>/dev/null; }
+phase() { CURRENT_PHASE="$1"; log "--- phase $1"; temp_guard; echo "{\"scenario\":\"$CURRENT_SCENARIO\",\"phase\":\"$1\",\"ts\":\"$(TZ=Europe/Podgorica date +%H:%M:%S)\"}" > "${CUR_FILE:-/tmp/lab-current.json}" 2>/dev/null; }
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 note() { echo "[note] $*"; }
 
