@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -45,11 +46,12 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 		t.Errorf("Expected store to be attached to engine")
 	}
 
+	// Same-subnet gateway changes remain live/commit-confirmed. Moving the
+	// entire subnet is deliberately recovery-console-only because existing DHCP
+	// clients still carry the old gateway/DNS until lease renewal.
 	newCfg := initialCfg
-	newCfg.LAN.IPAddress = "10.0.0.1"
-	newCfg.LAN.CIDR = "10.0.0.1/24"
-	newCfg.DHCP.RangeStart = "10.0.0.100"
-	newCfg.DHCP.RangeEnd = "10.0.0.200"
+	newCfg.LAN.IPAddress = "192.168.1.2"
+	newCfg.LAN.CIDR = "192.168.1.2/24"
 
 	tx, err := engine.ProcessTransaction("tx-test-1", newCfg)
 	if err != nil {
@@ -88,8 +90,61 @@ func TestEngineTransactionLifecycle(t *testing.T) {
 		t.Fatal("canonical helper acknowledgement after user confirmation must not depend on WAN availability")
 	}
 
-	if engine.GetCurrentConfig().LAN.IPAddress != "10.0.0.1" {
-		t.Errorf("Expected current config LAN IP to be 10.0.0.1")
+	if engine.GetCurrentConfig().LAN.IPAddress != "192.168.1.2" {
+		t.Errorf("Expected current config LAN IP to be 192.168.1.2")
+	}
+}
+
+func TestCrossSubnetLANChangeRequiresRecoveryConsole(t *testing.T) {
+	initialCfg := config.DefaultConfig()
+	client := &testApplyClient{response: &ApplyResponse{Success: true, Verified: true}}
+	engine := NewEngineWithClient(initialCfg, nil, client)
+
+	candidate := initialCfg
+	candidate.LAN.IPAddress = "192.168.2.1"
+	candidate.LAN.CIDR = "192.168.2.1/24"
+	candidate.DHCP.RangeStart = "192.168.2.100"
+	candidate.DHCP.RangeEnd = "192.168.2.200"
+
+	tx, err := engine.ProcessTransaction("tx-cross-subnet", candidate)
+	if err == nil {
+		t.Fatal("cross-subnet live LAN migration must be rejected")
+	}
+	if tx.CurrentState != StateRejected || !strings.Contains(tx.Error, "local recovery console") {
+		t.Fatalf("unexpected rejection: state=%s error=%q", tx.CurrentState, tx.Error)
+	}
+	if len(client.requests) != 0 {
+		t.Fatal("unsafe cross-subnet candidate reached privileged helper")
+	}
+}
+
+func TestInitialSetupDefersHelperLastGoodUntilCanonicalCommit(t *testing.T) {
+	initialCfg := config.DefaultConfig()
+	client := &testApplyClient{response: &ApplyResponse{Success: true, Verified: true}}
+	engine := NewEngineWithClient(initialCfg, nil, client)
+	committed := false
+
+	tx, err := engine.ProcessInitialSetup("setup-two-phase", initialCfg, func(applied config.SystemConfig) error {
+		committed = true
+		if applied.Revision != initialCfg.Revision+1 {
+			t.Fatalf("canonical setup commit revision=%d want=%d", applied.Revision, initialCfg.Revision+1)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessInitialSetup failed: %v", err)
+	}
+	if !committed || tx.CurrentState != StateCommitted {
+		t.Fatalf("setup did not commit atomically: committed=%v state=%s", committed, tx.CurrentState)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("expected provisional apply plus helper canonical ack, got %d requests", len(client.requests))
+	}
+	if !client.requests[0].DeferLastGood {
+		t.Fatal("initial setup helper apply must defer last-good until SQLite/auth commit succeeds")
+	}
+	if client.requests[1].Op != OpCommitConfirmed || !client.requests[1].SkipWANVerify {
+		t.Fatalf("unexpected setup canonical ack: op=%s skip_wan=%v", client.requests[1].Op, client.requests[1].SkipWANVerify)
 	}
 }
 

@@ -31,7 +31,12 @@ func GenerateDnsmasq(cfg *config.SystemConfig) (string, error) {
 		}
 	}
 	buf.WriteString(fmt.Sprintf("listen-address=%s\n", strings.Join(listenAddresses, ",")))
-	buf.WriteString("bind-interfaces\n")
+	// bind-dynamic keeps the same explicit interface/listen-address allowlist as
+	// bind-interfaces, but on Linux it tolerates a WireGuard interface/address
+	// appearing after dnsmasq starts. Cold boot, wg0 enable/disable, and rollback
+	// therefore cannot fail only because service ordering briefly leaves wg0
+	// absent. nftables remains the independent packet-filter boundary.
+	buf.WriteString("bind-dynamic\n")
 	buf.WriteString("no-resolv\n")
 	buf.WriteString("strict-order\n")
 	buf.WriteString("cache-size=1000\n")

@@ -18,6 +18,7 @@ depend() {
 start_pre() {
     checkpath --file --owner root:root --mode 0600 /etc/ppp/peers/wan
     checkpath --file --owner root:root --mode 0600 /etc/ppp/chap-secrets
+    checkpath --file --owner root:root --mode 0600 /etc/ppp/pap-secrets
 
     wan_interface=$(/usr/bin/awk '$1 == "plugin" && $2 == "pppoe.so" { print $3; exit }' /etc/ppp/peers/wan)
     case "$wan_interface" in

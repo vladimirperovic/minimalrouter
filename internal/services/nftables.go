@@ -386,17 +386,26 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    # The appliance itself has a narrow egress allowlist\n")
 	buf.WriteString("    oifname \"lo\" accept\n")
 	if cfg.WAN.Interface != "" {
-		buf.WriteString(fmt.Sprintf("    # Never leak private, loopback, CGNAT, or multicast source addresses to WAN (%s)\n", cfg.WAN.Interface))
-		buf.WriteString(fmt.Sprintf("    oifname \"%s\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 100.64.0.0/10, 224.0.0.0/4 } drop\n", cfg.WAN.Interface))
-		buf.WriteString("    oifname \"ppp*\" ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 0.0.0.0/8, 100.64.0.0/10, 224.0.0.0/4 } drop\n")
+		buf.WriteString("    # Never leak source addresses that are not assigned to the appliance itself.\n")
+		buf.WriteString("    # fib-based (rather than a static private-range list) so an ISP-assigned\n")
+		buf.WriteString("    # private or CGNAT WAN address (10.x, 100.64.0.0/10) remains routable.\n")
+		buf.WriteString("    # NOTE: fib saddr . iif oif is not supported in the output hook (kernel\n")
+		buf.WriteString("    # rejects it), hence fib saddr type != local here; forward chain uses\n")
+		buf.WriteString("    # fib saddr . iif oif which is valid there.\n")
+		buf.WriteString(fmt.Sprintf("    oifname \"%s\" fib saddr type != local drop\n", cfg.WAN.Interface))
+		buf.WriteString("    oifname \"ppp*\" fib saddr type != local drop\n")
 	}
 	buf.WriteString("    ct state invalid drop\n")
 
 	// A pre-existing Squid connection to a private segment must be cut when
 	// proxy isolation is enabled/changed; these UID+zone denies deliberately
-	// precede established/related acceptance.
+	// precede established/related acceptance. Squid answers LAN clients that
+	// dial the proxy, so responses (conntrack original direction toward the
+	// router's own LAN address) are accepted before the zone deny; only
+	// Squid-*initiated* egress into the LAN zone is blocked.
 	if cfg.SquidProxy.Enabled {
 		if cfg.LAN.Interface != "" {
+			buf.WriteString(fmt.Sprintf("    meta skuid squid oifname \"%s\" ct original ip daddr %s accept\n", cfg.LAN.Interface, cfg.LAN.IPAddress))
 			buf.WriteString(fmt.Sprintf("    meta skuid squid oifname \"%s\" drop\n", cfg.LAN.Interface))
 		}
 		if cfg.WireGuard.Enabled && cfg.WireGuard.Interface != "" {
@@ -430,6 +439,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	}
 	buf.WriteString("    udp dport 123 accept\n")
 	buf.WriteString("    ip protocol icmp accept\n\n")
+	// routerd status/update/TOTP helper calls use ordinary HTTPS but remain
+	// confined to WAN interfaces. DDNS adds scoped root/inadyn HTTPS egrel;
+	// enabling the feature never opens generic HTTPS from arbitrary UIDs.
 	buf.WriteString("    # The unprivileged management daemon may use HTTPS only through WAN paths\n")
 	if cfg.WAN.Interface != "" {
 		buf.WriteString(fmt.Sprintf("    meta skuid routerd oifname \"%s\" tcp dport 443 accept\n", cfg.WAN.Interface))

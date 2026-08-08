@@ -1,0 +1,122 @@
+--- mr runtime (Fri Aug  7 00:58:35 CEST 2026) ---
+lo               UNKNOWN        127.0.0.1/8 
+eth0             UP             192.168.1.1/24 169.254.227.137/16 
+eth1             UP             
+eth2             UP             10.20.30.1/24 
+ifb0             UNKNOWN        
+ifb1             UNKNOWN        
+wg0              UNKNOWN        10.6.0.1/24 
+ppp0             UNKNOWN        10.250.0.2 peer 10.250.0.1/32 
+
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+eth0             UP             bc:24:11:b7:9e:02 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+eth1             UP             bc:24:11:da:16:ba <BROADCAST,MULTICAST,UP,LOWER_UP> 
+eth2             UP             bc:24:11:0b:f1:1f <BROADCAST,MULTICAST,UP,LOWER_UP> 
+ifb0             UNKNOWN        7e:a1:79:47:b0:59 <BROADCAST,NOARP,UP,LOWER_UP> 
+ifb1             UNKNOWN        b6:31:e3:d5:38:cb <BROADCAST,NOARP,UP,LOWER_UP> 
+wg0              UNKNOWN        <POINTOPOINT,NOARP,UP,LOWER_UP> 
+ppp0             UNKNOWN        <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> 
+
+default dev ppp0 scope link 
+default dev eth0 scope link src 169.254.227.137 metric 1001002 
+10.6.0.0/24 dev wg0 proto kernel scope link src 10.6.0.1 
+10.6.0.2 dev wg0 scope link 
+10.6.0.3 dev wg0 scope link 
+10.6.0.5 dev wg0 scope link 
+10.20.30.0/24 dev eth2 proto kernel scope link src 10.20.30.1 
+10.250.0.1 dev ppp0 proto kernel scope link src 10.250.0.2 
+169.254.0.0/16 dev eth0 scope link src 169.254.227.137 metric 1002 
+192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.1 
+
+table inet minimalrouter {
+	set wg_wan_rate {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+	}
+
+	set wg_ppp_rate {
+		type ipv4_addr
+		size 65535
+		flags dynamic,timeout
+	}
+
+	chain input {
+		type filter hook input priority filter; policy drop;
+		iifname "lo" accept
+		iifname "eth1" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop
+		iifname "eth1" fib saddr . iif oif missing drop
+		iifname "eth1" meta nfproto ipv6 drop
+		iifname "ppp*" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop
+		iifname "ppp*" fib saddr . iif oif missing drop
+		iifname "ppp*" meta nfproto ipv6 drop
+		iifname "eth0" ip saddr != { 0.0.0.0, 192.168.1.0/24 } drop
+		ct state invalid drop
+		ct state established,related accept
+		iifname "eth1" udp dport 51820 ct state new update @wg_wan_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop
+		iifname "eth1" udp dport 51820 accept
+		iifname "ppp*" udp dport 51820 ct state new update @wg_ppp_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop
+		iifname "ppp*" udp dport 51820 accept
+		iifname "wg0" ip saddr != 10.6.0.0/24 drop
+		iifname "wg0" tcp dport 8443 accept
+		iifname "wg0" udp dport 53 accept
+		iifname "wg0" tcp dport 53 accept
+		iifname "wg1" ip saddr != 10.0.10.33 drop
+		iifname "wg1" ct state new drop
+		iifname "eth0" tcp dport 3128 accept
+		iifname "eth0" tcp dport 8443 ct state new limit rate over 30/second burst 60 packets drop
+		iifname "eth0" tcp dport 8443 accept
+		iifname "eth0" udp dport { 53, 67 } accept
+		iifname "eth0" tcp dport 53 accept
+		iifname "eth0" ip protocol icmp accept
+		iifname "eth2" ip saddr != 10.20.30.0/24 drop
+		iifname "eth2" ip protocol icmp accept
+		iifname "wg0" ip saddr != 10.6.0.0/24 drop
+		iifname "eth0" ip saddr 192.168.1.2 tcp dport 22 accept
+		drop
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "eth1" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop
+		iifname "eth1" fib saddr . iif oif missing drop
+		iifname "eth1" meta nfproto ipv6 drop
+		iifname "ppp*" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop
+		iifname "ppp*" fib saddr . iif oif missing drop
+		iifname "ppp*" meta nfproto ipv6 drop
+		iifname "eth0" ip saddr != 192.168.1.0/24 drop
+		ct state invalid drop
+		iifname "eth0" ip saddr 192.168.1.133 drop
+		ct state established,related accept
+ * status: started
+ * status: started
+ * status: started
+interface: wg0
+  public key: NAD6L65kgOUoXlc0GWFJ6UpfQaEWHofUInCznUDk6yA=
+  private key: (hidden)
+  listening port: 51820
+
+peer: na0t+0NmolDiBbEsorMkT/zwya26DaEwrFxsAhxXYlA=
+  allowed ips: 10.6.0.3/32
+  persistent keepalive: every 25 seconds
+
+peer: pItVJx9or1aPvC5iDPZGrVW21dwYc04Rsv0Tyb0Jtlw=
+  allowed ips: 10.6.0.2/32
+  persistent keepalive: every 25 seconds
+
+peer: 73Fu/o5TtLMrSgUaHdhiTEfqNAwOSH0TK0wnMwPd/zg=
+  allowed ips: 10.6.0.5/32
+  persistent keepalive: every 25 seconds
+--- isp fault state ---
+iface=eth1 carrier=1
+pppoe=running
+auth=good
+mtu=1492
+sessions=0
+--- lan client ---
+1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
+2: eth0    inet 192.168.1.236/24 metric 100 brd 192.168.1.255 scope global dynamic eth0\       valid_lft 42009sec preferred_lft 42009sec
+default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.236 metric 100 
+192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.236 metric 100 
+192.168.1.1 dev eth0 proto dhcp scope link src 192.168.1.236 metric 100 
+tail: cannot open '/var/log/syslog' for reading: No such file or directory

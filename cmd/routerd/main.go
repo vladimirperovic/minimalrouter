@@ -78,7 +78,14 @@ func main() {
 	if adminHash != "" {
 		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
 		if err := engine.Reconcile(reconcileCtx); err != nil {
-			log.Printf("[RECOVERY] Canonical state reconciliation failed: %v", err)
+			reconcileCancel()
+			// Serving the API after a failed canonical reconcile can create a
+			// management lockout: SQLite may contain a recovery LAN address while
+			// the kernel/helper still runs the old last-good address. OpenRC
+			// supervises routerd, so fail this start attempt and retry instead of
+			// exposing a management process whose destination policy describes a
+			// runtime that was never proven active.
+			log.Fatalf("Refusing startup because canonical runtime reconciliation failed: %v", err)
 		}
 		reconcileCancel()
 	}
@@ -174,11 +181,16 @@ func main() {
 	port := initialCfg.System.HTTPSPort
 	serverAddr := net.JoinHostPort("", strconv.Itoa(port))
 	if previewHTTP {
-		serverAddr = net.JoinHostPort("127.0.0.1", "8080")
+		bindHost := "127.0.0.1"
+		if os.Getenv("MINIMALROUTER_PREVIEW_LAN") == "1" {
+			bindHost = "0.0.0.0"
+		}
+		previewPort := os.Getenv("MINIMALROUTER_PREVIEW_PORT")
+		if previewPort == "" {
+			previewPort = "8080"
+		}
+		serverAddr = net.JoinHostPort(bindHost, previewPort)
 	}
-
-	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
-	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
 
 	srv := &http.Server{
 		Addr:              serverAddr,
@@ -191,14 +203,34 @@ func main() {
 		MaxHeaderBytes:    32 << 10,
 	}
 
+	listener, err := net.Listen("tcp", serverAddr)
+	if err != nil {
+		log.Fatalf("Refusing startup because management listener could not bind: %v", err)
+	}
+	defer listener.Close()
+	if err := signalRouterdReady(initialCfg.Revision); err != nil {
+		log.Fatalf("Refusing startup because OpenRC readiness could not be published: %v", err)
+	}
+
+	log.Printf("routerd listening on firewall-confined management endpoint https://%s:%d/api/v1/\n", initialCfg.LAN.IPAddress, port)
+	log.Printf("Certificate fingerprint displayed above - verify on first connect\n")
+
 	if previewHTTP {
-		log.Printf("[PREVIEW] Dashboard available on loopback-only http://127.0.0.1:8080")
+		scope := "loopback-only"
+		if os.Getenv("MINIMALROUTER_PREVIEW_LAN") == "1" {
+			scope = "LAN-accessible"
+		}
+		previewPort := os.Getenv("MINIMALROUTER_PREVIEW_PORT")
+		if previewPort == "" {
+			previewPort = "8080"
+		}
+		log.Printf("[PREVIEW] Dashboard available on %s http://127.0.0.1:%s", scope, previewPort)
 		if err := srv.ListenAndServe(); err != nil {
 			log.Fatalf("Preview server error: %v", err)
 		}
 		return
 	}
-	if err := srv.ListenAndServeTLS("", ""); err != nil {
+	if err := srv.ServeTLS(listener, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("Server error: %v", err)
 	}
 }
@@ -260,6 +292,20 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 			addConfigAddresses(pending.Config, true)
 		}
 
+		if os.Getenv("MINIMALROUTER_PREVIEW_LAN") == "1" {
+			// macOS preview: allow the host's own LAN addresses as management
+			// destinations so the dashboard is reachable from other devices.
+			if addrs, err := net.InterfaceAddrs(); err == nil {
+				for _, addr := range addrs {
+					if ipnet, ok := addr.(*net.IPNet); ok {
+						if ip := ipnet.IP.To4(); ip != nil {
+							allowed[ip.String()] = struct{}{}
+							allowedHosts[ip.String()] = struct{}{}
+						}
+					}
+				}
+			}
+		}
 		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") == "1" && destination.IsLoopback() {
 			allowedHosts["127.0.0.1"] = struct{}{}
 			allowedHosts["localhost"] = struct{}{}

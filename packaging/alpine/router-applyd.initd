@@ -13,6 +13,9 @@ error_log="/var/log/router-applyd.err"
 # respawn reconciles the verified canonical configuration before the privileged
 # socket is made available again.
 export MINIMALROUTER_APPLYD_STARTUP_RECONCILE=1
+# Lab fault-injection hooks: default empty (disabled); the torture lab sets
+# /etc/conf.d/router-applyd MINIMALROUTER_FAULT_HOOK_DIR=/run/minimalrouter-fault.
+export MINIMALROUTER_FAULT_HOOK_DIR="${MINIMALROUTER_FAULT_HOOK_DIR:-}"
 
 # Restart isolated process crashes, but stop after a bounded crash burst instead
 # of repeatedly applying state when a persistent fault is present.
@@ -37,7 +40,7 @@ start_pre() {
 # socket appears only after startup reconciliation has completed successfully.
 start_post() {
     attempts=0
-    while [ "$attempts" -lt 120 ]; do
+    while [ "$attempts" -lt 360 ]; do
         if [ -S /run/minimalrouter/apply.sock ]; then
             chgrp routerd "$pidfile"
             chmod 0640 "$pidfile"

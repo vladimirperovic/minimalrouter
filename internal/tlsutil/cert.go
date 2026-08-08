@@ -97,6 +97,18 @@ func normalizeDNSNames(in []string) []string {
 	return out
 }
 
+func canonicalWireGuardIP(cfg *config.SystemConfig) (net.IP, bool) {
+	raw := strings.TrimSpace(cfg.WireGuard.Address)
+	if raw == "" {
+		return nil, false
+	}
+	ip, _, err := net.ParseCIDR(raw)
+	if err != nil || ip == nil {
+		return nil, false
+	}
+	return ip, true
+}
+
 func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) bool {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
@@ -106,18 +118,30 @@ func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, addition
 	if err != nil {
 		return false
 	}
+	now := time.Now()
+	// A certificate generated before the clock synchronized may become
+	// not-yet-valid after a large wall-clock correction. Conversely, rotate
+	// with a month of validity left rather than failing a later handshake.
+	if now.Before(cert.NotBefore) || cert.NotAfter.Sub(now) < 30*24*time.Hour {
+		return false
+	}
 	lanIP := net.ParseIP(cfg.LAN.IPAddress)
-	if lanIP == nil || time.Until(cert.NotAfter) < 30*24*time.Hour {
+	if lanIP == nil || cert.VerifyHostname(cfg.LAN.IPAddress) != nil {
 		return false
 	}
-	if cert.VerifyHostname(cfg.LAN.IPAddress) != nil {
+	// Preserve a valid canonical WG address as a SAN even while the service is
+	// disabled so enabling it later does not needlessly rotate the management
+	// certificate. A disabled legacy/partial config with an empty or invalid WG
+	// address, however, must not make every TLS handshake regenerate the cert.
+	if wgAddress, ok := canonicalWireGuardIP(cfg); ok {
+		if cert.VerifyHostname(wgAddress.String()) != nil {
+			return false
+		}
+	} else if cfg.WireGuard.Enabled {
 		return false
 	}
-	wgAddress, _, err := net.ParseCIDR(cfg.WireGuard.Address)
-	if err != nil || cert.VerifyHostname(wgAddress.String()) != nil {
-		return false
-	}
-	if cert.VerifyHostname(cfg.System.Hostname+"."+cfg.System.Domain) != nil {
+	fqdn := strings.TrimSuffix(strings.TrimSpace(cfg.System.Hostname+"."+cfg.System.Domain), ".")
+	if fqdn == "" || cert.VerifyHostname(fqdn) != nil {
 		return false
 	}
 	for _, ip := range normalizeIPs(additionalIPs) {
@@ -183,7 +207,7 @@ func (cm *CertManager) generateSelfSigned(cfg *config.SystemConfig, additionalIP
 	serialNumber, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	ipAddresses := []net.IP{net.IPv4(127, 0, 0, 1)}
 	ipAddresses = appendUniqueIP(ipAddresses, net.ParseIP(cfg.LAN.IPAddress))
-	if wgAddress, _, err := net.ParseCIDR(cfg.WireGuard.Address); err == nil {
+	if wgAddress, ok := canonicalWireGuardIP(cfg); ok {
 		ipAddresses = appendUniqueIP(ipAddresses, wgAddress)
 	}
 	for _, ip := range normalizeIPs(additionalIPs) {
