@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-overview.svg" alt="Minimal Router dashboard overview" />
+  <img src="docs/images/dashboard-overview.png" alt="Minimal Router dashboard overview" />
 </p>
 
 <p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>

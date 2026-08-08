@@ -36,6 +36,13 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 
 ### Fixed
 
+- Squid proxy now usable from the LAN: the generated nftables output chain
+  dropped every packet from the squid UID to the LAN zone *before* the
+  established/related accept — including responses to LAN clients dialing the
+  proxy (requests were served and logged, replies never arrived). The reply
+  direction is now accepted first
+  (`meta skuid squid oifname "<lan>" ct original ip daddr <lan-ip> accept`),
+  while the Squid-*initiated* egress cut into private zones is kept.
 - Production deploy procedure hardened: binary swap now stops services first
   (avoiding `Text file busy`) and gunzips on the guest before install.
 

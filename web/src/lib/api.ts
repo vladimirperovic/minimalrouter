@@ -1,4 +1,5 @@
 let csrfToken = "";
+let lastCanonicalRevision: number | null = null;
 
 export function setCSRFToken(token: string) {
   csrfToken = token;
@@ -26,6 +27,30 @@ export async function refreshSession(): Promise<boolean> {
     csrfToken = "";
     return false;
   }
+}
+
+function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
+  if (method !== "GET" || !response.ok) return;
+  const rawURL = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+  let path = rawURL;
+  try {
+    path = new URL(rawURL, window.location.origin).pathname;
+  } catch {
+    // Relative API paths are already safe to compare as-is.
+  }
+  if (path !== "/api/v1/config") return;
+  void response.clone().json().then((body: { revision?: unknown }) => {
+    const revision = typeof body.revision === "number" ? body.revision : Number(body.revision);
+    if (!Number.isSafeInteger(revision) || revision < 0) return;
+    if (lastCanonicalRevision === null) {
+      lastCanonicalRevision = revision;
+      return;
+    }
+    if (revision > lastCanonicalRevision) {
+      lastCanonicalRevision = revision;
+      window.dispatchEvent(new CustomEvent("minimalrouter:canonical-revision", { detail: { revision } }));
+    }
+  }).catch(() => undefined);
 }
 
 export async function apiFetch(
@@ -56,5 +81,6 @@ export async function apiFetch(
     csrfToken = "";
     window.dispatchEvent(new Event("minimalrouter:unauthorized"));
   }
+  trackCanonicalRevision(input, method, response);
   return response;
 }

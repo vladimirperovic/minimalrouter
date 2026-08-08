@@ -61,6 +61,73 @@ provisioned hostname on the Proxmox side.
 Still required: prove that **Minimal Router itself** updates No-IP, resolves to
 the current public IPv4 and follows a later public-IP change.
 
+## Isolated-lab evidence — 2026-08-06
+
+A dedicated Proxmox lab (ISP simulator + router + LAN client, all isolated on
+`vmbr-lab-*` bridges) validated device-compatibility behavior against *different
+ISP-side configurations*, without touching the router config.
+Full lab topology, VM inventory, deploy procedure and check commands:
+[`LAB.md`](LAB.md).
+
+| Scenario (ISP side) | Router behavior | Result |
+|---|---|---|
+| PPPoE with **CHAP** auth | auto-negotiated (client uses `noauth`, answers whatever the peer requires) | PASS |
+| PPPoE with **PAP** auth | same client path, PAP secrets from the same credential bundle | PASS |
+| ISP assigns **private/CGNAT** WAN address (10.250.0.2) | egress firewall must not block router's own traffic | PASS after fix (below) |
+| Router reboot with PPPoE session | dnsmasq up before wg1, pppd reconnects (`persist`) | PASS |
+
+### Fixes validated in lab and applied to the repository
+
+1. **Output-chain anti-leak rule.** The old static private-range drop
+   (`oifname "ppp*" ip saddr { 10.0.0.0/8, ... } drop`) killed the router's own
+   DNS/NTP/pings whenever an ISP assigns a private or CGNAT address to the WAN
+   interface. Replaced with a fib check so only non-local source addresses are
+   dropped (`internal/services/nftables.go`, output chain):
+   `oifname "ppp*" fib saddr type != local drop`
+   NOTE: `fib saddr . iif oif` (used in the forward chain) is **not supported in
+   the output hook** by the kernel; the forward chain keeps the valid
+   `fib saddr . iif oif` form.
+2. **PAP support.** `PPPoEConfigBundle` now carries `PapSecrets` generated from
+   the same credential material as `ChapSecrets`; applyd writes both
+   `/etc/ppp/chap-secrets` and `/etc/ppp/pap-secrets` (0600), and
+   `pppoe-wan.initd` preflight-checks both files. The pppd client uses `noauth`
+   so it answers PAP, CHAP or MSCHAPv2 depending on what the peer demands.
+3. **pppoe-wan restart hygiene.** `rc-service pppoe-wan` (start/restart) honors
+   the pidfile; a killed pppd needs stop+start if the pidfile is stale.
+
+## Isolated-lab evidence — 2026-08-08 (torture scenarios 18–25 PASS)
+
+The dedicated lab (ISP simulator 150 + router 108 + LAN client 154 on
+`vmbr-lab-*` bridges; scenario suite in `scripts/lab/scenarios/`, run via
+`sh lab-run.sh <scenario>`) validated the update/rollback and power-loss paths
+end to end:
+
+| Scenario | Result |
+|---|---|
+| 18/19 — WireGuard wg0/wg1 recovery after endpoint blackhole (keepalive + fib anti-leak) | **PASS** |
+| 20 — extraLAN (10.78.0.0/24) isolation | **PASS** |
+| 21 — full router reboot: LAN/DHCP/DNS/PPPoE/firewall back, runtime not hybrid | **PASS** |
+| 22 — routerd+applyd crash: initd respawn, PPPoE session survives | **PASS** |
+| 23 — power loss at each of the 5 fault-hook phases (pre-privileged-apply → pre-canonical-ack): cold boot converges, policy-drop kept | **PASS** |
+| 24 — signed update 9.9.8→9.9.9 with runtime verification + rollback | **PASS** |
+| 25 — interrupted update (`poweroff -f` mid-activate): cold boot to last-good, **no brick** | **PASS** |
+
+Product bug found and fixed in the working tree (not yet deployed to the lab):
+
+- **Squid proxy unusable from LAN.** The generated nftables output chain dropped
+  every packet from the squid UID to the LAN zone *before* the
+  established/related accept, including the *responses* to LAN clients that dial
+  the proxy. Fixed by accepting the reply direction first
+  (`meta skuid squid oifname "<lan>" ct original ip daddr <lan-ip> accept`),
+  keeping the Squid-initiated egress cut. Unit test updated
+  (`internal/services/scenario_security_test.go`). Signed payload 9.9.10
+  prepared; stage/activate pending.
+
+Scenarios 26–30 currently fail for harness/scenario reasons (root fs fill too
+small, API rejects live LAN interface changes by design, incomplete LAN-IP
+patch, DDNS expectation predates static-only validation) — see `docs/LAB.md`,
+section "Torture-lab evidence (2026-08-08)" for the breakdown and fixes.
+
 ## Automated validation
 
 Repository workflows cover:

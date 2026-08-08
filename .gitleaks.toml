@@ -1,0 +1,11 @@
+# Gitleaks allowlist — only lab-generated public material, no secrets.
+# The WireGuard keys below are PUBLIC interface keys emitted in lab evidence
+# output (scripts/lab/scenarios/results/*/evidence.txt). Public by design.
+title = "minimalrouter gitleaks config"
+[allowlist]
+description = "Lab WireGuard public keys in scenario evidence output"
+regexes = [
+  '''NAD6L65kgOUoXlc0GWFJ6UpfQaEWHofUInCznUDk6yA=''',
+  '''VSJ\+AzNiUUstFqStHe9pWjJ\+eWE3n9SFfY9\+aeyWhRE=''',
+  '''pDldAdfTkULSWSKmPDXnMuXOeb\+B9SD29LKGirRaMWY=''',
+]

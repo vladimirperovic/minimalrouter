@@ -1,0 +1,268 @@
+#!/bin/sh
+# Shared library for the torture-lab scenario runner.
+# All functions run on the mac and drive the Proxmox host.
+# Sourced by lab-run.sh and scenarios/*.sh.
+
+HOST="${LAB_HOST:-root@192.168.1.2}"
+SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
+# ponytail: absolute path — $(dirname "$0") breaks when scenarios are invoked
+# as `sh scenarios/xx.sh` ($0 = scenarios/xx.sh -> wrong relative base).
+KEY="${LAB_SSH_KEY:-$HOME/Documents/minimalrouter/private/secrets/proxmox_codex_ed25519}"
+KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-$HOME/Documents/minimalrouter/private/secrets/proxmox_known_hosts}"
+H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; }
+
+MR_API="https://192.168.1.1:8443"
+MR_LAN_IP="192.168.1.1"
+MR_WAN_PPP="10.250.0.2"
+SIM_INET="11.255.0.2"
+ISP_DNS="10.250.0.1"
+PROD_GW="192.168.1.1"
+ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
+
+# --- result bookkeeping -----------------------------------------------------
+RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/results}"
+CURRENT_SCENARIO=""
+CURRENT_PHASE=""
+FAILED=0
+mkdir -p "$RESULTS_DIR"
+
+begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; }
+phase() { CURRENT_PHASE="$1"; log "--- phase $1"; }
+log() { echo "[$(date +%H:%M:%S)] $*"; }
+note() { echo "[note] $*"; }
+check() {  # check <name> <cmd...> — 0 = PASS, else FAIL (recorded, non-fatal)
+  name="$1"; shift
+  if "$@" >/dev/null 2>&1; then
+    echo "[PASS] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
+  else
+    echo "[FAIL] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
+    FAILED=$((FAILED+1))
+  fi
+}
+require() {  # like check but aborts the scenario on failure
+  name="$1"; shift
+  if "$@" >/dev/null 2>&1; then
+    echo "[PASS] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
+  else
+    echo "[FAIL] $CURRENT_SCENARIO/$CURRENT_PHASE: $name (aborting scenario)"
+    FAILED=$((FAILED+1)); finish_scenario 1
+  fi
+}
+finish_scenario() {
+  rc="${1:-$([ "$FAILED" -eq 0 ] && echo 0 || echo 1)}"
+  if [ "$rc" -eq 0 ]; then
+    echo "[RESULT] $CURRENT_SCENARIO: PASS"
+  else
+    echo "[RESULT] $CURRENT_SCENARIO: FAIL ($FAILED failed checks)"
+  fi
+  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc" > "$RESULTS_DIR/$CURRENT_SCENARIO/result.txt"
+  exit "$rc"
+}
+
+# --- transports -------------------------------------------------------------
+# gx <vmid> <sh-command> — decoded guest exec (raw or base64 out-data) that
+# propagates the guest command's real exit code (qm guest exec itself always
+# exits 0 when the agent answered, so the JSON "exitcode" is the only truth).
+gx() {
+  out="$(H "qm guest exec $1 -- sh -c \"$2\"" 2>/dev/null)"
+  printf '%s' "$out" | python3 -c '
+import json,sys,base64
+try:
+    d=json.load(sys.stdin)
+    ret=d.get("return",d)  # new qemu-agent wraps in "return", old returns flat
+    od=ret.get("out-data","")
+    if od:
+        try:
+            sys.stdout.write(base64.b64decode(od, validate=True).decode("utf-8","replace"))
+        except Exception:
+            sys.stdout.write(od)
+    ec=ret.get("exitcode")
+    sys.exit(ec if isinstance(ec,int) else 1)
+except SystemExit:
+    raise
+except Exception:
+    sys.exit(1)'
+}
+# ispfault <args...> — run fault tool on ISP-LAB (guest exec runs as root)
+ispfault() { gx 150 "lab-fault $* 2>&1"; }
+# ispfaultroot — same but via root user (payload installed tool at /usr/local/sbin)
+isp() { gx 150 "$* 2>&1"; }
+sim() { gx 153 "$* 2>&1"; }
+lan() { gx 154 "$* 2>&1"; }
+mr() { gx 108 "$* 2>&1"; }
+
+# api <method> <path> [data] — MR-TEST API via host curl
+API_COOKIE="/tmp/lab-runner-cookie.txt"
+API_CSRF="/tmp/lab-runner-csrf.txt"
+api() {
+  method="$1"; path="$2"; data="${3:-}"
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  if [ -n "$data" ]; then
+    H "curl -sk --max-time 120 -b $API_COOKIE -X $method $hdr -H 'Content-Type: application/json' -d '$data' $MR_API$path" 2>/dev/null
+  else
+    H "curl -sk --max-time 60 -b $API_COOKIE -X $method $hdr $MR_API$path" 2>/dev/null
+  fi
+}
+api_login() {
+  H "curl -sk --max-time 10 -c $API_COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' > "$API_CSRF" 2>/dev/null || true
+}
+
+# --- invariant checks -------------------------------------------------------
+# Firewall must never be fail-open: input/forward/output policy drop.
+check_fw_not_fail_open() {
+  n=$(mr 'nft list ruleset 2>/dev/null' | grep -cE "type filter hook (input|forward|output).*policy drop")
+  [ "$n" -ge 3 ]
+}
+# LAN reachable from host and from LAN client; DHCP lease present.
+check_lan_up() {
+  H "ping -c1 -W2 192.168.1.1 >/dev/null 2>&1" && \
+  lan 'ip -4 -o addr show' | grep -q "192.168.1."
+}
+# Local DNS records resolve through MR dnsmasq even with WAN down.
+check_local_dns() {
+  lan 'host router.home.arpa 192.168.1.1 2>/dev/null' | grep -q "192.168.1.1"
+}
+# PPPoE session up with the fixed lab address.
+check_pppoe() {
+  mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$MR_WAN_PPP"
+}
+# LAN client reaches the simulated internet through NAT.
+check_lan_internet() {
+  lan "curl -s --max-time 6 http://$SIM_INET/marker.txt 2>/dev/null" | grep -q torture-lab
+}
+# Canonical SQLite and helper last-good converge on the same revision.
+check_converge() {
+  api_login
+  canon="$(api GET /api/v1/config | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' 2>/dev/null)"
+  lastgood="$(mr 'cat /var/lib/minimalrouter-applyd/last-good.json 2>/dev/null' | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' 2>/dev/null)"
+  [ -n "$canon" ] && [ "$canon" = "$lastgood" ]
+}
+# Runtime after recovery must not be a hybrid: LAN addr + PPP user + dnsmasq
+# range all match the canonical config.
+check_runtime_not_hybrid() {
+  mr 'ip -4 -o addr show eth0 2>/dev/null' | grep -q "192.168.1.1/" && \
+  mr 'grep HWB6470EFA7 /etc/ppp/chap-secrets 2>/dev/null' | grep -q HWB6470EFA7 && \
+  mr 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q "10.250.0.2" && \
+  (mr 'grep "192.168.1.218" /etc/dnsmasq.d/minimalrouter*.conf 2>/dev/null' | grep -q 192.168.1.218 || \
+   mr 'grep -r "192.168.1.218" /etc/dnsmasq* 2>/dev/null' | grep -q 192.168.1.218)
+}
+# No MR-TEST fault may affect production: pfSense reachable + bridge ports unchanged.
+check_prod_untouched() {
+  PROD_PORTS_BEFORE="$1"
+  H "ping -c1 -W2 $PROD_GW >/dev/null 2>&1" && \
+  H "bridge link show vmbr0 2>/dev/null | grep -oE 'ifindex [0-9]+' | md5sum" | grep -q "^$PROD_PORTS_BEFORE"
+}
+prod_ports_md5() { H "bridge link show vmbr0 2>/dev/null | grep -oE 'ifindex [0-9]+' | md5sum" | awk '{print $1}'; }
+
+# --- helpers ----------------------------------------------------------------
+# mr_save <json-fragment-pairs...> — save a trivial local change via API
+mr_save_lease() {  # toggles lease_time; returns canonical revision
+  api_login
+  cfg="$(api GET /api/v1/config)"
+  rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+  cur="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
+  new="$(echo "$cur" | grep -q 12h && echo 2h || echo 12h)"
+  api PUT /api/v1/config "$(echo "$cfg" | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+c['dhcp']['lease_time']='$new'
+print(json.dumps(c))")" >/dev/null 2>&1
+}
+
+# wait_pppoe <seconds> — poll until ppp0 has the lab address
+wait_pppoe() { t="${1:-90}"; i=0; while [ $i -lt "$t" ]; do check_pppoe && return 0; sleep 3; i=$((i+3)); done; return 1; }
+wait_pppoe_down() { t="${1:-30}"; i=0; while [ $i -lt "$t" ]; do check_pppoe || return 0; sleep 3; i=$((i+3)); done; return 1; }
+
+# snapshots of runtime state for post-mortem
+capture_state() {  # capture_state <label>
+  lbl="$1"
+  {
+    echo "--- mr runtime ($(date)) ---"
+    mr 'ip -brief addr; echo; ip -brief link; echo; ip route; echo; nft list ruleset 2>/dev/null | head -60'
+    mr 'rc-service routerd status; rc-service router-applyd status; rc-service pppoe-wan status 2>/dev/null; wg show 2>/dev/null'
+    mr 'tail -30 /var/log/routerd.log 2>/dev/null; tail -30 /var/log/router-applyd.log 2>/dev/null'
+    echo "--- isp fault state ---"
+    ispfault status
+    echo "--- lan client ---"
+    lan 'ip -4 -o addr show; ip route; tail -5 /var/log/syslog 2>/dev/null'
+  } > "$RESULTS_DIR/$CURRENT_SCENARIO/$lbl.txt" 2>/dev/null || true
+}
+
+# arm_hook <phase> <command>  — arm a fault hook on MR-TEST
+# routerd reads the hook dir as an unprivileged user, so the dir must be
+# world-readable and hook files 0644 (root-created 0700 files are invisible).
+# The command is stored verbatim: $ and backticks are escaped so nothing is
+# evaluated when the hook file is written, only when the hook runs.
+arm_hook() {
+  cmd="$(printf '%s' "$2" | sed 's/[$`]/\\&/g')"
+  mr "mkdir -p /run/minimalrouter-fault && chmod 0755 /run/minimalrouter-fault && printf '%s' '$cmd' > /run/minimalrouter-fault/$1 && chmod 0644 /run/minimalrouter-fault/$1 && cat /run/minimalrouter-fault/$1" >/dev/null
+}
+disarm_hooks() { mr 'rm -rf /run/minimalrouter-fault 2>/dev/null; true' >/dev/null; }
+
+# --- retry / wait helpers ----------------------------------------------------
+# retry <secs> <cmd...> — run the command (functions visible) until success
+retry() { t="$1"; shift; i=0; while [ $i -lt "$t" ]; do "$@" && return 0; sleep 5; i=$((i+5)); done; return 1; }
+# mr_wait <secs> — poll until the MR-TEST guest agent answers
+mr_wait() { t="${1:-120}"; i=0; while [ $i -lt "$t" ]; do [ "$(mr 'echo ok' 2>/dev/null)" = "ok" ] && return 0; sleep 5; i=$((i+5)); done; return 1; }
+# wait_vm_stopped <vmid> <secs> / wait_vm_running
+wait_vm_stopped() { t="${2:-120}"; i=0; while [ $i -lt "$t" ]; do H "qm status $1" 2>/dev/null | grep -qi stopped && return 0; sleep 5; i=$((i+5)); done; return 1; }
+wait_vm_running() { t="${2:-120}"; i=0; while [ $i -lt "$t" ]; do H "qm status $1" 2>/dev/null | grep -qi running && return 0; sleep 5; i=$((i+5)); done; return 1; }
+# mr_put <local-file> <remote-path> [mode] — chunked base64 push via the guest agent
+mr_put() {
+  src="$1"; dst="$2"; mode="${3:-0755}"
+  size=$(wc -c < "$src") || return 1
+  mr "rm -f '$dst'" >/dev/null 2>&1
+  pos=0
+  while [ $pos -lt "$size" ]; do
+    chunk=$(dd if="$src" bs=1 skip=$pos count=60000 2>/dev/null | base64 | tr -d '\n')
+    mr "echo '$chunk' | base64 -d >> '$dst'" >/dev/null || return 1
+    pos=$((pos+60000))
+  done
+  mr "test -s '$dst' && chmod $mode '$dst'"
+}
+
+# --- config save helpers -----------------------------------------------------
+# save_config — GET current config and PUT it back (exercises the full save
+# path; pending transactions are confirmed)
+save_config() {
+  api_login
+  cfg="$(api GET /api/v1/config)" || return 1
+  id="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pending_transaction_id",""))' 2>/dev/null)"
+  if [ -n "$id" ] && [ "$id" != "None" ]; then
+    api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
+    return 0
+  fi
+  api PUT /api/v1/config "$cfg" >/dev/null 2>&1
+}
+# patch_config <python-snippet> — load config, eval snippet against `c`, PUT
+patch_config() {
+  api_login
+  cfg="$(api GET /api/v1/config)" || return 1
+  new="$(echo "$cfg" | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+$1
+print(json.dumps(c))")" || return 1
+  api PUT /api/v1/config "$new" >/dev/null 2>&1
+}
+# check_not <name> <cmd...> — passes when the command fails
+check_not() {
+  name="$1"; shift
+  if "$@" >/dev/null 2>&1; then
+    echo "[FAIL] $CURRENT_SCENARIO/$CURRENT_PHASE: $name (unexpected success)"
+    FAILED=$((FAILED+1))
+  else
+    echo "[PASS] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
+  fi
+}
+# save_expects_error <json> — PUT the given config; passes only when the API
+# rejects it with an error body (used where a save must fail cleanly, e.g.
+# ENOSPC or an unreachable DDNS provider)
+save_expects_error() {
+  api_login
+  body="$(api PUT /api/v1/config "$1")"
+  echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|HTTP 500|422'
+}
