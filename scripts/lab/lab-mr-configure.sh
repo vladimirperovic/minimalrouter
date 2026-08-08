@@ -18,12 +18,23 @@ gx() {
   H "qm guest exec $1 -- sh -c \"$2\"" | python3 -c '
 import json,sys,base64
 try:
-    d=json.load(sys.stdin).get("out-data","")
-    sys.stdout.write(base64.b64decode(d).decode("utf-8","replace"))
-except Exception: pass'
+    d=json.load(sys.stdin)
+    ret=d.get("return",d)
+    od=ret.get("out-data","")
+    if od:
+        try:
+            sys.stdout.write(base64.b64decode(od, validate=True).decode("utf-8","replace"))
+        except Exception:
+            sys.stdout.write(od)
+    ec=ret.get("exitcode")
+    sys.exit(ec if isinstance(ec,int) else 1)
+except SystemExit:
+    raise
+except Exception as e:
+    sys.stderr.write("gx decode: %s\n" % e); sys.exit(1)'
 }
 
-MR_API="https://10.77.0.1:8443"
+MR_API="https://192.168.1.1:8443"
 PPPOE_PW="minimalrouter-lab-pppoe"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
@@ -31,7 +42,7 @@ echo "== wait for MR-TEST pristine boot =="
 i=0
 while [ $i -lt 40 ]; do
   st="$(H "curl -sk --max-time 5 $MR_API/api/v1/setup/status 2>/dev/null" || true)"
-  if echo "$st" | grep -q '"is_configured": false'; then
+  if echo "$st" | grep -qE "\"is_configured\": ?false"; then
     echo "  pristine first boot confirmed"
     break
   fi
@@ -58,7 +69,7 @@ H "curl -sk --max-time 30 -X POST $MR_API/api/v1/setup/apply -H 'Content-Type: a
   \"pppoe_password\": \"$PPPOE_PW\",
   \"admin_password\": \"$ADMIN_PW\",
   \"lan_interface\": \"eth1\",
-  \"lan_ip_address\": \"10.77.0.1\"
+  \"lan_ip_address\": \"192.168.1.1\"
 }'" | head -c 600
 echo
 

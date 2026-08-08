@@ -21,15 +21,25 @@ SEC="$(cd "$LABDIR/../../private/secrets" && pwd)"
 PKEY="$(cat "$SEC/lab_id_ed25519.pub")"
 H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; }
 
-# gx <vmid> <sh command> — guest exec with decoded stdout
+# gx <vmid> <sh command> — guest exec with decoded stdout (base64 or raw)
 gx() {
   H "qm guest exec $1 -- sh -c \"$2\"" | python3 -c '
 import json,sys,base64
 try:
-    d=json.load(sys.stdin).get("out-data","")
-    sys.stdout.write(base64.b64decode(d).decode("utf-8","replace"))
+    d=json.load(sys.stdin)
+    ret=d.get("return",d)
+    od=ret.get("out-data","")
+    if od:
+        try:
+            sys.stdout.write(base64.b64decode(od, validate=True).decode("utf-8","replace"))
+        except Exception:
+            sys.stdout.write(od)
+    ec=ret.get("exitcode")
+    sys.exit(ec if isinstance(ec,int) else 1)
+except SystemExit:
+    raise
 except Exception as e:
-    sys.stderr.write("gx decode: %s\n" % e)'
+    sys.stderr.write("gx decode: %s\n" % e); sys.exit(1)'
 }
 
 # putfile <vmid> <local> <guest-path> [mode] — base64 chunk push (runbook pattern)
