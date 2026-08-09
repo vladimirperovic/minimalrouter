@@ -130,6 +130,12 @@ api() {
   fi
 }
 api_login() {
+  # Reuse the existing session while the cookie still works: the API rate
+  # limits logins to 5/min per source IP, and every check calls api_login.
+  # The cookie lives on the remote host (api/H run there), so probe remotely.
+  if H "curl -sk --max-time 10 -b $API_COOKIE -o /dev/null -w '%{http_code}' $MR_API/api/v1/config" 2>/dev/null | grep -q '^200$'; then
+    return 0
+  fi
   H "curl -sk --max-time 10 -c $API_COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' > "$API_CSRF" 2>/dev/null || true
 }
 # config_py_assert <python-snippet> — pass when the snippet (evaluated with
@@ -137,11 +143,10 @@ api_login() {
 # this shell so api/config helpers stay visible.
 config_py_assert() {
   api_login
-  api GET /api/v1/config | python3 -c "
-import json,sys
+  api GET /api/v1/config | python3 -c 'import json,sys
 c=json.load(sys.stdin)
-$1
-" 2>/dev/null
+'"$1"'
+' 2>/dev/null
 }
 # api_reconcile — trigger recovery reconcile (POST /api/v1/recovery/reconcile);
 # pass only when the API confirms success (curl's own exit code ignores HTTP).
@@ -209,7 +214,8 @@ mr_save_lease() {  # toggles lease_time; returns canonical revision
   api_login
   confirm_pending
   cfg="$(api GET /api/v1/config)"
-  rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+  rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' 2>/dev/null)" || rev=""
+  [ -n "$rev" ] || return 1
   cur="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
   new="$(echo "$cur" | grep -q 12h && echo 2h || echo 12h)"
   api PUT /api/v1/config "$(echo "$cfg" | python3 -c "
@@ -365,6 +371,11 @@ check_not() {
 save_expects_error() {
   api_login
   body="$(api PUT /api/v1/config "$1")"
+  # a broken/unauthorized session is a harness failure, not the expected
+  # product rejection: never false-pass on it
+  if echo "$body" | grep -qi 'unauthorized'; then
+    return 1
+  fi
   if echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|422'; then
     return 0
   fi

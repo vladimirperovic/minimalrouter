@@ -17,8 +17,9 @@ phase "4.5-operator"
 # fill the inode table until <=16 inodes remain: the save needs several new
 # files (helper artifacts), so it must fail cleanly while the router itself
 # keeps serving from memory. With the base64 transport, `$i`/`$((...))` reach
-# the guest unexpanded.
-require "fill inode table to <=16 free" mr "mkdir -p /root/.inode-fill && i=0; while [ \$(df -i / | awk 'NR==2{print \$4}') -gt 16 ]; do touch /root/.inode-fill/f\$i 2>/dev/null || break; i=\$((i+1)); done; df -i / | awk 'NR==2 && \$4<=16{exit 0} {exit 1}'"
+# the guest unexpanded; xargs batches the touch calls (a bare touch loop over
+# 2M files would take hours).
+require "fill inode table to <=16 free" mr "mkdir -p /root/.inode-fill && avail=\$(df -i / | awk 'NR==2{print \$4}'); need=\$((avail-16)); seq 1 \$need | sed 's#^#/root/.inode-fill/f#' > /tmp/inode.list && xargs -n 1500 touch < /tmp/inode.list 2>/dev/null; df -i / | awk 'NR==2 && \$4<=16{exit 0} {exit 1}'"
 
 phase "4-mr-runtime-2"
 api_login

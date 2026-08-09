@@ -1,4 +1,4 @@
---- mr runtime (Sun Aug  9 07:09:43 UTC 2026) ---
+--- mr runtime (Sun Aug  9 17:58:13 UTC 2026) ---
 lo               UNKNOWN        127.0.0.1/8 
 eth0             UP             169.254.51.43/16 
 eth1             UP             192.168.1.1/24 
@@ -7,19 +7,19 @@ eth3             UP
 ifb0             UNKNOWN        
 ifb1             UNKNOWN        
 wg0              UNKNOWN        10.6.0.1/24 
-wg1              UNKNOWN        10.79.0.1/32 
 ppp0             UNKNOWN        10.250.0.50 peer 10.0.0.1/32 
+wg1              UNKNOWN        10.79.0.1/32 
 
 lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
 eth0             UP             bc:24:11:af:c1:44 <BROADCAST,MULTICAST,UP,LOWER_UP> 
 eth1             UP             bc:24:11:95:f4:c4 <BROADCAST,MULTICAST,UP,LOWER_UP> 
 eth2             UP             bc:24:11:43:5f:ca <BROADCAST,MULTICAST,UP,LOWER_UP> 
 eth3             UP             bc:24:11:77:88:99 <BROADCAST,MULTICAST,UP,LOWER_UP> 
-ifb0             UNKNOWN        62:56:45:1f:19:c1 <BROADCAST,NOARP,UP,LOWER_UP> 
-ifb1             UNKNOWN        26:72:4f:88:6e:68 <BROADCAST,NOARP,UP,LOWER_UP> 
+ifb0             UNKNOWN        d2:b2:d4:41:bd:7c <BROADCAST,NOARP,UP,LOWER_UP> 
+ifb1             UNKNOWN        6a:74:7f:59:ed:77 <BROADCAST,NOARP,UP,LOWER_UP> 
 wg0              UNKNOWN        <POINTOPOINT,NOARP,UP,LOWER_UP> 
-wg1              UNKNOWN        <POINTOPOINT,NOARP,UP,LOWER_UP> 
 ppp0             UNKNOWN        <POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP> 
+wg1              UNKNOWN        <POINTOPOINT,NOARP,UP,LOWER_UP> 
 
 default dev ppp0 scope link 
 default dev eth0 scope link src 169.254.51.43 metric 1001002 
@@ -31,7 +31,6 @@ default dev eth0 scope link src 169.254.51.43 metric 1001002
 10.79.1.0/24 dev wg1 scope link 
 169.254.0.0/16 dev eth0 scope link src 169.254.51.43 metric 1002 
 192.168.1.0/24 dev eth1 proto kernel scope link src 192.168.1.1 
-192.168.1.254 dev eth1 scope link 
 
 table inet minimalrouter {
 	set wg_wan_rate {
@@ -104,20 +103,20 @@ interface: wg0
 peer: pGlkvAd07tBTkmAvdgMhW0EgJ+S6H9hsUe5bbtsYVmY=
   endpoint: 11.250.0.10:51820
   allowed ips: 10.6.0.10/32
-  latest handshake: 30 seconds ago
-  transfer: 3.35 KiB received, 7.23 KiB sent
+  latest handshake: 1 minute, 13 seconds ago
+  transfer: 92 B received, 244 B sent
   persistent keepalive: every 25 seconds
 
 interface: wg1
   public key: ryMhNSGYShm2Yo8/5ab9aIUzQjrm/QmqNMHI5+tbaVU=
   private key: (hidden)
-  listening port: 42386
+  listening port: 56775
 
 peer: ExWPb+Iw149kZkQ8+lkX3y/mYCKTjLlMc1/d/s8/IRM=
   endpoint: 11.250.0.10:51821
   allowed ips: 10.79.1.0/24, 10.79.0.2/32
-  latest handshake: 39 seconds ago
-  transfer: 5.33 KiB received, 11.98 KiB sent
+  latest handshake: 1 minute, 6 seconds ago
+  transfer: 92 B received, 392 B sent
   persistent keepalive: every 25 seconds
 --- isp fault state ---
 mode=real
@@ -131,7 +130,7 @@ blackhole_rules=0
 sessions=0 / ppp active: 1
 --- lan client ---
 1: lo    inet 127.0.0.1/8 scope host lo\       valid_lft forever preferred_lft forever
-2: eth0    inet 192.168.1.187/24 metric 100 brd 192.168.1.255 scope global dynamic eth0\       valid_lft 32828sec preferred_lft 32828sec
+2: eth0    inet 192.168.1.187/24 metric 100 brd 192.168.1.255 scope global dynamic eth0\       valid_lft 2253sec preferred_lft 2253sec
 default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.187 metric 100 
 192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.187 metric 100 
 192.168.1.1 dev eth0 proto dhcp scope link src 192.168.1.187 metric 100 
