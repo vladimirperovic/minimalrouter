@@ -11,17 +11,63 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
 
-const defaultCommandTimeout = 30 * time.Second
+const (
+	defaultCommandTimeout = 30 * time.Second
+	// router-applyd has a 64 MiB process memory limit. Child diagnostics and
+	// inspection output are useful, but no privileged command may consume an
+	// unbounded fraction of that budget before its timeout fires.
+	maxCommandOutputBytes = 4 << 20
+)
+
+type boundedCommandOutput struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func newBoundedCommandOutput(limit int) *boundedCommandOutput {
+	return &boundedCommandOutput{limit: limit}
+}
+
+func (b *boundedCommandOutput) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	originalLen := len(p)
+	remaining := b.limit - b.buf.Len()
+	if remaining > 0 {
+		if len(p) > remaining {
+			_, _ = b.buf.Write(p[:remaining])
+			b.truncated = true
+		} else {
+			_, _ = b.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		b.truncated = true
+	}
+	// Report the full write as consumed so the child cannot turn our local
+	// diagnostic cap into an application-visible short-write failure.
+	return originalLen, nil
+}
+
+func (b *boundedCommandOutput) snapshot() ([]byte, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	output := append([]byte(nil), b.buf.Bytes()...)
+	return output, b.truncated
+}
 
 // runCommandOutput gives every privileged child process a hard upper bound.
-// router-applyd is serialized, so one wedged command must never hold the apply
-// lock indefinitely and block recovery or later configuration changes.
+// router-applyd is serialized, so one wedged or excessively noisy command must
+// never hold the apply lock indefinitely or exhaust the helper's memory budget.
 func runCommandOutput(timeout time.Duration, binary string, args ...string) (string, error) {
 	if timeout <= 0 {
 		timeout = defaultCommandTimeout
@@ -33,14 +79,46 @@ func runCommandOutput(timeout time.Duration, binary string, args ...string) (str
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = []string{"PATH=/sbin:/usr/sbin:/bin:/usr/bin", "LANG=C", "LC_ALL=C"}
-	output, err := cmd.CombinedOutput()
+	outputBuffer := newBoundedCommandOutput(maxCommandOutputBytes)
+	cmd.Stdout = outputBuffer
+	cmd.Stderr = outputBuffer
+	err := cmd.Run()
+	output, truncated := outputBuffer.snapshot()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return "", fmt.Errorf("%s timed out after %s", filepath.Base(binary), timeout)
 	}
+	if truncated {
+		return "", fmt.Errorf("%s output exceeded %d bytes", filepath.Base(binary), maxCommandOutputBytes)
+	}
 	if err != nil {
-		return "", fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeOutput(output))
+		return "", fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeExternalOutput(output))
 	}
 	return string(output), nil
+}
+
+// sanitizeExternalOutput is the trust boundary for text emitted by child
+// processes and remote providers. Control bytes must never cross into audit or
+// log surfaces, while newlines/tabs are flattened so one external diagnostic
+// cannot forge additional log records. The final diagnostic remains bounded.
+func sanitizeExternalOutput(output []byte) string {
+	text := strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '\t':
+			return ' '
+		}
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, string(output))
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 512 {
+		text = text[:512]
+	}
+	if text == "" {
+		return "no diagnostic output"
+	}
+	return text
 }
 
 // dnsmasqArtifactsChanged compares the actual generated runtime artifacts,
@@ -161,7 +239,11 @@ func ddnsOutputFailureMarker(output string) string {
 	lower := strings.ToLower(output)
 	for _, marker := range ddnsFailureMarkers {
 		if strings.Contains(lower, marker) {
-			return strings.TrimSpace(output)
+			// Provider output is external input. Keep the same sanitization boundary
+			// used for non-zero child-process exits so a zero-exit provider failure
+			// cannot inject control characters or unbounded raw text into audit/log
+			// surfaces through the returned error.
+			return sanitizeExternalOutput([]byte(strings.TrimSpace(output)))
 		}
 	}
 	return ""
