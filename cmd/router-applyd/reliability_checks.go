@@ -8,9 +8,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
