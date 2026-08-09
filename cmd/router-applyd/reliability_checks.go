@@ -38,9 +38,34 @@ func runCommandOutput(timeout time.Duration, binary string, args ...string) (str
 		return "", fmt.Errorf("%s timed out after %s", filepath.Base(binary), timeout)
 	}
 	if err != nil {
-		return "", fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeOutput(output))
+		return "", fmt.Errorf("%s failed: %s", filepath.Base(binary), sanitizeExternalOutput(output))
 	}
 	return string(output), nil
+}
+
+// sanitizeExternalOutput is the trust boundary for text emitted by child
+// processes and remote providers. Control bytes must never cross into audit or
+// log surfaces, while newlines/tabs are flattened so one external diagnostic
+// cannot forge additional log records. The final diagnostic remains bounded.
+func sanitizeExternalOutput(output []byte) string {
+	text := strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '\t':
+			return ' '
+		}
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, string(output))
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 512 {
+		text = text[:512]
+	}
+	if text == "" {
+		return "no diagnostic output"
+	}
+	return text
 }
 
 // dnsmasqArtifactsChanged compares the actual generated runtime artifacts,
@@ -161,7 +186,11 @@ func ddnsOutputFailureMarker(output string) string {
 	lower := strings.ToLower(output)
 	for _, marker := range ddnsFailureMarkers {
 		if strings.Contains(lower, marker) {
-			return strings.TrimSpace(output)
+			// Provider output is external input. Keep the same sanitization boundary
+			// used for non-zero child-process exits so a zero-exit provider failure
+			// cannot inject control characters or unbounded raw text into audit/log
+			// surfaces through the returned error.
+			return sanitizeExternalOutput([]byte(strings.TrimSpace(output)))
 		}
 	}
 	return ""
