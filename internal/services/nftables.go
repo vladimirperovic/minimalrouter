@@ -437,6 +437,14 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	if cfg.WireGuard.Enabled {
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.WireGuard.ListenPort))
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
+		// A peer with a configured endpoint initiates its handshake from the
+		// appliance, so the encrypted tunnel stream must be allowed to leave on
+		// the physical WAN. Peers without an endpoint dial in; their reply is
+		// already covered by the established/related accept above.
+		if cfg.WAN.Interface != "" {
+			buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport %d accept\n", cfg.WAN.Interface, cfg.WireGuard.ListenPort))
+		}
+		buf.WriteString(fmt.Sprintf("    oifname \"ppp*\" udp sport %d accept\n", cfg.WireGuard.ListenPort))
 	}
 	writeWGClientOutputRules(&buf, cfg)
 	if len(cfg.DHCP.DNSServers) > 0 {
