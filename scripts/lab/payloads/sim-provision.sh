@@ -34,7 +34,9 @@ Address = 10.79.0.2/24
 ListenPort = 51821
 PrivateKey = $(cat /root/lab-wg-keys/sim_wg1.key)
 PostUp = ip addr add 10.79.1.1/24 dev wg1 2>/dev/null || true
+PostUp = ip route add 10.79.0.1/32 dev wg1 2>/dev/null || true
 PostDown = ip addr del 10.79.1.1/24 dev wg1 2>/dev/null || true
+PostDown = ip route del 10.79.0.1/32 dev wg1 2>/dev/null || true
 EOF
 systemctl enable wg-quick@wg1 >/dev/null 2>&1
 systemctl restart wg-quick@wg1 || true

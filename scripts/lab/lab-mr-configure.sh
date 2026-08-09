@@ -78,9 +78,15 @@ fi
 
 echo "== wait for PPPoE session =="
 i=0
+PPP0_IP=""
 while [ $i -lt 40 ]; do
-  if gx 151 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q '10.250.0.50'; then
-    echo "  ppp0 up: $(gx 151 'ip -4 -o addr show ppp0' | tr -s ' ')"
+  PPP0_IP="$(gx 151 'ip -4 -o addr show ppp0 2>/dev/null' | grep -oE '10\.250\.0\.[0-9]+' | head -1 || true)"
+  if [ -n "$PPP0_IP" ]; then
+    echo "  ppp0 up: $PPP0_IP"
+    # SIM-LAB sits on 10.250.0.0/24, so it would ARP for MR's ppp0 address and
+    # never reach the PPP client behind the ISP concentrator. Route the ACTUAL
+    # ppp0 /32 via the ISP gateway (not just the fixed .50).
+    gx 153 "ip route add $PPP0_IP/32 via 10.250.0.1 dev eth0 2>/dev/null || true"
     break
   fi
   sleep 6; i=$((i+1))
@@ -112,7 +118,9 @@ Address = 10.79.0.2/24
 ListenPort = 51821
 PrivateKey = \\\$(cat /root/lab-wg-keys/sim_wg1.key)
 PostUp = ip addr add 10.79.1.1/24 dev wg1 2>/dev/null || true
+PostUp = ip route add 10.79.0.1/32 dev wg1 2>/dev/null || true
 PostDown = ip addr del 10.79.1.1/24 dev wg1 2>/dev/null || true
+PostDown = ip route del 10.79.0.1/32 dev wg1 2>/dev/null || true
 
 [Peer]
 PublicKey = $MR_WG1_PUB
@@ -136,7 +144,7 @@ c["dhcp"]={"enabled":True,"dns_enabled":False,"range_start":"192.168.1.100","ran
 c["dns"]={"records":[{"name":"router.home.arpa","ip":"192.168.1.1"},{"name":"client.home.arpa","ip":"192.168.1.100"}]}
 c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":"eth2","cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
 c["wireguard"]={"enabled":True,"interface":"wg0","private_key":"'"$MR_WG0_KEY"'","listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":"'"$SIM_WG0_PUB"'","allowed_ips":["10.6.0.10/32"],"endpoint":"11.250.0.10:51820","enabled":True}]}
-c["wg_client"]={"enabled":True,"interface":"wg1","private_key":"'$MR_WG1_KEY'","address":"10.79.0.1/32","public_key":"'$SIM_WG1_PUB'","endpoint":"11.250.0.10:51821","allowed_ips":["10.79.1.0/24"],"persistent_keepalive":25}
+c["wg_client"]={"enabled":True,"interface":"wg1","private_key":"'$MR_WG1_KEY'","address":"10.79.0.1/32","public_key":"'$SIM_WG1_PUB'","endpoint":"11.250.0.10:51821","allowed_ips":["10.79.1.0/24","10.79.0.2/32"],"persistent_keepalive":25}
 c["trusted_networks"]=["192.168.1.0/24","10.6.0.0/24"]
 print(json.dumps(c))
 ')"
@@ -168,12 +176,12 @@ done
 
 echo "== verify handshakes =="
 sleep 8
-gx 151 'wg show wg0 | grep -E "peer|latest handshake" ; wg show wg1 | grep -E "peer|latest handshake"'
+gx 151 'wg show wg0; wg show wg1'
 
 echo "== verify end-to-end =="
 echo "  wg0 tunnel ping:  $(gx 151 'ping -c1 -W2 10.6.0.10 2>&1 | tail -1')"
 echo "  wg1 office ping:  $(gx 151 'ping -c1 -W2 10.79.1.1 2>&1 | tail -1')"
-echo "  LAN client lease: $(gx 152 'ip -4 -o addr show | grep 10.77.0 || echo none')"
+echo "  LAN client lease: $(gx 152 'ip -4 -o addr show | grep 192.168.1 || echo none')"
 echo "  LAN client -> sim internet: $(gx 152 'curl -s --max-time 5 http://10.250.0.10/marker.txt 2>&1 || echo FAIL')"
 echo "  LAN client DNS:  $(gx 152 'dig +short router.home.arpa @10.77.0.1 2>/dev/null || nslookup router.home.arpa 10.77.0.1 2>/dev/null | tail -2')"
 echo "== MR-TEST lab profile configured =="
