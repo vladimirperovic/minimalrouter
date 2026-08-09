@@ -100,6 +100,14 @@ systemctl daemon-reload
 systemctl enable extralan-http >/dev/null 2>&1
 systemctl restart extralan-http
 
+echo "== WG reply path to MR PPPoE (10.250.0.50 behind ISP) =="
+# 10.250.0.50 is MR's ppp0 address but also lies inside SIM's own eth0
+# 10.250.0.0/24, so without this /32 route SIM would ARP for it directly and
+# never answer MR's wg0 handshake. Send it via the ISP gateway (eth1) instead.
+grep -q "10.250.0.50" /etc/network/interfaces 2>/dev/null || \
+  { ip route add 10.250.0.50/32 via 10.250.0.1 dev eth0 2>/dev/null || true;
+    printf 'up ip route add 10.250.0.50/32 via 10.250.0.1 dev eth0 || true\n' >> /etc/network/interfaces; }
+
 echo "== NTP (10.250.0.10:123) =="
 sed -i 's/^#allow 192.168.0.0\/16/allow 10.250.0.0\/24/' /etc/chrony/chrony.conf
 grep -q '^allow 10.250.0.0/24' /etc/chrony/chrony.conf || echo 'allow 10.250.0.0/24' >> /etc/chrony/chrony.conf

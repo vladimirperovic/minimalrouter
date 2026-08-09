@@ -13,22 +13,28 @@ H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; 
 
 MR_API="https://192.168.1.1:8443"
 MR_LAN_IP="192.168.1.1"
-MR_WAN_PPP="10.250.0.2"
+MR_WAN_PPP="10.250.0.50"
 SIM_INET="11.255.0.2"
 ISP_DNS="10.250.0.1"
 PROD_GW="192.168.1.1"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
 # --- result bookkeeping -----------------------------------------------------
-RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/results}"
+# Normalize the results dir regardless of whether lib.sh is sourced from
+# lab-run.sh (scripts/lab) or from a scenario (scripts/lab/scenarios):
+# a scenario always resolves its parent's ../results.
+case "$(basename "$(dirname "$0")")" in
+  scenarios) RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/../results}" ;;
+  *) RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/results}" ;;
+esac
+mkdir -p "$RESULTS_DIR"
 CURRENT_SCENARIO=""
 CURRENT_PHASE=""
 FAILED=0
-mkdir -p "$RESULTS_DIR"
 
 begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; CUR_FILE=/tmp/lab-current.json; }
 phase() { CURRENT_PHASE="$1"; log "--- phase $1"; temp_guard; echo "{\"scenario\":\"$CURRENT_SCENARIO\",\"phase\":\"$1\",\"ts\":\"$(TZ=Europe/Podgorica date +%H:%M:%S)\"}" > "${CUR_FILE:-/tmp/lab-current.json}" 2>/dev/null; }
-log() { echo "[$(date +%H:%M:%S)] $*"; }
+log() { echo "[$(TZ=Europe/Podgorica date +%H:%M:%S)] $*"; }
 note() { echo "[note] $*"; }
 
 # temp_guard — abort the whole suite if the host CPU exceeds 85C
@@ -66,7 +72,7 @@ finish_scenario() {
   else
     echo "[RESULT] $CURRENT_SCENARIO: FAIL ($FAILED failed checks)"
   fi
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc" > "$RESULTS_DIR/$CURRENT_SCENARIO/result.txt"
+  echo "$(TZ=Europe/Podgorica date +%Y-%m-%dT%H:%M:%S%z) rc=$rc" > "$RESULTS_DIR/$CURRENT_SCENARIO/result.txt"
   exit "$rc"
 }
 
@@ -100,7 +106,7 @@ ispfault() { gx 150 "lab-fault $* 2>&1"; }
 isp() { gx 150 "$* 2>&1"; }
 sim() { gx 153 "$* 2>&1"; }
 lan() { gx 154 "$* 2>&1"; }
-mr() { gx 108 "$* 2>&1"; }
+mr() { gx 151 "$* 2>&1"; }
 
 # api <method> <path> [data] — MR-TEST API via host curl
 API_COOKIE="/tmp/lab-runner-cookie.txt"
@@ -140,6 +146,12 @@ check_local_dns() {
 check_pppoe() {
   mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$MR_WAN_PPP"
 }
+# Health API reports the DNS/DHCP check (loopback is firewalled off, so query
+# the authenticated LAN endpoint like the dashboard does).
+check_health_reports_dns() {
+  api_login
+  api GET /api/v1/health 2>/dev/null | grep -q dns_dhcp
+}
 # LAN client reaches the simulated internet through NAT.
 check_lan_internet() {
   lan "curl -s --max-time 6 http://$SIM_INET/marker.txt 2>/dev/null" | grep -q torture-lab
@@ -154,11 +166,10 @@ check_converge() {
 # Runtime after recovery must not be a hybrid: LAN addr + PPP user + dnsmasq
 # range all match the canonical config.
 check_runtime_not_hybrid() {
-  mr 'ip -4 -o addr show eth0 2>/dev/null' | grep -q "192.168.1.1/" && \
-  mr 'grep HWB6470EFA7 /etc/ppp/chap-secrets 2>/dev/null' | grep -q HWB6470EFA7 && \
-  mr 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q "10.250.0.2" && \
-  (mr 'grep "192.168.1.218" /etc/dnsmasq.d/minimalrouter*.conf 2>/dev/null' | grep -q 192.168.1.218 || \
-   mr 'grep -r "192.168.1.218" /etc/dnsmasq* 2>/dev/null' | grep -q 192.168.1.218)
+  mr 'ip -4 -o addr show eth1 2>/dev/null' | grep -q "192.168.1.1/" && \
+  mr 'grep mr-test /etc/ppp/chap-secrets 2>/dev/null' | grep -q mr-test && \
+  mr 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q "10.250.0.50" && \
+  mr 'grep -r "192.168.1.100" /etc/dnsmasq* 2>/dev/null' | grep -q 192.168.1.100
 }
 # No MR-TEST fault may affect production: pfSense reachable + bridge ports unchanged.
 check_prod_untouched() {
@@ -181,6 +192,7 @@ import json,sys
 c=json.load(sys.stdin)
 c['dhcp']['lease_time']='$new'
 print(json.dumps(c))")" >/dev/null 2>&1
+  mr_env_restore
 }
 
 # wait_pppoe <seconds> — poll until ppp0 has the lab address
@@ -213,6 +225,15 @@ arm_hook() {
 }
 disarm_hooks() { mr 'rm -rf /run/minimalrouter-fault 2>/dev/null; true' >/dev/null; }
 
+# mr_env_restore — restore lab-only routing quirks on MR-TEST that the
+# pristine image / applyd wipes: the host route for the Proxmox host
+# (192.168.1.254) must leave via eth1, and the WAN interface (eth0) must not
+# carry the stale 192.168.1.1/24 LAN address (else LAN client replies egress
+# the wrong NIC). Call after every API-affecting step (apply/confirm/save).
+mr_env_restore() {
+  mr "ip route add 192.168.1.254/32 dev eth1 2>/dev/null || true; ip -4 addr del 192.168.1.1/24 dev eth0 2>/dev/null || true; true" >/dev/null 2>&1
+}
+
 # --- retry / wait helpers ----------------------------------------------------
 # retry <secs> <cmd...> — run the command (functions visible) until success
 retry() { t="$1"; shift; i=0; while [ $i -lt "$t" ]; do "$@" && return 0; sleep 5; i=$((i+5)); done; return 1; }
@@ -244,9 +265,11 @@ save_config() {
   id="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pending_transaction_id",""))' 2>/dev/null)"
   if [ -n "$id" ] && [ "$id" != "None" ]; then
     api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
+    mr_env_restore
     return 0
   fi
   api PUT /api/v1/config "$cfg" >/dev/null 2>&1
+  mr_env_restore
 }
 # patch_config <python-snippet> — load config, eval snippet against `c`, PUT
 patch_config() {
@@ -258,6 +281,7 @@ c=json.load(sys.stdin)
 $1
 print(json.dumps(c))")" || return 1
   api PUT /api/v1/config "$new" >/dev/null 2>&1
+  mr_env_restore
 }
 # check_not <name> <cmd...> — passes when the command fails
 check_not() {

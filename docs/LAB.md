@@ -135,12 +135,16 @@ go run ./cmd/firmware-sign --dir build/dist/minimalrouter-linux-amd64 \
 - Fault hooks: `/etc/conf.d/router-applyd` and `/etc/conf.d/routerd` export
   `MINIMALROUTER_FAULT_HOOK_DIR=/run/minimalrouter-fault`. Services must be
   (re)started after the conf is added — env is read at process start.
-- **doas must be setuid**: hook phases that fire inside routerd run as the
-  unprivileged routerd user and call `doas /sbin/poweroff -f`
-  (`permit nopass routerd as root cmd /sbin/poweroff` in `/etc/doas.conf`).
-  Alpine's doas package installs without the setuid bit, so
-  `chmod u+s /usr/bin/doas` is required or the hook fails with
-  `doas: not installed setuid` and the VM never halts.
+- **Power cut comes from the host, not the guest**: hook phases that fire
+  inside routerd run as the unprivileged routerd user with `NoNewPrivs=1`
+  (set by OpenRC `supervise-daemon`), so setuid `doas` can never escalate —
+  do NOT try to halt the VM from the hook (`doas poweroff -f` fails with
+  `doas: not installed setuid`). Instead the scenario 23 hook is a *blocking*
+  marker command (`touch /tmp/mr-fault-<phase> && sleep 300`) and the runner
+  issues `qm stop 108` from the Proxmox host once it observes the marker.
+  This matches the faultinject design in `internal/faultinject/hook.go`:
+  the hook gives the external runner a deterministic window to hard-stop the
+  VM, which is what a real power loss is.
 - Post-reboot lab restores: `rc-service router-applyd restart` +
   `rc-service routerd restart` after any service-env change.
 

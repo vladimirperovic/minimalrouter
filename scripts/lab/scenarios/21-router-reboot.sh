@@ -11,7 +11,7 @@ phase "4-mr-runtime"
 check "MR up before reboot" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
-require "reboot MR-TEST VM" H "qm reboot 108 --timeout 30 && qm wait 108 --timeout 90"
+require "reboot MR-TEST VM" H "qm reboot 151 --timeout 30 && qm wait 151 --timeout 90"
 require "MR responds after reboot" mr_wait 240
 
 phase "4-mr-runtime-2"

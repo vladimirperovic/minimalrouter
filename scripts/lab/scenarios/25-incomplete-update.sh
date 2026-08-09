@@ -34,10 +34,10 @@ require "router-update stage" mr "mkdir -p /root/lab-update && cd /root/lab-upda
 
 phase "4-mr-runtime-2"
 mr "router-update activate --version $UP_VERSION --confirm ACTIVATE-UPDATE & sleep 3; poweroff -f" >/dev/null 2>&1 || true
-require "VM actually halted mid-activate" wait_vm_stopped 108 120
+require "VM actually halted mid-activate" wait_vm_stopped 151 120
 
 phase "4-mr-runtime-3"
-require "cold boot MR-TEST" H "qm start 108"
+require "cold boot MR-TEST" H "qm start 151"
 require "MR responds after cold boot" mr_wait 300
 require "PPPoE reconnects" wait_pppoe 180
 

@@ -10,7 +10,7 @@ require "symptom: session dropped" wait_pppoe_down 60
 
 phase "4-mr-runtime"
 check "local record router.home.arpa resolves" check_local_dns
-check "dnsmasq lease file exists and non-empty" mr "test -s /var/lib/dnsmasq/dnsmasq.leases 2>/dev/null || test -s /var/lib/misc/dnsmasq.leases 2>/dev/null || ls /var/lib/dnsmasq 2>/dev/null | grep -q lease"
+check "dnsmasq lease file exists and non-empty" mr "test -s /var/lib/minimalrouter-dhcp/dnsmasq.leases 2>/dev/null || test -s /var/lib/dnsmasq/dnsmasq.leases 2>/dev/null || test -s /var/lib/misc/dnsmasq.leases 2>/dev/null"
 
 phase "5-lan-client"
 check "client holds a 10.77.0.x lease" lan "ip -4 -o addr show | grep -q '192.168.1.'"

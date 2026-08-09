@@ -99,7 +99,7 @@ gx 153 "cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address = 10.6.0.10/32
 ListenPort = 51820
-PrivateKey = \$(cat /root/lab-wg-keys/sim_wg0.key)
+PrivateKey = \\\$(cat /root/lab-wg-keys/sim_wg0.key)
 
 [Peer]
 PublicKey = $MR_WG0_PUB
@@ -110,7 +110,7 @@ gx 153 "cat > /etc/wireguard/wg1.conf <<EOF
 [Interface]
 Address = 10.79.0.2/24
 ListenPort = 51821
-PrivateKey = \$(cat /root/lab-wg-keys/sim_wg1.key)
+PrivateKey = \\\$(cat /root/lab-wg-keys/sim_wg1.key)
 PostUp = ip addr add 10.79.1.1/24 dev wg1 2>/dev/null || true
 PostDown = ip addr del 10.79.1.1/24 dev wg1 2>/dev/null || true
 
@@ -135,7 +135,7 @@ c["lan"]["ip_address"]="192.168.1.1"; c["lan"]["cidr"]="192.168.1.1/24"
 c["dhcp"]={"enabled":True,"dns_enabled":False,"range_start":"192.168.1.100","range_end":"192.168.1.200","lease_time":"12h","dns_servers":["1.1.1.1","1.0.0.1"]}
 c["dns"]={"records":[{"name":"router.home.arpa","ip":"192.168.1.1"},{"name":"client.home.arpa","ip":"192.168.1.100"}]}
 c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":"eth2","cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
-c["wireguard"]={"enabled":True,"interface":"wg0","private_key":"'"$MR_WG0_KEY"'","listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":"'"$SIM_WG0_PUB"'","allowed_ips":["10.6.0.10/32"],"endpoint":"10.250.0.10:51820","enabled":True}]}
+c["wireguard"]={"enabled":True,"interface":"wg0","private_key":"'"$MR_WG0_KEY"'","listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":"'"$SIM_WG0_PUB"'","allowed_ips":["10.6.0.10/32"],"endpoint":"11.250.0.10:51820","enabled":True}]}
 c["wg_client"]={"enabled":False,"interface":"wg1","private_key":"'$MR_WG1_KEY'","address":"10.79.0.1/32","public_key":"'$SIM_WG1_PUB'","endpoint":"10.79.0.2:51821","allowed_ips":["10.79.1.0/24"],"persistent_keepalive":25}
 c["trusted_networks"]=["192.168.1.0/24","10.6.0.0/24"]
 print(json.dumps(c))

@@ -41,3 +41,7 @@ alpine-standard-3.21.3-x86_64.iso
 /AI_HANDOFF.md
 /SESSION6_SUMMARY.md
 /implementation_plan.md
+
+# Generated lab run artifacts (evidence/result snapshots)
+/scripts/lab/results/*/
+/scripts/lab/scenarios/results/*/

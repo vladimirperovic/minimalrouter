@@ -14,7 +14,7 @@ pre_ct="$(mr 'cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null' | tr -
 echo "conntrack before: $pre_ct"
 
 phase "4.5-operator"
-require "scan WAN ports from ISP" isp "for p in \$(seq 1 1024); do echo -n '' > /dev/tcp/10.250.0.2/\$p 2>/dev/null || true; done; echo scan-done"
+require "scan WAN ports from ISP" isp "for p in \$(seq 1 1024); do echo -n '' > /dev/tcp/10.250.0.50/\$p 2>/dev/null || true; done; echo scan-done"
 
 phase "4-mr-runtime-2"
 check "routerd still alive after scan" mr "rc-service routerd status | grep -q started"
