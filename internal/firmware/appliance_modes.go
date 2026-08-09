@@ -7,6 +7,31 @@ import (
 	"strings"
 )
 
+// ValidateApplianceArchitecture binds a complete appliance payload to the
+// architecture of the machine that will activate it. ValidateAppliancePayload
+// already requires exactly one complete architecture binary set; this check
+// prevents a correctly signed ARM64 release from being staged on AMD64 (or the
+// reverse), which would otherwise make slot-exec fall back to bootstrap daemons
+// while still exposing the newly activated web tree.
+func ValidateApplianceArchitecture(manifest *FirmwareManifest, goarch string) error {
+	if err := ValidateAppliancePayload(manifest); err != nil {
+		return err
+	}
+	var binary string
+	switch goarch {
+	case "amd64":
+		binary = "bin/routerd-amd64"
+	case "arm64":
+		binary = "bin/routerd-arm64"
+	default:
+		return fmt.Errorf("unsupported Minimal Router architecture: %s", goarch)
+	}
+	if _, ok := manifest.Files[binary]; !ok {
+		return fmt.Errorf("appliance payload architecture does not match running %s system", goarch)
+	}
+	return nil
+}
+
 // ValidateApplianceFileModes enforces the complete appliance payload contract
 // plus runtime permission contracts that are not part of a SHA-256 content
 // digest. A correctly signed archive with one daemon restricted to root could
