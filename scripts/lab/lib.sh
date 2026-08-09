@@ -283,6 +283,32 @@ print(json.dumps(c))")" || return 1
   api PUT /api/v1/config "$new" >/dev/null 2>&1
   mr_env_restore
 }
+# patch_config_reject <python-snippet> <expected-error-substring> — like
+# patch_config but asserts the API REJECTS the change (HTTP 422) with the
+# given error text. Used where the product deliberately blocks self-lockout
+# changes (live LAN interface/subnet swaps) as a safety guard.
+patch_config_reject() {
+  api_login
+  cfg="$(api GET /api/v1/config)" || return 1
+  new="$(echo "$cfg" | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+$1
+print(json.dumps(c))")" || return 1
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  resp="$(H "curl -sk --max-time 60 -b $API_COOKIE -w '|%{http_code}' -X PUT $hdr -H 'Content-Type: application/json' -d '$new' $MR_API/api/v1/config" 2>/dev/null)"
+  mr_env_restore
+  code="${resp##*|}"
+  body="${resp%|*}"
+  [ "$code" = "422" ] || { echo "  expected HTTP 422, got $code: $(echo "$body" | head -c 200)"; return 1; }
+  case "$body" in
+    *"$2"*) return 0 ;;
+    *) echo "  expected rejection text '$2' not in: $(echo "$body" | head -c 200)"; return 1 ;;
+  esac
+}
 # check_not <name> <cmd...> — passes when the command fails
 check_not() {
   name="$1"; shift
