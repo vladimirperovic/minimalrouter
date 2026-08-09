@@ -23,9 +23,11 @@ type applianceCompatibility struct {
 }
 
 // ValidateApplianceCompatibility enforces the contract between an activated
-// A/B slot and the stable bootstrap/install layer. The metadata is itself part
-// of the signed manifest. VerifyFirmware calls this after content verification,
-// including on the copied temporary slot used by SlotManager.Stage.
+// A/B slot and the stable bootstrap/install layer. The metadata is part of the
+// signed manifest. VerifyFirmware first verifies the manifest signature, then
+// applies this runtime contract and the content hashes. SlotManager.Stage runs
+// the same verification again on the copied, root-owned temporary slot before
+// it can become pending.
 //
 // Generic signed payloads that do not carry compatibility.json are left alone;
 // complete Minimal Router appliance payloads require the file through
