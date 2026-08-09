@@ -202,10 +202,13 @@ func ValidateAppliancePayload(manifest *FirmwareManifest) error {
 	return nil
 }
 
-// VerifyFirmware verifies signed metadata and every regular file in a fixed,
-// already-extracted staging directory.
+// VerifyFirmware verifies signed metadata, runtime file-mode invariants, and
+// every regular file in a fixed, already-extracted staging directory.
 func VerifyFirmware(firmwareDir string, manifest *FirmwareManifest, trustedKey ed25519.PublicKey) error {
 	if err := VerifyManifest(manifest, trustedKey); err != nil {
+		return err
+	}
+	if err := ValidateManifestRuntimeFileModes(firmwareDir, manifest); err != nil {
 		return err
 	}
 

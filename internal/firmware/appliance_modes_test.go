@@ -19,12 +19,29 @@ func writeExecutableFixture(t *testing.T, root string, manifest *FirmwareManifes
 			path == "ip-up.d-minimalrouter-qos" {
 			mode = 0o755
 		}
-		if err := os.WriteFile(full, []byte(path), mode); err != nil {
+		data := []byte(path)
+		if path == "compatibility.json" {
+			data = []byte("{\"bootstrap_abi\":1,\"config_schema\":1,\"runtime_protocol\":1}\n")
+		}
+		if err := os.WriteFile(full, data, mode); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Chmod(full, mode); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestValidateApplianceArchitectureRejectsMismatchedPayload(t *testing.T) {
+	manifest := completeAMD64ManifestForTest()
+	if err := ValidateApplianceArchitecture(manifest, "amd64"); err != nil {
+		t.Fatalf("matching AMD64 payload rejected: %v", err)
+	}
+	if err := ValidateApplianceArchitecture(manifest, "arm64"); err == nil {
+		t.Fatal("AMD64 payload was accepted for ARM64 activation")
+	}
+	if err := ValidateApplianceArchitecture(manifest, "riscv64"); err == nil {
+		t.Fatal("unsupported runtime architecture was accepted")
 	}
 }
 

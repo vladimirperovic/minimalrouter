@@ -80,10 +80,10 @@ The Squid LAN-reply firewall bug found during the next scenario set is fixed in
 `main` and regression-tested, but the real Proxmox Squid scenario still needs a
 fresh run before it is recorded as PASS.
 
-## Final adversarial code audit — 2026-08-09
+## Final adversarial code audits — 2026-08-09
 
-Focused hardening merged through PRs #58, #60 and #63 after required checks
-passed on branches current with `main`:
+Focused hardening merged through PRs #58, #60, #63, #64 and #65 after required
+checks passed on branches current with `main`:
 
 - external child/provider diagnostics are control-character sanitized and
   bounded before crossing privileged audit/log boundaries;
@@ -94,22 +94,42 @@ passed on branches current with `main`:
 - A/B slot staging is independent of a restrictive root umask: reviewed file
   modes are restored explicitly and staged directories are normalized to 0755;
 - incoming signed appliance executables must be readable and executable by the
-  unprivileged runtime (minimum 0555), so root-only 0700/0750 archive modes are
-  rejected before staging even though mode metadata is not part of the signed
-  content-hash manifest;
+  unprivileged runtime (minimum 0555), and signed `web/dist` assets must remain
+  readable (minimum 0444); unsafe pre-stage manifest paths are rejected;
+- runtime mode/compatibility invariants are enforced by firmware verification
+  itself and therefore rechecked on the copied temporary A/B slot before it can
+  become pending, closing the preflight/copy metadata race and direct-caller gap;
+- staging rejects a signed appliance whose binary architecture does not match
+  the running host, providing an early fail before the existing activation-time
+  exact runtime-layout gate;
+- the signed `compatibility.json` bootstrap ABI, config schema and runtime
+  protocol are validated explicitly in addition to the existing byte-for-byte
+  activation comparison with the installed stable bootstrap layout;
+- read-only privileged WireGuard telemetry is pinned at the IPC decode boundary
+  to canonical `wg0`/`wg1`, so a compromised `routerd` cannot widen root
+  `wg show` scope by fabricating interface names in its request config;
 - staged writable-file close failures are propagated rather than discarded;
-- regression tests reproduce restrictive umask staging, root-only signed
-  payload modes, both-protocol firewall verification, bounded command output,
-  and external-output sanitization.
+- stale root-level generated binaries/archives and the obsolete ad-hoc runtime
+  patch helper were removed from the public source tree and exact artifact names
+  are ignored to prevent accidental recommit;
+- public status text now matches the validation evidence: controlled Proxmox
+  pilot, not a supported unattended production firewall.
 
-The final PR #60 head was merged onto the then-current `main` before its release
-gate. CI, Deep validation, CodeQL, Secret scan, Performance and Service
-supervision all passed on that exact branch state. The follow-up mode-integrity
-PR #63 was based directly on the resulting `main`; all workflows applicable to
-that two-file firmware/test diff also passed: CI, Deep validation, CodeQL,
-Secret scan and Performance. Its clean-Alpine install/update/rollback lifecycle,
-interrupted-update recovery, fuzzing, ARM64/QEMU, binary/security inspection and
-isolated WAN/router/LAN namespace lab all completed successfully.
+The activation path already provides an additional independent guard: before the
+active slot pointer moves it requires the candidate `compatibility.json`,
+`slot-exec`, init/sysctl/module/logrotate/PPP integration and architecture-specific
+bootstrap `router-update` / `router-recovery` binaries to match the installed
+stable runtime layout exactly in content and mode. Ordinary A/B activation is
+therefore refused when a release requires a bootstrap/integration-layer change;
+a full signed distribution install is required instead.
+
+PR #60 passed CI, Deep validation, CodeQL, Secret scan, Performance and Service
+supervision on its exact current branch state. PRs #63 and #64 subsequently
+passed their applicable CI/security/deep-validation gates on branches based on
+the resulting `main`. PR #65 was merged only after the current second-pass code,
+tests, repository-hygiene changes and documentation passed the protected branch
+checks; those automated results remain separate from the real-hardware evidence
+below.
 
 ## Scenarios 26–40: implementation status vs evidence
 
@@ -169,7 +189,7 @@ separately in issue #11.
 
 The current tree is suitable for a **controlled Proxmox pilot** with console
 access and pfSense/another known-good router ready for rollback. The code-side
-release blockers discovered in the 2026-08-09 adversarial pass are fixed and
+release blockers discovered in both 2026-08-09 adversarial passes are fixed and
 merged, but missing real-lab/endurance evidence means it is still premature to
 call the project a supported unattended replacement for pfSense or OpenWrt.
 

@@ -1,11 +1,13 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -72,6 +74,46 @@ type ApplyRequest struct {
 	// phase already verifies WAN when required; an ISP flap after canonical
 	// commit must not turn a correct local configuration into RecoveryRequired.
 	SkipWANVerify bool `json:"skip_wan_verify,omitempty"`
+}
+
+// UnmarshalJSON keeps the IPC trust boundary self-contained for the one
+// read-only operation that intentionally bypasses full SystemConfig validation.
+// A compromised routerd must not be able to widen router-applyd's root `wg show`
+// scope by claiming arbitrary interface names in an otherwise fake config.
+// The appliance contract has exactly wg0 (server) and wg1 (outbound client).
+//
+// Because defining UnmarshalJSON bypasses Decoder.DisallowUnknownFields on the
+// outer decoder, this method deliberately re-applies strict unknown-field and
+// single-object checks to preserve the existing IPC parser contract.
+func (r *ApplyRequest) UnmarshalJSON(data []byte) error {
+	type plainApplyRequest ApplyRequest
+	var decoded plainApplyRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("apply request contains trailing data")
+	}
+
+	if decoded.Op == OpWGTunnelStatus {
+		serverInterface := strings.TrimSpace(decoded.Config.WireGuard.Interface)
+		if serverInterface != "" && serverInterface != "wg0" {
+			return fmt.Errorf("WireGuard telemetry server interface must be wg0")
+		}
+		clientInterface := strings.TrimSpace(decoded.Config.WGClient.Interface)
+		if clientInterface != "" && clientInterface != "wg1" {
+			return fmt.Errorf("WireGuard telemetry client interface must be wg1")
+		}
+		tunnelInterface := strings.TrimSpace(decoded.TunnelInterface)
+		if tunnelInterface != "" && tunnelInterface != "wg0" && tunnelInterface != "wg1" {
+			return fmt.Errorf("WireGuard telemetry interface must be wg0 or wg1")
+		}
+	}
+
+	*r = ApplyRequest(decoded)
+	return nil
 }
 
 // TunnelPeerStatus is the sanitized per-peer WireGuard projection. Public keys

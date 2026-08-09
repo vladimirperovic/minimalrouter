@@ -64,6 +64,65 @@ func TestPPPoEServiceRaisesWANInterfaceBeforeStartingPPPD(t *testing.T) {
 		t.Fatal("PPPoE service starts pppd without first raising the WAN interface")
 	}
 }
+
+func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
+	canonical := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg1"}
+	canonical.Config.WireGuard.Interface = "wg0"
+	canonical.Config.WGClient.Interface = "wg1"
+	valid := []ApplyRequest{
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg0"},
+		canonical,
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus},
+	}
+	for _, candidate := range valid {
+		payload, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req ApplyRequest
+		if err := json.Unmarshal(payload, &req); err != nil {
+			t.Fatalf("valid telemetry request rejected: %v", err)
+		}
+	}
+
+	badServer := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus}
+	badServer.Config.WireGuard.Interface = "wg9"
+	badClient := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus}
+	badClient.Config.WGClient.Interface = "office0"
+	invalid := []ApplyRequest{
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg9"},
+		badServer,
+		badClient,
+	}
+	for _, candidate := range invalid {
+		payload, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var req ApplyRequest
+		if err := json.Unmarshal(payload, &req); err == nil {
+			t.Fatalf("widened telemetry request accepted: %s", payload)
+		}
+	}
+}
+
+func TestApplyRequestCustomDecoderKeepsUnknownFieldRejection(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"version":    ProtocolVersion,
+		"id":         "tx",
+		"op":         OpReconcile,
+		"config":     map[string]any{},
+		"unexpected": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req ApplyRequest
+	if err := json.Unmarshal(payload, &req); err == nil {
+		t.Fatal("ApplyRequest accepted an unknown IPC field")
+	}
+}
+
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
 	socketDir, err := os.MkdirTemp("", "mr-ipc-")
 	if err != nil {
