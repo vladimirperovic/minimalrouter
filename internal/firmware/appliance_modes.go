@@ -33,9 +33,9 @@ func ValidateApplianceArchitecture(manifest *FirmwareManifest, goarch string) er
 }
 
 // ValidateApplianceFileModes enforces the complete appliance payload contract
-// plus runtime permission contracts that are not part of a SHA-256 content
-// digest. A correctly signed archive with one daemon restricted to root could
-// make slot-exec fall back to a bootstrap binary; a root-only web asset could
+// plus runtime contracts that are not represented by file-content hashes. A
+// correctly signed archive with one daemon restricted to root could make
+// slot-exec fall back to a bootstrap binary; a root-only web asset could
 // similarly make routerd fall back to the bootstrap frontend or serve a
 // partially unreadable dashboard.
 func ValidateApplianceFileModes(root string, manifest *FirmwareManifest) error {
@@ -45,15 +45,17 @@ func ValidateApplianceFileModes(root string, manifest *FirmwareManifest) error {
 	return ValidateManifestRuntimeFileModes(root, manifest)
 }
 
-// ValidateManifestRuntimeFileModes enforces the permission invariants required
-// by files that are consumed from an active A/B slot. It intentionally does not
-// require a complete appliance payload so SlotManager/VerifyFirmware can apply
-// the same invariant to copied content and to focused test payloads.
+// ValidateManifestRuntimeFileModes enforces the permission and stable-bootstrap
+// compatibility invariants required by files consumed from an active A/B slot.
+// It intentionally does not require a complete appliance payload so
+// SlotManager/VerifyFirmware and focused tests can use the same verifier.
 //
 // Firmware signatures cover file contents but not Unix mode metadata. This
-// validation therefore has to run both on the extracted source and on the
-// copied slot: a writable staging directory must not be able to change a file
-// from 0755/0644 to 0700/0600 between an outer preflight and the final copy.
+// validation therefore runs on both the extracted source and the copied slot: a
+// writable staging directory must not be able to change a file from 0755/0644
+// to 0700/0600 between an outer preflight and the final copy. If a signed
+// compatibility.json is present, its bootstrap/schema/protocol contract is also
+// checked on both passes; complete appliance payloads require that file.
 func ValidateManifestRuntimeFileModes(root string, manifest *FirmwareManifest) error {
 	if manifest == nil {
 		return fmt.Errorf("missing firmware manifest")
@@ -97,5 +99,5 @@ func ValidateManifestRuntimeFileModes(root string, manifest *FirmwareManifest) e
 			return fmt.Errorf("appliance web asset is not readable by unprivileged services: %s", relative)
 		}
 	}
-	return nil
+	return ValidateApplianceCompatibility(root, manifest)
 }
