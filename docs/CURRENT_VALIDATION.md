@@ -82,8 +82,8 @@ fresh run before it is recorded as PASS.
 
 ## Final adversarial code audit — 2026-08-09
 
-Focused hardening merged through PRs #58 and #60 after all required checks passed
-on a branch updated to the then-current `main`:
+Focused hardening merged through PRs #58, #60 and #63 after required checks
+passed on branches current with `main`:
 
 - external child/provider diagnostics are control-character sanitized and
   bounded before crossing privileged audit/log boundaries;
@@ -93,16 +93,23 @@ on a branch updated to the then-current `main`:
   TCP and UDP nftables rules, avoiding false rollback of valid configuration;
 - A/B slot staging is independent of a restrictive root umask: reviewed file
   modes are restored explicitly and staged directories are normalized to 0755;
+- incoming signed appliance executables must be readable and executable by the
+  unprivileged runtime (minimum 0555), so root-only 0700/0750 archive modes are
+  rejected before staging even though mode metadata is not part of the signed
+  content-hash manifest;
 - staged writable-file close failures are propagated rather than discarded;
-- regression tests reproduce restrictive umask staging, both-protocol firewall
-  verification, bounded command output, and external-output sanitization.
+- regression tests reproduce restrictive umask staging, root-only signed
+  payload modes, both-protocol firewall verification, bounded command output,
+  and external-output sanitization.
 
-The final PR #60 head was rebased/merged onto the current `main` before release
-gating. CI, Deep validation, CodeQL, Secret scan, Performance and Service
-supervision all passed on that exact branch state. Deep validation included
+The final PR #60 head was merged onto the then-current `main` before its release
+gate. CI, Deep validation, CodeQL, Secret scan, Performance and Service
+supervision all passed on that exact branch state. The follow-up mode-integrity
+PR #63 was based directly on the resulting `main`; all workflows applicable to
+that two-file firmware/test diff also passed: CI, Deep validation, CodeQL,
+Secret scan and Performance. Its clean-Alpine install/update/rollback lifecycle,
 interrupted-update recovery, fuzzing, ARM64/QEMU, binary/security inspection and
-an isolated WAN/router/LAN namespace lab. CI included race tests, vet,
-`govulncheck`, dashboard audit/unit/E2E and clean Alpine install/update/rollback.
+isolated WAN/router/LAN namespace lab all completed successfully.
 
 ## Scenarios 26–40: implementation status vs evidence
 
