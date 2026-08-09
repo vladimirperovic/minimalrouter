@@ -161,7 +161,11 @@ func ddnsOutputFailureMarker(output string) string {
 	lower := strings.ToLower(output)
 	for _, marker := range ddnsFailureMarkers {
 		if strings.Contains(lower, marker) {
-			return strings.TrimSpace(output)
+			// Provider output is external input. Keep the same sanitization boundary
+			// used for non-zero child-process exits so a zero-exit provider failure
+			// cannot inject control characters or unbounded raw text into audit/log
+			// surfaces through the returned error.
+			return sanitizeOutput([]byte(strings.TrimSpace(output)))
 		}
 	}
 	return ""
