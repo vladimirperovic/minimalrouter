@@ -64,6 +64,41 @@ func TestPPPoEServiceRaisesWANInterfaceBeforeStartingPPPD(t *testing.T) {
 		t.Fatal("PPPoE service starts pppd without first raising the WAN interface")
 	}
 }
+
+func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
+	valid := []string{
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{},"tunnel_interface":"wg0"}`,
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg0"},"wg_client":{"interface":"wg1"}},"tunnel_interface":"wg1"}`,
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{}}`,
+	}
+	for _, payload := range valid {
+		var req ApplyRequest
+		if err := json.Unmarshal([]byte(payload), &req); err != nil {
+			t.Fatalf("valid telemetry request rejected: %v", err)
+		}
+	}
+
+	invalid := []string{
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{},"tunnel_interface":"wg9"}`,
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg9"}}}`,
+		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wg_client":{"interface":"office0"}}}`,
+	}
+	for _, payload := range invalid {
+		var req ApplyRequest
+		if err := json.Unmarshal([]byte(payload), &req); err == nil {
+			t.Fatalf("widened telemetry request accepted: %s", payload)
+		}
+	}
+}
+
+func TestApplyRequestCustomDecoderKeepsUnknownFieldRejection(t *testing.T) {
+	payload := []byte(`{"version":1,"id":"tx","op":"RECONCILE","config":{},"unexpected":true}`)
+	var req ApplyRequest
+	if err := json.Unmarshal(payload, &req); err == nil {
+		t.Fatal("ApplyRequest accepted an unknown IPC field")
+	}
+}
+
 func TestUnixClientHalfClosesRequestBeforeReadingResponse(t *testing.T) {
 	socketDir, err := os.MkdirTemp("", "mr-ipc-")
 	if err != nil {
