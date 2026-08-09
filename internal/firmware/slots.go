@@ -528,7 +528,7 @@ func (m SlotManager) linkVersion(name string) (string, bool, error) {
 	return version, true, nil
 }
 
-func copyRegularFile(source, destination string) error {
+func copyRegularFile(source, destination string) (returnErr error) {
 	info, err := os.Lstat(source)
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("release file is missing or unsafe: %s", source)
@@ -546,19 +546,21 @@ func copyRegularFile(source, destination string) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := output.Close(); closeErr != nil {
+			returnErr = errors.Join(returnErr, closeErr)
+		}
+	}()
 	if err := output.Chmod(mode); err != nil {
-		output.Close()
 		return err
 	}
 	if _, err := io.Copy(output, input); err != nil {
-		output.Close()
 		return err
 	}
 	if err := output.Sync(); err != nil {
-		output.Close()
 		return err
 	}
-	return output.Close()
+	return nil
 }
 
 func normalizeSlotDirectoryModes(root string) error {
