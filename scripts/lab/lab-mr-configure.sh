@@ -174,6 +174,15 @@ for attempt in 1 2 3 4 5; do
   sleep 5
 done
 
+echo "== install firmware trust anchor for signed-update scenario =="
+FW_PUB="${LAB_SIGNED_ROOT:-/tmp/lab24sig}/release.pub"
+if [ -f "$FW_PUB" ]; then
+  FW_B64="$(base64 < "$FW_PUB")"
+  gx 151 "mkdir -p /etc/minimalrouter && echo '$FW_B64' | base64 -d > /etc/minimalrouter/firmware-signing.pub && chmod 0644 /etc/minimalrouter/firmware-signing.pub && wc -c /etc/minimalrouter/firmware-signing.pub"
+else
+  echo "  WARN: $FW_PUB missing — scenario 24 (signed update) will fail"
+fi
+
 echo "== verify handshakes =="
 sleep 8
 gx 151 'wg show wg0; wg show wg1'
@@ -181,7 +190,7 @@ gx 151 'wg show wg0; wg show wg1'
 echo "== verify end-to-end =="
 echo "  wg0 tunnel ping:  $(gx 151 'ping -c1 -W2 10.6.0.10 2>&1 | tail -1')"
 echo "  wg1 office ping:  $(gx 151 'ping -c1 -W2 10.79.1.1 2>&1 | tail -1')"
-echo "  LAN client lease: $(gx 152 'ip -4 -o addr show | grep 192.168.1 || echo none')"
-echo "  LAN client -> sim internet: $(gx 152 'curl -s --max-time 5 http://10.250.0.10/marker.txt 2>&1 || echo FAIL')"
-echo "  LAN client DNS:  $(gx 152 'dig +short router.home.arpa @10.77.0.1 2>/dev/null || nslookup router.home.arpa 10.77.0.1 2>/dev/null | tail -2')"
+echo "  LAN client lease: $(gx 154 'ip -4 -o addr show | grep 192.168.1 || echo none')"
+echo "  LAN client -> sim internet: $(gx 154 'curl -s --max-time 5 http://10.250.0.10/marker.txt 2>&1 || echo FAIL')"
+echo "  LAN client DNS:  $(gx 154 'dig +short router.home.arpa @192.168.1.1 2>/dev/null || nslookup router.home.arpa 192.168.1.1 2>/dev/null | tail -2')"
 echo "== MR-TEST lab profile configured =="
