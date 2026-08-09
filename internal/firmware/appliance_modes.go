@@ -35,12 +35,12 @@ func ValidateManifestRuntimeFileModes(root string, manifest *FirmwareManifest) e
 	}
 
 	requiredExecutable := map[string]struct{}{
-		"slot-exec":                   {},
-		"install.sh":                  {},
-		"init.d/routerd":              {},
-		"init.d/router-applyd":        {},
-		"init.d/pppoe-wan":            {},
-		"ip-up.d-minimalrouter-qos":   {},
+		"slot-exec":                 {},
+		"install.sh":                {},
+		"init.d/routerd":            {},
+		"init.d/router-applyd":      {},
+		"init.d/pppoe-wan":          {},
+		"ip-up.d-minimalrouter-qos": {},
 	}
 
 	for relative := range manifest.Files {
