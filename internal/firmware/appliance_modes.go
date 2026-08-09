@@ -7,70 +7,68 @@ import (
 	"strings"
 )
 
-// ValidateApplianceFileModes enforces runtime permission contracts that are not
-// part of a SHA-256 content digest. A correctly signed archive with one daemon
-// restricted to root could make slot-exec fall back to a bootstrap binary; a
-// root-only web asset could similarly make routerd fall back to the bootstrap
-// frontend or serve a partially unreadable dashboard. Stage strips write and
-// special bits but deliberately preserves source read/execute bits, so the
-// extracted payload must already be usable by the unprivileged runtime.
+// ValidateApplianceFileModes enforces the complete appliance payload contract
+// plus runtime permission contracts that are not part of a SHA-256 content
+// digest. A correctly signed archive with one daemon restricted to root could
+// make slot-exec fall back to a bootstrap binary; a root-only web asset could
+// similarly make routerd fall back to the bootstrap frontend or serve a
+// partially unreadable dashboard.
 func ValidateApplianceFileModes(root string, manifest *FirmwareManifest) error {
 	if err := ValidateAppliancePayload(manifest); err != nil {
 		return err
 	}
+	return ValidateManifestRuntimeFileModes(root, manifest)
+}
 
-	// This validation runs before SlotManager.Stage performs the full signed
-	// hash verification. Reject unsafe manifest paths before using any of them
-	// for mode inspection so mode preflight itself cannot escape the payload
-	// root through a crafted relative path.
+// ValidateManifestRuntimeFileModes enforces the permission invariants required
+// by files that are consumed from an active A/B slot. It intentionally does not
+// require a complete appliance payload so SlotManager/VerifyFirmware can apply
+// the same invariant to copied content and to focused test payloads.
+//
+// Firmware signatures cover file contents but not Unix mode metadata. This
+// validation therefore has to run both on the extracted source and on the
+// copied slot: a writable staging directory must not be able to change a file
+// from 0755/0644 to 0700/0600 between an outer preflight and the final copy.
+func ValidateManifestRuntimeFileModes(root string, manifest *FirmwareManifest) error {
+	if manifest == nil {
+		return fmt.Errorf("missing firmware manifest")
+	}
+
+	requiredExecutable := map[string]struct{}{
+		"slot-exec":                   {},
+		"install.sh":                  {},
+		"init.d/routerd":              {},
+		"init.d/router-applyd":        {},
+		"init.d/pppoe-wan":            {},
+		"ip-up.d-minimalrouter-qos":   {},
+	}
+
 	for relative := range manifest.Files {
 		clean := filepath.Clean(relative)
 		if clean == "." || filepath.IsAbs(clean) || clean != relative ||
 			strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("unsafe appliance path: %q", relative)
 		}
-	}
 
-	requiredExecutable := []string{
-		"slot-exec",
-		"install.sh",
-		"init.d/routerd",
-		"init.d/router-applyd",
-		"init.d/pppoe-wan",
-		"ip-up.d-minimalrouter-qos",
-	}
-	for path := range manifest.Files {
-		if filepath.Dir(path) == "bin" {
-			requiredExecutable = append(requiredExecutable, path)
-		}
-	}
-	for _, relative := range requiredExecutable {
-		info, err := os.Lstat(filepath.Join(root, relative))
-		if err != nil || !info.Mode().IsRegular() {
-			return fmt.Errorf("appliance executable is missing or unsafe: %s", relative)
-		}
-		// Firmware signatures cover content hashes, not archive mode metadata.
-		// Requiring r-x for owner/group/other prevents a tampered or
-		// restrictively-extracted 0700/0750 payload from recreating the exact
-		// mixed-runtime failure seen in the Proxmox lab. Stage subsequently
-		// removes write/special bits, so 0555 is the minimum runtime contract.
-		if info.Mode().Perm()&0o555 != 0o555 {
-			return fmt.Errorf("appliance executable is not readable/executable by unprivileged services: %s", relative)
-		}
-	}
-
-	for relative := range manifest.Files {
-		if !strings.HasPrefix(relative, "web/dist/") {
+		_, fixedExecutable := requiredExecutable[relative]
+		isExecutable := fixedExecutable || filepath.Dir(relative) == "bin"
+		isWebAsset := strings.HasPrefix(relative, "web/dist/")
+		if !isExecutable && !isWebAsset {
 			continue
 		}
+
 		info, err := os.Lstat(filepath.Join(root, relative))
 		if err != nil || !info.Mode().IsRegular() {
+			if isExecutable {
+				return fmt.Errorf("appliance executable is missing or unsafe: %s", relative)
+			}
 			return fmt.Errorf("appliance web asset is missing or unsafe: %s", relative)
 		}
-		// Active slots are root-owned while routerd is unprivileged. Requiring
-		// world-readable web content prevents a signed 0600/0640 archive mode
-		// from forcing bootstrap-frontend fallback or breaking nested assets.
-		if info.Mode().Perm()&0o444 != 0o444 {
+
+		if isExecutable && info.Mode().Perm()&0o555 != 0o555 {
+			return fmt.Errorf("appliance executable is not readable/executable by unprivileged services: %s", relative)
+		}
+		if isWebAsset && info.Mode().Perm()&0o444 != 0o444 {
 			return fmt.Errorf("appliance web asset is not readable by unprivileged services: %s", relative)
 		}
 	}
