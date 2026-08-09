@@ -66,33 +66,57 @@ func TestPPPoEServiceRaisesWANInterfaceBeforeStartingPPPD(t *testing.T) {
 }
 
 func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
-	valid := []string{
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{},"tunnel_interface":"wg0"}`,
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg0"},"wg_client":{"interface":"wg1"}},"tunnel_interface":"wg1"}`,
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{}}`,
+	canonical := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg1"}
+	canonical.Config.WireGuard.Interface = "wg0"
+	canonical.Config.WGClient.Interface = "wg1"
+	valid := []ApplyRequest{
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg0"},
+		canonical,
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus},
 	}
-	for _, payload := range valid {
+	for _, candidate := range valid {
+		payload, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var req ApplyRequest
-		if err := json.Unmarshal([]byte(payload), &req); err != nil {
+		if err := json.Unmarshal(payload, &req); err != nil {
 			t.Fatalf("valid telemetry request rejected: %v", err)
 		}
 	}
 
-	invalid := []string{
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{},"tunnel_interface":"wg9"}`,
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg9"}}}`,
-		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wg_client":{"interface":"office0"}}}`,
+	badServer := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus}
+	badServer.Config.WireGuard.Interface = "wg9"
+	badClient := ApplyRequest{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus}
+	badClient.Config.WGClient.Interface = "office0"
+	invalid := []ApplyRequest{
+		{Version: ProtocolVersion, ID: "wg-status", Op: OpWGTunnelStatus, TunnelInterface: "wg9"},
+		badServer,
+		badClient,
 	}
-	for _, payload := range invalid {
+	for _, candidate := range invalid {
+		payload, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
 		var req ApplyRequest
-		if err := json.Unmarshal([]byte(payload), &req); err == nil {
+		if err := json.Unmarshal(payload, &req); err == nil {
 			t.Fatalf("widened telemetry request accepted: %s", payload)
 		}
 	}
 }
 
 func TestApplyRequestCustomDecoderKeepsUnknownFieldRejection(t *testing.T) {
-	payload := []byte(`{"version":1,"id":"tx","op":"RECONCILE","config":{},"unexpected":true}`)
+	payload, err := json.Marshal(map[string]any{
+		"version":    ProtocolVersion,
+		"id":         "tx",
+		"op":         OpReconcile,
+		"config":     map[string]any{},
+		"unexpected": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var req ApplyRequest
 	if err := json.Unmarshal(payload, &req); err == nil {
 		t.Fatal("ApplyRequest accepted an unknown IPC field")
