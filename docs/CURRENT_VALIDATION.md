@@ -1,7 +1,8 @@
 # Current validation status
 
 This is the short source of truth for current evidence. Historical reports remain
-in `docs/` for traceability.
+in `docs/` for traceability. A code or scenario fix is not recorded as a real-lab
+PASS until the corresponding hardware/Proxmox run has been repeated.
 
 ## Current implementation
 
@@ -39,94 +40,93 @@ Additional results:
 - dashboard access through WireGuard: **PASS**
 - pfSense operational fallback: **PASS**, about 93 seconds
 
-### PPPoE kernel requirement
-
 The tested Alpine `linux-virt` guest lacked the PPPoE module required by the real
 WAN path. `linux-lts` provided it and the pilot succeeded. The supported pilot
-preflight is therefore:
+preflight is therefore `modprobe pppoe`; failure is a hard stop.
 
-```sh
-modprobe pppoe
-```
-
-Failure is a hard stop. A clean `linux-lts` boot used about 73 MB RAM in the
-recorded session.
-
-### Dynamic DNS
-
-The deployment uses No-IP. Provider-aware No-IP support is implemented in the
-appliance, but the successful external WireGuard pilot used a manually
-provisioned hostname on the Proxmox side.
-
-Still required: prove that **Minimal Router itself** updates No-IP, resolves to
-the current public IPv4 and follows a later public-IP change.
+The deployment uses No-IP. The successful external WireGuard pilot used a
+manually provisioned hostname on the Proxmox side, so Minimal Router-managed
+No-IP and later public-IP propagation still require a real-provider rerun.
 
 ## Isolated-lab evidence — 2026-08-06
 
-A dedicated Proxmox lab (ISP simulator + router + LAN client, all isolated on
-`vmbr-lab-*` bridges) validated device-compatibility behavior against *different
-ISP-side configurations*, without touching the router config.
-Full lab topology, VM inventory, deploy procedure and check commands:
-[`LAB.md`](LAB.md).
+A dedicated Proxmox lab (ISP simulator + router + LAN client on isolated
+`vmbr-lab-*` bridges) validated:
 
-| Scenario (ISP side) | Router behavior | Result |
-|---|---|---|
-| PPPoE with **CHAP** auth | auto-negotiated (client uses `noauth`, answers whatever the peer requires) | PASS |
-| PPPoE with **PAP** auth | same client path, PAP secrets from the same credential bundle | PASS |
-| ISP assigns **private/CGNAT** WAN address (10.250.0.2) | egress firewall must not block router's own traffic | PASS after fix (below) |
-| Router reboot with PPPoE session | dnsmasq up before wg1, pppd reconnects (`persist`) | PASS |
+- PPPoE CHAP negotiation: **PASS**
+- PPPoE PAP negotiation: **PASS**
+- private/CGNAT WAN address with safe router-local egress: **PASS after fix**
+- reboot with PPPoE session recovery and correct dnsmasq/WireGuard ordering: **PASS**
 
-### Fixes validated in lab and applied to the repository
+The validated fixes include the nftables output-chain anti-leak fib check, PAP
+secret generation/installation, and PPPoE restart hygiene. See [`LAB.md`](LAB.md)
+for topology and evidence.
 
-1. **Output-chain anti-leak rule.** The old static private-range drop
-   (`oifname "ppp*" ip saddr { 10.0.0.0/8, ... } drop`) killed the router's own
-   DNS/NTP/pings whenever an ISP assigns a private or CGNAT address to the WAN
-   interface. Replaced with a fib check so only non-local source addresses are
-   dropped (`internal/services/nftables.go`, output chain):
-   `oifname "ppp*" fib saddr type != local drop`
-   NOTE: `fib saddr . iif oif` (used in the forward chain) is **not supported in
-   the output hook** by the kernel; the forward chain keeps the valid
-   `fib saddr . iif oif` form.
-2. **PAP support.** `PPPoEConfigBundle` now carries `PapSecrets` generated from
-   the same credential material as `ChapSecrets`; applyd writes both
-   `/etc/ppp/chap-secrets` and `/etc/ppp/pap-secrets` (0600), and
-   `pppoe-wan.initd` preflight-checks both files. The pppd client uses `noauth`
-   so it answers PAP, CHAP or MSCHAPv2 depending on what the peer demands.
-3. **pppoe-wan restart hygiene.** `rc-service pppoe-wan` (start/restart) honors
-   the pidfile; a killed pppd needs stop+start if the pidfile is stale.
+## Torture-lab evidence — 2026-08-08
 
-## Isolated-lab evidence — 2026-08-08 (torture scenarios 18–25 PASS)
-
-The dedicated lab (ISP simulator 150 + router 108 + LAN client 154 on
-`vmbr-lab-*` bridges; scenario suite in `scripts/lab/scenarios/`, run via
-`sh lab-run.sh <scenario>`) validated the update/rollback and power-loss paths
-end to end:
+Scenarios 18–25 were run end to end in the isolated Proxmox lab:
 
 | Scenario | Result |
 |---|---|
-| 18/19 — WireGuard wg0/wg1 recovery after endpoint blackhole (keepalive + fib anti-leak) | **PASS** |
-| 20 — extraLAN (10.78.0.0/24) isolation | **PASS** |
-| 21 — full router reboot: LAN/DHCP/DNS/PPPoE/firewall back, runtime not hybrid | **PASS** |
+| 18/19 — WireGuard wg0/wg1 recovery after endpoint blackhole | **PASS** |
+| 20 — extraLAN isolation | **PASS** |
+| 21 — full reboot: LAN/DHCP/DNS/PPPoE/firewall recover, no hybrid runtime | **PASS** |
 | 22 — routerd+applyd crash: initd respawn, PPPoE session survives | **PASS** |
-| 23 — power loss at each of the 5 fault-hook phases (pre-privileged-apply → pre-canonical-ack): cold boot converges, policy-drop kept | **PASS** |
-| 24 — signed update 9.9.8→9.9.9 with runtime verification + rollback | **PASS** |
-| 25 — interrupted update (`poweroff -f` mid-activate): cold boot to last-good, **no brick** | **PASS** |
+| 23 — power loss at each transaction fault-hook phase | **PASS** |
+| 24 — signed update 9.9.8→9.9.9 with verification + rollback | **PASS** |
+| 25 — interrupted update mid-activate: cold boot to last-good, no brick | **PASS** |
 
-Product bug found and fixed in the working tree (not yet deployed to the lab):
+The Squid LAN-reply firewall bug found during the next scenario set is fixed in
+`main` and regression-tested, but the real Proxmox Squid scenario still needs a
+fresh run before it is recorded as PASS.
 
-- **Squid proxy unusable from LAN.** The generated nftables output chain dropped
-  every packet from the squid UID to the LAN zone *before* the
-  established/related accept, including the *responses* to LAN clients that dial
-  the proxy. Fixed by accepting the reply direction first
-  (`meta skuid squid oifname "<lan>" ct original ip daddr <lan-ip> accept`),
-  keeping the Squid-initiated egress cut. Unit test updated
-  (`internal/services/scenario_security_test.go`). Signed payload 9.9.10
-  prepared; stage/activate pending.
+## Final adversarial code audit — 2026-08-09
 
-Scenarios 26–30 currently fail for harness/scenario reasons (root fs fill too
-small, API rejects live LAN interface changes by design, incomplete LAN-IP
-patch, DDNS expectation predates static-only validation) — see `docs/LAB.md`,
-section "Torture-lab evidence (2026-08-08)" for the breakdown and fixes.
+Focused hardening merged through PRs #58, #60 and #63 after required checks
+passed on branches current with `main`:
+
+- external child/provider diagnostics are control-character sanitized and
+  bounded before crossing privileged audit/log boundaries;
+- privileged child-process stdout/stderr capture is capped at 4 MiB and fails
+  closed on overflow in addition to the existing execution timeout;
+- `protocol: both` WireGuard tunnel port forwards are verified as the two real
+  TCP and UDP nftables rules, avoiding false rollback of valid configuration;
+- A/B slot staging is independent of a restrictive root umask: reviewed file
+  modes are restored explicitly and staged directories are normalized to 0755;
+- incoming signed appliance executables must be readable and executable by the
+  unprivileged runtime (minimum 0555), so root-only 0700/0750 archive modes are
+  rejected before staging even though mode metadata is not part of the signed
+  content-hash manifest;
+- staged writable-file close failures are propagated rather than discarded;
+- regression tests reproduce restrictive umask staging, root-only signed
+  payload modes, both-protocol firewall verification, bounded command output,
+  and external-output sanitization.
+
+The final PR #60 head was merged onto the then-current `main` before its release
+gate. CI, Deep validation, CodeQL, Secret scan, Performance and Service
+supervision all passed on that exact branch state. The follow-up mode-integrity
+PR #63 was based directly on the resulting `main`; all workflows applicable to
+that two-file firmware/test diff also passed: CI, Deep validation, CodeQL,
+Secret scan and Performance. Its clean-Alpine install/update/rollback lifecycle,
+interrupted-update recovery, fuzzing, ARM64/QEMU, binary/security inspection and
+isolated WAN/router/LAN namespace lab all completed successfully.
+
+## Scenarios 26–40: implementation status vs evidence
+
+The scenario definitions for 26–30 have been corrected since the older lab
+report:
+
+- 26 now creates meaningful ENOSPC pressure dynamically;
+- 27 and 28 now expect the deliberate rejection of unsafe live LAN topology
+  changes instead of treating that safety policy as a product failure;
+- 29 targets the corrected Squid reply-direction firewall behavior;
+- 30 expects provider-aware DDNS verification failure and rollback when the
+  provider cannot be reached.
+
+Those corrections do **not** convert the old failed runs into PASS. They require
+fresh isolated-Proxmox execution. Scenarios 31–40 also do not yet have committed
+current result artifacts. The remaining real-lab/endurance evidence is tracked
+explicitly in [issue #61](https://github.com/vladimirperovic/minimalrouter/issues/61).
 
 ## Automated validation
 
@@ -147,23 +147,32 @@ validation.
 
 ## Remaining release gates
 
-Before recommending unattended production use, record evidence for:
+Before recommending unattended production use, record real evidence for:
 
-1. repeated Proxmox/guest reboots with stable WAN/LAN identity;
-2. repeated real PPPoE disconnect/reconnect and reboot recovery;
-3. MinimalRouter-managed No-IP update and later IP-change propagation;
-4. WireGuard recovery after PPPoE reconnect/reboot;
-5. sustained throughput, packet rate, latency/loss and thermal behavior;
-6. external IPv4/IPv6 scanning;
-7. encrypted backup restore into a fresh VM;
-8. full-disk, inode, read-only-filesystem, process-crash and abrupt-power tests;
-9. at least seven days of stable operation;
+1. repaired scenarios 26–30 and scenarios 31–40;
+2. repeated Proxmox/guest cold boots with stable WAN/LAN identity and no stale
+   DHCP/networking delay;
+3. repeated real PPPoE disconnect/reconnect and reboot recovery;
+4. Minimal Router-managed No-IP update and later IP-change propagation;
+5. WireGuard recovery after real PPPoE reconnect/reboot;
+6. sustained throughput, packet rate, latency/loss and thermal behavior;
+7. external IPv4/IPv6 scanning;
+8. encrypted backup restore into a fresh VM;
+9. at least seven days of stable unattended operation;
 10. signed install/recovery media and independent security review.
+
+The authoritative checklist for those remaining evidence gates is issue #61.
+Repository-launch/UI settings that cannot be proved from code alone are tracked
+separately in issue #11.
 
 ## Recommendation
 
 The current tree is suitable for a **controlled Proxmox pilot** with console
-access and pfSense/another known-good router ready for rollback. It is not yet a
-supported unattended replacement for pfSense or OpenWrt.
+access and pfSense/another known-good router ready for rollback. The code-side
+release blockers discovered in the 2026-08-09 adversarial pass are fixed and
+merged, but missing real-lab/endurance evidence means it is still premature to
+call the project a supported unattended replacement for pfSense or OpenWrt.
 
-Detailed evidence: [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md).
+Detailed historical evidence:
+[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) and
+[`LAB.md`](LAB.md).
