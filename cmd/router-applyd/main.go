@@ -957,6 +957,25 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	return nil
 }
 
+func portForwardRulesActive(ruleset, interfaceName, protocol string, externalPort int, internalIP string, internalPort int) bool {
+	protocol = strings.ToLower(protocol)
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+	for _, currentProtocol := range protocols {
+		if currentProtocol != "tcp" && currentProtocol != "udp" {
+			return false
+		}
+		want := fmt.Sprintf("iifname \"%s\" %s dport %d dnat to %s:%d",
+			interfaceName, currentProtocol, externalPort, internalIP, internalPort)
+		if !strings.Contains(ruleset, want) {
+			return false
+		}
+	}
+	return true
+}
+
 func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err != nil {
 		return fmt.Errorf("nftables table unavailable: %w", err)
@@ -965,16 +984,12 @@ func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 	if err != nil {
 		return fmt.Errorf("nftables table unavailable: %w", err)
 	}
+	wireGuardInterface := wireGuardInterfaceName(cfg.WireGuard)
 	for _, pf := range cfg.Firewall.PortForwards {
 		if !pf.Enabled || !cfg.WireGuard.Enabled {
 			continue
 		}
-		want := fmt.Sprintf("iifname \"%s\" %s dport %d dnat to %s:%d",
-			cfg.WireGuard.Interface, strings.ToLower(pf.Protocol), pf.ExternalPort, pf.InternalIP, pf.InternalPort)
-		if strings.ToLower(pf.Protocol) == "both" {
-			want = fmt.Sprintf("iifname \"%s\" dnat to %s:%d", cfg.WireGuard.Interface, pf.InternalIP, pf.InternalPort)
-		}
-		if !strings.Contains(ruleset, want) {
+		if !portForwardRulesActive(ruleset, wireGuardInterface, pf.Protocol, pf.ExternalPort, pf.InternalIP, pf.InternalPort) {
 			return fmt.Errorf("port forward %q is not active in the firewall ruleset", pf.Name)
 		}
 	}
