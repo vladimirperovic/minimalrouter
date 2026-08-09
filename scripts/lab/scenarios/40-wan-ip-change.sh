@@ -22,7 +22,7 @@ sleep 2
 mr "rc-service pppoe-wan restart 2>/dev/null || true" >/dev/null 2>&1
 
 phase "4-mr-runtime-2"
-require "PPPoE reconnects with new IP" wait_pppoe 120
+require "PPPoE reconnects with new IP" wait_pppoe_ip 10.250.0.99 120
 newip="$(mr "ip -4 -o addr show ppp0 | awk '{print \$4}'")"
 echo "WAN IP after: $newip"
 check "WAN IP actually changed" test "$newip" != "$oldip"
@@ -37,7 +37,7 @@ check "wg1 handshake recovers" retry 180 mr "wg show wg1 | grep -q 'latest hands
 phase "4.5-cleanup"
 isp "sed -i 's/10\.250\.0\.99/10.250.0.50/' /etc/ppp/chap-secrets; cat /etc/ppp/chap-secrets; systemctl restart pppoe-server" >/dev/null 2>&1
 mr "rc-service pppoe-wan restart 2>/dev/null || true" >/dev/null 2>&1
-wait_pppoe 120 >/dev/null 2>&1 || true
+wait_pppoe_ip 10.250.0.50 120 >/dev/null 2>&1 || true
 
 phase "7-recovery"
 check "canonical + last-good converge" check_converge

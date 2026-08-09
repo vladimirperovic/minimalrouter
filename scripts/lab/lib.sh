@@ -80,8 +80,14 @@ finish_scenario() {
 # gx <vmid> <sh-command> — decoded guest exec (raw or base64 out-data) that
 # propagates the guest command's real exit code (qm guest exec itself always
 # exits 0 when the agent answered, so the JSON "exitcode" is the only truth).
+# The guest command is base64-encoded on the host so no layer of the local
+# shell chain can expand `$var`, `$(...)` or `$((...))` meant for the guest;
+# host-side expansion (variables the scenario wants resolved locally) already
+# happened before this function was called. A generous qm timeout keeps
+# long-running fault injections (disk/inode fills) from being killed at 30s.
 gx() {
-  out="$(H "qm guest exec $1 -- sh -c \"$2\"" 2>/dev/null)"
+  b64="$(printf '%s' "$2" | base64 -w0 2>/dev/null || printf '%s' "$2" | base64)"
+  out="$(H "qm guest exec --timeout 900 $1 -- sh -c \"echo $b64 | base64 -d | sh\"" 2>/dev/null)"
   printf '%s' "$out" | python3 -c '
 import json,sys,base64
 try:
@@ -125,6 +131,24 @@ api() {
 }
 api_login() {
   H "curl -sk --max-time 10 -c $API_COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' > "$API_CSRF" 2>/dev/null || true
+}
+# config_py_assert <python-snippet> — pass when the snippet (evaluated with
+# `c` bound to the current config JSON, json module imported) exits 0. Runs in
+# this shell so api/config helpers stay visible.
+config_py_assert() {
+  api_login
+  api GET /api/v1/config | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+$1
+" 2>/dev/null
+}
+# api_reconcile — trigger recovery reconcile (POST /api/v1/recovery/reconcile);
+# pass only when the API confirms success (curl's own exit code ignores HTTP).
+api_reconcile() {
+  api_login
+  body="$(api POST /api/v1/recovery/reconcile)"
+  echo "$body" | grep -q '"success"' && echo "$body" | grep -q 'true'
 }
 
 # --- invariant checks -------------------------------------------------------
@@ -183,6 +207,7 @@ prod_ports_md5() { H "bridge link show vmbr0 2>/dev/null | grep -oE 'ifindex [0-
 # mr_save <json-fragment-pairs...> — save a trivial local change via API
 mr_save_lease() {  # toggles lease_time; returns canonical revision
   api_login
+  confirm_pending
   cfg="$(api GET /api/v1/config)"
   rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
   cur="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
@@ -192,12 +217,16 @@ import json,sys
 c=json.load(sys.stdin)
 c['dhcp']['lease_time']='$new'
 print(json.dumps(c))")" >/dev/null 2>&1
+  confirm_pending
   mr_env_restore
 }
 
 # wait_pppoe <seconds> — poll until ppp0 has the lab address
 wait_pppoe() { t="${1:-90}"; i=0; while [ $i -lt "$t" ]; do check_pppoe && return 0; sleep 3; i=$((i+3)); done; return 1; }
 wait_pppoe_down() { t="${1:-30}"; i=0; while [ $i -lt "$t" ]; do check_pppoe || return 0; sleep 3; i=$((i+3)); done; return 1; }
+# wait_pppoe_ip <ip> [timeout] — poll until ppp0 carries the given address
+# (used when a scenario deliberately renumbers the WAN away from MR_WAN_PPP).
+wait_pppoe_ip() { want="$1"; t="${2:-90}"; i=0; while [ $i -lt "$t" ]; do mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$want" && return 0; sleep 3; i=$((i+3)); done; return 1; }
 
 # snapshots of runtime state for post-mortem
 capture_state() {  # capture_state <label>
@@ -257,18 +286,28 @@ mr_put() {
 }
 
 # --- config save helpers -----------------------------------------------------
+# confirm_pending — confirm any pending (awaiting-confirmation) transaction so
+# the canonical revision and helper last-good converge. No-op when clean.
+confirm_pending() {
+  api_login
+  id="$(api GET /api/v1/transactions/pending | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d.get("id","") if d.get("pending") else "")
+except Exception:
+    print("")' 2>/dev/null)"
+  if [ -n "$id" ]; then
+    api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
+  fi
+}
 # save_config — GET current config and PUT it back (exercises the full save
 # path; pending transactions are confirmed)
 save_config() {
   api_login
   cfg="$(api GET /api/v1/config)" || return 1
-  id="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pending_transaction_id",""))' 2>/dev/null)"
-  if [ -n "$id" ] && [ "$id" != "None" ]; then
-    api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
-    mr_env_restore
-    return 0
-  fi
+  confirm_pending
   api PUT /api/v1/config "$cfg" >/dev/null 2>&1
+  confirm_pending
   mr_env_restore
 }
 # patch_config <python-snippet> — load config, eval snippet against `c`, PUT
@@ -319,11 +358,29 @@ check_not() {
     echo "[PASS] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
   fi
 }
-# save_expects_error <json> — PUT the given config; passes only when the API
-# rejects it with an error body (used where a save must fail cleanly, e.g.
-# ENOSPC or an unreachable DDNS provider)
+# save_expects_error <json> — PUT the given config; passes only when the full
+# save path is rejected: either the PUT is rejected outright (JSON error body
+# or HTTP 422), or the PUT entered the two-phase confirmation path and the
+# confirm itself failed (e.g. ENOSPC on the helper's last-good write).
 save_expects_error() {
   api_login
   body="$(api PUT /api/v1/config "$1")"
-  echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|HTTP 500|422'
+  if echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|422'; then
+    return 0
+  fi
+  state="$(echo "$body" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("state",""))
+except Exception: print("")' 2>/dev/null)"
+  [ "$state" = "AwaitingConfirmation" ] || return 1
+  id="$(echo "$body" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("id",""))
+except Exception: print("")' 2>/dev/null)"
+  [ -n "$id" ] || return 1
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  resp="$(H "curl -sk --max-time 60 -b $API_COOKIE -w '|%{http_code}' -X POST $hdr $MR_API/api/v1/transactions/$id/confirm" 2>/dev/null)"
+  code="${resp##*|}"
+  [ "$code" != "200" ] && [ "$code" != "202" ]
 }

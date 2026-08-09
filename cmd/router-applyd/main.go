@@ -1986,6 +1986,18 @@ func loadLastGood() (*config.SystemConfig, error) {
 	return &cfg, cfg.Validate()
 }
 
+// quarantineLastGood renames a corrupt/unreadable last-good file out of the
+// way (preserving it as evidence) so startup reconciliation can recover from
+// the canonical SQLite store instead of failing closed permanently.
+func quarantineLastGood() error {
+	quarantine := lastGoodPath + ".corrupt." + time.Now().Format("20060102T150405Z07")
+	if err := os.Rename(lastGoodPath, quarantine); err != nil {
+		return fmt.Errorf("rename corrupt last-good to %s: %w", quarantine, err)
+	}
+	log.Printf("quarantined corrupt last-good configuration to %s", quarantine)
+	return nil
+}
+
 func saveLastGood(cfg config.SystemConfig) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("invalid last-good configuration: %w", err)

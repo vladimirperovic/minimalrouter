@@ -7,12 +7,18 @@
 begin "32-inode-exhaustion"
 phase "3-fault"
 require "fault: none (filesystem stress)" ispfault status
+# a previous aborted run must never leave a fill loop behind
+mr "pkill -f inode-fill 2>/dev/null; rm -rf /root/.inode-fill; true" >/dev/null 2>&1
 
 phase "4-mr-runtime"
 check "MR up before inode exhaustion" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
-require "fill inode table" mr "mkdir -p /root/.inode-fill && i=0; while df -i / | awk 'NR==2 && \$5+0 < 95 {exit 0} NR==2 {exit 1}'; do touch /root/.inode-fill/f\$i 2>/dev/null || break; i=\$((i+1)); done; df -i / | tail -1"
+# fill the inode table until <=16 inodes remain: the save needs several new
+# files (helper artifacts), so it must fail cleanly while the router itself
+# keeps serving from memory. With the base64 transport, `$i`/`$((...))` reach
+# the guest unexpanded.
+require "fill inode table to <=16 free" mr "mkdir -p /root/.inode-fill && i=0; while [ \$(df -i / | awk 'NR==2{print \$4}') -gt 16 ]; do touch /root/.inode-fill/f\$i 2>/dev/null || break; i=\$((i+1)); done; df -i / | awk 'NR==2 && \$4<=16{exit 0} {exit 1}'"
 
 phase "4-mr-runtime-2"
 api_login

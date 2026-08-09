@@ -12,7 +12,10 @@ phase "4-mr-runtime"
 check "MR up before ENOSPC" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
-require "fill root fs to ~98%" mr "dd if=/dev/zero of=/root/.fill bs=1M count=400 2>/dev/null; df -h / | tail -1 | grep -qE '[9][0-9]%|[1-9][0-9][0-9]%'"
+# Fill the root filesystem down to <=64KB free: a save needs a few KB for
+# the helper artifacts plus SQLite WAL growth, so the commit must fail
+# cleanly while the router itself keeps running from memory.
+require "fill root fs to <64KB free" mr "avail=\$(df -P / | awk 'NR==2{print \$4}'); size=\$((avail-32)); dd if=/dev/zero of=/root/.fill bs=1024 count=\$size 2>/dev/null; avail=\$(df -P / | awk 'NR==2{print \$4}'); test \$avail -le 64"
 
 phase "4-mr-runtime-2"
 api_login

@@ -33,11 +33,12 @@ const emergencyNftables = `table inet minimalrouter {
 `
 
 type startupReconcileHooks struct {
-	loadLastGood    func() (*config.SystemConfig, error)
-	pendingExists   func() (bool, error)
-	restoreRuntime  func(config.SystemConfig) error
-	restoreFirstRun func() error
-	clearPending    func() error
+	loadLastGood       func() (*config.SystemConfig, error)
+	quarantineLastGood func() error
+	pendingExists      func() (bool, error)
+	restoreRuntime     func(config.SystemConfig) error
+	restoreFirstRun    func() error
+	clearPending       func() error
 }
 
 // init runs only for the installed OpenRC service. Keeping the opt-in in the
@@ -52,11 +53,12 @@ func init() {
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
 	}
 	if err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:    loadLastGood,
-		pendingExists:   pendingConfirmationExists,
-		restoreRuntime:  restoreLastGoodRuntime,
-		restoreFirstRun: restoreFirstRunRuntime,
-		clearPending:    clearPendingConfirmation,
+		loadLastGood:       loadLastGood,
+		quarantineLastGood: quarantineLastGood,
+		pendingExists:      pendingConfirmationExists,
+		restoreRuntime:     restoreLastGoodRuntime,
+		restoreFirstRun:    restoreFirstRunRuntime,
+		clearPending:       clearPendingConfirmation,
 	}); err != nil {
 		// Only failures of the security/core dataplane reach this point. Optional
 		// features are restored best-effort and reported as degraded instead of
@@ -72,6 +74,23 @@ func reconcileStartup(h startupReconcileHooks) error {
 	}
 
 	cfg, err := h.loadLastGood()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		// A corrupt or unreadable last-good must not brick the router: the
+		// management plane holds the canonical configuration in SQLite and will
+		// re-establish it through its boot reconcile. Quarantine the evidence
+		// (never delete it silently) and fall through to the first-run recovery
+		// path, which keeps the LAN, fail-closed firewall and setup plane safe
+		// until canonical reconciliation restores the confirmed configuration.
+		if h.quarantineLastGood != nil {
+			log.Printf("startup last-good is corrupt (%v); quarantining evidence and recovering from canonical state", err)
+			if qErr := h.quarantineLastGood(); qErr != nil {
+				return fmt.Errorf("quarantine corrupt last-good: %w (original error: %v)", qErr, err)
+			}
+			err = os.ErrNotExist
+		} else {
+			return fmt.Errorf("load last-good configuration: %w", err)
+		}
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		pending, pendingErr := h.pendingExists()
 		if pendingErr != nil {
