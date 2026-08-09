@@ -49,3 +49,16 @@ func TestValidateApplianceFileModesRejectsNonExecutableApplyd(t *testing.T) {
 		t.Fatal("signed payload with non-executable helper was accepted")
 	}
 }
+
+func TestValidateApplianceFileModesRejectsRootOnlyExecutableDaemon(t *testing.T) {
+	root := t.TempDir()
+	manifest := completeAMD64ManifestForTest()
+	writeExecutableFixture(t, root, manifest)
+	path := filepath.Join(root, "bin/routerd-amd64")
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateApplianceFileModes(root, manifest); err == nil {
+		t.Fatal("signed payload with root-only executable daemon was accepted")
+	}
+}
