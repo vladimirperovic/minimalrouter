@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
+  <a href="#status"><img alt="Status: Controlled pilot" src="https://img.shields.io/badge/status-controlled_pilot-orange" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
@@ -28,15 +28,16 @@
 
 <a id="status"></a>
 
-> **Beta — core routing validated.** Minimal Router is carrying real PPPoE traffic
-> in a validated Proxmox deployment, with DHCP/DNS, NAT, WireGuard, Dynamic DNS,
-> Squid, gateway monitoring, snapshots/recovery, security controls and audit logs
-> working end to end. Remaining gaps are mostly management UI or hardware-specific:
-> firewall/port-forward editing, dashboard DHCP reservations, TOTP and Cloudflare
-> Tunnel UI, QoS dashboard controls and target-host shaping validation, DNS-filter
-> device/guest selection, Wi-Fi on systems with a supported radio, and signing-key
-> management. Local-console recovery remains the deliberate safety path while the
-> final release/update workflow is completed.
+> **Controlled pilot — core routing validated; unattended production is not yet supported.**
+> Minimal Router has carried real PPPoE traffic in a controlled Proxmox deployment,
+> with DHCP/DNS, NAT, WireGuard, Dynamic DNS, monitoring, snapshots/recovery,
+> security controls and audit logs exercised end to end. The repository also has
+> extensive automated, QEMU and isolated-network validation. Real-lab scenarios
+> 26–40, repeated cold-boot/ISP recovery, sustained soak/thermal testing, external
+> scanning, fresh-VM backup restore, signed recovery media and independent security
+> review remain release gates. Keep console access and a known-good fallback router
+> available during pilots; [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md)
+> is the source of truth for what has actually passed.
 
 **Lightweight by design.** The validated Proxmox appliance runs the core routing
 stack with **512 MiB RAM and 2 vCPUs**, handling real PPPoE traffic, WireGuard,
