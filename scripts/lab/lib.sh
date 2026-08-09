@@ -13,22 +13,28 @@ H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; 
 
 MR_API="https://192.168.1.1:8443"
 MR_LAN_IP="192.168.1.1"
-MR_WAN_PPP="10.250.0.2"
+MR_WAN_PPP="10.250.0.50"
 SIM_INET="11.255.0.2"
 ISP_DNS="10.250.0.1"
 PROD_GW="192.168.1.1"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
 # --- result bookkeeping -----------------------------------------------------
-RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/results}"
+# Normalize the results dir regardless of whether lib.sh is sourced from
+# lab-run.sh (scripts/lab) or from a scenario (scripts/lab/scenarios):
+# a scenario always resolves its parent's ../results.
+case "$(basename "$(dirname "$0")")" in
+  scenarios) RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/../results}" ;;
+  *) RESULTS_DIR="${LAB_RESULTS:-$(dirname "$0")/results}" ;;
+esac
+mkdir -p "$RESULTS_DIR"
 CURRENT_SCENARIO=""
 CURRENT_PHASE=""
 FAILED=0
-mkdir -p "$RESULTS_DIR"
 
 begin() { CURRENT_SCENARIO="$1"; FAILED=0; mkdir -p "$RESULTS_DIR/$1"; CUR_FILE=/tmp/lab-current.json; }
 phase() { CURRENT_PHASE="$1"; log "--- phase $1"; temp_guard; echo "{\"scenario\":\"$CURRENT_SCENARIO\",\"phase\":\"$1\",\"ts\":\"$(TZ=Europe/Podgorica date +%H:%M:%S)\"}" > "${CUR_FILE:-/tmp/lab-current.json}" 2>/dev/null; }
-log() { echo "[$(date +%H:%M:%S)] $*"; }
+log() { echo "[$(TZ=Europe/Podgorica date +%H:%M:%S)] $*"; }
 note() { echo "[note] $*"; }
 
 # temp_guard — abort the whole suite if the host CPU exceeds 85C
@@ -66,7 +72,7 @@ finish_scenario() {
   else
     echo "[RESULT] $CURRENT_SCENARIO: FAIL ($FAILED failed checks)"
   fi
-  echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$rc" > "$RESULTS_DIR/$CURRENT_SCENARIO/result.txt"
+  echo "$(TZ=Europe/Podgorica date +%Y-%m-%dT%H:%M:%S%z) rc=$rc" > "$RESULTS_DIR/$CURRENT_SCENARIO/result.txt"
   exit "$rc"
 }
 
@@ -74,8 +80,14 @@ finish_scenario() {
 # gx <vmid> <sh-command> — decoded guest exec (raw or base64 out-data) that
 # propagates the guest command's real exit code (qm guest exec itself always
 # exits 0 when the agent answered, so the JSON "exitcode" is the only truth).
+# The guest command is base64-encoded on the host so no layer of the local
+# shell chain can expand `$var`, `$(...)` or `$((...))` meant for the guest;
+# host-side expansion (variables the scenario wants resolved locally) already
+# happened before this function was called. A generous qm timeout keeps
+# long-running fault injections (disk/inode fills) from being killed at 30s.
 gx() {
-  out="$(H "qm guest exec $1 -- sh -c \"$2\"" 2>/dev/null)"
+  b64="$(printf '%s' "$2" | base64 -w0 2>/dev/null || printf '%s' "$2" | base64)"
+  out="$(H "qm guest exec --timeout 900 $1 -- sh -c \"echo $b64 | base64 -d | sh\"" 2>/dev/null)"
   printf '%s' "$out" | python3 -c '
 import json,sys,base64
 try:
@@ -100,7 +112,7 @@ ispfault() { gx 150 "lab-fault $* 2>&1"; }
 isp() { gx 150 "$* 2>&1"; }
 sim() { gx 153 "$* 2>&1"; }
 lan() { gx 154 "$* 2>&1"; }
-mr() { gx 108 "$* 2>&1"; }
+mr() { gx 151 "$* 2>&1"; }
 
 # api <method> <path> [data] — MR-TEST API via host curl
 API_COOKIE="/tmp/lab-runner-cookie.txt"
@@ -118,7 +130,30 @@ api() {
   fi
 }
 api_login() {
+  # Reuse the existing session while the cookie still works: the API rate
+  # limits logins to 5/min per source IP, and every check calls api_login.
+  # The cookie lives on the remote host (api/H run there), so probe remotely.
+  if H "curl -sk --max-time 10 -b $API_COOKIE -o /dev/null -w '%{http_code}' $MR_API/api/v1/config" 2>/dev/null | grep -q '^200$'; then
+    return 0
+  fi
   H "curl -sk --max-time 10 -c $API_COOKIE -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\": \"$ADMIN_PW\"}'" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' > "$API_CSRF" 2>/dev/null || true
+}
+# config_py_assert <python-snippet> — pass when the snippet (evaluated with
+# `c` bound to the current config JSON, json module imported) exits 0. Runs in
+# this shell so api/config helpers stay visible.
+config_py_assert() {
+  api_login
+  api GET /api/v1/config | python3 -c 'import json,sys
+c=json.load(sys.stdin)
+'"$1"'
+' 2>/dev/null
+}
+# api_reconcile — trigger recovery reconcile (POST /api/v1/recovery/reconcile);
+# pass only when the API confirms success (curl's own exit code ignores HTTP).
+api_reconcile() {
+  api_login
+  body="$(api POST /api/v1/recovery/reconcile)"
+  echo "$body" | grep -q '"success"' && echo "$body" | grep -q 'true'
 }
 
 # --- invariant checks -------------------------------------------------------
@@ -140,6 +175,12 @@ check_local_dns() {
 check_pppoe() {
   mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$MR_WAN_PPP"
 }
+# Health API reports the DNS/DHCP check (loopback is firewalled off, so query
+# the authenticated LAN endpoint like the dashboard does).
+check_health_reports_dns() {
+  api_login
+  api GET /api/v1/health 2>/dev/null | grep -q dns_dhcp
+}
 # LAN client reaches the simulated internet through NAT.
 check_lan_internet() {
   lan "curl -s --max-time 6 http://$SIM_INET/marker.txt 2>/dev/null" | grep -q torture-lab
@@ -154,11 +195,10 @@ check_converge() {
 # Runtime after recovery must not be a hybrid: LAN addr + PPP user + dnsmasq
 # range all match the canonical config.
 check_runtime_not_hybrid() {
-  mr 'ip -4 -o addr show eth0 2>/dev/null' | grep -q "192.168.1.1/" && \
-  mr 'grep HWB6470EFA7 /etc/ppp/chap-secrets 2>/dev/null' | grep -q HWB6470EFA7 && \
-  mr 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q "10.250.0.2" && \
-  (mr 'grep "192.168.1.218" /etc/dnsmasq.d/minimalrouter*.conf 2>/dev/null' | grep -q 192.168.1.218 || \
-   mr 'grep -r "192.168.1.218" /etc/dnsmasq* 2>/dev/null' | grep -q 192.168.1.218)
+  mr 'ip -4 -o addr show eth1 2>/dev/null' | grep -q "192.168.1.1/" && \
+  mr 'grep mr-test /etc/ppp/chap-secrets 2>/dev/null' | grep -q mr-test && \
+  mr 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q "10.250.0.50" && \
+  mr 'grep -r "192.168.1.100" /etc/dnsmasq* 2>/dev/null' | grep -q 192.168.1.100
 }
 # No MR-TEST fault may affect production: pfSense reachable + bridge ports unchanged.
 check_prod_untouched() {
@@ -172,8 +212,10 @@ prod_ports_md5() { H "bridge link show vmbr0 2>/dev/null | grep -oE 'ifindex [0-
 # mr_save <json-fragment-pairs...> — save a trivial local change via API
 mr_save_lease() {  # toggles lease_time; returns canonical revision
   api_login
+  confirm_pending
   cfg="$(api GET /api/v1/config)"
-  rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+  rev="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' 2>/dev/null)" || rev=""
+  [ -n "$rev" ] || return 1
   cur="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
   new="$(echo "$cur" | grep -q 12h && echo 2h || echo 12h)"
   api PUT /api/v1/config "$(echo "$cfg" | python3 -c "
@@ -181,11 +223,16 @@ import json,sys
 c=json.load(sys.stdin)
 c['dhcp']['lease_time']='$new'
 print(json.dumps(c))")" >/dev/null 2>&1
+  confirm_pending
+  mr_env_restore
 }
 
 # wait_pppoe <seconds> — poll until ppp0 has the lab address
 wait_pppoe() { t="${1:-90}"; i=0; while [ $i -lt "$t" ]; do check_pppoe && return 0; sleep 3; i=$((i+3)); done; return 1; }
 wait_pppoe_down() { t="${1:-30}"; i=0; while [ $i -lt "$t" ]; do check_pppoe || return 0; sleep 3; i=$((i+3)); done; return 1; }
+# wait_pppoe_ip <ip> [timeout] — poll until ppp0 carries the given address
+# (used when a scenario deliberately renumbers the WAN away from MR_WAN_PPP).
+wait_pppoe_ip() { want="$1"; t="${2:-90}"; i=0; while [ $i -lt "$t" ]; do mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$want" && return 0; sleep 3; i=$((i+3)); done; return 1; }
 
 # snapshots of runtime state for post-mortem
 capture_state() {  # capture_state <label>
@@ -213,6 +260,15 @@ arm_hook() {
 }
 disarm_hooks() { mr 'rm -rf /run/minimalrouter-fault 2>/dev/null; true' >/dev/null; }
 
+# mr_env_restore — restore lab-only routing quirks on MR-TEST that the
+# pristine image / applyd wipes: the host route for the Proxmox host
+# (192.168.1.254) must leave via eth1, and the WAN interface (eth0) must not
+# carry the stale 192.168.1.1/24 LAN address (else LAN client replies egress
+# the wrong NIC). Call after every API-affecting step (apply/confirm/save).
+mr_env_restore() {
+  mr "ip route add 192.168.1.254/32 dev eth1 2>/dev/null || true; ip -4 addr del 192.168.1.1/24 dev eth0 2>/dev/null || true; true" >/dev/null 2>&1
+}
+
 # --- retry / wait helpers ----------------------------------------------------
 # retry <secs> <cmd...> — run the command (functions visible) until success
 retry() { t="$1"; shift; i=0; while [ $i -lt "$t" ]; do "$@" && return 0; sleep 5; i=$((i+5)); done; return 1; }
@@ -236,17 +292,29 @@ mr_put() {
 }
 
 # --- config save helpers -----------------------------------------------------
+# confirm_pending — confirm any pending (awaiting-confirmation) transaction so
+# the canonical revision and helper last-good converge. No-op when clean.
+confirm_pending() {
+  api_login
+  id="$(api GET /api/v1/transactions/pending | python3 -c 'import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(d.get("id","") if d.get("pending") else "")
+except Exception:
+    print("")' 2>/dev/null)"
+  if [ -n "$id" ]; then
+    api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
+  fi
+}
 # save_config — GET current config and PUT it back (exercises the full save
 # path; pending transactions are confirmed)
 save_config() {
   api_login
   cfg="$(api GET /api/v1/config)" || return 1
-  id="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("pending_transaction_id",""))' 2>/dev/null)"
-  if [ -n "$id" ] && [ "$id" != "None" ]; then
-    api POST "/api/v1/transactions/$id/confirm" >/dev/null 2>&1
-    return 0
-  fi
+  confirm_pending
   api PUT /api/v1/config "$cfg" >/dev/null 2>&1
+  confirm_pending
+  mr_env_restore
 }
 # patch_config <python-snippet> — load config, eval snippet against `c`, PUT
 patch_config() {
@@ -258,6 +326,33 @@ c=json.load(sys.stdin)
 $1
 print(json.dumps(c))")" || return 1
   api PUT /api/v1/config "$new" >/dev/null 2>&1
+  mr_env_restore
+}
+# patch_config_reject <python-snippet> <expected-error-substring> — like
+# patch_config but asserts the API REJECTS the change (HTTP 422) with the
+# given error text. Used where the product deliberately blocks self-lockout
+# changes (live LAN interface/subnet swaps) as a safety guard.
+patch_config_reject() {
+  api_login
+  cfg="$(api GET /api/v1/config)" || return 1
+  new="$(echo "$cfg" | python3 -c "
+import json,sys
+c=json.load(sys.stdin)
+$1
+print(json.dumps(c))")" || return 1
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  resp="$(H "curl -sk --max-time 60 -b $API_COOKIE -w '|%{http_code}' -X PUT $hdr -H 'Content-Type: application/json' -d '$new' $MR_API/api/v1/config" 2>/dev/null)"
+  mr_env_restore
+  code="${resp##*|}"
+  body="${resp%|*}"
+  [ "$code" = "422" ] || { echo "  expected HTTP 422, got $code: $(echo "$body" | head -c 200)"; return 1; }
+  case "$body" in
+    *"$2"*) return 0 ;;
+    *) echo "  expected rejection text '$2' not in: $(echo "$body" | head -c 200)"; return 1 ;;
+  esac
 }
 # check_not <name> <cmd...> — passes when the command fails
 check_not() {
@@ -269,11 +364,34 @@ check_not() {
     echo "[PASS] $CURRENT_SCENARIO/$CURRENT_PHASE: $name"
   fi
 }
-# save_expects_error <json> — PUT the given config; passes only when the API
-# rejects it with an error body (used where a save must fail cleanly, e.g.
-# ENOSPC or an unreachable DDNS provider)
+# save_expects_error <json> — PUT the given config; passes only when the full
+# save path is rejected: either the PUT is rejected outright (JSON error body
+# or HTTP 422), or the PUT entered the two-phase confirmation path and the
+# confirm itself failed (e.g. ENOSPC on the helper's last-good write).
 save_expects_error() {
   api_login
   body="$(api PUT /api/v1/config "$1")"
-  echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|HTTP 500|422'
+  # a broken/unauthorized session is a harness failure, not the expected
+  # product rejection: never false-pass on it
+  if echo "$body" | grep -qi 'unauthorized'; then
+    return 1
+  fi
+  if echo "$body" | grep -qE '"error"|"status"[[:space:]]*:[[:space:]]*"(error|failed|rejected)"|422'; then
+    return 0
+  fi
+  state="$(echo "$body" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("state",""))
+except Exception: print("")' 2>/dev/null)"
+  [ "$state" = "AwaitingConfirmation" ] || return 1
+  id="$(echo "$body" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("id",""))
+except Exception: print("")' 2>/dev/null)"
+  [ -n "$id" ] || return 1
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  resp="$(H "curl -sk --max-time 60 -b $API_COOKIE -w '|%{http_code}' -X POST $hdr $MR_API/api/v1/transactions/$id/confirm" 2>/dev/null)"
+  code="${resp##*|}"
+  [ "$code" != "200" ] && [ "$code" != "202" ]
 }

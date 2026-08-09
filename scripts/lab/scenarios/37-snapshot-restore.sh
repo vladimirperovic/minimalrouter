@@ -16,7 +16,7 @@ api_login
 snap="$(api POST /api/v1/snapshots | python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
-    print(d.get("id",""))
+    print(d.get("snapshot",{}).get("id",""))
 except Exception:
     print("")' 2>/dev/null)"
 check "snapshot created" test -n "$snap"
@@ -25,14 +25,16 @@ phase "4-mr-runtime-2"
 cfg="$(api GET /api/v1/config)"
 new="$(echo "$cfg" | python3 -c 'import json,sys
 c=json.load(sys.stdin)
-c["dhcp"]["lease_time"]=1800 if c["dhcp"].get("lease_time")!=1800 else 3600
+c["dhcp"]["lease_time"]="1h" if c["dhcp"].get("lease_time")!="1h" else "2h"
 print(json.dumps(c))')"
 api PUT /api/v1/config "$new" >/dev/null 2>&1
+confirm_pending
 sleep 2
 check "config mutated" check_converge
 
 phase "4.5-restore"
 require "restore snapshot" api POST "/api/v1/snapshots/$snap/restore"
+confirm_pending
 sleep 3
 check "MR alive after snapshot restore" mr "uptime -s | grep -q ."
 

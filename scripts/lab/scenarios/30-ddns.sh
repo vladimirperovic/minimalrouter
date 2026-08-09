@@ -27,7 +27,7 @@ c['cloudflare']['domain']='mr-test.lab.test'
 print(json.dumps(c))")"
 
 phase "4-mr-runtime-2"
-check "config unchanged — ddns still disabled" mr "grep -q '\"ddns_enabled\": *false' /var/lib/minimalrouter-applyd/last-good.json 2>/dev/null"
+check "config unchanged — ddns still disabled" config_py_assert 'assert c["cloudflare"]["ddns_enabled"] is False and c["cloudflare"]["domain"] == ""'
 check "inadyn not running" mr "! rc-service inadyn status 2>/dev/null | grep -q started"
 check "firewall still policy-drop" check_fw_not_fail_open
 check "LAN still up" check_lan_up

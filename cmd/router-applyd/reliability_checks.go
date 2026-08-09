@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -123,7 +124,7 @@ func requiresDDNSVerification(previous *config.SystemConfig, candidate config.Sy
 // later WAN-IP changes; unrelated router changes are not coupled to provider
 // availability.
 func verifyDDNSUpdate() error {
-	_, err := runCommandOutput(45*time.Second,
+	output, err := runCommandOutput(45*time.Second,
 		"/usr/sbin/inadyn",
 		"--once", "--force", "--foreground", "--no-pidfile",
 		"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice",
@@ -131,5 +132,37 @@ func verifyDDNSUpdate() error {
 	if err != nil {
 		return fmt.Errorf("dynamic DNS provider update failed: %w", err)
 	}
+	// inadyn 2.12 exits 0 on some fatal provider responses (e.g. an HTTP 401
+	// authentication failure), so the exit status alone is not a reliable
+	// success signal. Treat any fatal/error response in the output as failure.
+	if marker := ddnsOutputFailureMarker(output); marker != "" {
+		return fmt.Errorf("dynamic DNS provider update failed: %s", marker)
+	}
 	return nil
+}
+
+var ddnsFailureMarkers = []string{
+	"fatal error",
+	"error response",
+	"authentication failure",
+	"error code",
+	"failed connecting",
+	"failed to update",
+	"failed sending",
+	"failed resolving",
+	"timed out",
+	"timeout",
+	"unable",
+	"unreachable",
+	"cannot",
+}
+
+func ddnsOutputFailureMarker(output string) string {
+	lower := strings.ToLower(output)
+	for _, marker := range ddnsFailureMarkers {
+		if strings.Contains(lower, marker) {
+			return strings.TrimSpace(output)
+		}
+	}
+	return ""
 }

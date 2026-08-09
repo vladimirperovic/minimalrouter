@@ -25,6 +25,11 @@ depend() {
 
 start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
+    # supervise-daemon reopens the log files as the unprivileged routerd user,
+    # so they must already exist and be owned by routerd (root-owned /var/log
+    # is not writable by that user).
+    checkpath --file --owner routerd:routerd --mode 0600 /var/log/routerd.log
+    checkpath --file --owner routerd:routerd --mode 0600 /var/log/routerd.err
     # DHCP leases live in a dedicated dnsmasq-owned 0750 directory. Give the
     # management daemon only the supplementary group needed to read that live
     # status; canonical config/auth storage stays private to routerd.

@@ -28,6 +28,9 @@ reset_lab() {
   log "=== reset lab to known state ==="
   ispfault reset >/dev/null 2>&1 || true
   disarm_hooks >/dev/null 2>&1 || true
+  # DDNS verification must be deterministic: point the fake providers at the
+  # sim (self-signed TLS fails fast) instead of the real no-ip/ipify.
+  mr "grep -q '10.250.0.10 no-ip.com' /etc/hosts || echo '10.250.0.10 no-ip.com dynupdate.no-ip.com api.ipify.org' >> /etc/hosts; rc-service dnsmasq reload >/dev/null 2>&1 || true" >/dev/null 2>&1 || true
   # make sure PPPoE is negotiated before invariants
   if ! wait_pppoe 60; then
     log "PPPoE not up after reset; bouncing pppoe-wan on MR"
@@ -52,6 +55,11 @@ initial_invariants() {
 run_scenario() {
   name="$1"
   file="$SCENDIR/$name.sh"
+  if [ ! -f "$file" ]; then
+    # allow bare numbers: 26 -> 26-enospc.sh
+    m="$(ls "$SCENDIR"/"$name"-*.sh 2>/dev/null | head -1 || true)"
+    [ -n "$m" ] && [ -f "$m" ] && file="$m"
+  fi
   [ -f "$file" ] || { echo "unknown scenario: $name (see: sh lab-run.sh list)"; return 1; }
   log ""
   log "############################################"

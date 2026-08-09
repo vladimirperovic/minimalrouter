@@ -92,3 +92,35 @@ before touching the lab; it saves hours.
 - Mac/laptop to the lab: WireGuard up + route; if the laptop has no route, use
   `sudo route add 192.168.1.0/24 10.6.0.1`; or SSH tunnel
   `ssh -L 14080:192.168.1.161:4080` via BindAddress 10.6.0.3.
+
+## 2026-08-08 late session — lab bring-up final fixes (all applied on LXC)
+## 2026-08-08 late session — lab bring-up final fixes (all applied on LXC)
+
+9. **Wizard+profile flow works now**: wizard (setup/apply) → PPPoE up → login →
+   profile PUT (full config from GET, merged) → confirm. Committed rev 3.
+10. **pppd 2.5.2** rejects rp-pppoe options `local-ip`/`remote-ip` in
+    pppoe-server-options — server pppd died instantly ("Child pppd process
+    terminated"). Remove those lines (IPs are passed positionally anyway).
+11. **ISP chap-secrets needs `"mr-test" * "minimalrouter-lab-pppoe"
+    10.250.0.50`** and pppoe-server must run as ONE instance (systemd unit from
+    isp-provision.sh; a manual setsid instance crashes the unit loop).
+12. **Every apply/confirm wipes the host route `192.168.1.254/32 dev eth1` on
+    MR-TEST** — restore it via gx (inside the VM) after every API-affecting
+    step, and in the API wait loop.
+13. **Confirm needs the wg_client tunnel verified** (status check when
+    wg_client.enabled) — until SIM-side WG is fully plumbed, the profile keeps
+    wg_client disabled so the lab commits (wg1 scenarios to be revisited).
+14. **MR has no NIC on vmbr-lab-office** (SIM wg1 endpoint 10.79.0.2) — hotplug
+    `qm set 151 --net3 virtio=...,bridge=vmbr-lab-office`, then on the MR:
+    `ip addr add 10.79.0.3/24 dev eth3; ip route add 10.79.0.0/24 dev eth3`.
+    Also `ip route add 10.250.0.0/24 dev eth0` for wg0's endpoint (SIM eth0).
+15. **WG endpoints must be REAL addresses** (not tunnel IPs): SIM wg0 endpoint =
+    10.250.0.50:51820 (MR PPPoE), MR wg0 endpoint = 10.250.0.10:51820 (SIM
+    eth0). With keepalive on the initiator side.
+16. **Pending/confirm contract**: GET /transactions/pending →
+    {"pending":true,"id":...,"state":"AwaitingConfirmation"} (compact JSON, no
+    spaces); confirm = POST /transactions/{id}/confirm with X-CSRF-Token.
+    Window is 90s; retry loop + route restore required.
+17. **Scenario 01 baseline fails left**: firewall policy-drop check and
+    LAN->internet + PPPoE-drop symptom — next debugging round (agent's job in
+    the nightly loop).

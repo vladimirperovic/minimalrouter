@@ -14,7 +14,7 @@ check "local records still resolve" check_local_dns
 check "firewall still policy-drop" check_fw_not_fail_open
 check "LAN still up" check_lan_up
 check "local save still works" mr_save_lease
-check "health reports degraded DNS (not crash)" mr "curl -sk https://127.0.0.1:8443/api/v1/health 2>/dev/null | grep -q dns_dhcp"
+check "health reports degraded DNS (not crash)" check_health_reports_dns
 
 phase "5-lan-client"
 check "client lease intact" lan "ip -4 -o addr show | grep -q '192.168.1.'"

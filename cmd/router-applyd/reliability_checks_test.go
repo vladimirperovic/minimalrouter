@@ -130,3 +130,57 @@ func TestRunCommandOutputTimesOut(t *testing.T) {
 		t.Fatalf("expected bounded command timeout, got %v", err)
 	}
 }
+
+func TestDDNSOutputFailureMarker(t *testing.T) {
+	failing := []string{
+		"inadyn[3395]: Fatal error in DDNS server response: Authentication failure",
+		"inadyn[1]: Error response from DDNS server, exiting!",
+		"inadyn[1]: Error code 50: Authentication failure",
+		"inadyn[1]: FATAL ERROR: cannot contact provider",
+	}
+	for _, output := range failing {
+		if ddnsOutputFailureMarker(output) == "" {
+			t.Fatalf("output %q should be flagged as a DDNS failure", output)
+		}
+	}
+	passing := []string{
+		"inadyn[1]: Update forced for alias mr-test.lab.test, new IP# 178.222.79.86",
+		"inadyn[1]: no update needed",
+		"inadyn[1]: Update successful",
+		"",
+	}
+	for _, output := range passing {
+		if ddnsOutputFailureMarker(output) != "" {
+			t.Fatalf("output %q should not be flagged as a DDNS failure", output)
+		}
+	}
+}
+
+func TestDDNSOutputFailureMarkerExtended(t *testing.T) {
+	failing := []string{
+		"inadyn[1]: Failed connecting to dynupdate.no-ip.com: Operation in progress",
+		"inadyn[1]: Failed to update alias mr-test.lab.test",
+		"inadyn[1]: Failed sending checkip request to 10.250.0.10:443",
+		"inadyn[1]: Failed resolving dynupdate.no-ip.com",
+		"inadyn[1]: Operation timed out after 45 seconds",
+		"inadyn[1]: Unable to connect to DDNS server",
+		"inadyn[1]: Provider unreachable",
+		"inadyn[1]: Cannot contact provider",
+	}
+	for _, output := range failing {
+		if ddnsOutputFailureMarker(output) == "" {
+			t.Fatalf("output %q should be flagged as a DDNS failure", output)
+		}
+	}
+	passing := []string{
+		"inadyn[1]: Successful alias table update for mr-test.lab.test => new IP# 1.2.3.4",
+		"inadyn[1]: Update forced for alias mr-test.lab.test, new IP# 1.2.3.4",
+		"inadyn[1]: no update needed",
+		"",
+	}
+	for _, output := range passing {
+		if ddnsOutputFailureMarker(output) != "" {
+			t.Fatalf("output %q should not be flagged as a DDNS failure", output)
+		}
+	}
+}
