@@ -4,6 +4,9 @@
 /web/dist/
 /coverage/
 /.pnpm-store/
+/routerd
+/routerd.gz
+/dist.tar.gz
 
 # Local development
 .env
