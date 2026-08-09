@@ -62,3 +62,40 @@ func TestValidateApplianceFileModesRejectsRootOnlyExecutableDaemon(t *testing.T)
 		t.Fatal("signed payload with root-only executable daemon was accepted")
 	}
 }
+
+func TestValidateApplianceFileModesRejectsRootOnlyWebIndex(t *testing.T) {
+	root := t.TempDir()
+	manifest := completeAMD64ManifestForTest()
+	writeExecutableFixture(t, root, manifest)
+	path := filepath.Join(root, "web/dist/index.html")
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateApplianceFileModes(root, manifest); err == nil {
+		t.Fatal("signed payload with root-only web index was accepted")
+	}
+}
+
+func TestValidateApplianceFileModesRejectsRootOnlyNestedWebAsset(t *testing.T) {
+	root := t.TempDir()
+	manifest := completeAMD64ManifestForTest()
+	manifest.Files["web/dist/assets/app.js"] = "fixture-hash"
+	writeExecutableFixture(t, root, manifest)
+	path := filepath.Join(root, "web/dist/assets/app.js")
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateApplianceFileModes(root, manifest); err == nil {
+		t.Fatal("signed payload with root-only nested web asset was accepted")
+	}
+}
+
+func TestValidateApplianceFileModesRejectsUnsafeManifestPathBeforeModeInspection(t *testing.T) {
+	root := t.TempDir()
+	manifest := completeAMD64ManifestForTest()
+	manifest.Files["web/dist/../../outside"] = "fixture-hash"
+	writeExecutableFixture(t, root, completeAMD64ManifestForTest())
+	if err := ValidateApplianceFileModes(root, manifest); err == nil {
+		t.Fatal("unsafe manifest path was accepted by mode preflight")
+	}
+}
