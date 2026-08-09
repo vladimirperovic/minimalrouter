@@ -19,7 +19,11 @@ func writeExecutableFixture(t *testing.T, root string, manifest *FirmwareManifes
 			path == "ip-up.d-minimalrouter-qos" {
 			mode = 0o755
 		}
-		if err := os.WriteFile(full, []byte(path), mode); err != nil {
+		data := []byte(path)
+		if path == "compatibility.json" {
+			data = []byte("{\"bootstrap_abi\":1,\"config_schema\":1,\"runtime_protocol\":1}\n")
+		}
+		if err := os.WriteFile(full, data, mode); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Chmod(full, mode); err != nil {
