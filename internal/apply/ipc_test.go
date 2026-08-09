@@ -71,6 +71,9 @@ func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
 		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg0"},"wg_client":{"interface":"wg1"}},"tunnel_interface":"wg1"}`,
 		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{}}`,
 	}
+	for i := range valid {
+		valid[i] = string(bytes.ReplaceAll([]byte(valid[i]), []byte(`\"`), []byte(`"`)))
+	}
 	for _, payload := range valid {
 		var req ApplyRequest
 		if err := json.Unmarshal([]byte(payload), &req); err != nil {
@@ -83,6 +86,9 @@ func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
 		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wireguard":{"interface":"wg9"}}}`,
 		`{"version":1,"id":"wg-status","op":"WG_TUNNEL_STATUS","config":{"wg_client":{"interface":"office0"}}}`,
 	}
+	for i := range invalid {
+		invalid[i] = string(bytes.ReplaceAll([]byte(invalid[i]), []byte(`\"`), []byte(`"`)))
+	}
 	for _, payload := range invalid {
 		var req ApplyRequest
 		if err := json.Unmarshal([]byte(payload), &req); err == nil {
@@ -93,6 +99,7 @@ func TestWireGuardTelemetryRequestIsPinnedToCanonicalInterfaces(t *testing.T) {
 
 func TestApplyRequestCustomDecoderKeepsUnknownFieldRejection(t *testing.T) {
 	payload := []byte(`{"version":1,"id":"tx","op":"RECONCILE","config":{},"unexpected":true}`)
+	payload = bytes.ReplaceAll(payload, []byte(`\"`), []byte(`"`))
 	var req ApplyRequest
 	if err := json.Unmarshal(payload, &req); err == nil {
 		t.Fatal("ApplyRequest accepted an unknown IPC field")
