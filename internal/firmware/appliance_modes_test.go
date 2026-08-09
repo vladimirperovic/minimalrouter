@@ -28,6 +28,19 @@ func writeExecutableFixture(t *testing.T, root string, manifest *FirmwareManifes
 	}
 }
 
+func TestValidateApplianceArchitectureRejectsMismatchedPayload(t *testing.T) {
+	manifest := completeAMD64ManifestForTest()
+	if err := ValidateApplianceArchitecture(manifest, "amd64"); err != nil {
+		t.Fatalf("matching AMD64 payload rejected: %v", err)
+	}
+	if err := ValidateApplianceArchitecture(manifest, "arm64"); err == nil {
+		t.Fatal("AMD64 payload was accepted for ARM64 activation")
+	}
+	if err := ValidateApplianceArchitecture(manifest, "riscv64"); err == nil {
+		t.Fatal("unsupported runtime architecture was accepted")
+	}
+}
+
 func TestValidateApplianceFileModesAcceptsExecutableDaemons(t *testing.T) {
 	root := t.TempDir()
 	manifest := completeAMD64ManifestForTest()
