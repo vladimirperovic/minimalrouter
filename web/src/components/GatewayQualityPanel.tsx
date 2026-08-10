@@ -52,15 +52,6 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
   </div>;
 }
 
-export function GatewayOverviewCard({ summary }: { summary: GatewaySummary | null }) {
-  const state = summary?.enabled ? summary.state : "unknown";
-  return <article className={`gateway-overview-card is-${state}`}>
-    <div className="gateway-card-heading"><div><span>Gateway quality</span><strong>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</strong></div><i aria-hidden="true" /></div>
-    <div className="gateway-card-metrics"><span><b>{metric(summary?.latency_ms, " ms")}</b>Latency</span><span><b>{metric(summary?.jitter_ms, " ms")}</b>Jitter</span><span><b>{metric(summary?.packet_loss_percent, "%")}</b>Loss</span></div>
-    <small>{summary?.enabled ? `${summary.reconnects_1h || 0} reconnects in the last hour` : "Enable in Gateway Quality settings"}</small>
-  </article>;
-}
-
 export default function GatewayQualityPanel({ summary, settings, busy, onApply, onError }: Props) {
   const [windowName, setWindowName] = useState<WindowName>("1h");
   const [points, setPoints] = useState<GatewayHistoryPoint[]>([]);

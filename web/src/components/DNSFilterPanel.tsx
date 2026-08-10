@@ -23,7 +23,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [profileTemplate, setProfileTemplate] = useState<"" | "kids">("");
   const [name, setName] = useState("Kids");
   const [addresses, setAddresses] = useState("");
   const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
@@ -74,7 +73,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const closeModal = () => {
     setModalOpen(false);
-    setProfileTemplate("");
     setName("Kids");
     setAddresses("");
     setServices(["youtube", "steam", "wiki"]);
@@ -95,10 +93,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const submitProfile = async (event: FormEvent) => {
     event.preventDefault();
-    if (profileTemplate !== "kids") {
-      onError("Odaberite Kids profil prije podešavanja rasporeda.");
-      return;
-    }
     setSaving(true);
     try {
       const profile = createKidsProfile({
@@ -206,7 +200,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
             </thead>
             <tbody>
               {profiles.length === 0 ? (
-                <tr><td className="empty-state" colSpan={6}>No device profiles yet.</td></tr>
+                <tr><td className="empty-state dns-profile-empty-cell" colSpan={6}><div className="dns-profile-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4" /><circle cx="12" cy="12" r="9" /></svg><strong>No device profiles yet</strong><span>Create a profile to schedule service access for selected devices.</span><button className="button secondary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Create first profile</button></div></td></tr>
               ) : profiles.map((profile) => (
                 <tr key={profile.id}>
                   <td><strong>{profile.name}</strong></td>
@@ -230,24 +224,17 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="modal-backdrop" role="presentation">
           <section aria-labelledby="profile-title" aria-modal="true" className="modal-panel dns-profile-modal" role="dialog">
             <div className="modal-heading">
-              <div><p className="eyebrow">Parental control</p><h2 id="profile-title">Device profile</h2></div>
+              <div className="dns-profile-modal-title"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 4.4 3 7.3 8 9 5-1.7 8-4.6 8-9V7z" /><path d="M9 12h6M12 9v6" /></svg></span><div><p className="eyebrow">Parental control</p><h2 id="profile-title">Add device profile</h2><p>Choose the devices, managed services and the hours when access is allowed.</p></div></div>
               <button aria-label="Close profile dialog" className="modal-close" onClick={closeModal} type="button">✕</button>
             </div>
-            <form className="form-grid" onSubmit={submitProfile}>
-              <label className="field">
-                <span>Profile type</span>
-                <select onChange={(event) => setProfileTemplate(event.target.value as "" | "kids")} required value={profileTemplate}>
-                  <option value="">Select profile…</option>
-                  <option value="kids">Kids</option>
-                </select>
-              </label>
-
-              {profileTemplate === "kids" && (
-                <>
-                  <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} required value={name} /></label>
-                  <label className="field"><span>Static IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
+            <form className="form-grid dns-profile-form" onSubmit={submitProfile}>
+              <div className="dns-profile-basics">
+                  <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} placeholder="Kids" required value={name} /></label>
+                  <label className="field"><span>Device IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
+              </div>
                   <fieldset className="field service-picker">
                     <legend>Managed services</legend>
+                    <p>Select the services controlled by this schedule.</p>
                     <div className="service-checkboxes">
                       {managedServices.map(([value, label]) => (
                         <label key={value}><input checked={services.includes(value)} onChange={() => toggleService(value)} type="checkbox" />{label}</label>
@@ -295,10 +282,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                     </div>
                   </fieldset>
                   <p className="form-note">Podrazumijevano su YouTube, Steam i Wikipedia dozvoljeni radnim danima od 19:00, a vikendom cijeli dan. Ti možeš promijeniti svaki sat i svaki dan.</p>
-                </>
-              )}
-
-              <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving || profileTemplate !== "kids"} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
+              <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
             </form>
           </section>
         </div>

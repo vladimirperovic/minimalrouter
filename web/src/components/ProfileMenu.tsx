@@ -49,19 +49,19 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
     if (!error) setOpen(false);
   };
 
-  const initials = "Admin";
-
   return (
     <div className="profile-menu" ref={rootRef}>
       <button
-        className="classic-avatar"
+        className={`classic-account-button${open ? " is-open" : ""}`}
         onClick={() => setOpen((value) => !value)}
         type="button"
         aria-haspopup="true"
         aria-expanded={open}
         title="Account"
       >
-        {initials}
+        <span className="classic-account-monogram">AD</span>
+        <strong>Admin</strong>
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m8 10 4 4 4-4" /></svg>
       </button>
       {open && (
         <div className="profile-menu-pop" role="menu">
