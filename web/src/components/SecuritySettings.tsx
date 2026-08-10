@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../lib/api";
 import type { RouterConfig } from "../api-types";
 import TrustedNetworksPanel from "./TrustedNetworksPanel";
+import PortForwardsPanel from "./PortForwardsPanel";
 
 type AuditEvent = {
   id: string;
@@ -139,6 +140,7 @@ export default function SecuritySettings({ config, onError }: Props) {
         </div>
 
         <TrustedNetworksPanel onError={onError} />
+        <PortForwardsPanel onError={onError} />
       </article>
     </section>
   );
