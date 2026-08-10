@@ -14,6 +14,7 @@
 <p align="center">
   <a href="docs/INSTALLATION.md">Install</a> ·
   <a href="docs/PROXMOX.md">Proxmox</a> ·
+  <a href="docs/screenshots/README.md">Screenshots</a> ·
   <a href="docs/CURRENT_VALIDATION.md">Validation</a> ·
   <a href="docs/README.md">Docs</a> ·
   <a href="SECURITY.md">Security</a> ·
@@ -25,6 +26,9 @@
 </p>
 
 <p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>
+
+See the [full dashboard screenshot gallery](docs/screenshots/README.md) for all
+control-plane pages.
 
 <a id="status"></a>
 
@@ -152,6 +156,7 @@ secret scanning, ARM64/QEMU, network namespaces and performance checks.
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is proven now
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md) — install and offline install
 - [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and safe pilot procedure
+- [`docs/screenshots/README.md`](docs/screenshots/README.md) — dashboard UI gallery
 - [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md) — No-IP / Cloudflare
 - [`docs/RECOVERY.md`](docs/RECOVERY.md) — recovery and rollback
 - [`docs/TESTING.md`](docs/TESTING.md) — test strategy and manual gates

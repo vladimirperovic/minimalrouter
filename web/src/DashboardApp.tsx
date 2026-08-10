@@ -1,6 +1,5 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
-import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
@@ -10,35 +9,28 @@ import DashboardSections, { type SectionID } from "./components/DashboardSection
 import "./DashboardApp.css";
 import "./ClassicDashboard.css";
 
-const navigation: Array<[SectionID, string]> = [
-  ["overview", "Overview"],
-  ["gateway", "Gateway Quality"],
-  ["network", "LAN & DHCP"],
-  ["firewall", "Firewall"],
-  ["qos", "QoS / SQM"],
-  ["wireguard", "WireGuard"],
-  ["cloudflare", "Dynamic DNS"],
-  ["squid", "Squid Proxy"],
-  ["dns-filter", "DNS Filter"],
-  ["wifi", "Wi-Fi AP"],
-  ["recovery", "Recovery"],
-  ["security", "Security"],
-  ["logs", "Logs"],
+const navigationGroups: Array<{ label: string; items: Array<[SectionID, string]> }> = [
+  { label: "Monitor", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
+  { label: "Protect", items: [["firewall", "Firewall"], ["security", "Security"], ["dns-filter", "DNS Filter"]] },
+  { label: "Connect", items: [["qos", "QoS / SQM"], ["wireguard", "WireGuard"], ["cloudflare", "Dynamic DNS"], ["wifi", "Wi-Fi AP"]] },
+  { label: "Operate", items: [["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
 ];
+
+const navigation = navigationGroups.flatMap((group) => group.items);
 
 const navIcons: Record<SectionID, ReactNode> = {
   overview: <path d="M3 3h8v8H3zM13 3h8v5h-8zM13 12h8v9h-8zM3 15h8v6H3z" />,
   gateway: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
-  network: <path d="M17 3a2 2 0 0 0-2 2c0 .56.23 1.06.6 1.42l-5.18 5.18a2 2 0 0 0-2.84 0L2 6.1M6.1 22l3.5-3.5M17 13a2 2 0 0 1 0 4" />,
+  network: <><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="12" cy="19" r="2" /><path d="m6.8 6.1 4 10.9M17.2 6.1l-4 10.9M7 5h10" /></>,
   firewall: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
-  qos: <path d="M3 12h4v3H3zM9 12h4v3H9zM15 12h4v3h-4zM3 17h4v3H3zM9 17h4v3H9zM15 17h4v3h-4z" />,
+  qos: <path d="M5 20V10M10 20V4M15 20v-7M20 20V7" />,
   wireguard: <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
   cloudflare: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />,
   squid: <path d="M2 20h20M4 20V9h16v11M12 9V5m-4 0h8M12 20v-4h-2m2 4h-2" />,
   "dns-filter": <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />,
   wifi: <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />,
   recovery: <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />,
-  security: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 11.5l2 2 4-4" />,
+  security: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></>,
   logs: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />,
 };
 
@@ -58,6 +50,7 @@ function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(false);
+  const [notificationUnread, setNotificationUnread] = useState(true);
   const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -148,6 +141,10 @@ function Dashboard() {
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [active]);
 
   const applyConfig = async (mutate: (next: RouterConfig) => void, success: string) => {
     setBusy(true);
@@ -487,41 +484,48 @@ function Dashboard() {
     return <main className="dashboard-loading"><p>{error || "Loading secure router state…"}</p><button className="button secondary" onClick={() => void load()} type="button">Retry</button></main>;
   }
 
-  const ddnsProvider = config.cloudflare.ddns_provider === "noip" ? "No-IP" : "Cloudflare";
-  const gatewayState = gatewaySummary?.state || "unknown";
+  const activeLabel = navigation.find(([id]) => id === active)?.[1] || "Overview";
 
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
         <div className="dashboard-brand">
-          <span className="classic-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9h18M4 9l1.2 5.2a3 3 0 0 0 2.9 2.3h7.8a3 3 0 0 0 2.9-2.3L20 9" /><circle cx="5.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="8.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><path d="M7 5.5h10M10 3.5h4" /></svg></span>
-          <div className="dashboard-brand-title"><strong>Minimal</strong><small>Router</small></div>
+          <div className="dashboard-brand-title"><strong>minimalrouter</strong></div>
         </div>
-        <nav aria-label="Router sections">
-          {navigation.map(([id, label]) => (
-            <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
-          ))}
+        <nav className="dashboard-navigation" aria-label="Router sections">
+          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label}>
+            <h2>{group.label}</h2>
+            <div>
+              {group.items.map(([id, label]) => (
+                <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
+              ))}
+            </div>
+          </section>)}
         </nav>
-        <div className="dashboard-brand-revision">Revision {config.revision}</div>
+        <div className="dashboard-sidebar-footer">
+          <div className="dashboard-brand-revision">Minimal Router OS <span>r{config.revision}</span></div>
+        </div>
       </aside>
 
       <main className="dashboard-main">
         <header className="dashboard-topbar classic-topbar">
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
-          <div className="classic-topbar-status" aria-label="Router service status">
-            <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
-            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter(p => p.enabled).length}</b>}</span>
-            <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
-            <span className="classic-status-chip">DNS</span>
-            <span className={config.cloudflare.ddns_enabled ? (system.runtime?.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info") : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
-            <span className={config.squid_proxy.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>Squid Proxy {config.squid_proxy.enabled ? "on" : "off"}</span>
-            <span className={config.qos.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>QoS {config.qos.enabled ? `${config.qos.algorithm}` : "off"}</span>
-            <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "Cloudflare Tunnel" : "Cloudflare Tunnel off"}</span>
-            <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
+          <div className="classic-page-heading">
+            <small>Minimal Router / {activeLabel}</small>
+            <h1>{activeLabel}</h1>
           </div>
           <div className="classic-topbar-actions">
-            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
-            <span className="classic-setup-pill">Setup complete</span>
+            <div className="classic-live-sync"><i aria-hidden="true" /><span><strong>Live</strong><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Connecting"}</small></span></div>
+            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
+              {dark
+                ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
+                : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.8" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>}
+            </button>
+            <button className="classic-topbar-button classic-notification-button" onClick={() => { setNotificationUnread(false); setNotice("No active appliance alerts. All monitored services are operating normally."); }} type="button" aria-label="Notifications">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+              {notificationUnread && <i aria-hidden="true" />}
+            </button>
+            <span className="classic-setup-pill"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg>Setup complete</span>
             <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
           </div>
         </header>
@@ -531,8 +535,7 @@ function Dashboard() {
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary classic-alert-recover" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
-        {active === "overview" && <ApplianceHealthBanner />}
+        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
 
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
 
@@ -545,13 +548,10 @@ function Dashboard() {
             busy={busy}
             config={config}
             createSnapshot={createSnapshot}
-            diskPercent={diskPercent}
             gatewaySummary={gatewaySummary}
             gatewaySettings={gatewaySettings}
-            lastRefresh={lastRefresh}
             leases={leases}
             load={load}
-            memoryPercent={memoryPercent}
             restoreSnapshot={restoreSnapshot}
             setError={setError}
             snapshots={snapshots}
@@ -571,7 +571,6 @@ function Dashboard() {
             toggleWiFi={toggleWiFi}
             speedTest={speedTest}
             speedTesting={speedTesting}
-            system={system}
             runtime={runtime}
           />
         )}

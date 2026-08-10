@@ -69,19 +69,19 @@ export default function SecuritySettings({ config, onError }: Props) {
   const posture = config.firewall.stateful_firewall ? "is-good" : "is-bad";
 
   return (
-    <section className="classic-dashboard-overview" aria-label="Security">
+    <section className="classic-dashboard-overview classic-security-page" aria-label="Security">
       <article className="classic-hero-card">
         <div className="classic-hero-heading">
           <div>
-            <div className="classic-kicker">Router hardening</div>
-            <h1>Security</h1>
+            <div className="classic-kicker">Security posture</div>
+            <h1>{config.firewall.stateful_firewall ? "Protected by default" : "Protection needs attention"}</h1>
           </div>
           <span className={`classic-state-pill ${posture}`}>
             <span className="classic-dot" />{config.firewall.stateful_firewall ? "Protected" : "Unprotected"}
           </span>
         </div>
         <p className="classic-security-intro">
-          Firewall posture, recent sign-in activity, and blocked requests.
+          Stateful firewall policy, trusted administration paths and recent authentication activity in one local control surface.
         </p>
 
         <div className="classic-security-grid">
@@ -121,11 +121,11 @@ export default function SecuritySettings({ config, onError }: Props) {
         </div>
 
         <div className="classic-security-feed">
-          <h3>Recent security events</h3>
+          <div className="classic-security-feed-heading"><div><h3>Recent security events</h3><p>Authentication and policy events retained locally by the appliance.</p></div><span>{secure.length} events</span></div>
           {loading && <p className="classic-security-empty">Loading events…</p>}
           {!loading && secure.length === 0 && <p className="classic-security-empty">No security events recorded.</p>}
           {!loading && secure.length > 0 && (
-            <table className="classic-security-table">
+            <div className="classic-security-table-wrap"><table className="classic-security-table">
               <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Details</th></tr></thead>
               <tbody>{secure.map((event) => (
                 <tr key={event.id}>
@@ -135,7 +135,7 @@ export default function SecuritySettings({ config, onError }: Props) {
                   <td>{Object.entries(event.details ?? {}).filter(([, v]) => v).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Recorded"}</td>
                 </tr>
               ))}</tbody>
-            </table>
+            </table></div>
           )}
         </div>
 

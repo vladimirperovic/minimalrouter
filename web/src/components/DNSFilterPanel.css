@@ -24,6 +24,38 @@
   text-align: center;
 }
 
+.dns-profile-empty-cell {
+  padding: 34px 24px !important;
+}
+
+.dns-profile-empty {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+}
+
+.dns-profile-empty svg {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+
+.dns-profile-empty strong {
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.dns-profile-empty span {
+  max-width: 52ch;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dns-profile-empty .button {
+  margin-top: 7px;
+}
+
 .service-tags {
   display: flex;
   flex-wrap: wrap;
@@ -73,8 +105,17 @@
   width: 28px;
 }
 
-.dns-profile-modal {
-  max-width: 980px;
+.modal-panel.dns-profile-modal {
+  position: relative;
+  width: min(100%, 980px);
+  max-height: min(880px, calc(100dvh - 48px));
+  overflow-y: auto;
+  border: 1px solid var(--classic-border, var(--separator));
+  border-radius: 20px;
+  padding: 0;
+  background: var(--classic-panel, var(--surface-raised));
+  box-shadow: 0 28px 80px rgba(20, 38, 60, .22);
+  animation: modal-panel-in 220ms var(--ease);
 }
 
 .modal-heading {
@@ -82,6 +123,40 @@
   display: flex;
   justify-content: space-between;
 }
+
+.dns-profile-modal .modal-heading {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  gap: 20px;
+  border-bottom: 1px solid var(--classic-border, var(--separator));
+  padding: 23px 25px;
+  background: color-mix(in srgb, var(--classic-panel, var(--surface-raised)) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.dns-profile-modal-title {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 13px;
+}
+
+.dns-profile-modal-title > span {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--classic-blue, var(--accent)) 9%, transparent);
+  color: var(--classic-blue, var(--accent));
+}
+
+.dns-profile-modal-title svg { width: 21px; height: 21px; }
+.dns-profile-modal-title .eyebrow { margin: 1px 0 5px; font-size: 9px; }
+.dns-profile-modal-title h2 { margin: 0; font-size: 23px; font-weight: 720; letter-spacing: -.035em; }
+.dns-profile-modal-title > div > p:last-child { max-width: 620px; margin: 6px 0 0; color: var(--classic-muted, var(--text-secondary)); font-size: 11px; line-height: 1.5; }
 
 .modal-close {
   align-items: center;
@@ -97,10 +172,32 @@
   width: 34px;
 }
 
+.dns-profile-modal .modal-close {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-color: var(--classic-border, var(--separator));
+  border-radius: 10px;
+  background: var(--classic-soft, var(--surface-secondary));
+  font-size: 13px;
+}
+
 .form-grid {
   display: grid;
   gap: 18px;
   margin-top: 24px;
+}
+
+.dns-profile-form {
+  gap: 21px;
+  margin: 0;
+  padding: 24px 25px 25px;
+}
+
+.dns-profile-basics {
+  display: grid;
+  grid-template-columns: minmax(180px, .75fr) minmax(280px, 1.25fr);
+  gap: 14px;
 }
 
 .service-picker,
@@ -108,6 +205,19 @@
   border: 0;
   margin: 0;
   padding: 0;
+}
+
+.dns-profile-form .service-picker {
+  border: 1px solid var(--classic-border, var(--separator));
+  border-radius: 13px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--classic-soft, var(--surface-secondary)) 65%, transparent);
+}
+
+.dns-profile-form .service-picker > p {
+  margin: -3px 0 12px;
+  color: var(--classic-muted, var(--text-secondary));
+  font-size: 10px;
 }
 
 .service-picker legend,
@@ -135,6 +245,16 @@
   padding: 11px 12px;
 }
 
+.dashboard-app .dns-profile-modal .service-checkboxes input {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  padding: 0;
+  accent-color: var(--classic-blue, var(--accent));
+}
+
 .two-column-fields {
   display: grid;
   gap: 14px;
@@ -152,6 +272,26 @@
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.dns-profile-modal .modal-actions {
+  position: sticky;
+  bottom: -25px;
+  margin: 0 -25px -25px;
+  border-top: 1px solid var(--classic-border, var(--separator));
+  padding: 16px 25px;
+  background: color-mix(in srgb, var(--classic-panel, var(--surface-raised)) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+@media (max-width: 680px) {
+  .modal-panel.dns-profile-modal { max-height: calc(100dvh - 24px); border-radius: 16px; }
+  .dns-profile-modal .modal-heading { padding: 18px; }
+  .dns-profile-modal-title > span { display: none; }
+  .dns-profile-modal-title h2 { font-size: 21px; }
+  .dns-profile-form { padding: 19px 18px 20px; }
+  .dns-profile-basics { grid-template-columns: 1fr; }
+  .dns-profile-modal .modal-actions { bottom: -20px; margin: 0 -18px -20px; padding: 14px 18px; }
 }
 
 .scheduler-toolbar {
