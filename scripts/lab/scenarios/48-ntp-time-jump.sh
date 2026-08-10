@@ -8,9 +8,12 @@ require "fault: none (clock step)" ispfault status
 phase "4-mr-runtime"
 check "MR up before jump" mr "uptime -s | grep -q ."
 phase "4.5-operator"
-require "step clock forward 48h" mr "date -s '+2 days' >/dev/null 2>&1"
+now=$(mr 'date +%s' | tr -d ' \n')
+future=$((now + 172800))
+past=$((now - 172800))
+require "step clock forward 48h" mr "date -s @$future"
 sleep 2
-require "step clock back 48h" mr "date -s '-2 days' >/dev/null 2>&1"
+require "step clock back 48h" mr "date -s @$past"
 sleep 2
 phase "4-mr-runtime-2"
 check "routerd still alive" mr "rc-service routerd status | grep -q started"

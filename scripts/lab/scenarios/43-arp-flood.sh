@@ -8,20 +8,7 @@ require "fault: none (ARP flood)" ispfault status
 phase "4-mr-runtime"
 check "MR up before flood" mr "uptime -s | grep -q ."
 phase "4.5-operator"
-require "ARP flood on LAN" lan "python3 - << 'PY'
-import socket, struct, random, time
-s=socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-s.bind(('eth0', 0x0806))
-src_mac=bytes.fromhex('02' + ''.join('%02x'%random.getrandbits(8) for _ in range(5)))
-for i in range(1500):
-    src_ip='192.168.1.%d' % random.randint(2,250)
-    dst_ip='192.168.1.%d' % random.randint(2,250)
-    sha=src_mac; spa=socket.inet_aton(src_ip); tha=src_mac; tpa=socket.inet_aton(dst_ip)
-    arp=struct.pack('!HHBBH6s4s6s4s', 1,0x0800,6,4,1,sha,spa,tha,tpa)
-    frame=b'\xff\xff\xff\xff\xff\xff'+sha+struct.pack('!H',0x0806)+arp
-    s.send(frame)
-print('arp-flood-done')
-PY"
+require "ARP flood on LAN" lan "test -x /root/lab-fault-arpflood.py && python3 /root/lab-fault-arpflood.py"
 phase "4-mr-runtime-2"
 check "routerd still alive" mr "rc-service routerd status | grep -q started"
 check "firewall still policy-drop" check_fw_not_fail_open

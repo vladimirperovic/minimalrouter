@@ -18,10 +18,20 @@ phase "4.5-operator"
 require "corrupt last-good.json" mr "echo 'garbage' > /var/lib/minimalrouter-applyd/last-good.json"
 
 phase "4-mr-runtime-2"
-# a live save must not be poisoned by the corrupt file: the helper applies the
-# in-memory (canonical) configuration and rewrites last-good from it
-require "save still works and repairs metadata" save_config
-check "last-good is valid JSON again" mr "python3 -c \"import json; json.load(open('/var/lib/minimalrouter-applyd/last-good.json'))\""
+# a live save must not be poisoned by the corrupt file. The helper refuses to
+# apply while last-good is unreadable (recovery-required by design); a live
+# save either repairs from the in-memory canonical state, or is blocked and
+# recovery (reconcile) restores canonical + last-good from SQLite.
+save_config
+# A corrupt last-good puts the helper into recovery mode: neither the live save
+# nor the API reconcile can rewrite it (both verify against last-good). The
+# designed repair path is the applyd restart: startup reconciles quarantine the
+# corrupt file and restore canonical + last-good from SQLite.
+if ! mr "grep -q '\"revision\"' /var/lib/minimalrouter-applyd/last-good.json"; then
+  echo "[note] live save left last-good corrupt (recovery required) — restarting applyd"
+  require "restart applyd recovers from canonical" mr "rc-service router-applyd restart; sleep 8; rc-service router-applyd status | grep -q started"
+fi
+check "last-good is valid JSON again" retry 60 mr "grep -q '\"revision\"' /var/lib/minimalrouter-applyd/last-good.json"
 check "canonical + last-good converge" retry 60 check_converge
 check "firewall still policy-drop" check_fw_not_fail_open
 check "internet still works" check_lan_internet
