@@ -32,7 +32,7 @@ phase "4.5-cleanup"
 # runtime from SQLite
 require "corrupt last-good again" mr "echo 'garbage' > /var/lib/minimalrouter-applyd/last-good.json"
 require "restart applyd self-heals (quarantine)" mr "rc-service router-applyd restart; sleep 5; rc-service router-applyd status | grep -q started"
-check "quarantine evidence preserved" mr "ls /var/lib/minimalrouter-applyd/ | grep -q 'last-good.corrupt'"
+check "quarantine evidence preserved" mr "ls /var/lib/minimalrouter-applyd/ | grep -qE 'last-good.*corrupt'"
 
 phase "4-mr-runtime-3"
 require "reconcile restores canonical state" api_reconcile

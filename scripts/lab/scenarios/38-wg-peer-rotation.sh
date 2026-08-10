@@ -20,7 +20,7 @@ PUB="$(echo "$PKEY" | wg pubkey 2>/dev/null)"
 newpeer="$(api GET /api/v1/config | python3 -c "
 import json,sys
 c=json.load(sys.stdin)
-p={'id':'lab-rot-peer','public_key':'$PUB','allowed_ips':'10.6.0.99/32','name':'lab-rotation'}
+p={'id':'lab-rot-peer','public_key':'$PUB','allowed_ips':['10.6.0.99/32'],'name':'lab-rotation'}
 c.setdefault('wireguard',{}).setdefault('peers',[]).append(p)
 print(json.dumps(c))")"
 api PUT /api/v1/config "$newpeer" >/dev/null 2>&1
