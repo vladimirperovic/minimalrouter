@@ -9,6 +9,39 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+// wgPeerEndpointNets returns the WAN-side addresses of the enabled WireGuard
+// server peers (the host part of each peer endpoint). Handshake and tunnel
+// packets arrive from those addresses, so the WAN/ppp anti-spoof rules must
+// not drop traffic sourced from them. The tunnel (allowed-IPs) ranges are the
+// decrypted payload space on wg0 and never appear on the WAN, so they are
+// deliberately not exempted.
+func wgPeerEndpointNets(cfg *config.SystemConfig) []string {
+	if !cfg.WireGuard.Enabled {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, peer := range cfg.WireGuard.Peers {
+		if !peer.Enabled {
+			continue
+		}
+		host, _, err := net.SplitHostPort(peer.Endpoint)
+		if err != nil {
+			host = peer.Endpoint
+		}
+		ip := net.ParseIP(host)
+		if ip == nil {
+			continue
+		}
+		cidr := ip.String() + "/32"
+		if !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+	return out
+}
+
 // lanBroadcastAddress computes the IPv4 broadcast address of a CIDR, or ""
 // when the prefix is not a valid IPv4 network.
 func lanBroadcastAddress(cidr string) string {
@@ -258,6 +291,11 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    iifname \"lo\" accept\n\n")
 
 	if cfg.WAN.Interface != "" {
+		for _, cidr := range wgPeerEndpointNets(cfg) {
+			buf.WriteString(fmt.Sprintf("    # WireGuard peer source (%s) is a legitimate WAN-side host\n", cidr))
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s accept\n", cfg.WAN.Interface, cidr))
+			buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr %s accept\n", cidr))
+		}
 		buf.WriteString("    # Drop spoofed/reserved WAN sources before connection tracking accepts\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" fib saddr . iif oif missing drop\n", cfg.WAN.Interface))
@@ -332,6 +370,10 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("  chain forward {\n")
 	buf.WriteString("    type filter hook forward priority filter; policy drop;\n\n")
 	if cfg.WAN.Interface != "" {
+		for _, cidr := range wgPeerEndpointNets(cfg) {
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr %s accept\n", cfg.WAN.Interface, cidr))
+			buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr %s accept\n", cidr))
+		}
 		buf.WriteString("    # WAN anti-spoofing precedes state acceptance\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" fib saddr . iif oif missing drop\n", cfg.WAN.Interface))
