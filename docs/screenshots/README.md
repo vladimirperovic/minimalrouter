@@ -20,6 +20,8 @@ are included.
 | Recovery | [Open screenshot](recovery.jpg) |
 | Logs | [Open screenshot](logs.jpg) |
 
-Screenshots were captured from the running dashboard at a consistent high-resolution
-desktop viewport (1829 × 1044) so the visual system and available controls can be
-compared page to page. Network identifiers are intentionally redacted.
+Screenshots were captured from the running synthetic dashboard at a consistent wide
+desktop viewport and stitched vertically where needed (2340 × 1513). This keeps the
+full navigation rail and the lower dashboard panels in the review frame. All values
+are synthetic preview data; no credentials, private keys, or real network inventory
+are included.
