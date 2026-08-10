@@ -180,7 +180,7 @@ export default function ClassicOverview({
   const latestBandwidth = bandwidthHistory.at(-1);
   const gatewayState = gatewaySummary?.state || "unknown";
   const connectionKnown = Boolean(gatewaySummary?.available) || typeof runtime.wan_connected === "boolean";
-  const wanConnected = gatewaySummary?.link.connected ?? runtime.wan_connected ?? false;
+  const wanConnected = gatewaySummary?.link?.connected ?? runtime.wan_connected ?? false;
   const verified = wanConnected && config.firewall.stateful_firewall && !system.recovery_required;
   const headline = system.recovery_required
     ? "Recovery required"
