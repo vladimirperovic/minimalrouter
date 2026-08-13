@@ -15,7 +15,7 @@ import (
 
 func (s *Server) RegisterHealthRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
-	mux.HandleFunc("GET /api/v1/health", sh(s.authMiddleware(s.handleGetHealth)))
+	mux.HandleFunc("GET /api/v1/health", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetHealth))))
 }
 
 func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {

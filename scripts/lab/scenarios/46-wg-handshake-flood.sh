@@ -9,14 +9,7 @@ phase "4-mr-runtime"
 check "MR up before flood" mr "uptime -s | grep -q ."
 check "wg0 up" mr "wg show wg0 | grep -q 'interface: wg0'"
 phase "4.5-operator"
-require "WG handshake flood" isp "python3 - << 'PY'
-import socket, os, time
-s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-buf=os.urandom(1480)
-for i in range(3000):
-    s.sendto(buf, ('10.250.0.50', 51820))
-print('wg-flood-done')
-PY"
+require "WG handshake flood" isp "test -x /root/lab-fault-wgflood.py && python3 /root/lab-fault-wgflood.py"
 phase "4-mr-runtime-2"
 check "routerd still alive" mr "rc-service routerd status | grep -q started"
 check "wg0 still up" mr "wg show wg0 | grep -q 'interface: wg0'"

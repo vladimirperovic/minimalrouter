@@ -155,7 +155,8 @@ func requiresFunctionalDNSVerification(previous *config.SystemConfig, candidate 
 		return true
 	}
 	return !reflect.DeepEqual(previous.WAN, candidate.WAN) ||
-		!reflect.DeepEqual(previous.DHCP, candidate.DHCP) ||
+		previous.DHCP.DNSEnabled != candidate.DHCP.DNSEnabled ||
+		!reflect.DeepEqual(previous.DHCP.DNSServers, candidate.DHCP.DNSServers) ||
 		!reflect.DeepEqual(previous.AdGuard, candidate.AdGuard) ||
 		previous.System.Domain != candidate.System.Domain
 }

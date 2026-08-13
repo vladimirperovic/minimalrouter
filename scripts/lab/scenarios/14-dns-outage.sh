@@ -10,11 +10,14 @@ require "fault: ISP DNS stopped" ispfault dns out
 
 phase "4-mr-runtime"
 sleep 5
+api_login
 check "local records still resolve" check_local_dns
 check "firewall still policy-drop" check_fw_not_fail_open
 check "LAN still up" check_lan_up
 check "local save still works" mr_save_lease
-check "health reports degraded DNS (not crash)" check_health_reports_dns
+health="$(api GET /api/v1/health)"
+dns_state="$(echo "$health" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((c.get("state","") for c in d.get("checks",[]) if c.get("id")=="dns_dhcp"),""))' 2>/dev/null)"
+check "health reports degraded DNS (not crash)" test "$dns_state" = "degraded"
 
 phase "5-lan-client"
 check "client lease intact" lan "ip -4 -o addr show | grep -q '192.168.1.'"

@@ -14,11 +14,16 @@ pre_ct="$(mr 'cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null' | tr -
 echo "conntrack before: $pre_ct"
 
 phase "4.5-operator"
-# burst of SYN scans from the ISP side against the router's current WAN
-# address; probes run in parallel and are bounded by nc's 1s timeout
-wanip="$(mr "ip -4 -o addr show ppp0 | awk '{print \$4}'")"
-echo "scan target: $wanip"
-require "scan WAN ports from ISP" isp "for p in \$(seq 1 1024); do nc -w 1 -z $wanip \$p >/dev/null 2>&1 & done; wait; echo scan-done"
+require "scan WAN ports from ISP" isp "python3 - <<'PY'
+import socket
+target='$MR_WAN_PPP'
+for port in range(1, 1025):
+    sock=socket.socket()
+    sock.settimeout(0.02)
+    try: sock.connect_ex((target, port))
+    finally: sock.close()
+print('attempted=1024')
+PY"
 
 phase "4-mr-runtime-2"
 check "routerd still alive after scan" mr "rc-service routerd status | grep -q started"
@@ -28,6 +33,7 @@ check "LAN still up" check_lan_up
 post_ct="$(mr 'cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null' | tr -d ' \n')"
 echo "conntrack after: $post_ct"
 check "conntrack not exhausted" test "${post_ct:-0}" -lt 20000
+check "conntrack counter is numeric" test "${post_ct:-x}" -ge 0
 
 phase "7-recovery"
 check "canonical + last-good converge" check_converge

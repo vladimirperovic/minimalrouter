@@ -13,51 +13,59 @@ check "MR up before backup" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
 api_login
-confirm_pending
 cfg="$(api GET /api/v1/config)" || { echo "[FAIL] cannot fetch config"; FAILED=$((FAILED+1)); finish_scenario 1; }
 echo "$cfg" > /tmp/lab-backup-before.json
-# export requires current password + passphrase in the JSON body; the helper
-# api() sends JSON with Content-Type, exactly what the handler wants
-api POST /api/v1/backup/export "{\"current_password\": \"$ADMIN_PW\", \"backup_passphrase\": \"lab-backup-phrase\"}" > /tmp/lab-backup.bin 2>/dev/null
-check "backup exported" sh -c "test -s /tmp/lab-backup.bin && ! grep -q 'Invalid JSON' /tmp/lab-backup.bin && head -c1 /tmp/lab-backup.bin | grep -q '{'"
+original_lease="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
+cleanup_backup_test() {
+  current="$(api GET /api/v1/config 2>/dev/null || true)"
+  [ -n "$current" ] || return 0
+  restored="$(echo "$current" | python3 -c "import json,sys; c=json.load(sys.stdin); c['dhcp']['lease_time']='$original_lease'; print(json.dumps(c))")"
+  api PUT /api/v1/config "$restored" >/dev/null 2>&1 && confirm_pending >/dev/null 2>&1 || true
+}
+trap cleanup_backup_test EXIT HUP INT TERM
+BACKUP_PASSPHRASE="MinimalRouter-Lab-Backup!2026"
+backup="$(api POST /api/v1/backup/export "{\"current_password\":\"$ADMIN_PW\",\"backup_passphrase\":\"$BACKUP_PASSPHRASE\"}")"
+printf '%s' "$backup" > /tmp/lab-backup.bin
+require "encrypted backup is non-empty" test -s /tmp/lab-backup.bin
+require "copy encrypted backup to LAN client" lan_put /tmp/lab-backup.bin /tmp/lab-backup.mrbak
 
 phase "4-mr-runtime-2"
-# mutate: flip lease_time (safe, reversible change), confirm it applies
+# mutate: flip lease_time (safe, reversible change)
 new="$(python3 - <<PYEOF
 import json
 c=json.load(open('/tmp/lab-backup-before.json'))
-c['dhcp']['lease_time']='1h' if c['dhcp'].get('lease_time')!='1h' else '2h'
+c['dhcp']['lease_time']='20m' if c['dhcp'].get('lease_time')!='20m' else '2h'
 print(json.dumps(c))
 PYEOF
 )"
-api PUT /api/v1/config "$new" >/dev/null 2>&1
+require "mutated config accepted" api PUT /api/v1/config "$new"
 confirm_pending
 sleep 2
-check "config mutated" check_converge
+mutated_lease="$(api GET /api/v1/config | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])' 2>/dev/null)"
+check "config mutation became canonical" test "$mutated_lease" != "$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
+check "config mutated without drift" check_converge
 
 phase "4.5-restore"
-# preview + apply the exported backup (multipart form upload, not JSON)
-csrf=""
-[ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
-hdr=""
-[ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
-pid="$(H "curl -sk --max-time 60 -b $API_COOKIE $hdr -F 'current_password=$ADMIN_PW' -F 'backup_passphrase=lab-backup-phrase' -F 'backup=@/tmp/lab-backup.bin;type=application/octet-stream' $MR_API/api/v1/backup/import/preview" 2>/dev/null | python3 -c 'import json,sys
+# preview + apply the exported backup
+csrf="$(cat "$API_CSRF")"
+preview="$(lan "curl -sk --fail-with-body --max-time 60 -b $API_COOKIE -H 'X-CSRF-Token: $csrf' -F 'current_password=$ADMIN_PW' -F 'backup_passphrase=$BACKUP_PASSPHRASE' -F 'backup=@/tmp/lab-backup.mrbak;type=application/vnd.minimalrouter.backup+json' $MR_API/api/v1/backup/import/preview")"
+pid="$(echo "$preview" | python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
     print(d.get("import_id",""))
 except Exception:
     print("")' 2>/dev/null)"
-check "backup import preview ok" test -n "$pid"
-if [ -n "$pid" ]; then
-  api POST "/api/v1/import/backup/$pid/apply" >/dev/null 2>&1
-  confirm_pending
-  sleep 3
-fi
+require "backup import preview ok" test -n "$pid"
+require "backup restore accepted" api POST "/api/v1/import/backup/$pid/apply"
+confirm_pending
+sleep 3
 check "MR alive after restore" mr "uptime -s | grep -q ."
 
 phase "7-recovery"
 check "canonical + last-good converge after restore" retry 90 check_converge
-check "lease_time back to exported value" config_py_assert 'b=json.load(open("/tmp/lab-backup-before.json")); assert c["dhcp"]["lease_time"] == b["dhcp"]["lease_time"], (c["dhcp"]["lease_time"], b["dhcp"]["lease_time"])'
+restored_lease="$(api GET /api/v1/config | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])' 2>/dev/null)"
+check "backup restored exported lease value" test "$restored_lease" = "$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
+trap - EXIT HUP INT TERM
 check "firewall still policy-drop" check_fw_not_fail_open
 check "LAN up after restore" check_lan_up
 check "internet works after restore" check_lan_internet

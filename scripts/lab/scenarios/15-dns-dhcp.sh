@@ -10,11 +10,11 @@ require "symptom: session dropped" wait_pppoe_down 60
 
 phase "4-mr-runtime"
 check "local record router.home.arpa resolves" check_local_dns
-check "dnsmasq lease file exists and non-empty" mr "test -s /var/lib/minimalrouter-dhcp/dnsmasq.leases 2>/dev/null || test -s /var/lib/dnsmasq/dnsmasq.leases 2>/dev/null || test -s /var/lib/misc/dnsmasq.leases 2>/dev/null"
+check "dnsmasq durable lease file exists and is non-empty" mr "test -s /var/lib/minimalrouter-dhcp/dnsmasq.leases"
 
 phase "5-lan-client"
-check "client holds a 10.77.0.x lease" lan "ip -4 -o addr show | grep -q '192.168.1.'"
-check "client renews lease while WAN is down" lan "sudo dhclient -r eth0 2>/dev/null; sleep 1; sudo dhclient eth0 2>/dev/null; sleep 6; ip -4 -o addr show | grep -q '192.168.1.'"
+check "client holds a 192.168.1.x lease" lan "ip -4 -o addr show | grep -q '192.168.1.'"
+check "client renews lease while WAN is down" lan_dhcp_renew
 
 phase "6-revert"
 require "fault: carrier restored" ispfault carrier up

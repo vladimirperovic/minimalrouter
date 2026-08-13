@@ -32,10 +32,13 @@ func (s *Server) configuredGatewayMonitor() *gateway.Monitor {
 // authentication, read-only-session, Origin and CSRF protections.
 func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
-	mux.HandleFunc("GET /api/v1/gateway/summary", sh(s.authMiddleware(s.handleGetGatewaySummary)))
-	mux.HandleFunc("GET /api/v1/gateway/history", sh(s.authMiddleware(s.handleGetGatewayHistory)))
-	mux.HandleFunc("GET /api/v1/gateway/settings", sh(s.authMiddleware(s.handleGetGatewaySettings)))
-	mux.HandleFunc("PUT /api/v1/gateway/settings", sh(s.authMiddleware(s.handlePutGatewaySettings)))
+	gate := func(next http.HandlerFunc) http.HandlerFunc {
+		return sh(s.trustedNetworksMiddleware(s.authMiddleware(next)))
+	}
+	mux.HandleFunc("GET /api/v1/gateway/summary", gate(s.handleGetGatewaySummary))
+	mux.HandleFunc("GET /api/v1/gateway/history", gate(s.handleGetGatewayHistory))
+	mux.HandleFunc("GET /api/v1/gateway/settings", gate(s.handleGetGatewaySettings))
+	mux.HandleFunc("PUT /api/v1/gateway/settings", gate(s.handlePutGatewaySettings))
 }
 
 func (s *Server) handleGetGatewaySummary(w http.ResponseWriter, _ *http.Request) {

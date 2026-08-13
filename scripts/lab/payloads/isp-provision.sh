@@ -35,6 +35,12 @@ if [ ! -f /etc/ppp/chap-secrets ]; then
 mr-test   *       minimalrouter-lab-pppoe 10.250.0.50
 EOF
 fi
+if [ ! -f /etc/ppp/pap-secrets ]; then
+  cat > /etc/ppp/pap-secrets <<EOF
+# client  server  secret                 fixed-ip
+mr-test   *       minimalrouter-lab-pppoe 10.250.0.50
+EOF
+fi
 cat > /etc/systemd/system/pppoe-server.service <<EOF
 [Unit]
 Description=Lab PPPoE access concentrator (rp-pppoe)

@@ -1,0 +1,19 @@
+#!/bin/sh
+# 138 — Two static DNS records cannot map different names to the same address.
+. "$(dirname "$0")/../lib.sh"
+begin "138-dns-duplicate-address"
+phase "3-fault"
+require "fault: none (DNS duplicate address)" ispfault status
+phase "4.5-operator"
+api_login
+cfg="$(api GET /api/v1/config)"
+bad="$(echo "$cfg" | python3 -c '
+import json,sys
+c=json.load(sys.stdin)
+c["dns"]["records"]=[{"name":"one.home.arpa","ip":"192.168.1.34"},{"name":"two.home.arpa","ip":"192.168.1.34"}]
+print(json.dumps(c))')"
+require "duplicate DNS address rejected" save_expects_error "$bad"
+check "canonical + last-good converge" check_converge
+check "production untouched" check_prod_untouched "$PROD_PORTS_BEFORE"
+capture_state "evidence"
+finish_scenario

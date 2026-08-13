@@ -13,8 +13,14 @@ check "service segment reachable from router" mr "ping -c2 -W2 10.78.0.10 2>&1 |
 phase "5-lan-client"
 check "extra-LAN service reachable from main LAN via MR" lan "curl -s --max-time 5 http://10.78.0.10:8080/ | grep -q extralan-service-ok"
 
+phase "5-extra-lan-client"
+require "ExtraLAN simulator guest is available" sim "echo ready | grep -q ready"
+check "extra LAN cannot reach main LAN" check_not sim "ping -c1 -W2 192.168.1.187"
+check "extra LAN cannot reach simulated WAN" check_not sim "ping -c1 -W2 $SIM_INET"
+
 phase "7-recovery"
 check "canonical + last-good converge" check_converge
+check "firewall remains fail-closed" check_fw_not_fail_open
 check "production untouched" check_prod_untouched "$PROD_PORTS_BEFORE"
 
 capture_state "evidence"

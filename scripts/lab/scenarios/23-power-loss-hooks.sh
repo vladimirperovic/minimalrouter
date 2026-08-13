@@ -17,6 +17,7 @@
 
 . "$(dirname "$0")/../lib.sh"
 
+TOTAL_FAILED=0
 for PHASE in pre-privileged-apply post-provisional-apply pre-sqlite-commit post-sqlite-commit pre-canonical-ack; do
   begin "23-power-loss-$PHASE"
   MARKER="/tmp/mr-fault-$PHASE"
@@ -39,11 +40,11 @@ for PHASE in pre-privileged-apply post-provisional-apply pre-sqlite-commit post-
   done
   kill "$SC_PID" 2>/dev/null; wait "$SC_PID" 2>/dev/null
   require "hook reached phase $PHASE" test -n "$fired"
-  require "power cut (qm stop) at $PHASE" H "qm stop 151"
-  require "VM actually halted (power cut at $PHASE)" wait_vm_stopped 151 120
+  require "power cut (qm stop) at $PHASE" H "qm stop $MR_VMID"
+  require "VM actually halted (power cut at $PHASE)" wait_vm_stopped "$MR_VMID" 120
 
   phase "4-mr-runtime-2"
-  require "cold boot MR-TEST" H "qm start 151"
+  require "cold boot MR-TEST" H "qm start $MR_VMID"
   require "MR responds after cold boot" mr_wait 300
   require "PPPoE reconnects after power loss" wait_pppoe 180
 
@@ -61,9 +62,13 @@ for PHASE in pre-privileged-apply post-provisional-apply pre-sqlite-commit post-
   capture_state "evidence"
   [ "$FAILED" -eq 0 ] && echo "[RESULT] 23-power-loss-$PHASE: PASS" || echo "[RESULT] 23-power-loss-$PHASE: FAIL ($FAILED failed checks)"
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) rc=$([ "$FAILED" -eq 0 ] && echo 0 || echo 1)" > "$RESULTS_DIR/23-power-loss-$PHASE/result.txt"
+  TOTAL_FAILED=$((TOTAL_FAILED+FAILED))
 
   phase "3-disarm"
   require "disarm hooks for next phase" disarm_hooks
 done
 
+FAILED="$TOTAL_FAILED"
+CURRENT_SCENARIO="23-power-loss-hooks"
+mkdir -p "$RESULTS_DIR/$CURRENT_SCENARIO"
 finish_scenario

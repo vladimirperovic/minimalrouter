@@ -40,6 +40,14 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 	server.ConfigureGatewayMonitor(monitor)
 	server.RegisterGatewayRoutes(mux)
 
+	untrusted := httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil)
+	untrusted.RemoteAddr = "192.168.2.10:12345"
+	untrustedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(untrustedResponse, untrusted)
+	if untrustedResponse.Code != http.StatusForbidden {
+		t.Fatalf("untrusted summary returned %d, want 403", untrustedResponse.Code)
+	}
+
 	unauthorized := httptest.NewRecorder()
 	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil))
 	if unauthorized.Code != http.StatusUnauthorized {

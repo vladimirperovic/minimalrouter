@@ -10,17 +10,8 @@ check "MR up before flood" mr "uptime -s | grep -q ."
 pre_ct="$(mr 'cat /proc/sys/net/netfilter/nf_conntrack_count 2>/dev/null' | tr -d ' \n')"
 echo "conntrack before: $pre_ct"
 phase "4.5-operator"
-require "SYN flood from ISP" isp "python3 - << 'PY'
-import socket, time
-target=('10.250.0.50', 0)
-pids=[]
-for w in range(16):
-    import subprocess
-    pids.append(subprocess.Popen(['sh','-c',
-      'for p in $(seq 1 200); do s=$(python3 -c "import socket,sys; s=socket.socket(); s.settimeout(0.05); s.connect((\\"10.250.0.50\\", int(sys.argv[1])))" $p 2>/dev/null); done'], stderr=subprocess.DEVNULL))
-for p in pids: p.wait()
-print('flood-done')
-PY"
+require "SYN flood from ISP" isp "test -x /root/lab-fault-synflood.py && (nohup python3 /root/lab-fault-synflood.py >/tmp/lab-flood.out 2>&1 &) && sleep 1 && echo launched"
+require "SYN flood completed" retry 240 isp "grep -q flood-done /tmp/lab-flood.out"
 phase "4-mr-runtime-2"
 check "routerd still alive after flood" mr "rc-service routerd status | grep -q started"
 check "firewall still policy-drop" check_fw_not_fail_open

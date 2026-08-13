@@ -86,6 +86,16 @@ func TestRequiresFunctionalDNSVerification(t *testing.T) {
 	if requiresFunctionalDNSVerification(&base, disabled) {
 		t.Fatal("disabled WAN should not require public DNS resolution")
 	}
+
+	leaseTimeChanged := base
+	if leaseTimeChanged.DHCP.LeaseTime == "2h" {
+		leaseTimeChanged.DHCP.LeaseTime = "12h"
+	} else {
+		leaseTimeChanged.DHCP.LeaseTime = "2h"
+	}
+	if requiresFunctionalDNSVerification(&base, leaseTimeChanged) {
+		t.Fatal("DHCP lease-time-only change must not depend on external DNS availability")
+	}
 }
 
 func TestRequiresDDNSVerification(t *testing.T) {

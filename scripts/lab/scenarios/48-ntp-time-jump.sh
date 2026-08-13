@@ -8,16 +8,25 @@ require "fault: none (clock step)" ispfault status
 phase "4-mr-runtime"
 check "MR up before jump" mr "uptime -s | grep -q ."
 phase "4.5-operator"
-require "step clock forward 48h" mr "date -s '+2 days' >/dev/null 2>&1"
+now=$(mr 'date +%s' | tr -d ' \n')
+restore_clock() { mr "date -s @$now >/dev/null 2>&1; rc-service chronyd restart >/dev/null 2>&1 || true; chronyc -a makestep >/dev/null 2>&1 || true" >/dev/null 2>&1 || true; }
+trap restore_clock EXIT HUP INT TERM
+future=$((now + 172800))
+past=$((now - 172800))
+require "step clock forward 48h" mr "date -s @$future"
 sleep 2
-require "step clock back 48h" mr "date -s '-2 days' >/dev/null 2>&1"
+require "step clock back 48h" mr "date -s @$past"
 sleep 2
+require "restore original clock" mr "date -s @$now"
+mr "rc-service chronyd restart >/dev/null 2>&1 || true; chronyc -a makestep >/dev/null 2>&1 || true"
+trap - EXIT HUP INT TERM
 phase "4-mr-runtime-2"
 check "routerd still alive" mr "rc-service routerd status | grep -q started"
 check "router-applyd still alive" mr "rc-service router-applyd status | grep -q started"
 check "firewall still policy-drop" check_fw_not_fail_open
 check "internet still works" check_lan_internet
 check "PPPoE session survived clock jump" check_pppoe
+check "clock returns near runner time" mr "now=\$(date +%s); ref=$(date +%s); delta=\$((now-ref)); [ \${delta#-} -lt 120 ]"
 phase "7-recovery"
 check "canonical + last-good converge" check_converge
 check "production untouched" check_prod_untouched "$PROD_PORTS_BEFORE"

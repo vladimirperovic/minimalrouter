@@ -1,12 +1,12 @@
 #!/bin/sh
-# 17 — endpoint-specific blackhole: only the wg0 peer (11.250.0.10:51820, the
-# public-side address of SIM-LAB's wg0 listener) becomes unreachable. Internet
-# keeps working; WireGuard must recover when the endpoint returns.
+# 17 — endpoint-specific blackhole: only the wg0 peer (10.250.0.10:51820)
+# becomes unreachable. Internet keeps working; WireGuard must recover when the
+# endpoint returns.
 . "$(dirname "$0")/../lib.sh"
 
 begin "17-endpoint-blackhole"
 phase "3-fault"
-require "fault: wg0 endpoint blackholed" ispfault blackhole on 11.250.0.10:51820
+require "fault: wg0 endpoint blackholed" ispfault blackhole on 10.250.0.10:51820
 sleep 3
 
 phase "4-mr-runtime"
