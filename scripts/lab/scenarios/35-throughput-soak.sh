@@ -14,16 +14,16 @@ check "MR up before soak" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
 # 30s of ping + parallel HTTP fetches through NAT from the LAN client
-lan "ping -c 15 -i 2 11.255.0.2 > /tmp/soak-ping.txt 2>&1" &
+lan "ping -c 15 -i 2 $SIM_INET > /tmp/soak-ping.txt 2>&1" &
 LANPID=$!
-lan "i=0; while [ \$i -lt 15 ]; do curl -s --max-time 3 http://11.255.0.2/marker.txt >/dev/null 2>&1 || true; i=\$((i+1)); sleep 1; done; echo soak-http-done" &
+lan "i=0; ok=0; while [ \$i -lt 15 ]; do if curl -fsS --max-time 3 http://$SIM_INET/marker.txt | grep -q torture-lab; then ok=\$((ok+1)); fi; i=\$((i+1)); sleep 1; done; echo \$ok > /tmp/soak-http-success; test \$ok -eq 15" &
 HTTPPID=$!
 sleep 35
 wait $LANPID; PING_RC=$?
 wait $HTTPPID; HTTP_RC=$?
 check "soak ping completed" test $PING_RC -eq 0
 check "soak http completed" test $HTTP_RC -eq 0
-lan "grep -cE ' 0% packet loss' /tmp/soak-ping.txt" | grep -q 1
+check "all HTTP samples succeeded" lan "test \$(cat /tmp/soak-http-success 2>/dev/null) -eq 15"
 check "no packet loss during soak" lan "grep -qE ' 0% packet loss' /tmp/soak-ping.txt"
 
 phase "4-mr-runtime-2"

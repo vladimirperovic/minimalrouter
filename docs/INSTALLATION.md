@@ -60,6 +60,31 @@ ip -brief address
 Do not place the candidate DHCP server on the same broadcast domain as the
 production router during initial setup.
 
+### Interface ownership
+
+MinimalRouter owns every WAN, LAN and tunnel interface. A stock `setup-alpine`
+host still carries `iface eth0 inet dhcp` in `/etc/network/interfaces`, which
+competes with pppd for the WAN, delays boot while `need net` waits for a DHCP
+lease that should never be requested, and can re-run `ifup` against an address
+`router-applyd` has already installed.
+
+The installer now rewrites that file, declaring every physical interface
+`manual` and keeping only loopback automatic. The previous contents are saved to
+`/etc/network/interfaces.minimalrouter-backup`. Cloud images additionally have
+`cloud-init` removed from the default runlevel, because it re-applies its own
+network configuration on every boot.
+
+Confirm after installing:
+
+```sh
+cat /etc/network/interfaces
+rc-update show default
+ip -brief address
+```
+
+`eth0` should carry no address until PPPoE is configured, and there should be no
+second default route.
+
 ## Install
 
 Transfer the archive and checksum over a trusted path, verify the checksum again,

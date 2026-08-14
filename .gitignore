@@ -4,9 +4,6 @@
 /web/dist/
 /coverage/
 /.pnpm-store/
-/routerd
-/routerd.gz
-/dist.tar.gz
 
 # Local development
 .env
@@ -31,9 +28,16 @@
 alpine-standard-3.21.3-x86_64.iso
 
 # Minimal Router Home private deployment overlay
-/private/runtime/
-/private/secrets/
-/private/backups/
+/private/
+
+# Live lab output can contain real interface addresses, MACs and runtime state.
+/scripts/lab/results/
+/scripts/lab/scenarios/results/
+/docs/PROXMOX_AI_HANDOFF.md
+/docs/PROXMOX_CUTOVER.md
+/docs/PROXMOX_TEST_REPORT_2026-08-01.md
+/docs/PROXMOX_VM108_PILOT_PLAN.md
+/docs/PROXMOX_VM155_DDNS_INCIDENT_*.md
 
 # Build artifacts
 /build/
@@ -44,7 +48,3 @@ alpine-standard-3.21.3-x86_64.iso
 /AI_HANDOFF.md
 /SESSION6_SUMMARY.md
 /implementation_plan.md
-
-# Generated lab run artifacts (evidence/result snapshots)
-/scripts/lab/results/*/
-/scripts/lab/scenarios/results/*/

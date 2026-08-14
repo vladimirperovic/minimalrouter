@@ -54,9 +54,20 @@ if ! id -u routerd >/dev/null 2>&1; then
     addgroup -S routerd
     adduser -S -D -H -h /var/lib/minimalrouter -s /sbin/nologin -G routerd routerd
 fi
+if ! id -u dnsmasq >/dev/null 2>&1; then
+    echo "ERROR: the installed dnsmasq package did not create its service account" >&2
+    exit 1
+fi
 
 # 4. Create required runtime directories
 install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
+install -d -m 0750 -o dnsmasq -g dnsmasq /var/lib/minimalrouter-dhcp
+if [ ! -e /var/lib/minimalrouter-dhcp/dnsmasq.leases ]; then
+    install -m 0640 -o dnsmasq -g dnsmasq /dev/null /var/lib/minimalrouter-dhcp/dnsmasq.leases
+else
+    chown dnsmasq:dnsmasq /var/lib/minimalrouter-dhcp/dnsmasq.leases
+    chmod 0640 /var/lib/minimalrouter-dhcp/dnsmasq.leases
+fi
 install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 install -d -m 0750 -o root -g routerd /run/minimalrouter
 install -d -m 0750 -o root -g inadyn /etc/inadyn
@@ -104,8 +115,48 @@ while IFS= read -r kernel_module; do
     grep -qxF "$kernel_module" /etc/modules 2>/dev/null || printf '%s\n' "$kernel_module" >> /etc/modules
 done < packaging/alpine/minimalrouter.modules
 
+
+# MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
+# LAN address, pppd owns the WAN, and wg(8) owns the tunnels. A distribution
+# /etc/network/interfaces that still carries "iface eth0 inet dhcp" competes
+# with all three -- it delays boot on `need net`, can hand the WAN interface an
+# unexpected DHCP lease, and can re-run ifup against an address the helper has
+# already installed. The isolated lab has always installed this file by hand
+# (scripts/lab/payloads/mr-install.sh); shipping it here is what makes a normal
+# setup-alpine host match the tested configuration.
+if [ -f /etc/network/interfaces ] && [ ! -f /etc/network/interfaces.minimalrouter-backup ]; then
+    cp -p /etc/network/interfaces /etc/network/interfaces.minimalrouter-backup
+    echo "Saved previous network configuration to /etc/network/interfaces.minimalrouter-backup"
+fi
+install -d -m 0755 -o root -g root /etc/network
+{
+    echo "# Managed by MinimalRouter. Interfaces are owned by router-applyd,"
+    echo "# pppd and wg(8); do not add addresses here."
+    echo "auto lo"
+    echo "iface lo inet loopback"
+    echo ""
+    for managed_interface_path in /sys/class/net/*; do
+        [ -e "$managed_interface_path" ] || continue
+        managed_interface=${managed_interface_path##*/}
+        case "$managed_interface" in
+            lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;;
+        esac
+        echo "iface $managed_interface inet manual"
+    done
+} > /etc/network/interfaces
+chmod 0644 /etc/network/interfaces
+
+# cloud-init re-applies its own network configuration on every boot and will
+# undo the file above on cloud images.
+if rc-service --exists cloud-init >/dev/null 2>&1; then
+    rc-service cloud-init stop >/dev/null 2>&1 || true
+    rc-update del cloud-init default >/dev/null 2>&1 || true
+fi
+
 # 6. Enable services in OpenRC default runlevel
-for unused_service in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+# MinimalRouter owns every router interface. dhcpcd must not race
+# router-applyd/pppd for DHCP addresses or default routes at boot.
+for unused_service in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done

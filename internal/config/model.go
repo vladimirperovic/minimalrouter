@@ -32,6 +32,9 @@ type SystemConfig struct {
 	AdGuard DNSFilterConfig `json:"adguard"`
 	QoS     QoSConfig       `json:"qos"`
 	WiFi    WiFiConfig      `json:"wifi"`
+	// Accounting is per-device byte counting in the forward chain. It is
+	// opt-in because it adds two dynamic nftables sets and a periodic read.
+	Accounting AccountingConfig `json:"accounting"`
 	// TrustedNetworks restricts administrative Web UI/API access to clients
 	// whose source address falls within one of the listed CIDR networks.
 	// Localhost (127.0.0.1, ::1) is always trusted. It does not replace
@@ -75,18 +78,19 @@ type WGClientConfig struct {
 }
 
 // CloudflareConfig retains its historical JSON key so existing backups remain
-// compatible. The DDNS fields now support both No-IP and Cloudflare; the tunnel
-// fields remain Cloudflare-specific.
+// compatible. DDNS and Cloudflare Tunnel deliberately keep separate hostname
+// and secret fields so saving either integration cannot mutate the other.
 type CloudflareConfig struct {
-	DDNSEnabled   bool   `json:"ddns_enabled"`
-	DDNSProvider  string `json:"ddns_provider,omitempty"` // noip or cloudflare; empty is legacy Cloudflare
-	DDNSUser      string `json:"ddns_username,omitempty"` // No-IP DDNS Key username/email
-	APIToken      string `json:"api_token,omitempty"`     // DDNS credential secret: No-IP key password or Cloudflare API token
-	ZoneID        string `json:"zone_id,omitempty"`       // Legacy field retained for import compatibility
-	ZoneName      string `json:"zone_name,omitempty"`     // Cloudflare zone name only
-	Domain        string `json:"domain"`                  // Hostname updated by the selected DDNS provider
-	TunnelEnabled bool   `json:"tunnel_enabled"`
-	TunnelToken   string `json:"tunnel_token,omitempty"`
+	DDNSEnabled    bool   `json:"ddns_enabled"`
+	DDNSProvider   string `json:"ddns_provider,omitempty"` // noip or cloudflare; empty is legacy Cloudflare
+	DDNSUser       string `json:"ddns_username,omitempty"` // No-IP DDNS Key username/email
+	APIToken       string `json:"api_token,omitempty"`     // DDNS credential secret: No-IP key password or Cloudflare API token
+	ZoneID         string `json:"zone_id,omitempty"`       // Legacy field retained for import compatibility
+	ZoneName       string `json:"zone_name,omitempty"`     // Cloudflare zone name only
+	Domain         string `json:"domain"`                  // Hostname updated by the selected DDNS provider
+	TunnelEnabled  bool   `json:"tunnel_enabled"`
+	TunnelHostname string `json:"tunnel_hostname,omitempty"` // Expected public hostname routed by the remotely-managed tunnel
+	TunnelToken    string `json:"tunnel_token,omitempty"`
 }
 
 // WiFiConfig holds hostapd Wi-Fi Access Point configuration settings.
@@ -295,6 +299,16 @@ type FirewallRule struct {
 	Enabled   bool   `json:"enabled"`
 }
 
+// AccountingConfig controls per-device traffic accounting. Only aggregate byte
+// counts per LAN address are recorded: no ports, hostnames, destinations or
+// payload are stored, so enabling it does not turn the router into a traffic
+// logger for the household.
+type AccountingConfig struct {
+	Enabled bool `json:"enabled"`
+	// RetentionMonths bounds how many monthly buckets are kept per device.
+	RetentionMonths int `json:"retention_months"`
+}
+
 // DeepCopy returns a fully detached copy of the configuration. Every slice
 // and map in the model is copied, so mutating the returned value can never
 // mutate the source. Callers that read canonical state and then modify it
@@ -369,8 +383,9 @@ func DefaultConfig() SystemConfig {
 		AdGuard: DNSFilterConfig{
 			Enabled: false, LastUpdated: "Never", FilterDevices: []FilterDeviceRule{}, DeviceProfiles: []DeviceProfile{},
 		},
-		QoS:  QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
-		WiFi: WiFiConfig{Enabled: false, Interface: "wlan0", SSID: "MinimalRouter-Home", Band: "5ghz", Channel: 36},
+		QoS:        QoSConfig{Enabled: false, Algorithm: "cake", DownloadLimitMbps: 100, UploadLimitMbps: 20},
+		Accounting: AccountingConfig{Enabled: false, RetentionMonths: 13},
+		WiFi:       WiFiConfig{Enabled: false, Interface: "wlan0", SSID: "MinimalRouter-Home", Band: "5ghz", Channel: 36},
 		// Default management trust boundary is the LAN. A future Proxmox
 		// recovery virtual NIC can extend this list (e.g. 10.255.255.0/24).
 		TrustedNetworks: []string{"192.168.1.0/24"},

@@ -14,10 +14,10 @@
 
 set -eu
 
-HOST="${LAB_HOST:-root@192.168.1.2}"
+HOST="${LAB_HOST:-root@proxmox.example}"
 SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
-KEY="${LAB_SSH_KEY:-$(dirname "$0")/../../private/secrets/proxmox_codex_ed25519}"
-KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-$(dirname "$0")/../../private/secrets/proxmox_known_hosts}"
+KEY="${LAB_SSH_KEY:-${HOME:-/root}/.ssh/lab_id_ed25519}"
+KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-${HOME:-/root}/.ssh/known_hosts}"
 H() { ssh $SSHOPTS -i "$KEY" -o UserKnownHostsFile="$KNOWN_HOSTS" "$HOST" "$@"; }
 PKEY="$(cat "$(dirname "$0")/../../private/secrets/lab_id_ed25519.pub")"
 

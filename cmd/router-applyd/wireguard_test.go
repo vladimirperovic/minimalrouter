@@ -199,6 +199,29 @@ func TestRemovedAllowedIPs(t *testing.T) {
 	}
 }
 
+func TestWireGuardPresharedKeyRemovalTransition(t *testing.T) {
+	previous := config.WireGuardPeer{
+		PublicKey:    "peer-public-key",
+		PresharedKey: "old-preshared-key",
+		Enabled:      true,
+	}
+	cleared := previous
+	cleared.PresharedKey = ""
+	if !wireGuardPresharedKeyRemovalNeeded(previous, cleared) {
+		t.Fatal("non-empty to empty PSK transition was not detected")
+	}
+	stillConfigured := cleared
+	stillConfigured.PresharedKey = "new-preshared-key"
+	if wireGuardPresharedKeyRemovalNeeded(previous, stillConfigured) {
+		t.Fatal("PSK replacement was misclassified as removal")
+	}
+	differentPeer := cleared
+	differentPeer.PublicKey = "other-peer"
+	if wireGuardPresharedKeyRemovalNeeded(previous, differentPeer) {
+		t.Fatal("different peer was misclassified as removal")
+	}
+}
+
 func TestParseWGTunnelStatusSanitizesKeys(t *testing.T) {
 	dump := "interface\tINTERFACE-PRIVATE-KEY\t51820\t0\n" +
 		"PEER-PUBLIC-KEY\tPEER-PRESHARED-KEY\t203.0.113.9:51820\t10.6.0.0/24\t1750000000\t1234\t5678\t25\n"

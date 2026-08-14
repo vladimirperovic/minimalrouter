@@ -27,6 +27,12 @@ flowchart LR
 Packet forwarding is not implemented in Go. It remains in the Linux kernel and
 standard services such as nftables, pppd, dnsmasq and WireGuard.
 
+Interface ownership is exclusive: `router-applyd` assigns the LAN address, pppd
+owns the WAN, and wg(8) owns the tunnels. The installer therefore writes an
+`/etc/network/interfaces` that declares every physical interface `manual`, and
+`router-applyd` orders itself `after net` so the distribution network service can
+never re-run `ifup` against an address the helper has already installed.
+
 ## Main components
 
 ### `routerd`
@@ -74,6 +80,7 @@ files are artifacts derived from validated state. Recovery metadata and
 | QoS | `tc` |
 | Optional proxy | Squid |
 | Optional Wi-Fi AP | hostapd + Linux bridge |
+| Optional per-device accounting | nftables dynamic sets (`acct_rx` / `acct_tx`) |
 
 The project owns only its explicitly named files, interfaces/services and the
 `inet minimalrouter` nftables table. It must not flush unrelated host state.
@@ -110,7 +117,11 @@ Default appliance policy:
 - WAN input is deny by default;
 - dashboard management is not exposed directly to WAN;
 - WireGuard is the intended remote-management path;
-- arbitrary WAN port forwarding is outside the current secure profile;
+- arbitrary WAN port forwarding is outside the current secure profile. Port
+  forwards exist, but every generated DNAT rule is bound to the WireGuard server
+  interface, so a forward is reachable from the tunnel and never from WAN or
+  `ppp0`. Validation refuses a forward when WireGuard is disabled, because such a
+  rule could never take effect;
 - DNS/DHCP bind only to intended LAN paths;
 - unsupported functionality fails closed rather than appearing successful.
 

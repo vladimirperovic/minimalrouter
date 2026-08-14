@@ -13,7 +13,7 @@ for cycle in 1 2 3 4 5; do
   require "cycle $cycle: session goes down" wait_pppoe_down 45
   require "cycle $cycle: restart session" ispfault pppoe start
   require "cycle $cycle: session back up" wait_pppoe 90
-  check "cycle $cycle: no zombie pppd" test "$(mr 'pgrep -c pppd' 2>/dev/null)" -le 3
+  check "cycle $cycle: no zombie pppd" test "$(mr 'pgrep pppd | wc -l' 2>/dev/null | tr -d ' \n')" -le 3
 done
 phase "4-mr-runtime-2"
 check "routerd still alive" mr "rc-service routerd status | grep -q started"

@@ -1,0 +1,274 @@
+/*
+ * Styles for the panels added alongside the appliance-health work:
+ * health banner, storage chip states, DHCP reservations, firewall rule editor
+ * and per-device traffic.
+ *
+ * Everything here uses the existing custom properties from index.css so light
+ * and dark themes stay in one system, and colour is semantic only:
+ * green = healthy, amber = warning, red = failure, neutral = disabled/unknown.
+ * Per DESIGN.md the React source keeps presentation in CSS, never in runtime
+ * inline style objects.
+ */
+
+/* ---------- appliance health banner ---------- */
+
+.health-banner {
+  border: 1px solid var(--separator);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.health-banner-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  flex-wrap: wrap;
+}
+
+.health-banner-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-tertiary);
+}
+
+.health-banner.is-good .health-banner-dot { background: var(--success); }
+.health-banner.is-warning .health-banner-dot { background: var(--warning); }
+.health-banner.is-bad .health-banner-dot { background: var(--danger); }
+.health-banner.is-unknown .health-banner-dot { background: var(--text-tertiary); }
+
+.health-banner.is-good { border-left: 3px solid var(--success); }
+.health-banner.is-warning { border-left: 3px solid var(--warning); }
+.health-banner.is-bad { border-left: 3px solid var(--danger); }
+.health-banner.is-unknown { border-left: 3px solid var(--text-tertiary); }
+
+.health-banner-copy {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.health-banner-copy strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.health-banner-copy p {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.health-banner-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.health-banner-meta small { color: var(--text-tertiary); }
+
+.health-banner-toggle {
+  border: 1px solid var(--separator);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.health-banner-toggle:hover { border-color: var(--separator-strong); }
+.health-banner-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.health-checks-section {
+  margin-top: 18px;
+  border: 1px solid var(--separator);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  scroll-margin-top: 24px;
+}
+
+.health-checks-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 16px;
+}
+
+.health-checks-kicker {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.health-checks-header h2 {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.health-checks-header p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.health-checks-count {
+  flex: none;
+  color: var(--text-tertiary);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--separator);
+}
+
+.health-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.health-check:last-child { border-bottom: none; }
+
+.health-check > div { flex: 1; min-width: 0; }
+.health-check strong { display: block; font-size: 0.85rem; color: var(--text); }
+.health-check p { margin: 2px 0 0; font-size: 0.8rem; color: var(--text-secondary); }
+
+.health-check em {
+  font-style: normal;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.health-check-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-tertiary);
+}
+
+.health-check.is-good .health-check-dot { background: var(--success); }
+.health-check.is-warning .health-check-dot { background: var(--warning); }
+.health-check.is-bad .health-check-dot { background: var(--danger); }
+
+/* ---------- overview resource note + chart note ---------- */
+
+.overview-resource-note.is-warning { color: var(--warning); }
+.overview-resource-note.is-bad { color: var(--danger); }
+.overview-resource-note.is-unknown { color: var(--text-tertiary); }
+
+.overview-chart-note {
+  margin: 6px 0 0;
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+.classic-setup-pill.is-warning { color: var(--warning); }
+.classic-setup-pill.is-bad { color: var(--danger); }
+.classic-setup-pill.is-unknown { color: var(--text-tertiary); }
+
+/* ---------- shared form note states ---------- */
+
+.form-note.is-warning { color: var(--warning); }
+.form-note.is-error { color: var(--danger); }
+
+/* ---------- DHCP reservations ---------- */
+
+.static-lease-form { margin-top: 12px; }
+
+.form-grid.three {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* ---------- firewall rules ---------- */
+
+.firewall-rules tr.is-paused { opacity: 0.6; }
+
+.firewall-rule-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.firewall-rules td.is-good { color: var(--success); }
+.firewall-rules td.is-bad { color: var(--danger); }
+
+/* ---------- traffic accounting ---------- */
+
+.traffic-month-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.traffic-month-tabs button {
+  border: 1px solid var(--separator);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.traffic-month-tabs button.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.traffic-month-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.traffic-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 140px;
+}
+
+.traffic-share progress {
+  flex: 1;
+  height: 6px;
+}
+
+.traffic-share small {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .form-grid.three { grid-template-columns: 1fr; }
+
+  .health-banner-main { align-items: flex-start; }
+
+  .health-banner-meta {
+    align-items: flex-start;
+    width: 100%;
+  }
+}

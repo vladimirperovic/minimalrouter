@@ -98,12 +98,14 @@ dist-arm64: build-linux-arm64 web-build
 	@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64
 	@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64
 	@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64
+	@sh scripts/fetch-cloudflared.sh arm64 build/dist/minimalrouter-linux-arm64/bin/cloudflared-arm64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-arm64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-arm64/slot-exec
 	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-arm64/compatibility.json
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-arm64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-arm64/init.d/router-applyd
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan
+	@cp packaging/alpine/cloudflared.initd build/dist/minimalrouter-linux-arm64/init.d/cloudflared
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-arm64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-arm64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-arm64/logrotate/minimalrouter
@@ -130,12 +132,14 @@ dist-amd64: build-linux-amd64 web-build
 	@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64
 	@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64
 	@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64
+	@sh scripts/fetch-cloudflared.sh amd64 build/dist/minimalrouter-linux-amd64/bin/cloudflared-amd64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-amd64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-amd64/slot-exec
 	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-amd64/compatibility.json
 	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-amd64/init.d/routerd
 	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-amd64/init.d/router-applyd
 	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan
+	@cp packaging/alpine/cloudflared.initd build/dist/minimalrouter-linux-amd64/init.d/cloudflared
 	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-amd64/sysctl/99-minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-amd64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-amd64/logrotate/minimalrouter

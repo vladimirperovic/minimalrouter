@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import SetupWizard from "./SetupWizard";
 import { refreshSession, setCSRFToken } from "../lib/api";
+import { isDemoMode } from "../lib/demoApi";
 
 type AuthState = "loading" | "setup" | "login" | "offline" | "authenticated";
 
@@ -44,6 +45,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     const initialize = async () => {
+      if (isDemoMode) {
+        setPreviewMode(true);
+        setState("login");
+        return;
+      }
       const localPreviewHosts = new Set(["localhost", "127.0.0.1", "::1"]);
       try {
         const nextState = await probeRouterState();
@@ -97,7 +103,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setError("");
     try {
       if (previewMode) {
-        if (password.trim() !== "minimalrouter-preview") {
+        if (password.trim() !== "password") {
           setError("Incorrect preview password");
           return;
         }

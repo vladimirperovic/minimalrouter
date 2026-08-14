@@ -50,6 +50,12 @@ const (
 	privilegedApplyAttempts = 2
 )
 
+// ReconcileBudget is the wall-clock budget a caller should give Reconcile. It
+// must stay above privilegedApplyTimeout * privilegedApplyAttempts so a
+// transport retry is never cancelled halfway through, and routerd.initd's
+// start_post wait must in turn stay above this value.
+const ReconcileBudget = privilegedApplyTimeout*privilegedApplyAttempts + 30*time.Second
+
 type pendingChange struct {
 	tx                 *Transaction
 	previous           config.SystemConfig

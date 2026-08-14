@@ -40,7 +40,16 @@ Health collection is observational only. It does not restart services, reconnect
 
 ## Dashboard
 
-Overview displays one central health banner. Healthy checks remain compact; warning, degraded, recovery-required and unknown checks explain what needs attention. The banner refreshes independently every 15 seconds so it remains useful while other dashboard sections are open and closed.
+Overview displays one central health banner (`web/src/components/HealthBanner.tsx`). By default it lists only the checks that need attention; "Show all checks" expands the full list. The banner refreshes independently every 15 seconds so it remains useful while other dashboard sections are open and closed.
+
+Two other surfaces are driven by the same endpoint rather than by configuration:
+
+- the **DNS** status chip reflects the measured `dns_dhcp` check instead of being unconditionally green;
+- the **notification bell** reports the actual number of non-healthy checks, and its label names them.
+
+Storage pressure additionally has its own Overview chip and, at warning and critical levels, an inline banner — so an operator sees the problem before a configuration save starts returning HTTP 507.
+
+When the health endpoint itself cannot be read the banner says so explicitly. Unknown is never rendered as healthy.
 
 ## Thresholds
 

@@ -18,7 +18,9 @@ func signalRouterdReady(revision any) error {
 		return nil
 	}
 	payload := []byte(fmt.Sprintf("%v\n", revision))
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+	// O_CREATE keeps a manual/dev start working when the OpenRC start_pre hook
+	// has not pre-created the marker. The 0600 mode matches what start_pre sets.
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("open readiness marker: %w", err)
 	}

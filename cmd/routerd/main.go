@@ -9,12 +9,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/api"
@@ -76,7 +78,12 @@ func main() {
 		engine = apply.NewEngine(initialCfg, store)
 	}
 	if adminHash != "" {
-		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 150*time.Second)
+		// The privileged apply budget is privilegedApplyTimeout (2m) x
+		// privilegedApplyAttempts (2) = 4m worst case. A 150s budget here used to
+		// cancel the second attempt mid-flight and turn a recoverable transport
+		// retry into a fatal start. Keep this above the helper budget, and keep
+		// routerd.initd start_post above this value.
+		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apply.ReconcileBudget)
 		if err := engine.Reconcile(reconcileCtx); err != nil {
 			reconcileCancel()
 			// Serving the API after a failed canonical reconcile can create a
@@ -99,6 +106,8 @@ func main() {
 	server.ConfigureLoopbackHTTPPreview(previewHTTP)
 	stopGatewayMonitoring := configureGatewayMonitoring(server, absDir)
 	defer stopGatewayMonitoring()
+	stopAccounting := configureAccounting(server, engine, absDir)
+	defer stopAccounting()
 	const firmwareKeyPath = "/etc/minimalrouter/firmware-signing.pub"
 	if trustedKey, err := firmware.LoadTrustedPublicKey(firmwareKeyPath); err == nil {
 		server.ConfigureFirmwareTrust(trustedKey, "/var/lib/minimalrouter-update/staging")
@@ -110,6 +119,7 @@ func main() {
 	server.RegisterRoutes(mux)
 	server.RegisterGatewayRoutes(mux)
 	server.RegisterHealthRoutes(mux)
+	server.RegisterAccountingRoutes(mux)
 	if webDir := os.Getenv("MINIMALROUTER_WEB_DIR"); webDir != "" {
 		mux.Handle("/", staticHandler(webDir))
 		log.Printf("Serving dashboard from %s", webDir)
@@ -128,7 +138,16 @@ func main() {
 		log.Fatalf("Failed to load TLS key pair: %v", err)
 	}
 
-	var certMu sync.Mutex
+	// EnsureCertificateWithAdditionalSANs reads and parses PEM material from
+	// disk. Doing that on every ClientHello made each TLS handshake pay disk I/O
+	// plus an X509 keypair parse, which the 2-second dashboard poll turns into a
+	// constant cost. Cache the result and rebuild only when the inputs that go
+	// into the SAN list actually change.
+	var (
+		certMu        sync.Mutex
+		cachedCert    *tls.Certificate
+		cachedCertKey string
+	)
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{cert},
@@ -160,6 +179,11 @@ func main() {
 				}
 			}
 
+			cacheKey := certificateCacheKey(active, additionalIPs, additionalDNS)
+			if cachedCert != nil && cachedCertKey == cacheKey {
+				return cachedCert, nil
+			}
+
 			activeCertPEM, activeKeyPEM, certErr := certMgr.EnsureCertificateWithAdditionalSANs(&active, additionalIPs, additionalDNS)
 			if certErr != nil {
 				return nil, certErr
@@ -168,7 +192,9 @@ func main() {
 			if certErr != nil {
 				return nil, certErr
 			}
-			return &activeCert, nil
+			cachedCert = &activeCert
+			cachedCertKey = cacheKey
+			return cachedCert, nil
 		},
 		PreferServerCipherSuites: true,
 		CipherSuites: []uint16{
@@ -225,14 +251,69 @@ func main() {
 			previewPort = "8080"
 		}
 		log.Printf("[PREVIEW] Dashboard available on %s http://127.0.0.1:%s", scope, previewPort)
-		if err := srv.ListenAndServe(); err != nil {
-			log.Fatalf("Preview server error: %v", err)
+	}
+
+	// OpenRC sends SIGTERM and waits 10s before SIGKILL. Without this the
+	// process was always killed hard: every deferred close in this function was
+	// unreachable, so SQLite never got a clean close and the gateway store was
+	// left to crash recovery on every single reboot.
+	shutdownCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stopSignals()
+
+	serveErr := make(chan error, 1)
+	go func() {
+		if previewHTTP {
+			serveErr <- srv.Serve(listener)
+			return
 		}
-		return
+		serveErr <- srv.ServeTLS(listener, "", "")
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server error: %v", err)
+		}
+	case <-shutdownCtx.Done():
+		stopSignals()
+		log.Println("Shutdown signal received; draining management connections")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		if err := srv.Shutdown(drainCtx); err != nil {
+			log.Printf("Graceful shutdown incomplete: %v", err)
+			_ = srv.Close()
+		}
+		drainCancel()
+		<-serveErr
+		log.Println("Management plane stopped cleanly")
 	}
-	if err := srv.ServeTLS(listener, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("Server error: %v", err)
+}
+
+// certificateCacheKey captures every input that changes the generated SAN set.
+// A miss only costs one regeneration; a stale hit would serve a certificate
+// missing a pending LAN or WireGuard address, so every contributing field is
+// included verbatim.
+func certificateCacheKey(active config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) string {
+	var builder strings.Builder
+	builder.WriteString(active.LAN.IPAddress)
+	builder.WriteByte('|')
+	builder.WriteString(active.WireGuard.Address)
+	builder.WriteByte('|')
+	if active.WireGuard.Enabled {
+		builder.WriteString("wg")
 	}
+	builder.WriteByte('|')
+	builder.WriteString(active.System.Hostname)
+	builder.WriteByte('.')
+	builder.WriteString(active.System.Domain)
+	for _, ip := range additionalIPs {
+		builder.WriteByte('|')
+		builder.WriteString(ip.String())
+	}
+	for _, name := range additionalDNS {
+		builder.WriteByte('|')
+		builder.WriteString(name)
+	}
+	return builder.String()
 }
 
 // managementDestinationHandler is a second boundary behind nftables. Even if

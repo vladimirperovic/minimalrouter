@@ -1,0 +1,24 @@
+#!/sbin/openrc-run
+
+name="cloudflared"
+description="Minimal Router Cloudflare Tunnel connector"
+command="/usr/local/bin/cloudflared"
+command_args="tunnel --no-autoupdate run --token-file /etc/cloudflared/token"
+command_background="yes"
+pidfile="/run/cloudflared.pid"
+output_log="/var/log/cloudflared.log"
+error_log="/var/log/cloudflared.log"
+
+start_pre() {
+    checkpath --directory --mode 0700 --owner root:root /etc/cloudflared
+    if [ ! -s /etc/cloudflared/token ]; then
+        eerror "Cloudflare Tunnel token file is missing"
+        return 1
+    fi
+    chmod 0600 /etc/cloudflared/token || return 1
+}
+
+depend() {
+    need net
+    after router-applyd
+}

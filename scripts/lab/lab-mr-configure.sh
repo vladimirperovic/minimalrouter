@@ -7,7 +7,7 @@
 
 set -eu
 
-HOST="${LAB_HOST:-root@192.168.1.2}"
+HOST="${LAB_HOST:-root@proxmox.example}"
 SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
 KEY="${LAB_SSH_KEY:-${HOME:-/root}/.ssh/lab_id_ed25519}"
 KNOWN_HOSTS="${LAB_KNOWN_HOSTS:-${HOME:-/root}/.ssh/known_hosts}"

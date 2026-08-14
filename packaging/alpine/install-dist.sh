@@ -144,11 +144,20 @@ fi
 # weakening the 0700 routerd data directory.
 install -d -m 0700 -o routerd -g routerd /var/lib/minimalrouter
 install -d -m 0750 -o dnsmasq -g dnsmasq /var/lib/minimalrouter-dhcp
+if [ ! -e /var/lib/minimalrouter-dhcp/dnsmasq.leases ]; then
+    install -m 0640 -o dnsmasq -g dnsmasq /dev/null /var/lib/minimalrouter-dhcp/dnsmasq.leases
+else
+    chown dnsmasq:dnsmasq /var/lib/minimalrouter-dhcp/dnsmasq.leases
+    chmod 0640 /var/lib/minimalrouter-dhcp/dnsmasq.leases
+fi
 install -d -m 0700 -o root -g root /var/lib/minimalrouter-applyd
 
 # routerd needs read-only live WireGuard statistics, but `wg show ... dump`
 # contains interface private and peer preshared keys. Grant exactly the four
 # non-secret projections for wg0/wg1 and no other root command or argument.
+# The two nft entries expose only the per-device byte counters used by traffic
+# accounting; the argument vector is matched in full, so neither can be turned
+# into general ruleset access.
 install -d -m 0755 -o root -g root /etc/doas.d
 cat > /etc/doas.d/50-minimalrouter.conf <<'DOAS_CONFIG'
 permit nopass routerd as root cmd /usr/bin/wg args show wg0 endpoints
@@ -159,6 +168,8 @@ permit nopass routerd as root cmd /usr/bin/wg args show wg1 endpoints
 permit nopass routerd as root cmd /usr/bin/wg args show wg1 allowed-ips
 permit nopass routerd as root cmd /usr/bin/wg args show wg1 latest-handshakes
 permit nopass routerd as root cmd /usr/bin/wg args show wg1 transfer
+permit nopass routerd as root cmd /usr/sbin/nft args -j list set inet minimalrouter acct_rx
+permit nopass routerd as root cmd /usr/sbin/nft args -j list set inet minimalrouter acct_tx
 DOAS_CONFIG
 chmod 0400 /etc/doas.d/50-minimalrouter.conf
 
@@ -242,8 +253,48 @@ sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
     exit 1
 }
 
+
+# MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
+# LAN address, pppd owns the WAN, and wg(8) owns the tunnels. A distribution
+# /etc/network/interfaces that still carries "iface eth0 inet dhcp" competes
+# with all three -- it delays boot on `need net`, can hand the WAN interface an
+# unexpected DHCP lease, and can re-run ifup against an address the helper has
+# already installed. The isolated lab has always installed this file by hand
+# (scripts/lab/payloads/mr-install.sh); shipping it here is what makes a normal
+# setup-alpine host match the tested configuration.
+if [ -f /etc/network/interfaces ] && [ ! -f /etc/network/interfaces.minimalrouter-backup ]; then
+    cp -p /etc/network/interfaces /etc/network/interfaces.minimalrouter-backup
+    echo "Saved previous network configuration to /etc/network/interfaces.minimalrouter-backup"
+fi
+install -d -m 0755 -o root -g root /etc/network
+{
+    echo "# Managed by MinimalRouter. Interfaces are owned by router-applyd,"
+    echo "# pppd and wg(8); do not add addresses here."
+    echo "auto lo"
+    echo "iface lo inet loopback"
+    echo ""
+    for managed_interface_path in /sys/class/net/*; do
+        [ -e "$managed_interface_path" ] || continue
+        managed_interface=${managed_interface_path##*/}
+        case "$managed_interface" in
+            lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;;
+        esac
+        echo "iface $managed_interface inet manual"
+    done
+} > /etc/network/interfaces
+chmod 0644 /etc/network/interfaces
+
+# cloud-init re-applies its own network configuration on every boot and will
+# undo the file above on cloud images.
+if rc-service --exists cloud-init >/dev/null 2>&1; then
+    rc-service cloud-init stop >/dev/null 2>&1 || true
+    rc-update del cloud-init default >/dev/null 2>&1 || true
+fi
+
 echo "[7/7] Enabling services..."
-for svc in sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+# MinimalRouter owns every router interface. dhcpcd must not race
+# router-applyd/pppd for DHCP addresses or default routes at boot.
+for svc in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done

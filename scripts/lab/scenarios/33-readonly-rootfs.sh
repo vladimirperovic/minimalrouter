@@ -1,52 +1,32 @@
 #!/bin/sh
-# 33 — Read-only root filesystem: make the router's persistent state
-# unwritable (whole-root remount ro when the kernel allows it, otherwise a
-# deterministic read-only bind mount of the state directories), then trigger
-# a config save. The router must keep serving traffic (runtime in RAM) and
-# must not crash; after remounting rw, the save must succeed.
+# 33 — Read-only root rejects persistence while in-memory routing keeps
+# serving; the root filesystem is remounted read-write on every exit path.
 . "$(dirname "$0")/../lib.sh"
-
 begin "33-readonly-rootfs"
 phase "3-fault"
 require "fault: none (filesystem stress)" ispfault status
-
+restore_rw() { mr "mount -o remount,rw /" >/dev/null 2>&1 || true; }
+trap restore_rw EXIT HUP INT TERM
 phase "4-mr-runtime"
 check "MR up before readonly" mr "uptime -s | grep -q ."
-
 phase "4.5-operator"
-# A live router's root is usually too busy for a whole-root remount-ro
-# (EBUSY), so fall back to a read-only bind mount of the state directories —
-# the same failure surface (persistent state unwritable) without the flaky
-# kernel dependency.
-RO_MODE=""
-if mr "mount -o remount,ro / 2>/dev/null && grep -E ' / ' /proc/mounts | grep -q ' ro,'"; then
-  RO_MODE=root
-  echo "root remounted read-only"
-else
-  require "state dirs read-only (bind)" mr "mount --bind /var/lib/minimalrouter-applyd /var/lib/minimalrouter-applyd && mount -o remount,ro,bind /var/lib/minimalrouter-applyd && mount --bind /var/lib/minimalrouter /var/lib/minimalrouter && mount -o remount,ro,bind /var/lib/minimalrouter && ! touch /var/lib/minimalrouter-applyd/.rotest 2>/dev/null"
-  RO_MODE=bind
-fi
-
+api_login
+cfg="$(api GET /api/v1/config)"
+revision="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+require "remount root read-only" mr "mount -o remount,ro / && awk '\$2==\"/\" && \$4 ~ /(^|,)ro(,|$)/ {ok=1} END{exit !ok}' /proc/mounts"
 phase "4-mr-runtime-2"
-check "internet still works under ro root" check_lan_internet
-check "LAN still up" check_lan_up
-check "local DNS still serves" check_local_dns
+code="$(api_status PUT /api/v1/config "$cfg")"
+check "config write fails closed on read-only root" sh -c "case '$code' in 500|503|507) exit 0;; *) exit 1;; esac"
+after="$(api GET /api/v1/config | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' 2>/dev/null)"
+check "failed write leaves revision unchanged" test "$after" = "$revision"
+check "runtime traffic survives read-only root" check_lan_internet
 check "firewall still policy-drop" check_fw_not_fail_open
 check "routerd still alive" mr "rc-service routerd status | grep -q started"
-
 phase "4.5-cleanup"
-if [ "$RO_MODE" = root ]; then
-  require "remount root rw" mr "mount -o remount,rw / && grep -E ' / ' /proc/mounts | grep -q ' rw,'"
-else
-  require "remount state dirs rw" mr "mount -o remount,rw,bind /var/lib/minimalrouter-applyd && mount -o remount,rw,bind /var/lib/minimalrouter && touch /var/lib/minimalrouter-applyd/.rotest 2>/dev/null && rm -f /var/lib/minimalrouter-applyd/.rotest"
-fi
-
-phase "4-mr-runtime-3"
-check "save succeeds after remount rw" mr_save_lease
+require "remount root read-write" mr "mount -o remount,rw / && awk '\$2==\"/\" && \$4 ~ /(^|,)rw(,|$)/ {ok=1} END{exit !ok}' /proc/mounts"
+trap - EXIT HUP INT TERM
+require "save succeeds after remount" save_config
 check "canonical + last-good converge" check_converge
-
-phase "7-recovery"
 check "production untouched" check_prod_untouched "$PROD_PORTS_BEFORE"
-
 capture_state "evidence"
 finish_scenario

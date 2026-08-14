@@ -3,7 +3,7 @@
 # All functions run on the mac and drive the Proxmox host.
 # Sourced by lab-run.sh and scenarios/*.sh.
 
-HOST="${LAB_HOST:-root@192.168.1.2}"
+HOST="${LAB_HOST:-root@proxmox.example}"
 SSHOPTS="-o BatchMode=yes -o ConnectTimeout=10"
 # ponytail: absolute path — $(dirname "$0") breaks when scenarios are invoked
 # as `sh scenarios/xx.sh` ($0 = scenarios/xx.sh -> wrong relative base).

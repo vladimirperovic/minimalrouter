@@ -281,8 +281,12 @@ func (c *SystemConfig) Validate() error {
 		appendFieldError(&errs, "firewall.stateful_firewall", "cannot be disabled")
 	}
 	for i, pf := range c.Firewall.PortForwards {
+		// Port forwards are reachable over the WireGuard management tunnel only.
+		// The generator binds every DNAT rule to the wg server interface, so a
+		// forward without a running tunnel would silently do nothing -- reject it
+		// here instead of accepting a rule that cannot take effect.
 		if pf.Enabled && !c.WireGuard.Enabled {
-			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].enabled", i), "port forwards require WireGuard; tunnel-only entry is the only supported external path")
+			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].enabled", i), "requires WireGuard: forwards are reachable only over the tunnel, never from WAN")
 		}
 		if !safeNamePattern.MatchString(pf.Name) || hasUnsafeControl(pf.Name) {
 			appendFieldError(&errs, fmt.Sprintf("firewall.port_forwards[%d].name", i), "contains unsupported characters")

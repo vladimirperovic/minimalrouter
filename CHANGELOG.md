@@ -6,8 +6,117 @@ alpha, compatibility may change between commits.
 
 ## [Unreleased]
 
+Next development version: **v0.1.2**.
+
+### Added (v0.1.2 preview)
+
+- Public, interactive GitHub Pages dashboard demo with synthetic documentation
+  data. It never connects to a router or contains production credentials.
+
+### Fixed
+
+- **Boot ordering: forwarding is no longer enabled before the firewall exists.**
+  `applyKernelHardening` used to set `net.ipv4.ip_forward=1` before `nft -f` ran.
+  On a cold boot the `inet minimalrouter` table does not exist yet, so there was
+  a window where routing was on and the kernel default ACCEPT policy was the only
+  thing between WAN and LAN. Forwarding is now switched on by a separate
+  `enableIPForwarding()` call that runs only after the policy is proven loaded,
+  on the apply, startup-reconcile and rollback paths alike.
+- **Boot ordering: `router-applyd` now declares `after net`.** Only `routerd`
+  depended on `net`, so OpenRC left the relative order of the network service and
+  the privileged helper undefined; `ifup` could re-run against a LAN address
+  `configureRuntimeLAN()` had just installed.
+- **Installer now owns `/etc/network/interfaces`.** A stock `setup-alpine` host
+  keeps `iface eth0 inet dhcp`, which competes with pppd for the WAN and delays
+  boot on `need net`. The isolated lab has always written a `manual`-only file by
+  hand (`scripts/lab/payloads/mr-install.sh`), so every lab result was produced on
+  a host where this was already fixed and no installed system got the benefit.
+  The previous file is saved to `/etc/network/interfaces.minimalrouter-backup`.
+- **QoS is no longer applied before the PPPoE restart that destroys it.** In
+  `installAndActivate` shaping was attached to `ppp0` and then the same apply
+  restarted pppd, which recreates the interface and drops every qdisc; the
+  verification immediately below therefore always logged a missing qdisc. The
+  startup-reconcile and rollback paths already had the correct order.
+- **Graceful shutdown.** Neither daemon handled SIGTERM, so OpenRC always killed
+  them hard after the 10-second retry window and every deferred close in
+  `routerd` was unreachable — SQLite never got a clean close on reboot.
+- **Canonical reconcile budget.** `routerd` gave `Reconcile` 150s while the
+  privileged apply budget is 2 minutes x 2 attempts, so a transport retry could
+  be cancelled halfway and turned into a fatal start. The budget is now derived
+  from the helper constants (`apply.ReconcileBudget`), and `routerd.initd`
+  `start_post` waits longer than it.
+- **Telemetry cost.** `RuntimeSnapshot` spawns eight short-lived `doas wg show`
+  processes per call, and the Overview polls `/api/v1/system` every two seconds
+  for the bandwidth chart. Snapshots are now shared behind a one-second cache.
+- Readiness marker is opened with `O_CREATE`, so a manual start no longer fails
+  fatally when the OpenRC `start_pre` hook has not pre-created the file.
+- Management certificate is cached instead of being re-read and re-parsed from
+  disk on every TLS handshake.
+- Speed test: uploads are timed from the first body byte rather than from before
+  connection setup, the run is bound to the request context, and concurrent runs
+  are rejected instead of halving each other's result.
+- `applyKernelHardening` reasserts `nf_conntrack_max` and the default
+  `rp_filter`, which previously existed only in the boot-time sysctl file.
+
+### Fixed (dashboard)
+
+- **Appliance health is now actually displayed.** `/api/v1/health` and the whole
+  `internal/health` package existed, and `ApplianceHealth` was even declared in
+  `api-types.ts`, but nothing in the dashboard ever called the endpoint —
+  including while `docs/APPLIANCE_HEALTH.md` described the banner in the present
+  tense. Overview now renders it, and the DNS chip and notification bell are
+  driven by it.
+- **Removed status elements that were green regardless of state:** the hardcoded
+  DNS chip, the unconditional "Within normal operating range" resource note, the
+  notification bell that always reported no alerts, and the static
+  "Setup complete" pill.
+- **Storage pressure is visible.** `runtime.storage` was populated by the backend
+  and rendered nowhere, so the first sign of trouble was a configuration save
+  failing with HTTP 507 at 90% usage. There is now a chip plus warning and
+  critical banners.
+- **Gateway latency outages are drawn as gaps.** A failed probe has no latency;
+  substituting `0` rendered an outage as the best possible result.
+- Dynamic DNS status card reports the configured provider instead of whichever
+  tab is open, and the enable toggle can no longer switch on a provider other
+  than the one shown.
+- The LAN prefix selector, which the state machine rejects on every submit
+  ("live LAN subnet changes are unsupported"), is now read-only, and the netmask
+  is derived from the prefix instead of a `/16`-or-`/24` branch that produced a
+  netmask disagreeing with the CIDR for every other length.
+- Theme choice persists across reloads and honours `prefers-color-scheme`.
+- Confirmation countdown no longer restarts on every 15-second poll.
+
+- Proxmox live-cutover DDNS reliability: `router-applyd` now raises the
+  loopback interface/address when generic networking is intentionally disabled
+  and enforces `root:inadyn 0640` for the generated No-IP/Cloudflare config in
+  both normal apply and boot reconciliation. This prevents local DNS failure
+  and the misleading inadyn “Missing .conf file” state.
+
 ### Added
 
+- **Port forwards now work, over the WireGuard tunnel.** Rules were stored,
+  validated, imported from pfSense, counted in the UI and editable — but the
+  nftables generator contained no `dnat` or `prerouting` chain at all, and
+  validation rejected every enabled rule, so the panel could only ever produce an
+  error. The generator now emits a `prerouting` DNAT chain in which every rule is
+  bound to the WireGuard server interface. WAN exposure remains unsupported:
+  a DNAT rule matching `ppp0` or the WAN interface is impossible to generate, and
+  a regression test asserts it.
+- **Per-device traffic accounting** (`accounting.enabled`, opt-in). Two dynamic
+  nftables sets count forwarded bytes per LAN address; `routerd` folds them into
+  calendar-month buckets, treating the counter reset caused by every apply as a
+  reset rather than as negative traffic. Only byte totals per address are stored —
+  no ports, destinations or payload. New `GET /api/v1/accounting` and a Traffic
+  dashboard section.
+- **DHCP reservations in the dashboard.** dnsmasq already received `dhcp-host=`
+  for every static lease; there was simply no way to create one outside a
+  hand-written API call. The device table now has a reservation editor that warns
+  when the chosen address falls inside the dynamic pool.
+- **Firewall custom-rule editor.** The generator has always emitted custom rules
+  into all four input/forward x allow/deny positions; the capability had no UI.
+- **30-day gateway history.** Raw samples are pruned after 7 days, so proving an
+  ISP problem from last month was impossible. Samples are now also rolled up
+  hourly (400-day bound, ~10k rows) and `?window=30d` is served from that table.
 - Static DNS records (`dns.records`): fixed name → IP entries served by the
   local resolver via `host-record=` regardless of DHCP, for hosts with static
   addressing (e.g. `immich.local` on the isolated media network).
@@ -36,13 +145,6 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 
 ### Fixed
 
-- Squid proxy now usable from the LAN: the generated nftables output chain
-  dropped every packet from the squid UID to the LAN zone *before* the
-  established/related accept — including responses to LAN clients dialing the
-  proxy (requests were served and logged, replies never arrived). The reply
-  direction is now accepted first
-  (`meta skuid squid oifname "<lan>" ct original ip daddr <lan-ip> accept`),
-  while the Squid-*initiated* egress cut into private zones is kept.
 - Production deploy procedure hardened: binary swap now stops services first
   (avoiding `Text file busy`) and gunzips on the guest before install.
 

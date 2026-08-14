@@ -4,6 +4,7 @@ package telemetry
 
 import (
 	"bufio"
+	"context"
 	"net"
 	"os"
 	"os/exec"
@@ -225,6 +226,11 @@ func inadynHostname() string {
 	return ""
 }
 
+// wgShowTimeout bounds each privileged status read. wg show is a local netlink
+// query that returns in milliseconds; anything slower means the interface or
+// doas is wedged, and telemetry must degrade rather than block the API.
+const wgShowTimeout = 3 * time.Second
+
 // safeWGShow executes only one of the installer-authorized, non-secret
 // WireGuard status projections. Unlike `wg show ... dump`, none returns an
 // interface private key or peer preshared key. The doas policy matches the
@@ -239,7 +245,14 @@ func safeWGShow(interfaceName, field string) (string, error) {
 	default:
 		return "", os.ErrPermission
 	}
-	cmd := exec.Command("doas", "/usr/bin/wg", "show", interfaceName, field)
+	// Bounded like every other privileged read on this path. RuntimeSnapshot
+	// runs up to eight of these behind a single cache lock, so an unbounded
+	// child would not stall one request but every reader of /api/v1/system,
+	// /api/v1/health and /api/v1/accounting at once -- including the dashboard
+	// the operator would use to diagnose it.
+	ctx, cancel := context.WithTimeout(context.Background(), wgShowTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "doas", "/usr/bin/wg", "show", interfaceName, field)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

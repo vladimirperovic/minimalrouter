@@ -10,12 +10,11 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/gateway"
 	"github.com/vladimirperovic/minimalrouter/internal/health"
-	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
 func (s *Server) RegisterHealthRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
-	mux.HandleFunc("GET /api/v1/health", sh(s.authMiddleware(s.handleGetHealth)))
+	mux.HandleFunc("GET /api/v1/health", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetHealth))))
 }
 
 func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
@@ -25,7 +24,7 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 		dataDir = "/var/lib/minimalrouter"
 	}
 
-	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
+	runtimeStatus := runtimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	facts := health.InspectRuntimeFacts(cfg)
 
 	gatewaySummary := gateway.Summary{}

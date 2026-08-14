@@ -33,12 +33,11 @@ const emergencyNftables = `table inet minimalrouter {
 `
 
 type startupReconcileHooks struct {
-	loadLastGood       func() (*config.SystemConfig, error)
-	quarantineLastGood func() error
-	pendingExists      func() (bool, error)
-	restoreRuntime     func(config.SystemConfig) error
-	restoreFirstRun    func() error
-	clearPending       func() error
+	loadLastGood    func() (*config.SystemConfig, error)
+	pendingExists   func() (bool, error)
+	restoreRuntime  func(config.SystemConfig) error
+	restoreFirstRun func() error
+	clearPending    func() error
 }
 
 // init runs only for the installed OpenRC service. Keeping the opt-in in the
@@ -53,12 +52,11 @@ func init() {
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
 	}
 	if err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:       loadLastGood,
-		quarantineLastGood: quarantineLastGood,
-		pendingExists:      pendingConfirmationExists,
-		restoreRuntime:     restoreLastGoodRuntime,
-		restoreFirstRun:    restoreFirstRunRuntime,
-		clearPending:       clearPendingConfirmation,
+		loadLastGood:    loadLastGood,
+		pendingExists:   pendingConfirmationExists,
+		restoreRuntime:  restoreLastGoodRuntime,
+		restoreFirstRun: restoreFirstRunRuntime,
+		clearPending:    clearPendingConfirmation,
 	}); err != nil {
 		// Only failures of the security/core dataplane reach this point. Optional
 		// features are restored best-effort and reported as degraded instead of
@@ -74,23 +72,6 @@ func reconcileStartup(h startupReconcileHooks) error {
 	}
 
 	cfg, err := h.loadLastGood()
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		// A corrupt or unreadable last-good must not brick the router: the
-		// management plane holds the canonical configuration in SQLite and will
-		// re-establish it through its boot reconcile. Quarantine the evidence
-		// (never delete it silently) and fall through to the first-run recovery
-		// path, which keeps the LAN, fail-closed firewall and setup plane safe
-		// until canonical reconciliation restores the confirmed configuration.
-		if h.quarantineLastGood != nil {
-			log.Printf("startup last-good is corrupt (%v); quarantining evidence and recovering from canonical state", err)
-			if qErr := h.quarantineLastGood(); qErr != nil {
-				return fmt.Errorf("quarantine corrupt last-good: %w (original error: %v)", qErr, err)
-			}
-			err = os.ErrNotExist
-		} else {
-			return fmt.Errorf("load last-good configuration: %w", err)
-		}
-	}
 	if errors.Is(err, os.ErrNotExist) {
 		pending, pendingErr := h.pendingExists()
 		if pendingErr != nil {
@@ -215,31 +196,14 @@ func restoreFirstRunRuntime() (retErr error) {
 			return fmt.Errorf("install first-run %s: %w", name, err)
 		}
 	}
-	// The installer normally creates this directory, but startup must also be
-	// self-healing after an older-slot upgrade or partial filesystem restore.
-	// dnsmasq needs ownership, not merely group membership, because 0750 does
-	// not grant group write access for creating the lease file.
-	dnsmasqUser, lookupErr := user.Lookup("dnsmasq")
-	if lookupErr != nil {
-		return fmt.Errorf("first-run dnsmasq service account unavailable: %w", lookupErr)
-	}
-	dnsmasqUID, uidErr := strconv.Atoi(dnsmasqUser.Uid)
-	dnsmasqGID, gidErr := strconv.Atoi(dnsmasqUser.Gid)
-	if uidErr != nil || gidErr != nil {
-		return errors.New("first-run dnsmasq service account has invalid numeric IDs")
-	}
-	if err := os.MkdirAll("/var/lib/minimalrouter-dhcp", 0750); err != nil {
-		return fmt.Errorf("create persistent DHCP lease directory: %w", err)
-	}
-	if err := os.Chown("/var/lib/minimalrouter-dhcp", dnsmasqUID, dnsmasqGID); err != nil {
-		return fmt.Errorf("own persistent DHCP lease directory: %w", err)
-	}
-	if err := os.Chmod("/var/lib/minimalrouter-dhcp", 0750); err != nil {
-		return fmt.Errorf("secure persistent DHCP lease directory: %w", err)
+	if err := prepareDnsmasqLeaseState(); err != nil {
+		return fmt.Errorf("prepare first-run DHCP lease state: %w", err)
 	}
 
-	// Reassert hardening first, then explicitly disable forwarding for setup.
-	// Normal confirmed runtime re-enables forwarding through applyKernelHardening.
+	// Reassert hardening. applyKernelHardening no longer enables forwarding —
+	// enableIPForwarding() does that, and only after nftables is loaded — so the
+	// explicit disable below is a positive assertion of the setup-plane
+	// invariant rather than an undo of a value we just set.
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
@@ -364,6 +328,9 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 			failClosedStartup(cfg)
 		}
 	}()
+	if err := prepareDnsmasqLeaseState(); err != nil {
+		return fmt.Errorf("prepare startup DHCP lease state: %w", err)
+	}
 
 	for _, name := range restoreArtifacts {
 		item := generated[name]
@@ -394,6 +361,11 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	}
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load startup nftables: %w", err)
+	}
+	// Forwarding is enabled only once the policy is loaded, so a cold boot never
+	// routes through an empty ruleset.
+	if err := enableIPForwarding(); err != nil {
+		return err
 	}
 	// The generated dnsmasq configuration binds the WG server interface and
 	// its tunnel address (interface=wg0, listen-address=...), so the tunnel
@@ -443,11 +415,8 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	}
 	if cfg.Cloudflare.DDNSEnabled {
-		if group, lookupErr := user.LookupGroup("inadyn"); lookupErr != nil {
-			log.Printf("startup DDNS unavailable: service group missing: %v", lookupErr)
-			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
-		} else if gid, parseErr := strconv.Atoi(group.Gid); parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
-			log.Printf("startup DDNS unavailable: could not secure configuration ownership")
+		if err := secureDDNSConfiguration(); err != nil {
+			log.Printf("startup DDNS unavailable: %v", err)
 			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 		} else if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 			log.Printf("startup DDNS unavailable (non-fatal): %v", err)
@@ -466,7 +435,9 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 			log.Printf("startup Squid unavailable (non-fatal): %v", err)
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "squid", "stop")
+		if err := stopSquid(); err != nil {
+			log.Printf("startup Squid stop failed: %v", err)
+		}
 	}
 	if err := verifyStartupLocal(cfg); err != nil {
 		return err

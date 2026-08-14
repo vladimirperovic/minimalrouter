@@ -24,6 +24,11 @@ func TestGenerateCloudflareDDNSUsesInadynWithoutShell(t *testing.T) {
 		`username = "example.com"`,
 		`hostname = "router.example.com"`,
 		"allow-ipv6 = false",
+		"secure-ssl = true",
+		"checkip-server = api.ipify.org",
+		"checkip-path = /",
+		"checkip-ssl = true",
+		"proxied = false",
 	} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("missing %q in generated config:\n%s", expected, out)
@@ -94,5 +99,24 @@ func TestGenerateDynamicDNSRejectsUnknownProvider(t *testing.T) {
 	cfg.Cloudflare.DDNSProvider = "example-provider"
 	if _, err := GenerateDynamicDNS(&cfg); err == nil {
 		t.Fatal("unsupported DDNS provider was accepted")
+	}
+}
+
+func TestGenerateCloudflareTunnelNeverEmitsToken(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Cloudflare.Domain = "router.example.com"
+	cfg.Cloudflare.TunnelEnabled = true
+	cfg.Cloudflare.TunnelHostname = "router.example.com"
+	cfg.Cloudflare.TunnelToken = "super-secret-cloudflare-tunnel-token"
+
+	out, err := GenerateCloudflareTunnel(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, cfg.Cloudflare.TunnelToken) {
+		t.Fatal("generated Cloudflare Tunnel configuration leaked the tunnel token")
+	}
+	if !strings.Contains(out, "Expected public hostname: router.example.com") {
+		t.Fatalf("generated tunnel config is missing hostname:\n%s", out)
 	}
 }

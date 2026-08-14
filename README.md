@@ -5,9 +5,10 @@
 </p>
 
 <p align="center">
-  <a href="#status"><img alt="Status: Controlled pilot" src="https://img.shields.io/badge/status-controlled_pilot-orange" /></a>
+  <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
+  <img alt="Next version: v0.1.2" src="https://img.shields.io/badge/next-v0.1.2-6b7280" />
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -15,90 +16,118 @@
   <a href="docs/INSTALLATION.md">Install</a> ·
   <a href="docs/PROXMOX.md">Proxmox</a> ·
   <a href="docs/CURRENT_VALIDATION.md">Validation</a> ·
+  <a href="https://vladimirperovic.github.io/minimalrouter/">Live dashboard demo</a> ·
   <a href="docs/README.md">Docs</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="ROADMAP.md">Roadmap</a>
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-overview.png" alt="Minimal Router dashboard overview" />
+  <a href="https://vladimirperovic.github.io/minimalrouter/"><img src="docs/screenshots/minimalrouter.png" alt="Minimal Router dashboard overview" /></a>
 </p>
 
-<p align="center"><sub>Current dashboard overview. Public IP and MAC addresses are omitted.</sub></p>
+<p align="center">
+  <strong><a href="https://vladimirperovic.github.io/minimalrouter/">Try the interactive dashboard</a></strong><br />
+  Password: <code>password</code>
+</p>
+
+> The public demo runs entirely in the browser with synthetic documentation
+> data. It does not connect to a router, expose a management API or contain real
+> credentials, addresses or device information.
+
+## A home router you can actually change
+
+Most router platforms are built to cover every case anyone might ever have. That
+makes them powerful, and it makes them large. Once you want something they do not
+already do, you are reading through a system far too big to hold in your head.
+
+Minimal Router starts from the other end. It does the handful of things a home
+connection actually needs, and it stops there. There is no plugin catalogue, no
+package manager, no third configuration language. The whole control plane is
+about thirty thousand lines of Go, one React dashboard, and a set of plain Linux
+services underneath.
+
+That size is the point. It is small enough that you — with an AI coding agent
+sitting beside you — can read all of it, understand why it behaves the way it
+does, and change it to fit your house exactly. Not by finding the right checkbox.
+By changing the code and shipping your own build.
+
+If you have ever wanted a router that works the way *you* want rather than the
+way a settings page allows, that is what this is for.
 
 <a id="status"></a>
 
-> **Controlled pilot — core routing validated; unattended production is not yet supported.**
-> Minimal Router has carried real PPPoE traffic in a controlled Proxmox deployment,
-> with DHCP/DNS, NAT, WireGuard, Dynamic DNS, monitoring, snapshots/recovery,
-> security controls and audit logs exercised end to end. The repository also has
-> extensive automated, QEMU and isolated-network validation. Real-lab scenarios
-> 26–40, repeated cold-boot/ISP recovery, sustained soak/thermal testing, external
-> scanning, fresh-VM backup restore, signed recovery media and independent security
-> review remain release gates. Keep console access and a known-good fallback router
-> available during pilots; [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md)
-> is the source of truth for what has actually passed.
+> **Beta.** The core is carrying real PPPoE traffic in a validated Proxmox
+> deployment: DHCP/DNS, NAT, WireGuard, Dynamic DNS, gateway monitoring,
+> snapshots and recovery all work end to end. Some management screens and the
+> final signed-update workflow are still being finished, and local-console
+> recovery remains the deliberate safety path. See
+> [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for exactly what is
+> proven today and what is not.
 
-**Lightweight by design.** The validated Proxmox appliance runs the core routing
-stack with **512 MiB RAM and 2 vCPUs**, handling real PPPoE traffic, WireGuard,
-DHCP/DNS, Dynamic DNS, monitoring and recovery. **1 GiB RAM is recommended** when
-enabling more optional services or scaling peer/device counts.
+## Why it is easy to adapt
 
-Minimal Router OS is a small Alpine Linux router appliance with a Go control
-plane and React dashboard. Linux handles packet forwarding; the project builds on
-`nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn` rather than implementing a
-new network stack.
+**One place per decision.** Firewall rules come from one generator. Everything
+the appliance applies comes from one config struct, through one transaction. When
+you want to change behaviour, there is usually a single function to read.
 
-## Highlights
+**The rules are written down as tests, not as folklore.** Things like "routing is
+never switched on before the firewall is loaded" or "port forwards are never
+reachable from the WAN" are enforced by tests that fail loudly if a change breaks
+them. An agent editing this code gets told immediately when it has crossed a line
+that matters — which is exactly what makes it safe to let one work here.
 
-- PPPoE WAN, DHCP/DNS, NAT and default-deny firewall
-- WireGuard remote access and peer provisioning
-- No-IP and Cloudflare Dynamic DNS
-- gateway latency/loss/reconnect monitoring and live bandwidth view
-- connected-device search, DHCP lease visibility and Wake-on-LAN
-- DNS filtering/device profiles and non-caching Squid
-- QoS/SQM backend with CAKE or fq_codel traffic shaping
-- optional Wi-Fi AP on supported hardware
-- transactional config apply with confirmation, rollback and recovery
-- unprivileged `routerd` plus narrow privileged `router-applyd`
+**Nothing hidden behind a vendor abstraction.** Packet forwarding is Linux.
+The project drives `nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn` directly.
+If you know Linux networking, you already know most of this system.
+
+**Honest reporting.** The dashboard never shows green for something it did not
+measure. If a check could not be read, it says so. That habit makes the appliance
+far easier to reason about when you are changing it.
+
+### Working with an AI agent
+
+Clone the repository, open it with your agent of choice, and describe what you
+want in plain language: *"add a schedule that blocks the kids' tablet during
+school hours"*, *"send me an alert when the WAN drops"*, *"cap the guest network
+to 20 Mbps"*.
+
+Useful things to point an agent at first:
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the pieces fit together
+- [`DESIGN.md`](DESIGN.md) — the rules the project holds itself to
+- [`SECURITY.md`](SECURITY.md) — read before touching anything privileged
+- `internal/config/validation.go` — what a valid configuration is
+- `internal/services/nftables.go` — every firewall rule the router ever loads
+
+Then run the tests. If they pass, your change kept the safety properties. If they
+fail, the message tells you which one you broke and why it exists.
+
+## What it does
+
+- PPPoE WAN, DHCP/DNS, NAT and a default-deny firewall
+- WireGuard remote access with peer provisioning
+- Dynamic DNS via No-IP or Cloudflare
+- gateway latency, loss and reconnect monitoring with live bandwidth
+- connected-device list, DHCP reservations and Wake-on-LAN
+- per-device monthly traffic accounting
+- DNS filtering with per-device schedules, and a non-caching Squid proxy
+- QoS/SQM shaping with CAKE or fq_codel
+- optional Wi-Fi access point on supported hardware
+- transactional configuration with confirmation, rollback and recovery
 - encrypted backups, snapshots and crash-safe A/B updates
-- bounded storage, health aggregation and security-focused CI
 
-## Real Proxmox pilot
+Deliberately **not** included: multi-WAN, BGP/OSPF, IDS/IPS, captive portals,
+HA failover, a plugin system. If you need those, use a platform built for them.
 
-A controlled 2026-08-01 pilot carried real Internet traffic through the router
-for about 27 minutes and successfully fell back to pfSense.
+## Small enough to run anywhere
 
-| Test | Minimal Router | pfSense |
-|---|---:|---:|
-| Download | **570 Mbps** | 543 Mbps |
-| Upload | **327 Mbps** | 318 Mbps |
-| Packet loss (600 packets) | **0%** | **0%** |
-| DNS (200 queries) | **12.65 ms, 200/200** | 13.00 ms, 200/200 |
-| CPU stress | **0% loss, dashboard 30/30** | — |
-| RAM after test | **172 MB** | — |
-
-The current Proxmox VM allocation is **2 vCPUs and 512 MiB RAM**. The full core
-routing stack remains operational within that allocation.
-
-External WireGuard handshake/dashboard access also passed. Operational fallback
-to pfSense took about 93 seconds.
-
-The tested Alpine `linux-virt` kernel lacked the required PPPoE module;
-`linux-lts` worked. The validated Proxmox path therefore requires a successful:
-
-```sh
-modprobe pppoe
-```
-
-See [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for the exact
-validated scope and remaining gates.
+The validated appliance runs the full core stack on **2 vCPUs and 512 MiB RAM**.
+1 GiB is comfortable once you enable more optional services.
 
 ## Quick start
 
-Validated Proxmox baseline: **2 vCPUs, 512 MiB RAM minimum; 1 GiB recommended**.
-
-Build a development archive:
+Build an installable archive:
 
 ```sh
 git clone https://github.com/vladimirperovic/minimalrouter.git
@@ -109,7 +138,12 @@ cd build
 sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
 ```
 
-Install on a clean Alpine 3.22 test VM after verifying PPPoE kernel support:
+Install on a clean Alpine 3.22 VM. Check PPPoE kernel support first — the
+`linux-virt` kernel does not ship the module, `linux-lts` does:
+
+```sh
+modprobe pppoe
+```
 
 ```sh
 tar xzf minimalrouter-linux-amd64.tar.gz
@@ -117,21 +151,19 @@ cd minimalrouter-linux-amd64
 sudo sh install.sh
 ```
 
-For a pre-provisioned air-gapped VM where all dependencies are already installed:
+For an air-gapped VM with dependencies already present, `sudo sh install.sh
+--offline` verifies packages with `apk info -e` instead of installing them, and
+aborts if anything is missing.
 
-```sh
-sudo sh install.sh --offline
-```
-
-Offline mode only checks installed packages with `apk info -e`; it does not run
-`apk update` or `apk add`. Missing dependencies abort the installation.
+Then open the address the installer prints and the setup wizard walks you through
+WAN/LAN roles, PPPoE and the administrator password.
 
 Full instructions: [`docs/INSTALLATION.md`](docs/INSTALLATION.md) and
 [`docs/PROXMOX.md`](docs/PROXMOX.md).
 
 ## Development
 
-Requirements: Go from `go.mod`, Node.js 22 and pnpm.
+Requirements: Go (version pinned in `go.mod`), Node.js 22 and pnpm.
 
 ```sh
 go test -race ./...
@@ -143,16 +175,17 @@ pnpm --dir web build
 pnpm --dir web test:e2e
 ```
 
-CI also covers clean Alpine installation, update/rollback, fuzzing, CodeQL,
-secret scanning, ARM64/QEMU, network namespaces and performance checks.
+CI additionally covers a clean Alpine install, update and rollback, fuzzing,
+CodeQL, secret scanning, ARM64 under QEMU, network-namespace routing labs and
+performance checks.
 
 ## Documentation
 
-- [`docs/README.md`](docs/README.md) — short documentation index
+- [`docs/README.md`](docs/README.md) — documentation index
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is proven now
 - [`docs/INSTALLATION.md`](docs/INSTALLATION.md) — install and offline install
 - [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and safe pilot procedure
-- [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md) — No-IP / Cloudflare
+- [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md) — No-IP and Cloudflare
 - [`docs/RECOVERY.md`](docs/RECOVERY.md) — recovery and rollback
 - [`docs/TESTING.md`](docs/TESTING.md) — test strategy and manual gates
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture details
@@ -160,11 +193,11 @@ secret scanning, ARM64/QEMU, network namespaces and performance checks.
 ## Security and privacy
 
 A router is a security boundary. Read [`SECURITY.md`](SECURITY.md) before changing
-privileged code and report vulnerabilities privately.
+privileged code, and report vulnerabilities privately.
 
 Never commit real credentials, private keys, backups, databases, packet captures,
-public addresses, private hostnames, MAC addresses or household device inventory.
-See [`PRIVACY.md`](PRIVACY.md).
+public addresses, private hostnames, MAC addresses or a household device
+inventory. See [`PRIVACY.md`](PRIVACY.md).
 
 ## License
 

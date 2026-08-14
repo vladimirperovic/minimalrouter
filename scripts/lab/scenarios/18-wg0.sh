@@ -13,8 +13,8 @@ phase "4-7-recovery"
 require "PPPoE reconnects" wait_pppoe 120
 
 phase "4-mr-runtime"
-require "wg0 tunnel re-establishes after WAN bounce" retry 180 mr "wg show wg0 | grep -q latest"
-check "wg0 tunnel traffic flows" mr "ping -c2 -W3 10.6.0.10 2>&1 | grep -q ' 0% packet loss'"
+require "wg0 tunnel traffic returns after WAN bounce" retry 180 mr "ping -c1 -W3 10.6.0.10 >/dev/null 2>&1"
+check "wg0 handshake is recent" check_wg_recent wg0 90
 check "canonical + last-good converge" check_converge
 check "production untouched" check_prod_untouched "$PROD_PORTS_BEFORE"
 

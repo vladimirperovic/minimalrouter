@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
@@ -71,10 +70,6 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 		manager.TrustedKey = key
 		manifest, err := firmware.LoadManifest(*manifestPath)
 		if err != nil {
-			fmt.Fprintf(stderr, "ERROR: %v\n", err)
-			return 1
-		}
-		if err := firmware.ValidateApplianceArchitecture(manifest, runtime.GOARCH); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}

@@ -13,8 +13,8 @@ systemctl enable --now qemu-guest-agent >/dev/null 2>&1 || true
 echo "== lease probe (wait for MR-TEST DHCP) =="
 i=0
 while [ $i -lt 30 ]; do
-  if ip -4 -o addr show | grep -q "192.168.1."; then
-    echo "DHCP lease acquired: $(ip -4 -o addr show | grep '192.168.1.' | awk '{print $4}')"
+  if ip -4 -o addr show | grep -q "10.77.0."; then
+    echo "DHCP lease acquired: $(ip -4 -o addr show | grep '10.77.0.' | awk '{print $4}')"
     break
   fi
   sleep 5; i=$((i+1))

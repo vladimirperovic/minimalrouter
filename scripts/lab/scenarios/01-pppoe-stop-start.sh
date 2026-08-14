@@ -10,7 +10,7 @@ require "symptom: PPPoE session dropped" wait_pppoe_down 60
 
 phase "4-mr-runtime"
 check "firewall still policy-drop" check_fw_not_fail_open
-check "LAN still up (host)" H ping -c1 -W2 192.168.1.1
+check "LAN gateway reachable from isolated client" lan "ping -c1 -W2 $MR_LAN_IP"
 check "LAN still up (client)" check_lan_up
 check "local DNS still serves" check_local_dns
 check "local save does not depend on PPPoE" mr_save_lease

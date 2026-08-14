@@ -3,7 +3,17 @@ import type { GatewayHistoryPoint, GatewaySettings, GatewaySummary } from "../ap
 import { apiFetch } from "../lib/api";
 import "./GatewayQualityPanel.css";
 
-type WindowName = "1h" | "24h" | "7d";
+// 30d is served from the hourly rollup in the gateway store: raw samples are
+// pruned after 7 days, so anything longer would otherwise return a truncated
+// series. Proving "the line was bad last month" needs this window.
+type WindowName = "1h" | "24h" | "7d" | "30d";
+
+const WINDOWS: Array<{ value: WindowName; label: string; note: string }> = [
+  { value: "1h", label: "1 hour", note: "live samples" },
+  { value: "24h", label: "24 hours", note: "live samples" },
+  { value: "7d", label: "7 days", note: "live samples" },
+  { value: "30d", label: "30 days", note: "hourly averages" },
+];
 
 type Props = {
   summary: GatewaySummary | null;
@@ -28,11 +38,22 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
   const plotWidth = width - padding * 2;
   const plotHeight = height - padding * 2;
   const maxLatency = Math.max(100, ...points.map((point) => point.latency_ms || 0));
-  const latencyPath = useMemo(() => points.map((point, index) => {
-    const x = padding + (points.length <= 1 ? 0 : index / (points.length - 1)) * plotWidth;
-    const y = padding + plotHeight - Math.min(1, (point.latency_ms || 0) / maxLatency) * plotHeight;
-    return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" "), [points, maxLatency, plotHeight, plotWidth]);
+  // Samples without a successful probe break the line instead of dropping it to
+  // zero, which would render an outage as perfect latency.
+  const latencyPath = useMemo(() => {
+    let penDown = false;
+    return points.map((point, index) => {
+      if (typeof point.latency_ms !== "number") {
+        penDown = false;
+        return "";
+      }
+      const x = padding + (points.length <= 1 ? 0 : index / (points.length - 1)) * plotWidth;
+      const y = padding + plotHeight - Math.min(1, point.latency_ms / maxLatency) * plotHeight;
+      const command = penDown ? "L" : "M";
+      penDown = true;
+      return `${command}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).filter(Boolean).join(" ");
+  }, [points, maxLatency, plotHeight, plotWidth]);
   const lossPath = useMemo(() => points.map((point, index) => {
     const x = padding + (points.length <= 1 ? 0 : index / (points.length - 1)) * plotWidth;
     const y = padding + plotHeight - Math.min(1, point.packet_loss_percent / 100) * plotHeight;
@@ -50,15 +71,6 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
     </svg>
     <div className="gateway-chart-legend"><span className="is-latency">Latency, max {Math.round(maxLatency)} ms</span><span className="is-loss">Packet loss, 0–100%</span></div>
   </div>;
-}
-
-export function GatewayOverviewCard({ summary }: { summary: GatewaySummary | null }) {
-  const state = summary?.enabled ? summary.state : "unknown";
-  return <article className={`gateway-overview-card is-${state}`}>
-    <div className="gateway-card-heading"><div><span>Gateway quality</span><strong>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</strong></div><i aria-hidden="true" /></div>
-    <div className="gateway-card-metrics"><span><b>{metric(summary?.latency_ms, " ms")}</b>Latency</span><span><b>{metric(summary?.jitter_ms, " ms")}</b>Jitter</span><span><b>{metric(summary?.packet_loss_percent, "%")}</b>Loss</span></div>
-    <small>{summary?.enabled ? `${summary.reconnects_1h || 0} reconnects in the last hour` : "Enable in Gateway Quality settings"}</small>
-  </article>;
 }
 
 export default function GatewayQualityPanel({ summary, settings, busy, onApply, onError }: Props) {
@@ -94,18 +106,20 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
   };
 
   return <section className="dashboard-section gateway-quality" id="gateway">
-    <div className="dashboard-section-heading"><div><p className="eyebrow">WAN observability</p><h2>Gateway quality</h2><small>Read-only monitoring; it never restarts PPPoE automatically.</small></div></div>
-    <div className="metric-grid compact">
-      <article><span>State</span><strong>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</strong><small>{summary?.link.connected ? summary.link.local_ip || "PPPoE connected" : "PPPoE disconnected"}</small></article>
-      <article><span>Latency</span><strong>{metric(summary?.latency_ms, " ms")}</strong><small>Average of reachable targets</small></article>
-      <article><span>Jitter</span><strong>{metric(summary?.jitter_ms, " ms")}</strong><small>Mean variation between replies</small></article>
-      <article><span>Packet loss</span><strong>{metric(summary?.packet_loss_percent, "%")}</strong><small>Average across two targets</small></article>
-      <article><span>PPPoE uptime</span><strong>{summary?.pppoe_uptime_seconds ? `${Math.floor(summary.pppoe_uptime_seconds / 3600)}h ${Math.floor((summary.pppoe_uptime_seconds % 3600) / 60)}m` : "—"}</strong><small>{summary?.link.peer_ip ? `Peer ${summary.link.peer_ip}` : "Peer unavailable"}</small></article>
-      <article><span>Reconnects</span><strong>{summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0}</strong><small>Last hour / last 24 hours</small></article>
+    <div className="dashboard-section-heading has-facts">
+      <div className="subpage-hero-head"><div><p className="eyebrow">WAN observability</p><h2>Gateway quality</h2><small>Read-only monitoring; it never restarts PPPoE automatically.</small></div><span className={`classic-status-chip ${summary?.state === "healthy" ? "" : "is-warning"}`}>{summary?.enabled ? stateLabel(summary.state) : "Monitoring off"}</span></div>
+      <dl className="subpage-hero-facts six">
+        <div><dt>State</dt><dd>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</dd><small>{summary?.link?.connected ? summary.link?.local_ip || "PPPoE connected" : "PPPoE disconnected"}</small></div>
+        <div><dt>Latency</dt><dd>{metric(summary?.latency_ms, " ms")}</dd><small>reachable targets</small></div>
+        <div><dt>Jitter</dt><dd>{metric(summary?.jitter_ms, " ms")}</dd><small>reply variation</small></div>
+        <div><dt>Packet loss</dt><dd>{metric(summary?.packet_loss_percent, "%")}</dd><small>target average</small></div>
+        <div><dt>PPPoE uptime</dt><dd>{summary?.pppoe_uptime_seconds ? `${Math.floor(summary.pppoe_uptime_seconds / 3600)}h ${Math.floor((summary.pppoe_uptime_seconds % 3600) / 60)}m` : "—"}</dd><small>{summary?.link?.peer_ip ? `Peer ${summary.link.peer_ip}` : "Peer unavailable"}</small></div>
+        <div><dt>Reconnects</dt><dd>{summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0}</dd><small>1h / 24h</small></div>
+      </dl>
     </div>
 
     <article className="card gateway-history-card">
-      <div className="card-title-row"><div><h3>Quality history</h3><p>Bounded local SQLite history with no cloud telemetry.</p></div><div className="gateway-window-tabs">{(["1h", "24h", "7d"] as WindowName[]).map((item) => <button className={windowName === item ? "is-active" : ""} key={item} onClick={() => setWindowName(item)} type="button">{item}</button>)}</div></div>
+      <div className="card-title-row"><div><h3>Quality history</h3><p>Bounded local SQLite history with no cloud telemetry. {windowName === "30d" ? "30-day view uses hourly averages." : "Live sample resolution."}</p></div><div className="gateway-window-tabs">{WINDOWS.map((item) => <button className={windowName === item.value ? "is-active" : ""} key={item.value} onClick={() => setWindowName(item.value)} title={item.note} type="button">{item.value}</button>)}</div></div>
       <HistoryChart points={points} />
     </article>
 

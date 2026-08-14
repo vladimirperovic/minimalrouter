@@ -1,35 +1,8 @@
-.gateway-overview-card {
-  display: grid;
-  min-height: 126px;
-  gap: 14px;
-  border: 1px solid var(--dashboard-border, rgba(0, 0, 0, 0.09));
-  border-radius: 18px;
-  padding: 17px;
-  background: var(--dashboard-panel, #fff);
-}
-
-.gateway-card-heading,
-.gateway-card-metrics,
 .gateway-window-tabs,
 .gateway-chart-legend {
   display: flex;
   align-items: center;
 }
-
-.gateway-card-heading { justify-content: space-between; gap: 14px; }
-.gateway-card-heading > div { display: grid; gap: 4px; }
-.gateway-card-heading span,
-.gateway-card-metrics span { color: var(--text-tertiary, #86868b); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.gateway-card-heading strong { font-size: 23px; letter-spacing: -.025em; }
-.gateway-card-heading i { width: 11px; height: 11px; border-radius: 50%; background: #8e8e93; }
-.gateway-overview-card.is-healthy .gateway-card-heading i { background: #34c759; box-shadow: 0 0 0 5px rgba(52, 199, 89, .12); }
-.gateway-overview-card.is-degraded .gateway-card-heading i { background: #ff9500; }
-.gateway-overview-card.is-offline .gateway-card-heading i { background: #ff3b30; }
-.gateway-overview-card.is-flapping .gateway-card-heading i { background: #af52de; }
-.gateway-card-metrics { justify-content: space-between; gap: 9px; }
-.gateway-card-metrics span { display: grid; gap: 3px; }
-.gateway-card-metrics b { color: var(--text-primary, #1d1d1f); font-size: 15px; letter-spacing: normal; text-transform: none; }
-.gateway-overview-card small { color: var(--text-secondary, #6e6e73); }
 
 .gateway-history-card { margin-bottom: 18px; }
 .gateway-window-tabs { gap: 4px; padding: 3px; border-radius: 10px; background: var(--dashboard-soft, #f2f2f7); }
@@ -47,7 +20,6 @@
 .gateway-quality > .dashboard-section-heading small { color: var(--text-secondary, #6e6e73); }
 
 @media (max-width: 680px) {
-  .gateway-card-metrics { align-items: flex-start; flex-direction: column; }
   .gateway-history-card .card-title-row { align-items: flex-start; flex-direction: column; }
   .gateway-chart-wrap { padding-inline: 8px; }
 }

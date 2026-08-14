@@ -92,6 +92,7 @@ export type RouterConfig = {
     zone_name?: string;
     domain: string;
     tunnel_enabled: boolean;
+    tunnel_hostname?: string;
     tunnel_token?: string;
   };
   squid_proxy: {
@@ -109,6 +110,7 @@ export type RouterConfig = {
     device_profiles: unknown[];
   };
   qos: { enabled: boolean; algorithm: string; download_limit_mbps: number; upload_limit_mbps: number };
+  accounting?: { enabled: boolean; retention_months: number };
   wifi: {
     enabled: boolean;
     interface: string;
@@ -236,6 +238,31 @@ export type GatewaySummary = {
   reconnects_24h: number;
 };
 
+export type GatewayHistoryWindow = "1h" | "24h" | "7d" | "30d";
+
+export type DeviceUsage = {
+  address: string;
+  hostname?: string;
+  mac?: string;
+  rx_bytes: number;
+  tx_bytes: number;
+  total_bytes: number;
+  last_seen_epoch?: number;
+};
+
+export type MonthUsage = {
+  month: string;
+  total_bytes: number;
+  devices: DeviceUsage[];
+};
+
+export type AccountingSnapshot = {
+  available: boolean;
+  enabled: boolean;
+  months: MonthUsage[];
+  updated_at: string;
+};
+
 export type GatewayHistoryPoint = {
   timestamp: string;
   state: GatewaySummary["state"];
@@ -260,3 +287,16 @@ export type ApplianceHealth = {
   checks: ApplianceHealthCheck[];
   generated_at: string;
 };
+
+export type FirewallCustomRule = {
+  id: string;
+  name: string;
+  action: string;
+  direction: string;
+  protocol: string;
+  src_ip?: string;
+  dst_port?: number;
+  enabled: boolean;
+};
+
+export type StaticLease = { id: string; hostname: string; mac: string; ip_address: string };

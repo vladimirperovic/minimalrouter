@@ -1,53 +1,102 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
-import ApplianceHealthBanner from "./components/ApplianceHealthBanner";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
+import { useApplianceHealth } from "./components/HealthBanner";
 import "./DashboardApp.css";
 import "./ClassicDashboard.css";
+import "./components/DashboardAdditions.css";
 
-const navigation: Array<[SectionID, string]> = [
-  ["overview", "Overview"],
-  ["gateway", "Gateway Quality"],
-  ["network", "LAN & DHCP"],
-  ["firewall", "Firewall"],
-  ["qos", "QoS / SQM"],
-  ["wireguard", "WireGuard"],
-  ["cloudflare", "Dynamic DNS"],
-  ["squid", "Squid Proxy"],
-  ["dns-filter", "DNS Filter"],
-  ["wifi", "Wi-Fi AP"],
-  ["recovery", "Recovery"],
-  ["security", "Security"],
-  ["logs", "Logs"],
+const navigationGroups: Array<{ label: string; items: Array<[SectionID, string]> }> = [
+  { label: "Monitor", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
+  { label: "Protect", items: [["firewall", "Firewall"], ["security", "Security"], ["dns-filter", "DNS Filter"]] },
+  { label: "Connect", items: [["qos", "QoS / SQM"], ["wireguard", "WireGuard"], ["cloudflare", "DynDNS"], ["wifi", "Wi-Fi AP"]] },
+  { label: "Operate", items: [["traffic", "Traffic"], ["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
 ];
+
+const navigation = navigationGroups.flatMap((group) => group.items);
+
+function sectionFromHash(): SectionID {
+  const candidate = window.location.hash.slice(1);
+  return navigation.some(([id]) => id === candidate) ? candidate as SectionID : "overview";
+}
 
 const navIcons: Record<SectionID, ReactNode> = {
   overview: <path d="M3 3h8v8H3zM13 3h8v5h-8zM13 12h8v9h-8zM3 15h8v6H3z" />,
   gateway: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
-  network: <path d="M17 3a2 2 0 0 0-2 2c0 .56.23 1.06.6 1.42l-5.18 5.18a2 2 0 0 0-2.84 0L2 6.1M6.1 22l3.5-3.5M17 13a2 2 0 0 1 0 4" />,
+  network: <><circle cx="5" cy="5" r="2" /><circle cx="19" cy="5" r="2" /><circle cx="12" cy="19" r="2" /><path d="m6.8 6.1 4 10.9M17.2 6.1l-4 10.9M7 5h10" /></>,
   firewall: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
-  qos: <path d="M3 12h4v3H3zM9 12h4v3H9zM15 12h4v3h-4zM3 17h4v3H3zM9 17h4v3H9zM15 17h4v3h-4z" />,
+  qos: <path d="M5 20V10M10 20V4M15 20v-7M20 20V7" />,
   wireguard: <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />,
   cloudflare: <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" />,
   squid: <path d="M2 20h20M4 20V9h16v11M12 9V5m-4 0h8M12 20v-4h-2m2 4h-2" />,
   "dns-filter": <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />,
   wifi: <path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" />,
   recovery: <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />,
-  security: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10zM9 11.5l2 2 4-4" />,
+  security: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></>,
   logs: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />,
+  traffic: <><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></>,
 };
+
+// Appearance is a per-browser preference, not router state, so it lives in
+// localStorage. Previously every reload dropped the operator back to light mode.
+const THEME_STORAGE_KEY = "minimalrouter:theme";
+
+function initialTheme(): boolean {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark") return true;
+    if (stored === "light") return false;
+  } catch {
+    // Private-mode browsers can throw on access; fall through to the OS hint.
+  }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
 
 function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
 
+// Derive the dotted netmask from the prefix length so cidr and netmask can never
+// disagree. The previous code only handled /16 and /24 and silently produced
+// 255.255.255.0 for everything else.
+function netmaskForPrefix(prefix: number): string {
+  const bounded = Math.min(32, Math.max(0, Math.trunc(prefix)));
+  const mask = bounded === 0 ? 0 : (0xffffffff << (32 - bounded)) >>> 0;
+  return [24, 16, 8, 0].map((shift) => (mask >>> shift) & 0xff).join(".");
+}
+
+// Every section below is a non-pointer struct without `omitempty` in
+// config.SystemConfig, so a healthy appliance always emits all of them. The
+// dashboard dereferences them unconditionally during render — config.cloudflare
+// .ddns_provider and friends — so a 200 carrying a body without them throws
+// inside React and unmounts every page, not just the one section that is
+// missing. A response that is not a router configuration is treated as no
+// configuration at all: the existing "Configuration unavailable" path keeps the
+// last known-good state and offers Retry.
+// Exactly the sections some section body reads as config.<name>.<field> with no
+// optional chaining. Sections the UI already guards (dns, wg_client, accounting)
+// are deliberately absent: requiring them would turn a survivable gap into a
+// dead dashboard.
+const REQUIRED_CONFIG_SECTIONS = [
+  "wan", "lan", "dhcp", "firewall", "wireguard",
+  "cloudflare", "squid_proxy", "adguard", "qos", "wifi",
+] as const;
+
+function isRenderableConfig(value: RouterConfig | null): value is RouterConfig {
+  if (!value || typeof value !== "object") return false;
+  return REQUIRED_CONFIG_SECTIONS.every((section) => {
+    const item = (value as unknown as Record<string, unknown>)[section];
+    return item !== null && typeof item === "object";
+  });
+}
+
 function Dashboard() {
-  const [active, setActive] = useState<SectionID>("overview");
+  const [active, setActive] = useState<SectionID>(sectionFromHash);
   const [config, setConfig] = useState<RouterConfig | null>(null);
   const [system, setSystem] = useState<SystemStatus>({});
   const [gatewaySummary, setGatewaySummary] = useState<GatewaySummary | null>(null);
@@ -57,12 +106,13 @@ function Dashboard() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(initialTheme);
   const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const pollSequence = useRef(0);
   const pollController = useRef<AbortController | null>(null);
+  const { health, unavailable: healthUnavailable } = useApplianceHealth();
 
   const load = useCallback(async () => {
     const sequence = ++pollSequence.current;
@@ -80,7 +130,11 @@ function Dashboard() {
       ]);
       if (sequence !== pollSequence.current) return;
       if (configResult.status === "fulfilled" && configResult.value.ok) {
-        setConfig((await configResult.value.json()) as RouterConfig);
+        const body = (await configResult.value.json()) as RouterConfig | null;
+        if (!isRenderableConfig(body)) {
+          throw new Error("Configuration unavailable");
+        }
+        setConfig(body);
       } else {
         throw new Error("Configuration unavailable");
       }
@@ -95,13 +149,28 @@ function Dashboard() {
         unavailable.push("system status");
       }
       if (gatewayResult.status === "fulfilled" && gatewayResult.value.ok) {
-        setGatewaySummary((await gatewayResult.value.json()) as GatewaySummary);
+        // A 200 is not proof of a usable body. The summary is read as
+        // summary.link.connected during render, so a payload without `link`
+        // throws and unmounts the whole dashboard instead of degrading one
+        // panel. An unreadable summary is unavailable, never assumed connected.
+        const body = (await gatewayResult.value.json()) as GatewaySummary | null;
+        if (body && typeof body === "object" && body.link && typeof body.link === "object") {
+          setGatewaySummary(body);
+        } else {
+          setGatewaySummary(null);
+          unavailable.push("gateway quality");
+        }
       } else {
         setGatewaySummary(null);
         unavailable.push("gateway quality");
       }
       if (gatewaySettingsResult.status === "fulfilled" && gatewaySettingsResult.value.ok) {
-        setGatewaySettings((await gatewaySettingsResult.value.json()) as GatewaySettings);
+        // targets is read as .length during render; a payload missing it would
+        // throw and take down the dashboard, so keep the last known-good value.
+        const body = (await gatewaySettingsResult.value.json()) as GatewaySettings | null;
+        if (body && Array.isArray(body.targets)) {
+          setGatewaySettings(body);
+        }
       }
       if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
         const body = await snapshotsResult.value.json();
@@ -134,20 +203,59 @@ function Dashboard() {
     };
   }, [load]);
 
+  // Depend on the deadline value rather than the object identity: the 15-second
+  // poll replaces pendingTx with an equal-but-new object, which used to restart
+  // this interval four times a minute.
+  const confirmationDeadline = pendingTx?.confirmation_deadline ?? null;
   useEffect(() => {
-    if (!pendingTx?.confirmation_deadline) {
+    if (!confirmationDeadline) {
       setCountdown(0);
       return;
     }
-    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(pendingTx.confirmation_deadline!).getTime() - Date.now()) / 1000)));
+    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(confirmationDeadline).getTime() - Date.now()) / 1000)));
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [pendingTx]);
+  }, [confirmationDeadline]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, dark ? "dark" : "light");
+    } catch {
+      // Persisting the theme is a convenience; failing to store it must never
+      // break the dashboard.
+    }
   }, [dark]);
+
+  const dashboardReady = Boolean(config);
+
+  useEffect(() => {
+    if (!dashboardReady) return;
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, dashboardReady]);
+
+  useEffect(() => {
+    const syncSectionFromHash = () => {
+      setActive(sectionFromHash());
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    };
+    window.addEventListener("hashchange", syncSectionFromHash);
+    return () => window.removeEventListener("hashchange", syncSectionFromHash);
+  }, []);
+
+  const showSection = (id: SectionID) => {
+    if (window.location.hash !== `#${id}`) window.history.pushState(null, "", `#${id}`);
+    setActive(id);
+    setMenuOpen(false);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+  };
+
+  const navigateToSection = (event: MouseEvent<HTMLAnchorElement>, id: SectionID) => {
+    event.preventDefault();
+    showSection(id);
+  };
 
   const applyConfig = async (mutate: (next: RouterConfig) => void, success: string) => {
     setBusy(true);
@@ -166,7 +274,7 @@ function Dashboard() {
       const body = await applyResponse.json().catch(() => ({}));
       if (!applyResponse.ok) throw new Error(body.error || `Apply failed (${applyResponse.status})`);
       if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
-      setNotice(body.state === "AwaitingConfirmation" ? "Promjena je privremeno aktivna i čeka potvrdu pristupa." : success);
+      setNotice(body.state === "AwaitingConfirmation" ? "Change is provisionally active and is waiting for access confirmation." : success);
       await load();
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Configuration apply failed");
@@ -195,6 +303,7 @@ function Dashboard() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void applyConfig((next) => {
+      const currentPrefix = Number(String(next.lan.cidr || "").split("/")[1]) || 24;
       next.wan = {
         ...next.wan,
         interface: field(form, "wan_interface"),
@@ -207,8 +316,14 @@ function Dashboard() {
         ...next.lan,
         interface: field(form, "lan_interface"),
         ip_address: field(form, "lan_ip"),
-        cidr: `${field(form, "lan_ip")}/${field(form, "lan_prefix") || "24"}`,
-        netmask: field(form, "lan_prefix") === "16" ? "255.255.0.0" : "255.255.255.0",
+        // The prefix is intentionally not editable here: ProcessTransaction
+        // rejects any live LAN subnet change ("use the local recovery console"),
+        // so offering a prefix selector only produced guaranteed failures. Keep
+        // the current prefix and derive the netmask from it instead of the old
+        // /16-or-/24 branch, which produced a netmask that disagreed with the
+        // CIDR for every other prefix length.
+        cidr: `${field(form, "lan_ip")}/${currentPrefix}`,
+        netmask: netmaskForPrefix(currentPrefix),
       };
       next.dhcp = {
         ...next.dhcp,
@@ -306,7 +421,6 @@ function Dashboard() {
         domain: field(form, "domain"),
         zone_name: field(form, "zone"),
         api_token: newCredential || (provider === previousProvider ? next.cloudflare.api_token : ""),
-        tunnel_enabled: false,
       };
     }, "Dynamic DNS configuration applied.");
   };
@@ -454,7 +568,7 @@ function Dashboard() {
     const newPassword = field(form, "new_password");
     const confirm = field(form, "confirm_password");
     if (newPassword.length < 12 || newPassword !== confirm) {
-      setError("Nova lozinka mora imati najmanje 12 karaktera i potvrda mora biti ista.");
+      setError("New password must be at least 12 characters and both entries must match.");
       return;
     }
     setBusy(true);
@@ -487,41 +601,79 @@ function Dashboard() {
     return <main className="dashboard-loading"><p>{error || "Loading secure router state…"}</p><button className="button secondary" onClick={() => void load()} type="button">Retry</button></main>;
   }
 
-  const ddnsProvider = config.cloudflare.ddns_provider === "noip" ? "No-IP" : "Cloudflare";
-  const gatewayState = gatewaySummary?.state || "unknown";
+  const activeLabel = navigation.find(([id]) => id === active)?.[1] || "Overview";
+
+  // The bell used to be decorative: it always showed an unread dot and always
+  // said everything was normal. It now reports what /api/v1/health measured.
+  const failingChecks = health?.checks?.filter((check) => check.state !== "healthy") ?? [];
+  const alertCount = system.recovery_required ? failingChecks.length + 1 : failingChecks.length;
+  const alertSummary = healthUnavailable
+    ? "Appliance health could not be read, so alert state is unknown."
+    : system.recovery_required
+      ? `Recovery required. ${failingChecks.length} additional check(s) need attention.`
+      : failingChecks.length === 0
+        ? "No active appliance alerts. All health checks are passing."
+        : `${failingChecks.length} check(s) need attention: ${failingChecks.map((check) => check.label).join(", ")}.`;
+
+  const applianceState = healthUnavailable
+    ? { className: "is-unknown", label: "Health unknown" }
+    : system.recovery_required
+      ? { className: "is-bad", label: "Recovery required" }
+      : health?.state === "healthy"
+        ? { className: "", label: "Healthy" }
+        : health?.state === "recovery_required" || health?.state === "degraded"
+          ? { className: "is-bad", label: "Degraded" }
+          : health?.state === "warning"
+            ? { className: "is-warning", label: "Needs attention" }
+            : { className: "is-unknown", label: "Health unknown" };
 
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
         <div className="dashboard-brand">
-          <span className="classic-brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M2 9h18M4 9l1.2 5.2a3 3 0 0 0 2.9 2.3h7.8a3 3 0 0 0 2.9-2.3L20 9" /><circle cx="5.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><circle cx="8.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" /><path d="M7 5.5h10M10 3.5h4" /></svg></span>
-          <div className="dashboard-brand-title"><strong>Minimal</strong><small>Router</small></div>
+          <div className="dashboard-brand-title"><strong>minimalrouter</strong></div>
         </div>
-        <nav aria-label="Router sections">
-          {navigation.map(([id, label]) => (
-            <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={() => { setActive(id); setMenuOpen(false); }}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
-          ))}
+        <nav className="dashboard-navigation" aria-label="Router sections">
+          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label}>
+            <h2>{group.label}</h2>
+            <div>
+              {group.items.map(([id, label]) => (
+                <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
+              ))}
+            </div>
+          </section>)}
         </nav>
-        <div className="dashboard-brand-revision">Revision {config.revision}</div>
+        <div className="dashboard-sidebar-footer">
+          <div className="dashboard-brand-revision">Minimal Router OS <span>r{config.revision}</span></div>
+        </div>
       </aside>
 
       <main className="dashboard-main">
         <header className="dashboard-topbar classic-topbar">
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
-          <div className="classic-topbar-status" aria-label="Router service status">
-            <span className={config.firewall.stateful_firewall ? "classic-status-chip" : "classic-status-chip is-off"}>Firewall</span>
-            <span className={config.wireguard.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>WireGuard {config.wireguard.enabled && <b className="chip-badge">{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter(p => p.enabled).length}</b>}</span>
-            <span className={config.dhcp.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>DHCP {config.dhcp.enabled && <b className="chip-badge">{system.runtime?.dhcp_leases?.length || 0}</b>}</span>
-            <span className="classic-status-chip">DNS</span>
-            <span className={config.cloudflare.ddns_enabled ? (system.runtime?.ddns?.running ? "classic-status-chip" : "classic-status-chip is-info") : "classic-status-chip is-off"}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
-            <span className={config.squid_proxy.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>Squid Proxy {config.squid_proxy.enabled ? "on" : "off"}</span>
-            <span className={config.qos.enabled ? "classic-status-chip" : "classic-status-chip is-off"}>QoS {config.qos.enabled ? `${config.qos.algorithm}` : "off"}</span>
-            <span className={config.cloudflare.tunnel_enabled ? "classic-status-chip" : "classic-status-chip is-off"}>{config.cloudflare.tunnel_enabled ? "Cloudflare Tunnel" : "Cloudflare Tunnel off"}</span>
-            <span className={gatewayState === "healthy" ? "classic-status-chip" : gatewayState === "unknown" ? "classic-status-chip is-off" : "classic-status-chip is-warning"}>Gateway {gatewayState}</span>
+          <div className="classic-page-heading">
+            <h1>{activeLabel}</h1>
           </div>
           <div className="classic-topbar-actions">
-            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">{dark ? "☀" : "◐"}</button>
-            <span className="classic-setup-pill">Setup complete</span>
+            <div className="classic-live-sync"><i aria-hidden="true" /><span><strong>Live</strong><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Connecting"}</small></span></div>
+            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
+              {dark
+                ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
+                : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.8" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>}
+            </button>
+            <button
+              aria-label={`Notifications: ${alertSummary}`}
+              className="classic-topbar-button classic-notification-button"
+              onClick={() => { showSection("overview"); setNotice(alertSummary); }}
+              type="button"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+              {alertCount > 0 && <i aria-hidden="true" />}
+            </button>
+            <span className={`classic-setup-pill ${applianceState.className}`}>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg>
+              {applianceState.label}
+            </span>
             <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
           </div>
         </header>
@@ -531,8 +683,7 @@ function Dashboard() {
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary classic-alert-recover" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} />}
-        {active === "overview" && <ApplianceHealthBanner />}
+        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
 
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
 
@@ -545,13 +696,10 @@ function Dashboard() {
             busy={busy}
             config={config}
             createSnapshot={createSnapshot}
-            diskPercent={diskPercent}
             gatewaySummary={gatewaySummary}
             gatewaySettings={gatewaySettings}
-            lastRefresh={lastRefresh}
             leases={leases}
             load={load}
-            memoryPercent={memoryPercent}
             restoreSnapshot={restoreSnapshot}
             setError={setError}
             snapshots={snapshots}
@@ -571,7 +719,6 @@ function Dashboard() {
             toggleWiFi={toggleWiFi}
             speedTest={speedTest}
             speedTesting={speedTesting}
-            system={system}
             runtime={runtime}
           />
         )}

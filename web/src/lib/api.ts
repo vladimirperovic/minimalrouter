@@ -1,3 +1,5 @@
+import { demoApiFetch, isDemoMode } from "./demoApi";
+
 let csrfToken = "";
 let lastCanonicalRevision: number | null = null;
 
@@ -6,6 +8,10 @@ export function setCSRFToken(token: string) {
 }
 
 export async function refreshSession(): Promise<boolean> {
+  if (isDemoMode) {
+    csrfToken = "public-demo";
+    return true;
+  }
   try {
     const response = await fetch("/api/v1/auth/session", {
       credentials: "same-origin",
@@ -57,6 +63,8 @@ export async function apiFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
+  if (isDemoMode) return demoApiFetch(input, init);
+
   const method = (init.method ?? "GET").toUpperCase();
   const mutating = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (mutating && !csrfToken && !(await refreshSession())) {
@@ -67,7 +75,11 @@ export async function apiFetch(
   if (mutating) {
     headers.set("X-CSRF-Token", csrfToken);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  // FormData must keep the browser-generated multipart boundary. Setting a
+  // JSON content type here makes authenticated backup restore uploads
+  // impossible even though the backend correctly accepts multipart/form-data.
+  const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !headers.has("Content-Type") && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
 

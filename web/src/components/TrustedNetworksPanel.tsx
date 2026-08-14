@@ -88,7 +88,7 @@ export default function TrustedNetworksPanel({ onError }: Props) {
   };
 
   return (
-    <div className="classic-live-card classic-security-card">
+    <div className="classic-live-card classic-security-card classic-trusted-networks">
       <h3>Trusted networks</h3>
       <p className="classic-security-intro">
         Only devices connecting from these networks can access the MinimalRouter administration interface.

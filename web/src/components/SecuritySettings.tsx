@@ -3,6 +3,8 @@ import { apiFetch } from "../lib/api";
 import type { RouterConfig } from "../api-types";
 import TrustedNetworksPanel from "./TrustedNetworksPanel";
 import PortForwardsPanel from "./PortForwardsPanel";
+import TOTPSettingsPanel from "./TOTPSettingsPanel";
+import RecoveryToolsPanel from "./RecoveryToolsPanel";
 
 type AuditEvent = {
   id: string;
@@ -69,63 +71,38 @@ export default function SecuritySettings({ config, onError }: Props) {
   const posture = config.firewall.stateful_firewall ? "is-good" : "is-bad";
 
   return (
-    <section className="classic-dashboard-overview" aria-label="Security">
+    <section className="classic-dashboard-overview classic-security-page" aria-label="Security">
       <article className="classic-hero-card">
-        <div className="classic-hero-heading">
-          <div>
-            <div className="classic-kicker">Router hardening</div>
-            <h1>Security</h1>
-          </div>
-          <span className={`classic-state-pill ${posture}`}>
-            <span className="classic-dot" />{config.firewall.stateful_firewall ? "Protected" : "Unprotected"}
-          </span>
-        </div>
-        <p className="classic-security-intro">
-          Firewall posture, recent sign-in activity, and blocked requests.
-        </p>
-
-        <div className="classic-security-grid">
-          <div className="classic-live-card classic-security-card">
-            <h3>Protection status</h3>
-            <dl className="classic-security-stats">
-              <div><dt>Stateful firewall</dt><dd className={config.firewall.stateful_firewall ? "is-good" : "is-bad"}>{config.firewall.stateful_firewall ? "Enabled" : "Disabled"}</dd></div>
-              <div><dt>Default policy</dt><dd>{config.firewall.default_wan_input_policy || "drop"}</dd></div>
-              <div><dt>Logged-in sessions</dt><dd>{loading ? "…" : "Active"}</dd></div>
-              <div><dt>Failed logins</dt><dd className={failureCount > 0 ? "is-bad" : "is-good"}>{failureCount}</dd></div>
-              <div><dt>CSRF / origin rejected</dt><dd className={csrfCount > 0 ? "is-warn" : "is-good"}>{csrfCount}</dd></div>
-            </dl>
-          </div>
-
-          <div className="classic-live-card classic-security-card classic-security-card-column">
-            <h3>Recent sign-in activity</h3>
-            <div className="classic-security-session">
-              {lastLogin ? (
-                <>
-                  <div className="classic-security-session-block">
-                    <label>Previous login</label>
-                    <strong className="classic-security-value">{since(lastLogin.timestamp)}</strong>
-                    <small>From IP: {lastLogin.actor}</small>
-                  </div>
-                </>
-              ) : (
-                <div className="classic-security-session-block">
-                  <small>No previous logins recorded.</small>
-                </div>
-              )}
+        <section className="classic-security-command" aria-labelledby="security-posture-title">
+          <div className="classic-hero-heading">
+            <div className="classic-security-hero-copy">
+              <span className="classic-security-hero-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-5" /></svg></span>
+              <div>
+                <div className="classic-kicker">Security posture</div>
+                <h1 id="security-posture-title">{config.firewall.stateful_firewall ? "Protected by default" : "Protection needs attention"}</h1>
+              </div>
             </div>
-            <div className="classic-security-logout">
-              <strong>Security event feed</strong>
-              <p>Authentication failures and policy rejects from the last 100 events.</p>
-            </div>
+            <span className={`classic-state-pill ${posture}`}>
+              <span className="classic-dot" />{config.firewall.stateful_firewall ? "Protected" : "Unprotected"}
+            </span>
           </div>
-        </div>
+          <p className="classic-security-intro">Stateful firewall policy, trusted administration paths and recent authentication activity in one local control surface.</p>
+
+          <dl className="classic-security-command-facts">
+            <div><dt>Firewall</dt><dd>{config.firewall.stateful_firewall ? "Enabled" : "Disabled"}</dd><small>stateful inspection</small></div>
+            <div><dt>WAN policy</dt><dd>{config.firewall.default_wan_input_policy || "drop"}</dd><small>unsolicited input</small></div>
+            <div><dt>Failed logins</dt><dd className={failureCount > 0 ? "is-bad" : "is-good"}>{failureCount}</dd><small>last 100 events</small></div>
+            <div><dt>Rejected requests</dt><dd className={csrfCount > 0 ? "is-warn" : "is-good"}>{csrfCount}</dd><small>CSRF and origin</small></div>
+            <div><dt>Last sign-in</dt><dd>{lastLogin ? since(lastLogin.timestamp) : loading ? "…" : "None"}</dd><small>{lastLogin ? lastLogin.actor : "no previous login"}</small></div>
+          </dl>
+        </section>
 
         <div className="classic-security-feed">
-          <h3>Recent security events</h3>
+          <div className="classic-security-feed-heading"><div><h3>Recent security events</h3><p>Authentication and policy events retained locally by the appliance.</p></div><span>{secure.length} events</span></div>
           {loading && <p className="classic-security-empty">Loading events…</p>}
           {!loading && secure.length === 0 && <p className="classic-security-empty">No security events recorded.</p>}
           {!loading && secure.length > 0 && (
-            <table className="classic-security-table">
+            <div className="classic-security-table-wrap"><table className="classic-security-table">
               <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Details</th></tr></thead>
               <tbody>{secure.map((event) => (
                 <tr key={event.id}>
@@ -135,12 +112,14 @@ export default function SecuritySettings({ config, onError }: Props) {
                   <td>{Object.entries(event.details ?? {}).filter(([, v]) => v).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Recorded"}</td>
                 </tr>
               ))}</tbody>
-            </table>
+            </table></div>
           )}
         </div>
 
         <TrustedNetworksPanel onError={onError} />
         <PortForwardsPanel onError={onError} />
+        <TOTPSettingsPanel onError={onError} />
+        <RecoveryToolsPanel config={config} onError={onError} />
       </article>
     </section>
   );

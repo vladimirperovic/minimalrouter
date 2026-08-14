@@ -27,6 +27,12 @@ retry="SIGTERM/10/SIGKILL/5"
 depend() {
     before routerd
     need localmount
+    # The helper owns every WAN/LAN/tunnel interface. Ordering after the
+    # distribution network service prevents ifupdown from re-running against
+    # an interface whose address configureRuntimeLAN() has already installed.
+    # routerd needs net too, so without this the relative order of `net` and
+    # this helper was left undefined by OpenRC.
+    after net
     use logger
 }
 

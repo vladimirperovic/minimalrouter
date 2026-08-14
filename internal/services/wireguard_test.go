@@ -60,7 +60,7 @@ func TestGenerateClientConfig(t *testing.T) {
 		"clientPrivateKey123=",
 		"10.0.0.2/32",
 		"serverPublicKey456=",
-		"185.33.42.117:51820",
+		"203.0.113.24:51820",
 		"pskKey789=",
 		"1.1.1.1",
 	)
@@ -71,7 +71,7 @@ func TestGenerateClientConfig(t *testing.T) {
 	if !strings.Contains(bundle.ConfigText, "[Interface]") {
 		t.Errorf("Expected [Interface] section in client config")
 	}
-	if !strings.Contains(bundle.ConfigText, "Endpoint = 185.33.42.117:51820") {
+	if !strings.Contains(bundle.ConfigText, "Endpoint = 203.0.113.24:51820") {
 		t.Errorf("Expected endpoint in client config")
 	}
 	const prefix = "data:image/png;base64,"

@@ -27,7 +27,7 @@ describe("device profiles", () => {
         },
       },
     });
-    expect(describeSchedule(profile)).toBe("Pon–Pet 19:00–23:59; Sub–Ned cijeli dan");
+    expect(describeSchedule(profile)).toBe("Mon–Fri 19:00–23:59; Sat–Sun all day");
     vi.unstubAllGlobals();
   });
 
@@ -45,6 +45,6 @@ describe("device profiles", () => {
   it("rejects an empty device list", () => {
     expect(() => createKidsProfile({
       addresses: [], services: ["youtube"], dayWindows: gridToDayWindows(createDefaultKidsGrid()),
-    })).toThrow(/IP adresu/);
+    })).toThrow(/static device IP address/);
   });
 });

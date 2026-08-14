@@ -809,10 +809,18 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err != nil {
 		return err
 	}
+	if err := prepareDnsmasqLeaseState(); err != nil {
+		return fmt.Errorf("prepare DHCP lease state: %w", err)
+	}
 	for _, name := range restoreArtifacts {
 		item := generated[name]
 		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
 			return fmt.Errorf("install %s: %w", name, err)
+		}
+	}
+	if cfg.SquidProxy.Enabled {
+		if err := secureSquidPasswordFile(); err != nil {
+			return err
 		}
 	}
 	if err := applyKernelHardening(cfg); err != nil {
@@ -859,16 +867,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := runNftFile(nftRuntimePath, false); err != nil {
 		return fmt.Errorf("load nftables: %w", err)
 	}
-	// QoS attaches to ppp0, which only exists after PPPoE negotiates. It is a
-	// traffic-shaping optimization, not a security boundary: a failed tc attach
-	// must never fail an apply or roll back a valid config, or a slow ISP
-	// handshake would block routing at every boot.
-	if cfg.QoS.Enabled {
-		if err := applyQoS(cfg); err != nil {
-			log.Printf("apply QoS not applied (non-fatal): %v", err)
-		}
-	} else {
-		clearQoS(cfg)
+	// Only now, with the policy proven loaded, is routing switched on.
+	if err := enableIPForwarding(); err != nil {
+		return err
 	}
 
 	// Bring management tunnels up before dnsmasq restarts. dnsmasq uses
@@ -910,13 +911,8 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	}
 	if ddnsChanged {
 		if cfg.Cloudflare.DDNSEnabled {
-			group, lookupErr := user.LookupGroup("inadyn")
-			if lookupErr != nil {
-				return errors.New("Cloudflare DDNS service group is unavailable")
-			}
-			gid, parseErr := strconv.Atoi(group.Gid)
-			if parseErr != nil || os.Chown("/etc/inadyn/inadyn.conf", 0, gid) != nil {
-				return errors.New("could not secure Cloudflare DDNS configuration ownership")
+			if err := secureDDNSConfiguration(); err != nil {
+				return err
 			}
 			if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 				return fmt.Errorf("restart Cloudflare DDNS: %w", err)
@@ -924,6 +920,19 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 		} else {
 			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 		}
+	}
+	// QoS attaches to ppp0, which pppd destroys and recreates on every restart.
+	// Shaping is therefore applied *after* the PPPoE branch above, never before
+	// it: the previous ordering applied tc and then immediately tore the
+	// interface down, so the verification below always reported a missing
+	// qdisc. It is an optimization, not a security boundary, so a failed attach
+	// must never fail an apply or roll back a valid configuration.
+	if cfg.QoS.Enabled {
+		if err := applyQoS(cfg); err != nil {
+			log.Printf("apply QoS not applied (non-fatal): %v", err)
+		}
+	} else {
+		clearQoS(cfg)
 	}
 	if cfg.QoS.Enabled {
 		iface := cfg.WAN.Interface
@@ -939,59 +948,21 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	}
 	if squidChanged {
 		if cfg.SquidProxy.Enabled {
-			group, lookupErr := user.LookupGroup("squid")
-			if lookupErr != nil {
-				return errors.New("Squid service group is unavailable")
-			}
-			gid, parseErr := strconv.Atoi(group.Gid)
-			if parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
-				return errors.New("could not secure Squid password file ownership")
-			}
 			if err := runFixed("/sbin/rc-service", "squid", "restart"); err != nil {
 				return fmt.Errorf("restart Squid: %w", err)
 			}
 		} else {
-			_ = runFixed("/sbin/rc-service", "squid", "stop")
+			if err := stopSquid(); err != nil {
+				return fmt.Errorf("stop Squid: %w", err)
+			}
 		}
 	}
 	return nil
 }
 
-func portForwardRulesActive(ruleset, interfaceName, protocol string, externalPort int, internalIP string, internalPort int) bool {
-	protocol = strings.ToLower(protocol)
-	protocols := []string{protocol}
-	if protocol == "both" {
-		protocols = []string{"tcp", "udp"}
-	}
-	for _, currentProtocol := range protocols {
-		if currentProtocol != "tcp" && currentProtocol != "udp" {
-			return false
-		}
-		want := fmt.Sprintf("iifname \"%s\" %s dport %d dnat to %s:%d",
-			interfaceName, currentProtocol, externalPort, internalIP, internalPort)
-		if !strings.Contains(ruleset, want) {
-			return false
-		}
-	}
-	return true
-}
-
 func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err != nil {
 		return fmt.Errorf("nftables table unavailable: %w", err)
-	}
-	ruleset, err := runFixedOutput("/usr/sbin/nft", "list", "table", "inet", "minimalrouter")
-	if err != nil {
-		return fmt.Errorf("nftables table unavailable: %w", err)
-	}
-	wireGuardInterface := wireGuardInterfaceName(cfg.WireGuard)
-	for _, pf := range cfg.Firewall.PortForwards {
-		if !pf.Enabled || !cfg.WireGuard.Enabled {
-			continue
-		}
-		if !portForwardRulesActive(ruleset, wireGuardInterface, pf.Protocol, pf.ExternalPort, pf.InternalIP, pf.InternalPort) {
-			return fmt.Errorf("port forward %q is not active in the firewall ruleset", pf.Name)
-		}
 	}
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "status"); err != nil {
 		return fmt.Errorf("dnsmasq unhealthy: %w", err)
@@ -1247,6 +1218,9 @@ func syncOrActivateWireGuard(cfg config.SystemConfig, previous *config.SystemCon
 	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardRuntimePath); err != nil {
 		return fmt.Errorf("sync WireGuard configuration: %w", err)
 	}
+	if err := clearRemovedWireGuardPresharedKeys(interfaceName, previous.WireGuard.Peers, cfg.WireGuard.Peers); err != nil {
+		return err
+	}
 	if err := syncWireGuardRoutes(cfg.WireGuard.Peers, previous.WireGuard.Peers, interfaceName); err != nil {
 		return err
 	}
@@ -1276,8 +1250,48 @@ func syncOrActivateWireGuardClient(cfg config.SystemConfig, previous *config.Sys
 	if err := runFixed("/usr/bin/wg", "syncconf", interfaceName, wireGuardClientRuntimePath); err != nil {
 		return fmt.Errorf("sync WireGuard client configuration: %w", err)
 	}
+	if previous.WGClient.PresharedKey != "" && cfg.WGClient.PresharedKey == "" &&
+		previous.WGClient.PublicKey == cfg.WGClient.PublicKey {
+		if err := clearWireGuardPresharedKey(interfaceName, cfg.WGClient.PublicKey); err != nil {
+			return err
+		}
+	}
 	if err := syncWireGuardClientRoutes(cfg.WGClient.AllowedIPs, previous.WGClient.AllowedIPs, interfaceName); err != nil {
 		return err
+	}
+	return nil
+}
+
+// wg syncconf intentionally preserves unspecified peer attributes. In
+// particular, omitting PresharedKey does not clear a key already held by the
+// kernel. Explicitly remove it when a saved configuration transitions from a
+// PSK to no PSK, otherwise the runtime can silently remain incompatible with
+// the remote peer.
+func clearRemovedWireGuardPresharedKeys(interfaceName string, previous, current []config.WireGuardPeer) error {
+	for _, oldPeer := range previous {
+		if oldPeer.PresharedKey == "" || !oldPeer.Enabled {
+			continue
+		}
+		for _, peer := range current {
+			if wireGuardPresharedKeyRemovalNeeded(oldPeer, peer) {
+				if err := clearWireGuardPresharedKey(interfaceName, peer.PublicKey); err != nil {
+					return fmt.Errorf("clear WireGuard preshared key for peer %s: %w", peer.Name, err)
+				}
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func wireGuardPresharedKeyRemovalNeeded(previous, current config.WireGuardPeer) bool {
+	return previous.Enabled && previous.PresharedKey != "" &&
+		current.Enabled && current.PublicKey == previous.PublicKey && current.PresharedKey == ""
+}
+
+func clearWireGuardPresharedKey(interfaceName, publicKey string) error {
+	if err := runFixed("/usr/bin/wg", "set", interfaceName, "peer", publicKey, "preshared-key", "/dev/null"); err != nil {
+		return fmt.Errorf("clear WireGuard preshared key: %w", err)
 	}
 	return nil
 }
@@ -1527,6 +1541,11 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 		}
 	}
 	if previousConfig != nil {
+		if previousConfig.SquidProxy.Enabled {
+			if err := secureSquidPasswordFile(); err != nil {
+				errs = append(errs, safeError(err))
+			}
+		}
 		if err := applyKernelHardening(*previousConfig); err != nil {
 			errs = append(errs, safeError(err))
 		}
@@ -1551,8 +1570,19 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 	if hadPreviousNft {
 		if err := runNftFile(nftRuntimePath, false); err != nil {
 			errs = append(errs, safeError(err))
+		} else if err := enableIPForwarding(); err != nil {
+			errs = append(errs, safeError(err))
 		}
 	} else {
+		// There is no previous policy to restore, so the table is removed
+		// outright. Routing has to go down with it: the failed apply already
+		// switched forwarding on, and leaving it on after deleting the only
+		// ruleset reopens the exact unprotected window enableIPForwarding
+		// exists to prevent. Forwarding is dropped first so the window never
+		// exists, even briefly.
+		if err := disableIPForwarding(); err != nil {
+			errs = append(errs, safeError(err))
+		}
 		_ = runFixed("/usr/sbin/nft", "delete", "table", "inet", "minimalrouter")
 		if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err == nil {
 			errs = append(errs, "candidate nftables table remained active")
@@ -1613,7 +1643,9 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 			log.Printf("rollback optional Squid restore degraded: %v", err)
 		}
 	} else {
-		_ = runFixed("/sbin/rc-service", "squid", "stop")
+		if err := stopSquid(); err != nil {
+			return fmt.Errorf("stop Squid during rollback: %w", err)
+		}
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
@@ -1766,6 +1798,20 @@ func configureLAN(lan config.LANSettings) error {
 	return nil
 }
 
+// configureLoopback is part of the router dataplane, not an optional host
+// networking service. The appliance disables the generic networking init
+// path to avoid its DHCP boot delay, so router-applyd must explicitly restore
+// 127.0.0.1 before dnsmasq, health probes, or DDNS resolve names locally.
+func configureLoopback() error {
+	if err := runFixed("/sbin/ip", "link", "set", "dev", "lo", "up"); err != nil {
+		return fmt.Errorf("bring loopback up: %w", err)
+	}
+	if err := runFixed("/sbin/ip", "-4", "addr", "replace", "127.0.0.1/8", "dev", "lo"); err != nil {
+		return fmt.Errorf("configure loopback address: %w", err)
+	}
+	return nil
+}
+
 func removeOwnedLANBridge() error {
 	bridge := config.WiFiBridgeInterface
 	if err := runFixed("/sbin/ip", "link", "show", "dev", bridge); err != nil {
@@ -1788,6 +1834,9 @@ func removeOwnedLANBridge() error {
 }
 
 func configureRuntimeLAN(cfg config.SystemConfig) error {
+	if err := configureLoopback(); err != nil {
+		return err
+	}
 	if !cfg.WiFi.Enabled {
 		if err := removeOwnedLANBridge(); err != nil {
 			return err
@@ -1872,9 +1921,31 @@ func configureExtraLANs(cfg config.SystemConfig) error {
 	return nil
 }
 
+// enableIPForwarding is deliberately separate from applyKernelHardening.
+// Routing must never be switched on before the generated nftables policy is
+// loaded: on a cold boot the `inet minimalrouter` table does not exist yet, so
+// enabling forwarding first opens a short window in which the kernel default
+// ACCEPT policy is the only thing between WAN and LAN. Callers enable
+// forwarding only after runNftFile has succeeded.
+func enableIPForwarding() error {
+	if err := runFixed("/sbin/sysctl", "-w", "net.ipv4.ip_forward=1"); err != nil {
+		return fmt.Errorf("enable IPv4 forwarding: %w", err)
+	}
+	return nil
+}
+
+// disableIPForwarding is the counterpart used on paths that tear the generated
+// policy down without putting another one in its place. Routing off with no
+// table is safe; routing on with no table is not.
+func disableIPForwarding() error {
+	if err := runFixed("/sbin/sysctl", "-w", "net.ipv4.ip_forward=0"); err != nil {
+		return fmt.Errorf("disable IPv4 forwarding: %w", err)
+	}
+	return nil
+}
+
 func applyKernelHardening(cfg config.SystemConfig) error {
 	settings := [][2]string{
-		{"net.ipv4.ip_forward", "1"},
 		{"net.ipv4.tcp_syncookies", "1"},
 		{"net.ipv4.tcp_rfc1337", "1"},
 		{"net.ipv4.conf.all.accept_redirects", "0"},
@@ -1902,6 +1973,12 @@ func applyKernelHardening(cfg config.SystemConfig) error {
 		{"fs.protected_regular", "2"},
 		{"net.ipv6.conf.all.disable_ipv6", "1"},
 		{"net.ipv6.conf.default.disable_ipv6", "1"},
+		// Boot-time /etc/sysctl.d values are not re-applied by anything else.
+		// Reassert the two that bound the forwarding path so a runtime change
+		// cannot silently survive a configuration apply.
+		{"net.ipv4.conf.all.rp_filter", "2"},
+		{"net.ipv4.conf.default.rp_filter", "2"},
+		{"net.netfilter.nf_conntrack_max", "131072"},
 	}
 	for _, setting := range settings {
 		if err := runFixed("/sbin/sysctl", "-w", setting[0]+"="+setting[1]); err != nil {
@@ -1924,6 +2001,91 @@ func runFixed(binary string, args ...string) error {
 func runFixedTimeout(timeout time.Duration, binary string, args ...string) error {
 	_, err := runCommandOutput(timeout, binary, args...)
 	return err
+}
+
+// stopSquid deliberately avoids the Alpine OpenRC stop wrapper. Its bundled
+// init script can wait 120 seconds for a stale PID file and still return
+// success, which would commit a configuration with the disabled proxy still
+// listening. A graceful stop gets a short bound; a disabled proxy may then be
+// force-stopped, and the PID must disappear before the apply is considered
+// successful.
+func stopSquid() error {
+	shutdownErr := runFixedTimeout(5*time.Second,
+		"/usr/sbin/squid", "-k", "shutdown", "-f", "/etc/squid/squid.conf")
+	if err := waitForSquidExit(8 * time.Second); err == nil {
+		return nil
+	}
+	if shutdownErr != nil {
+		log.Printf("graceful Squid shutdown degraded: %v", shutdownErr)
+	}
+	if err := runFixedTimeout(5*time.Second,
+		"/usr/sbin/squid", "-k", "kill", "-f", "/etc/squid/squid.conf"); err != nil {
+		return fmt.Errorf("force shutdown: %w", err)
+	}
+	if err := waitForSquidExit(8 * time.Second); err != nil {
+		return err
+	}
+	return nil
+}
+
+func waitForSquidExit(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for squidMasterRunning() {
+		if time.Now().After(deadline) {
+			return errors.New("Squid process did not stop")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return nil
+}
+
+func squidMasterRunning() bool {
+	data, err := os.ReadFile("/var/run/squid.pid")
+	if err != nil {
+		return false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 1 {
+		return false
+	}
+	_, err = os.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
+	return err == nil
+}
+
+func secureSquidPasswordFile() error {
+	group, err := user.LookupGroup("squid")
+	if err != nil {
+		return errors.New("Squid service group is unavailable")
+	}
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return errors.New("invalid Squid service group ID")
+	}
+	if err := os.Chown("/etc/squid/passwd", 0, gid); err != nil {
+		return errors.New("could not secure Squid password file ownership")
+	}
+	if err := os.Chmod("/etc/squid/passwd", 0640); err != nil {
+		return errors.New("could not secure Squid password file mode")
+	}
+	return nil
+}
+
+func secureDDNSConfiguration() error {
+	group, err := user.LookupGroup("inadyn")
+	if err != nil {
+		return errors.New("DDNS service group is unavailable")
+	}
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		return errors.New("invalid DDNS service group ID")
+	}
+	if err := os.Chown("/etc/inadyn/inadyn.conf", 0, gid); err != nil {
+		return errors.New("could not secure DDNS configuration ownership")
+	}
+	if err := os.Chmod("/etc/inadyn/inadyn.conf", 0640); err != nil {
+		return errors.New("could not secure DDNS configuration mode")
+	}
+	return nil
 }
 
 // runNftFile replaces the helper-owned table in one atomic nft batch. When
@@ -1998,19 +2160,8 @@ func loadLastGood() (*config.SystemConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
+	cfg.MigrateLegacyFields()
 	return &cfg, cfg.Validate()
-}
-
-// quarantineLastGood renames a corrupt/unreadable last-good file out of the
-// way (preserving it as evidence) so startup reconciliation can recover from
-// the canonical SQLite store instead of failing closed permanently.
-func quarantineLastGood() error {
-	quarantine := lastGoodPath + ".corrupt." + time.Now().Format("20060102T150405Z07")
-	if err := os.Rename(lastGoodPath, quarantine); err != nil {
-		return fmt.Errorf("rename corrupt last-good to %s: %w", quarantine, err)
-	}
-	log.Printf("quarantined corrupt last-good configuration to %s", quarantine)
-	return nil
 }
 
 func saveLastGood(cfg config.SystemConfig) error {

@@ -14,6 +14,51 @@ func TestValidationDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyExtraLANRouterAddress(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Firewall.ExtraLANs = []ExtraLANConfig{{
+		ID: "legacy-extra", Name: "Legacy extra", Interface: "eth2",
+		CIDR: "10.20.30.0/24", DstIP: "10.20.30.10", DstPort: 443,
+		AllowFrom: []string{"192.168.1.0/24"}, Enabled: true,
+	}}
+
+	cfg.MigrateLegacyFields()
+	if got := cfg.Firewall.ExtraLANs[0].RouterAddress; got != "10.20.30.1/24" {
+		t.Fatalf("legacy ExtraLAN gateway = %q, want 10.20.30.1/24", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("migrated legacy configuration is invalid: %v", err)
+	}
+}
+
+func TestMigrateLegacyExtraLANDoesNotOverwriteRouterAddress(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Firewall.ExtraLANs = []ExtraLANConfig{{
+		CIDR: "10.20.30.0/24", RouterAddress: "10.20.30.10/24",
+		Enabled: true,
+	}}
+
+	cfg.MigrateLegacyFields()
+	if got := cfg.Firewall.ExtraLANs[0].RouterAddress; got != "10.20.30.10/24" {
+		t.Fatalf("explicit ExtraLAN gateway was changed to %q", got)
+	}
+}
+
+func TestMigrateLegacyExtraLANLeavesUnusableSubnetForValidation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Firewall.ExtraLANs = []ExtraLANConfig{{
+		CIDR: "10.20.30.0/31", Enabled: true,
+	}}
+
+	cfg.MigrateLegacyFields()
+	if got := cfg.Firewall.ExtraLANs[0].RouterAddress; got != "" {
+		t.Fatalf("unusable legacy subnet received gateway %q", got)
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("unusable legacy subnet unexpectedly passed validation")
+	}
+}
+
 func TestValidationRejectsGeneratedConfigInjection(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -85,33 +130,54 @@ func TestValidationPortForwardRange(t *testing.T) {
 	}
 }
 
+// Port forwards are tunnel-scoped: the generator binds every DNAT rule to the
+// WireGuard server interface. A forward without a tunnel could therefore never
+// take effect, so validation must refuse it rather than store a dead rule.
 func TestValidationRejectsPortForwardWithoutWireGuard(t *testing.T) {
 	cfg := DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "isp-user"
+	cfg.WAN.Password = "isp-password"
+	cfg.WireGuard.Enabled = false
 	cfg.Firewall.PortForwards = []PortForwardRule{{
-		ID: "pf1", Name: "Tunnel Web Server", Protocol: "tcp",
-		ExternalPort: 4080, InternalIP: "192.168.1.50", InternalPort: 8080, Enabled: true,
+		ID: "pf1", Name: "Web Server", Protocol: "tcp",
+		ExternalPort: 8080, InternalIP: "192.168.1.50", InternalPort: 443, Enabled: true,
 	}}
 	err := cfg.Validate()
-	if err == nil || !strings.Contains(err.Error(), "port forwards require WireGuard") {
-		t.Fatalf("expected WireGuard requirement for port forwards, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "reachable only over the tunnel") {
+		t.Fatalf("expected tunnel-requirement rejection, got %v", err)
 	}
 }
 
-func TestValidationAcceptsPortForwardWithWireGuard(t *testing.T) {
+func TestValidationAcceptsTunnelPortForward(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.WAN.Enabled = true
 	cfg.WAN.Username = "isp-user"
 	cfg.WAN.Password = "isp-password"
 	cfg.WireGuard.Enabled = true
-	cfg.WireGuard.Interface = "wg0"
-	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" // gitleaks:allow -- synthetic test fixture
 	cfg.Firewall.PortForwards = []PortForwardRule{{
-		ID: "pf1", Name: "Tunnel Web Server", Protocol: "tcp",
-		ExternalPort: 4080, InternalIP: "192.168.1.50", InternalPort: 8080, Enabled: true,
+		ID: "pf1", Name: "Web Server", Protocol: "tcp",
+		ExternalPort: 8080, InternalIP: "192.168.1.50", InternalPort: 443, Enabled: true,
 	}}
-	err := cfg.Validate()
-	if err != nil {
-		t.Fatalf("expected enabled port forward to validate with WireGuard, got %v", err)
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("tunnel-scoped port forward should validate, got %v", err)
+	}
+}
+
+// The forward must never be allowed to shadow the management address the
+// operator is reaching the dashboard through.
+func TestValidationRejectsPortForwardTargetingRouterTunnelAddress(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WireGuard.Enabled = true
+	cfg.WireGuard.PrivateKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" // gitleaks:allow -- synthetic test fixture
+	cfg.WireGuard.Address = "10.8.0.1/24"
+	cfg.Firewall.PortForwards = []PortForwardRule{{
+		ID: "pf1", Name: "Shadow", Protocol: "tcp",
+		ExternalPort: 8080, InternalIP: "10.8.0.1", InternalPort: 443, Enabled: true,
+	}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected rejection of a forward aimed at the router's own tunnel address")
 	}
 }
 
