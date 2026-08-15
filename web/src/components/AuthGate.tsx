@@ -12,7 +12,9 @@ type LoginResult = {
 };
 
 function loginFailureMessage(status: number, result: LoginResult) {
-  if (result.totp_required === "true") return "Enter your six-digit TOTP code to finish signing in.";
+  if (result.totp_required === "true") {
+    return "Sign-in failed. Re-enter your password and, if two-factor authentication is enabled, the current six-digit code.";
+  }
   if (status === 429) return "Too many sign-in attempts. Try again shortly.";
   if (result.error) return result.error;
   if (status === 401) return "Incorrect password or TOTP code.";
@@ -34,7 +36,7 @@ async function probeRouterState(): Promise<"setup" | "login" | "authenticated"> 
 }
 
 export default function AuthGate({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>("loading");
+  const [state, setState] = useState<AuthState>(isDemoMode ? "authenticated" : "loading");
   const [password, setPassword] = useState("");
   const [totpCode, setTotpCode] = useState("");
   const [error, setError] = useState("");
@@ -43,13 +45,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const [previewMode, setPreviewMode] = useState(false);
 
   useEffect(() => {
+    if (isDemoMode) return;
+
     let active = true;
     const initialize = async () => {
-      if (isDemoMode) {
-        setPreviewMode(true);
-        setState("login");
-        return;
-      }
       const localPreviewHosts = new Set(["localhost", "127.0.0.1", "::1"]);
       try {
         const nextState = await probeRouterState();

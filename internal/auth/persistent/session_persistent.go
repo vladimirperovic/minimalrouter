@@ -11,11 +11,14 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+const sessionLastSeenPersistInterval = time.Minute
+
 // PersistentSessionManager handles server-side session lifecycle with SQLite persistence.
 type PersistentSessionManager struct {
 	mu            sync.RWMutex
 	store         *config.SQLiteStore
 	sessions      map[string]*auth.Session // in-memory cache for performance
+	lastPersisted map[string]time.Time     // last durable last_seen write per cached session
 	secureCookies bool
 }
 
@@ -30,6 +33,7 @@ func NewPersistentSessionManagerWithSecureCookies(store *config.SQLiteStore, sec
 	psm := &PersistentSessionManager{
 		store:         store,
 		sessions:      make(map[string]*auth.Session),
+		lastPersisted: make(map[string]time.Time),
 		secureCookies: secure,
 	}
 	// Load existing sessions from SQLite on startup
@@ -51,6 +55,33 @@ func generateRandomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// reserveLastSeenPersistenceLocked records one writer for a durable last_seen
+// refresh. Authorization always uses the in-memory LastSeen value on cache hits;
+// SQLite is only the restart fallback, so writing it on every dashboard request
+// adds WAL churn without improving the live idle-timeout guarantee.
+func (psm *PersistentSessionManager) reserveLastSeenPersistenceLocked(sessionID string, now time.Time) bool {
+	last, ok := psm.lastPersisted[sessionID]
+	if ok && !now.Before(last) && now.Sub(last) < sessionLastSeenPersistInterval {
+		return false
+	}
+	psm.lastPersisted[sessionID] = now
+	return true
+}
+
+func (psm *PersistentSessionManager) persistLastSeen(sessionID string, lastSeen time.Time) {
+	if err := psm.store.UpdateSessionLastSeen(sessionID, lastSeen); err == nil {
+		return
+	}
+
+	// Let the next request retry a failed durability refresh. Do not roll the
+	// marker back if another request has already reserved a newer write.
+	psm.mu.Lock()
+	if reserved, ok := psm.lastPersisted[sessionID]; ok && reserved.Equal(lastSeen) {
+		delete(psm.lastPersisted, sessionID)
+	}
+	psm.mu.Unlock()
 }
 
 // CreateSession allocates a new random 256-bit session ID and CSRF token, persists to SQLite.
@@ -90,6 +121,7 @@ func (psm *PersistentSessionManager) CreateSessionWithMode(readOnly bool) *auth.
 		return nil
 	}
 	psm.sessions[session.ID] = session
+	psm.lastPersisted[session.ID] = now
 
 	return session
 }
@@ -117,6 +149,7 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 		session, exists = psm.sessions[sessionID]
 		if !exists || session.AuthGeneration != currentGeneration {
 			delete(psm.sessions, sessionID)
+			delete(psm.lastPersisted, sessionID)
 			psm.mu.Unlock()
 			_ = psm.store.DeleteSession(sessionID)
 			return nil, auth.ErrUnauthorized
@@ -124,14 +157,18 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 		now := time.Now()
 		if now.Sub(session.CreatedAt) > auth.AbsoluteTimeout || now.Sub(session.LastSeen) > auth.IdleTimeout {
 			delete(psm.sessions, sessionID)
+			delete(psm.lastPersisted, sessionID)
 			psm.mu.Unlock()
 			_ = psm.store.DeleteSession(sessionID)
 			return nil, auth.ErrUnauthorized
 		}
 		session.LastSeen = now
 		copy := *session
+		persistDue := psm.reserveLastSeenPersistenceLocked(sessionID, now)
 		psm.mu.Unlock()
-		_ = psm.store.UpdateSessionLastSeen(sessionID, now)
+		if persistDue {
+			psm.persistLastSeen(sessionID, now)
+		}
 		return &copy, nil
 	}
 
@@ -152,7 +189,9 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 		return nil, auth.ErrUnauthorized
 	}
 
-	// Add to cache
+	// Add to cache. The durable timestamp may be up to one persistence interval
+	// behind an actively used session after a crash; that can only expire a
+	// restarted session slightly early, never extend its authorization lifetime.
 	session = &auth.Session{
 		ID:             sessionID,
 		CSRFToken:      csrfToken,
@@ -163,9 +202,13 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	}
 	psm.mu.Lock()
 	psm.sessions[sessionID] = session
+	psm.lastPersisted[sessionID] = lastSeen
+	persistDue := psm.reserveLastSeenPersistenceLocked(sessionID, now)
 	psm.mu.Unlock()
 
-	_ = psm.store.UpdateSessionLastSeen(sessionID, now)
+	if persistDue {
+		psm.persistLastSeen(sessionID, now)
+	}
 	copy := *session
 	return &copy, nil
 }
@@ -178,6 +221,7 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 
 		psm.mu.Lock()
 		delete(psm.sessions, sessionID)
+		delete(psm.lastPersisted, sessionID)
 		psm.mu.Unlock()
 
 		_ = psm.store.DeleteSession(sessionID)
@@ -202,6 +246,7 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 func (psm *PersistentSessionManager) DestroyAllSessions() error {
 	psm.mu.Lock()
 	clear(psm.sessions)
+	clear(psm.lastPersisted)
 	psm.mu.Unlock()
 	return psm.store.DeleteAllSessions()
 }
@@ -228,6 +273,7 @@ func (psm *PersistentSessionManager) cleanLoop() {
 		for id, sess := range psm.sessions {
 			if now.Sub(sess.CreatedAt) > auth.AbsoluteTimeout || now.Sub(sess.LastSeen) > auth.IdleTimeout {
 				delete(psm.sessions, id)
+				delete(psm.lastPersisted, id)
 			}
 		}
 		psm.mu.Unlock()

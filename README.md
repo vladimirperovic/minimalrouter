@@ -28,7 +28,7 @@
 
 <p align="center">
   <strong><a href="https://vladimirperovic.github.io/minimalrouter/">Try the interactive dashboard</a></strong><br />
-  Password: <code>password</code>
+  Browser-only demo with synthetic data; no sign-in or router connection required.
 </p>
 
 > The public demo runs entirely in the browser with synthetic documentation
@@ -59,9 +59,10 @@ way a settings page allows, that is what this is for.
 
 > **Beta.** The core is carrying real PPPoE traffic in a validated Proxmox
 > deployment: DHCP/DNS, NAT, WireGuard, Dynamic DNS, gateway monitoring,
-> snapshots and recovery all work end to end. Some management screens and the
-> final signed-update workflow are still being finished, and local-console
-> recovery remains the deliberate safety path. See
+> snapshots and recovery all work end to end. Signed A/B update and release
+> tooling are implemented; the remaining release gates are real-lab/endurance
+> evidence and independent validation. Local-console recovery remains the
+> deliberate safety path. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for exactly what is
 > proven today and what is not.
 
