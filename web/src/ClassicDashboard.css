@@ -3257,3 +3257,5 @@
 .static-online.is-online{background:var(--classic-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--classic-green) 22%,transparent)}
 .static-actions{display:flex;gap:.4rem;white-space:nowrap}
 @media(max-width:640px){.static-actions{flex-direction:column}}
+.overview-help-link{color:var(--classic-blue)}
+.overview-help-link:hover{text-decoration:underline}
