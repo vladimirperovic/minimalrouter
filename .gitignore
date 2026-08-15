@@ -4,6 +4,9 @@
 /web/dist/
 /coverage/
 /.pnpm-store/
+/routerd
+/routerd.gz
+/dist.tar.gz
 
 # Local development
 .env
@@ -23,6 +26,7 @@
 *.db-wal
 *.pem
 *.key
+/latest
 /state/
 /snapshots/
 alpine-standard-3.21.3-x86_64.iso
@@ -48,3 +52,4 @@ alpine-standard-3.21.3-x86_64.iso
 /AI_HANDOFF.md
 /SESSION6_SUMMARY.md
 /implementation_plan.md
+/web/e2e/e2edbg*.spec.ts
