@@ -102,7 +102,7 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await sleep(3000);
       try {
-        const response = await apiFetch("/api/v1/firmware/status");
+        const response = await apiFetch("/api/v1/firmware/local-status");
         if (!response.ok) continue;
         const body = (await response.json()) as FirmwareStatus;
         if (body.current_version === version) {
