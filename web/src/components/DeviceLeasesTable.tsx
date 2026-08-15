@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import type { RouterConfig } from "../api-types";
-import { apiFetch } from "../lib/api";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
 
