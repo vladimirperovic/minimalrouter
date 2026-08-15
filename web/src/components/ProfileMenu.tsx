@@ -102,10 +102,10 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await sleep(3000);
       try {
-        const response = await apiFetch("/api/v1/system");
+        const response = await apiFetch("/api/v1/firmware/status");
         if (!response.ok) continue;
-        const body = (await response.json()) as { version?: string };
-        if (body.version === version) {
+        const body = (await response.json()) as FirmwareStatus;
+        if (body.current_version === version) {
           setUpdateMessage(`${version} is active. Reloading dashboard…`);
           await sleep(700);
           window.location.reload();
