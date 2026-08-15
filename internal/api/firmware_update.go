@@ -178,7 +178,7 @@ func (s *Server) updatePrerequisites(w http.ResponseWriter) (firmware.SlotState,
 		return firmware.SlotState{}, "", false
 	}
 	if info, err := os.Stat(updatePrivilegeHelper); err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o755 {
-		writeFirmwareJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Signed web-update privilege is not installed. Install this release once through the supported signed CLI path first."})
+		writeFirmwareJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Signed web-update privilege is not installed. Run the full signed distribution installer once to enable dashboard updates."})
 		return firmware.SlotState{}, "", false
 	}
 	state, err := applianceUpdateState()
@@ -221,10 +221,6 @@ func (s *Server) stageAndActivate(w http.ResponseWriter, r *http.Request, curren
 		return
 	}
 
-	// Return the 202 response before activation restarts routerd. The detached
-	// root updater reads the root-owned pending version, verifies runtime-layout
-	// compatibility, switches both daemons together, and automatically rolls
-	// back if the new pair does not become healthy.
 	go func(targetVersion string) {
 		time.Sleep(1500 * time.Millisecond)
 		if err := activatePendingUpdateDetached(); err != nil {
