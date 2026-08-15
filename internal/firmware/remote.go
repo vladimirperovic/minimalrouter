@@ -192,6 +192,9 @@ func safeArchivePath(name, prefix string) (string, error) {
 }
 
 func extractReleaseArchive(archivePath, destination, arch string) (string, error) {
+	if arch != "amd64" && arch != "arm64" {
+		return "", fmt.Errorf("unsupported update architecture %q", arch)
+	}
 	prefix := "minimalrouter-linux-" + arch
 	archive, err := os.Open(archivePath)
 	if err != nil {
@@ -203,6 +206,16 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 		return "", fmt.Errorf("open release archive: %w", err)
 	}
 	defer gz.Close()
+
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(destination)
+	if err != nil {
+		return "", fmt.Errorf("open release extraction root: %w", err)
+	}
+	defer root.Close()
+
 	reader := tar.NewReader(gz)
 	var expanded int64
 	seenRoot := false
@@ -219,31 +232,30 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 		if err != nil {
 			return "", err
 		}
-		relative := strings.TrimPrefix(clean, prefix)
-		relative = strings.TrimPrefix(relative, "/")
-		target := filepath.Join(destination, prefix, filepath.FromSlash(relative))
-		if relative == "" {
-			target = filepath.Join(destination, prefix)
-			seenRoot = true
-		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0o755); err != nil {
+			if err := root.MkdirAll(clean, 0o755); err != nil {
 				return "", err
 			}
-			if err := os.Chmod(target, os.FileMode(header.Mode)&os.ModePerm); err != nil {
+			if err := root.Chmod(clean, os.FileMode(header.Mode)&os.ModePerm); err != nil {
 				return "", err
+			}
+			if clean == prefix {
+				seenRoot = true
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			if header.Size < 0 || header.Size > maxReleaseArchive || expanded > maxExpandedRelease-header.Size {
 				return "", errors.New("expanded release exceeds size limit")
 			}
 			expanded += header.Size
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-				return "", err
+			parent := path.Dir(clean)
+			if parent != "." {
+				if err := root.MkdirAll(parent, 0o755); err != nil {
+					return "", err
+				}
 			}
-			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			file, err := root.OpenFile(clean, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 			if err != nil {
 				return "", err
 			}
@@ -258,7 +270,7 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 			if closeErr != nil {
 				return "", closeErr
 			}
-			if err := os.Chmod(target, os.FileMode(header.Mode)&os.ModePerm); err != nil {
+			if err := root.Chmod(clean, os.FileMode(header.Mode)&os.ModePerm); err != nil {
 				return "", err
 			}
 			seenRoot = true
@@ -266,15 +278,14 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 			return "", fmt.Errorf("release archive contains unsupported entry type at %q", header.Name)
 		}
 	}
-	payloadRoot := filepath.Join(destination, prefix)
 	if !seenRoot {
 		return "", errors.New("release archive is empty")
 	}
-	info, err := os.Stat(payloadRoot)
+	info, err := root.Lstat(prefix)
 	if err != nil || !info.IsDir() {
 		return "", errors.New("release archive payload root is missing")
 	}
-	return payloadRoot, nil
+	return filepath.Join(destination, prefix), nil
 }
 
 // PreparePublishedRelease downloads the architecture-specific signed manifest
@@ -306,7 +317,7 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 		return "", "", err
 	}
 	manifestPath := filepath.Join(destination, "manifest.json")
-	archivePath := filepath.Join(destination, "release.tar.gz")
+	archiveFilePath := filepath.Join(destination, "release.tar.gz")
 	if err := downloadReleaseFile(ctx, manifestURL, manifestPath, maxReleaseManifest); err != nil {
 		return "", "", fmt.Errorf("download signed manifest: %w", err)
 	}
@@ -317,18 +328,18 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 	if manifest.Version != release.Version {
 		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", release.tag, manifest.Version)
 	}
-	if err := downloadReleaseFile(ctx, archiveURL, archivePath, maxReleaseArchive); err != nil {
+	if err := downloadReleaseFile(ctx, archiveURL, archiveFilePath, maxReleaseArchive); err != nil {
 		return "", "", fmt.Errorf("download release archive: %w", err)
 	}
 	extractRoot := filepath.Join(destination, "release")
 	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
 		return "", "", err
 	}
-	payloadRoot, err := extractReleaseArchive(archivePath, extractRoot, arch)
+	payloadRoot, err := extractReleaseArchive(archiveFilePath, extractRoot, arch)
 	if err != nil {
 		return "", "", err
 	}
-	if err := os.Remove(archivePath); err != nil {
+	if err := os.Remove(archiveFilePath); err != nil {
 		return "", "", err
 	}
 	return payloadRoot, manifestPath, nil
