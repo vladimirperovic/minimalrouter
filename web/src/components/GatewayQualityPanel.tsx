@@ -3,9 +3,6 @@ import type { GatewayHistoryPoint, GatewaySettings, GatewaySummary } from "../ap
 import { apiFetch } from "../lib/api";
 import "./GatewayQualityPanel.css";
 
-// 30d is served from the hourly rollup in the gateway store: raw samples are
-// pruned after 7 days, so anything longer would otherwise return a truncated
-// series. Proving "the line was bad last month" needs this window.
 type WindowName = "1h" | "24h" | "7d" | "30d";
 
 const WINDOWS: Array<{ value: WindowName; label: string; note: string }> = [
@@ -23,6 +20,12 @@ type Props = {
   onError: (message: string) => void;
 };
 
+type DiagnosticResult = {
+  overall: "healthy" | "degraded" | "failed";
+  cause: string;
+  checks: Record<string, { ok: boolean; detail: string }>;
+};
+
 function stateLabel(state?: GatewaySummary["state"]) {
   return state ? state.charAt(0).toUpperCase() + state.slice(1) : "Unknown";
 }
@@ -38,8 +41,6 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
   const plotWidth = width - padding * 2;
   const plotHeight = height - padding * 2;
   const maxLatency = Math.max(100, ...points.map((point) => point.latency_ms || 0));
-  // Samples without a successful probe break the line instead of dropping it to
-  // zero, which would render an outage as perfect latency.
   const latencyPath = useMemo(() => {
     let penDown = false;
     return points.map((point, index) => {
@@ -76,6 +77,8 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
 export default function GatewayQualityPanel({ summary, settings, busy, onApply, onError }: Props) {
   const [windowName, setWindowName] = useState<WindowName>("1h");
   const [points, setPoints] = useState<GatewayHistoryPoint[]>([]);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -105,9 +108,24 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     });
   };
 
+  const diagnose = async () => {
+    setDiagnosing(true);
+    setDiagnostics(null);
+    try {
+      const response = await apiFetch("/api/v1/gateway/diagnose", { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Diagnostics failed (${response.status})`);
+      setDiagnostics(body as DiagnosticResult);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Network diagnostics failed");
+    } finally {
+      setDiagnosing(false);
+    }
+  };
+
   return <section className="dashboard-section gateway-quality" id="gateway">
     <div className="dashboard-section-heading has-facts">
-      <div className="subpage-hero-head"><div><p className="eyebrow">WAN observability</p><h2>Gateway quality</h2><small>Read-only monitoring; it never restarts PPPoE automatically.</small></div><span className={`classic-status-chip ${summary?.state === "healthy" ? "" : "is-warning"}`}>{summary?.enabled ? stateLabel(summary.state) : "Monitoring off"}</span></div>
+      <div className="subpage-hero-head"><div><p className="eyebrow">WAN observability & recovery</p><h2>Gateway quality</h2><small>Continuous health monitoring with conservative PPPoE auto-recovery after a verified 3-minute link outage.</small></div><span className={`classic-status-chip ${summary?.state === "healthy" ? "" : "is-warning"}`}>{summary?.enabled ? stateLabel(summary.state) : "Monitoring off"}</span></div>
       <dl className="subpage-hero-facts six">
         <div><dt>State</dt><dd>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</dd><small>{summary?.link?.connected ? summary.link?.local_ip || "PPPoE connected" : "PPPoE disconnected"}</small></div>
         <div><dt>Latency</dt><dd>{metric(summary?.latency_ms, " ms")}</dd><small>reachable targets</small></div>
@@ -123,8 +141,21 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
       <HistoryChart points={points} />
     </article>
 
+    <article className="card">
+      <div className="card-title-row"><div><h3>Network diagnostics</h3><p>One bounded check across PPPoE, public reachability, DNS and HTTPS. No configuration is changed.</p></div><button className="button secondary" disabled={busy || diagnosing} onClick={() => void diagnose()} type="button">{diagnosing ? "Diagnosing…" : "Diagnose connection"}</button></div>
+      {diagnostics && <div className="metric-grid compact">
+        {Object.entries(diagnostics.checks).map(([name, check]) => <article key={name}><span>{name.toUpperCase()}</span><strong>{check.ok ? "OK" : "Failed"}</strong><small>{check.detail}</small></article>)}
+      </div>}
+      {diagnostics && <p className="form-note"><strong>Result:</strong> {diagnostics.overall === "healthy" ? "Internet path is healthy." : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}.`}</p>}
+    </article>
+
+    <article className="card">
+      <div className="card-title-row"><div><h3>Automatic recovery</h3><p>Enabled whenever WAN monitoring is enabled. It only reacts to the PPPoE link itself being continuously down for 3 minutes — never to packet loss, DNS failure, or one unreachable website.</p></div><span className={`classic-status-chip ${settings.enabled ? "" : "is-off"}`}>{settings.enabled ? "Armed" : "Paused"}</span></div>
+      <p className="form-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress.</p>
+    </article>
+
     <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
-      <fieldset><legend>Monitoring targets</legend><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway quality monitoring</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. The PPPoE peer is checked separately and does not control the health result because some providers block ICMP to the peer.</p></fieldset>
+      <fieldset><legend>Monitoring targets</legend><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
       <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply monitoring settings</button></div>
     </form>
   </section>;

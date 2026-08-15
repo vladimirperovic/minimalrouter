@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -10,19 +12,35 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/gateway"
 	"github.com/vladimirperovic/minimalrouter/internal/health"
+	"github.com/vladimirperovic/minimalrouter/internal/startup"
 )
 
-func (s *Server) RegisterHealthRoutes(mux *http.ServeMux) {
-	sh := s.securityHeadersMiddleware
-	mux.HandleFunc("GET /api/v1/health", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetHealth))))
-}
-
-func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
-	cfg := s.engine.GetCurrentConfig()
+func applianceDataDir() string {
 	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
 	if dataDir == "" {
 		dataDir = "/var/lib/minimalrouter"
 	}
+	return dataDir
+}
+
+func (s *Server) RegisterHealthRoutes(mux *http.ServeMux) {
+	sh := s.securityHeadersMiddleware
+	mux.HandleFunc("GET /api/v1/health", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetHealth))))
+	s.RegisterStartupRoutes(mux, applianceDataDir())
+
+	cfg := s.engine.GetCurrentConfig()
+	if recorder, err := startup.New(applianceDataDir()); err != nil {
+		log.Printf("[STARTUP] timeline unavailable: %v", err)
+	} else {
+		recorder.Event("reconcile", "Canonical configuration reconciled")
+		recorder.Ready("management")
+		go recorder.Run(context.Background(), cfg.WAN.Enabled, cfg.WireGuard.Interface, cfg.WireGuard.Enabled)
+	}
+}
+
+func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
+	cfg := s.engine.GetCurrentConfig()
+	dataDir := applianceDataDir()
 
 	runtimeStatus := runtimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	facts := health.InspectRuntimeFacts(cfg)
@@ -70,19 +88,11 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	snapshot := health.Build(health.Input{
-		Config:                cfg,
-		Runtime:               runtimeStatus,
-		Engine:                s.engine.GetStatus(),
-		Gateway:               gatewaySummary,
-		GatewayConfigured:     gatewayConfigured,
-		UpdateTrustConfigured: updateTrustConfigured,
-		Facts:                 facts,
-		LastBackupAt:          lastBackupAt,
-		DNSResolves:           dnsResolves,
-		DNSError:              dnsError,
-		Now:                   time.Now().UTC(),
+		Config: cfg, Runtime: runtimeStatus, Engine: s.engine.GetStatus(), Gateway: gatewaySummary,
+		GatewayConfigured: gatewayConfigured, UpdateTrustConfigured: updateTrustConfigured,
+		Facts: facts, LastBackupAt: lastBackupAt, DNSResolves: dnsResolves, DNSError: dnsError,
+		Now: time.Now().UTC(),
 	})
-
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(snapshot)

@@ -11,14 +11,17 @@ import (
 
 var gatewayMonitorRegistry sync.Map // map[*Server]*gateway.Monitor
 
-// ConfigureGatewayMonitor attaches the read-only WAN quality subsystem without
-// expanding Server's core configuration/recovery responsibilities.
+// ConfigureGatewayMonitor attaches WAN quality monitoring and its conservative
+// PPPoE-link auto-recovery supervisor. Auto-recovery reuses the existing
+// verified reconcile path and is stopped together with the monitor.
 func (s *Server) ConfigureGatewayMonitor(monitor *gateway.Monitor) {
 	if monitor == nil {
 		gatewayMonitorRegistry.Delete(s)
+		s.configureGatewayAutoRecovery(nil)
 		return
 	}
 	gatewayMonitorRegistry.Store(s, monitor)
+	s.configureGatewayAutoRecovery(monitor)
 }
 
 func (s *Server) configuredGatewayMonitor() *gateway.Monitor {
@@ -39,6 +42,8 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/gateway/history", gate(s.handleGetGatewayHistory))
 	mux.HandleFunc("GET /api/v1/gateway/settings", gate(s.handleGetGatewaySettings))
 	mux.HandleFunc("PUT /api/v1/gateway/settings", gate(s.handlePutGatewaySettings))
+	mux.HandleFunc("POST /api/v1/gateway/diagnose", gate(s.handleNetworkDiagnose))
+	mux.HandleFunc("POST /api/v1/config/preview", gate(s.handleConfigPreview))
 
 	// Firmware update routes live in their own implementation file but are
 	// registered here because cmd/routerd already invokes this optional-route
