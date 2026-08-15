@@ -80,6 +80,61 @@
   justify-content: center;
 }
 
+.profile-update-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted, #64748b);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-update-divider::before,
+.profile-update-divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--border, rgba(148, 163, 184, 0.22));
+  content: "";
+}
+
+.profile-update-upload {
+  display: grid;
+  gap: 9px;
+}
+
+.profile-update-upload label {
+  display: grid;
+  gap: 5px;
+  color: var(--text, #0f172a);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.profile-update-upload input[type="file"] {
+  width: 100%;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-radius: 8px;
+  background: var(--panel, #ffffff);
+  color: var(--muted, #64748b);
+  font: inherit;
+  font-weight: 500;
+}
+
+.profile-update-upload p {
+  margin: 0;
+  color: var(--muted, #64748b);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.profile-update-upload .button {
+  justify-content: center;
+}
+
 @media (max-width: 520px) {
   .profile-update-actions {
     grid-template-columns: 1fr 1fr;
