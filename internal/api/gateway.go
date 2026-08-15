@@ -44,6 +44,7 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	// registered here because cmd/routerd already invokes this optional-route
 	// registrar after the canonical API. They use the same management gate.
 	s.registerFirmwareRoutes(mux)
+	mux.HandleFunc("GET /api/v1/firmware/local-status", gate(s.handleFirmwareLocalStatus))
 }
 
 func (s *Server) handleGetGatewaySummary(w http.ResponseWriter, _ *http.Request) {
