@@ -320,7 +320,7 @@ export default function ClassicOverview({
     )}
 
     <article className={`overview-status-hero ${heroState}`}>
-      <div className="overview-hero-command">
+        <div className="overview-hero-command">
         <div className="overview-hero-summary">
           <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
           <h1>{headline}</h1>
@@ -330,6 +330,7 @@ export default function ClassicOverview({
             <span><small>Load average</small><strong>{loadAverage}</strong></span>
             <span className="overview-request-state"><small>Rejected requests</small><strong>{securityCount ?? "Checking"}</strong></span>
           </div>
+          <div className="overview-summary-meta"><span><small>Guide</small><a href="/help.html" target="_blank" rel="noreferrer" className="overview-help-link"><strong>Help &amp; operator guide ↗</strong></a></span></div>
         </div>
 
         <section className="overview-wan-card" aria-label="WAN session and quality">

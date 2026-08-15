@@ -54,6 +54,7 @@ type Props = {
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
   setError: (message: string) => void;
+  onNavigate: (id: SectionID) => void;
 };
 
 function formatBytes(value = 0) {
@@ -295,8 +296,8 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
 export default function DashboardSections({
   active, config, gatewaySummary, gatewaySettings, runtime, leases, snapshots, busy,
   load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError,
-}: Props) {
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError, onNavigate }: Props) {
+  const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   // The status card reports the provider the router is actually running, which
   // is not necessarily the tab the operator is looking at.
@@ -366,7 +367,7 @@ export default function DashboardSections({
   };
 
   return <>
-{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable leases={leases} config={config} /></section>}
+{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} /></section>}
 
 {active === "gateway" && <GatewayQualityPanel busy={busy} onApply={applyGatewayMonitoring} onError={setError} settings={gatewaySettings} summary={gatewaySummary} />}
 
@@ -378,8 +379,8 @@ export default function DashboardSections({
     <StaticDNSRecordsEditor disabled={busy} key={config.revision} records={config.dns?.records || []} />
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div>
   </form>
-  <DeviceLeasesTable leases={leases} config={config} />
-  <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} />
+  <DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} />
+  <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} liveLeases={leases} prefill={staticPrefill} onPrefillConsumed={() => setStaticPrefill(null)} />
 </section>}
 
 {active === "firewall" && <section className="dashboard-section" id="firewall">
@@ -391,6 +392,33 @@ export default function DashboardSections({
 
 {active === "qos" && <section className="dashboard-section" id="qos">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Applied to {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${config.qos.enabled ? "" : "is-off"}`}>QoS {config.qos.enabled ? "Active" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Algorithm</dt><dd>{config.qos.algorithm}</dd><small>{config.qos.enabled ? "qdisc applied" : "inactive"}</small></div><div><dt>Download</dt><dd>{config.qos.download_limit_mbps} Mbps</dd><small>ingress limit</small></div><div><dt>Upload</dt><dd>{config.qos.upload_limit_mbps} Mbps</dd><small>egress limit</small></div><div><dt>Interface</dt><dd>{config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}</dd><small>shaping target</small></div></dl></div>
+  <div className="qos-speedtest">
+    <div className="qos-speedtest-head">
+      <div><h4>Speed test</h4><p>Measures your real WAN speed and suggests QoS limits (90% of the result — the standard CAKE/SQM recommendation).</p></div>
+      <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Testing…" : "Test speed"}</button>
+    </div>
+    {speedTest && (
+      <div className="qos-speedtest-result">
+        <div className="qos-speedtest-measured"><small>Measured</small><b>{speedTest.download_mbps.toFixed(1)} Mbps ↓</b><span>{speedTest.upload_mbps.toFixed(1)} Mbps ↑</span></div>
+        <div className="qos-speedtest-suggested"><small>Suggested for QoS</small><b>{speedTest.suggested_download_mbps.toFixed(1)} Mbps ↓</b><span>{speedTest.suggested_upload_mbps.toFixed(1)} Mbps ↑</span></div>
+        <button
+          className="button primary small"
+          onClick={() => {
+            const root = document.getElementById("qos");
+            const down = root?.querySelector<HTMLInputElement>('input[name="download_limit_mbps"]');
+            const up = root?.querySelector<HTMLInputElement>('input[name="upload_limit_mbps"]');
+            const form = root?.querySelector<HTMLFormElement>("form.settings-form");
+            if (down && up && form && speedTest) {
+              down.value = String(speedTest.suggested_download_mbps);
+              up.value = String(speedTest.suggested_upload_mbps);
+              form.requestSubmit();
+            }
+          }}
+          type="button"
+        >Apply suggested</button>
+      </div>
+    )}
+  </div>
   <label className="checkbox-row"><input checked={config.qos.enabled} type="checkbox" onChange={(e) => toggleQoS(e.target.checked)} /><span>Enable QoS traffic shaping</span></label>
   <form className="settings-form" key={`qos-${config.revision}`} onSubmit={submitQoS}>
     <div className="form-grid two">

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	networkinfo "github.com/vladimirperovic/minimalrouter/internal/network"
@@ -104,37 +105,77 @@ func runCommand(command string, args []string) {
 
 func interactiveMenu() {
 	reader := bufio.NewReader(os.Stdin)
-	for {
+	startReader := func(input chan string, stop chan struct{}) {
+		go func() {
+			for {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return
+				}
+				select {
+				case input <- strings.TrimSpace(line):
+				case <-stop:
+					return
+				}
+			}
+		}()
+	}
+	input := make(chan string, 8)
+	stop := make(chan struct{})
+	startReader(input, stop)
+	readWith := func(timeout time.Duration) (string, bool) {
+		select {
+		case s := <-input:
+			return s, true
+		case <-time.After(timeout):
+			return "", false
+		}
+	}
+	menu := func() {
 		fmt.Print("\nMinimal Router Recovery Console\n===============================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\n0) Shell\nq) Quit\n\nSelect: ")
-		choice, _ := reader.ReadString('\n')
-		choice = strings.TrimSpace(choice)
+	}
+	ask := func(prompt string) (string, bool) {
+		fmt.Print(prompt)
+		return readWith(120 * time.Second)
+	}
+	menu()
+	for {
+		choice, ok := readWith(30 * time.Second)
+		if !ok || choice == "" {
+			menu()
+			continue
+		}
 		switch choice {
 		case "1":
 			showInterfaces()
 		case "2":
-			fmt.Print("WAN interface: ")
-			iface, _ := reader.ReadString('\n')
-			withManager(func(m recovery.Manager) error {
-				snap, err := m.SetWAN(strings.TrimSpace(iface))
-				if err == nil {
-					fmt.Println("Saved; undo snapshot:", snap.ID)
-				}
-				return err
-			})
+			iface, ok := ask("WAN interface: ")
+			if ok {
+				withManager(func(m recovery.Manager) error {
+					snap, err := m.SetWAN(iface)
+					if err == nil {
+						fmt.Println("Saved; undo snapshot:", snap.ID)
+					}
+					return err
+				})
+			}
 		case "3":
-			fmt.Print("LAN interface: ")
-			iface, _ := reader.ReadString('\n')
-			fmt.Print("LAN CIDR (e.g. 192.168.1.1/24): ")
-			cidr, _ := reader.ReadString('\n')
-			withManager(func(m recovery.Manager) error {
-				snap, err := m.SetLAN(strings.TrimSpace(iface), strings.TrimSpace(cidr))
-				if err == nil {
-					fmt.Println("Saved; undo snapshot:", snap.ID)
-				}
-				return err
-			})
+			iface, ok := ask("LAN interface: ")
+			if !ok {
+				break
+			}
+			cidr, ok := ask("LAN CIDR (e.g. 192.168.1.1/24): ")
+			if ok {
+				withManager(func(m recovery.Manager) error {
+					snap, err := m.SetLAN(iface, cidr)
+					if err == nil {
+						fmt.Println("Saved; undo snapshot:", snap.ID)
+					}
+					return err
+				})
+			}
 		case "4":
-			if confirm(reader, "Restore latest verified snapshot?") {
+			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restore latest verified snapshot?") {
 				withManager(func(m recovery.Manager) error {
 					undo, id, err := m.RestoreLatestSnapshot()
 					if err == nil {
@@ -145,10 +186,8 @@ func interactiveMenu() {
 			}
 		case "5":
 			listSnapshots()
-			fmt.Print("Snapshot ID to restore (blank cancels): ")
-			id, _ := reader.ReadString('\n')
-			id = strings.TrimSpace(id)
-			if id != "" && confirm(reader, "Restore this snapshot?") {
+			id, ok := ask("Snapshot ID to restore (blank cancels): ")
+			if ok && id != "" && confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restore this snapshot?") {
 				withManager(func(m recovery.Manager) error {
 					undo, err := m.RestoreSnapshot(id)
 					if err == nil {
@@ -162,21 +201,25 @@ func interactiveMenu() {
 		case "7":
 			fmt.Println("Run: router-recovery reset-auth --password-stdin --disable-totp")
 		case "8":
-			if confirm(reader, "Restart router-applyd and routerd?") {
+			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restart router-applyd and routerd?") {
 				run("rc-service", "router-applyd", "restart")
 				run("rc-service", "routerd", "restart")
 			}
 		case "9":
-			if confirm(reader, "Reboot this router VM now?") {
+			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Reboot this router VM now?") {
 				run("reboot")
 			}
 		case "0":
+			close(stop)
 			fmt.Println("Type 'exit' to return to recovery console.")
 			cmd := exec.Command("/bin/sh")
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
+			stop = make(chan struct{})
+			input = make(chan string, 8)
+			startReader(input, stop)
 		case "q", "Q":
 			return
 		default:
@@ -252,10 +295,12 @@ func withManager(fn func(recovery.Manager) error) {
 	}
 }
 
-func confirm(reader *bufio.Reader, prompt string) bool {
-	fmt.Print(prompt, " Type YES: ")
-	value, _ := reader.ReadString('\n')
-	return strings.TrimSpace(value) == "YES"
+func confirm(readLine func() (string, bool), prompt string) bool {
+	value, ok := readLine()
+	if !ok {
+		return false
+	}
+	return value == "YES"
 }
 
 func run(name string, args ...string) {

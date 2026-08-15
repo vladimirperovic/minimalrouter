@@ -1245,3 +1245,32 @@
   word-break: break-all;
   user-select: all;
 }
+
+/* Startup Timeline — vertical milestone view */
+.tl-boots{display:flex;gap:.45rem;flex-wrap:wrap;margin:.4rem 0 .9rem}
+.tl-boot{font:600 .62rem var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--text-secondary);background:var(--surface);border:1px solid var(--dashboard-border);border-radius:999px;padding:.32rem .7rem;cursor:pointer}
+.tl-boot.is-active{background:var(--classic-blue);border-color:var(--classic-blue);color:#fff}
+.tl-wrap{position:relative;padding:.4rem 0 .2rem}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl::before{content:'';position:absolute;left:13px;top:6px;bottom:6px;width:2px;background:var(--dashboard-border)}
+.tl-item{position:relative;display:grid;grid-template-columns:26px 52px minmax(0,1fr);gap:.55rem;align-items:baseline;padding:.34rem 0}
+.tl-dot{width:12px;height:12px;border-radius:50%;background:var(--text-tertiary);border:2px solid var(--surface);box-shadow:0 0 0 2px var(--dashboard-border);justify-self:center;margin-top:.35rem}
+.tl-azure .tl-dot{background:var(--classic-blue)}
+.tl-green .tl-dot{background:var(--classic-green)}
+.tl-amber .tl-dot{background:var(--classic-orange)}
+.tl-emerald .tl-dot{background:var(--classic-green)}
+.tl-violet .tl-dot{background:var(--classic-purple)}
+.tl-ink .tl-dot{background:var(--text-primary)}
+.tl-event .tl-dot{background:var(--dashboard-border);box-shadow:none}
+.tl-time{font:600 .66rem var(--font-mono);color:var(--text-tertiary);white-space:nowrap}
+.tl-body b{display:block;font:600 .82rem var(--font-sans);color:var(--text-primary)}
+.tl-body small{display:block;color:var(--text-secondary);font:500 .68rem var(--font-mono);overflow-wrap:anywhere}
+.tl-summary{display:flex;gap:1rem;flex-wrap:wrap;margin-top:.8rem;padding-top:.7rem;border-top:1px dashed var(--dashboard-border);color:var(--text-secondary);font:500 .66rem var(--font-mono)}
+.tl-summary b{color:var(--classic-blue)}
+@media(max-width:560px){.tl-item{grid-template-columns:22px 44px minmax(0,1fr)}}
+
+/* Help dugme u topbaru */
+.classic-help-button{display:inline-flex;align-items:center;gap:.45rem;min-height:48px;width:auto;padding:0 14px;text-decoration:none;font:600 .68rem var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--classic-text)}
+.classic-help-button svg{width:15px;height:15px}
+.classic-help-button:hover{color:var(--classic-blue)}
+@media(max-width:640px){.classic-help-button span{display:none}}

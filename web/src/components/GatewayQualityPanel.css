@@ -23,3 +23,36 @@
   .gateway-history-card .card-title-row { align-items: flex-start; flex-direction: column; }
   .gateway-chart-wrap { padding-inline: 8px; }
 }
+
+/* Network diagnostics — hero rezultat + provere */
+.diag{margin-top:1rem;display:flex;flex-direction:column;gap:1rem}
+.diag-result{display:flex;align-items:center;gap:1rem;padding:1.4rem 1.5rem;border-radius:16px;border:1px solid var(--dashboard-border);background:var(--surface)}
+.diag-result.is-good{border-color:var(--classic-green);background:color-mix(in srgb,var(--classic-green) 8%,var(--surface))}
+.diag-result.is-bad{border-color:#b43c42;background:color-mix(in srgb,#b43c42 8%,var(--surface))}
+.diag-result-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;flex:none;font:700 1.5rem/1 var(--font-sans)}
+.diag-result.is-good .diag-result-icon{background:var(--classic-green);color:#fff}
+.diag-result.is-bad .diag-result-icon{background:#b43c42;color:#fff}
+.diag-result small{display:block;font:600 .68rem var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:.25rem}
+.diag-result strong{display:block;font:600 1.45rem/1.25 var(--font-sans);color:var(--text-primary);letter-spacing:-.01em}
+.diag-checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.8rem}
+.diag-check{display:flex;gap:.8rem;align-items:flex-start;padding:1rem 1.1rem;border:1px solid var(--dashboard-border);border-radius:12px;background:var(--surface)}
+.diag-check.is-good{border-color:color-mix(in srgb,var(--classic-green) 45%,var(--dashboard-border))}
+.diag-check.is-bad{border-color:color-mix(in srgb,#b43c42 45%,var(--dashboard-border))}
+.diag-check-icon{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;flex:none;font:700 .85rem/1 var(--font-sans);margin-top:.1rem}
+.diag-check.is-good .diag-check-icon{background:var(--classic-green);color:#fff}
+.diag-check.is-bad .diag-check-icon{background:#b43c42;color:#fff}
+.diag-check b{display:block;font:700 .8rem var(--font-mono);letter-spacing:.08em;color:var(--text-primary);margin-bottom:.25rem}
+.diag-check small{display:block;color:var(--text-secondary);font:500 .86rem/1.45 var(--font-sans)}
+
+/* Automatic recovery */
+.rec-card{padding:1.4rem 1.5rem}
+.rec-head{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;margin-bottom:.8rem}
+.rec-head h3{font:600 1.15rem var(--font-sans);color:var(--text-primary);margin:0 0 .3rem}
+.rec-head p{color:var(--text-secondary);font-size:.9rem;margin:0;max-width:56ch}
+.rec-chip{display:inline-flex;align-items:center;gap:.45rem;font:700 .7rem var(--font-mono);letter-spacing:.08em;text-transform:uppercase;padding:.45rem .9rem;border-radius:999px;border:1px solid var(--dashboard-border);color:var(--text-secondary);flex:none}
+.rec-chip i{width:8px;height:8px;border-radius:50%}
+.rec-chip.is-armed{color:var(--classic-green);border-color:color-mix(in srgb,var(--classic-green) 50%,var(--dashboard-border))}
+.rec-chip.is-armed i{background:var(--classic-green)}
+.rec-chip.is-off i{background:var(--text-tertiary)}
+.rec-note{color:var(--text-secondary);font:500 .88rem/1.6 var(--font-sans);margin:0;border-left:3px solid var(--classic-blue);padding-left:.9rem}
+@media(max-width:640px){.diag-result strong{font-size:1.15rem}.rec-head{flex-direction:column}}
