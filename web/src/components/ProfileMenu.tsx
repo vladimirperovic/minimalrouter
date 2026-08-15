@@ -90,8 +90,6 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
 
   useEffect(() => {
     if (open && panel === "update" && !isDemoMode) void checkFirmware();
-  // checkFirmware intentionally captures no mutable render state.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, panel]);
 
   const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
