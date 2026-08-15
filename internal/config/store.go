@@ -227,6 +227,7 @@ func (s *SQLiteStore) GetLatestConfig() (SystemConfig, error) {
 	if err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
 		return SystemConfig{}, fmt.Errorf("failed to parse config JSON: %w", err)
 	}
+	cfg.MigrateLegacyFields()
 	if err := cfg.Validate(); err != nil {
 		return SystemConfig{}, fmt.Errorf("stored configuration failed validation: %w", err)
 	}

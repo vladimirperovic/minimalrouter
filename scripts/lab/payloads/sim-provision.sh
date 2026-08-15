@@ -34,9 +34,7 @@ Address = 10.79.0.2/24
 ListenPort = 51821
 PrivateKey = $(cat /root/lab-wg-keys/sim_wg1.key)
 PostUp = ip addr add 10.79.1.1/24 dev wg1 2>/dev/null || true
-PostUp = ip route add 10.79.0.1/32 dev wg1 2>/dev/null || true
 PostDown = ip addr del 10.79.1.1/24 dev wg1 2>/dev/null || true
-PostDown = ip route del 10.79.0.1/32 dev wg1 2>/dev/null || true
 EOF
 systemctl enable wg-quick@wg1 >/dev/null 2>&1
 systemctl restart wg-quick@wg1 || true
@@ -101,21 +99,6 @@ EOF
 systemctl daemon-reload
 systemctl enable extralan-http >/dev/null 2>&1
 systemctl restart extralan-http
-
-echo "== reply path for MR main LAN via the ExtraLAN segment =="
-# SIM's extra-LAN service (10.78.0.10:8080) must reply to MR LAN clients
-# (192.168.1.0/24) through MR's eth2 gateway, not SIM's WAN default route.
-grep -q "192.168.1.0/24" /etc/network/interfaces 2>/dev/null || \
-  { ip route add 192.168.1.0/24 via 10.78.0.1 dev eth2 2>/dev/null || true;
-    printf 'up ip route add 192.168.1.0/24 via 10.78.0.1 dev eth2 || true\n' >> /etc/network/interfaces; }
-
-echo "== WG reply path to MR PPPoE (10.250.0.50 behind ISP) =="
-# 10.250.0.50 is MR's ppp0 address but also lies inside SIM's own eth0
-# 10.250.0.0/24, so without this /32 route SIM would ARP for it directly and
-# never answer MR's wg0 handshake. Send it via the ISP gateway (eth1) instead.
-grep -q "10.250.0.50" /etc/network/interfaces 2>/dev/null || \
-  { ip route add 10.250.0.50/32 via 10.250.0.1 dev eth0 2>/dev/null || true;
-    printf 'up ip route add 10.250.0.50/32 via 10.250.0.1 dev eth0 || true\n' >> /etc/network/interfaces; }
 
 echo "== NTP (10.250.0.10:123) =="
 sed -i 's/^#allow 192.168.0.0\/16/allow 10.250.0.0\/24/' /etc/chrony/chrony.conf

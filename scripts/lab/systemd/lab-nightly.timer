@@ -1,0 +1,12 @@
+[Unit]
+Description=Continue the isolated OpenCode lab campaign
+
+[Timer]
+OnCalendar=*-*-* 02,06,10,14,18,22:00:00 Europe/Podgorica
+OnUnitInactiveSec=2min
+Persistent=true
+AccuracySec=1min
+Unit=lab-nightly.service
+
+[Install]
+WantedBy=timers.target

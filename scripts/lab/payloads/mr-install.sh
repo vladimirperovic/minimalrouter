@@ -18,7 +18,7 @@ uname -r
 cat /etc/network/interfaces 2>/dev/null || echo "(no interfaces file)"
 
 echo "== wiping application state =="
-rm -rf /var/lib/minimalrouter /var/lib/minimalrouter-applyd /var/lib/minimalrouter-update /etc/minimalrouter 2>/dev/null || true
+rm -rf /var/lib/minimalrouter /var/lib/minimalrouter-applyd /etc/minimalrouter 2>/dev/null || true
 rm -rf /etc/ppp /etc/dnsmasq.d /etc/wireguard 2>/dev/null || true
 rm -f /etc/squid/minimalrouter.conf /etc/inadyn.conf /etc/nftables.d/minimalrouter.nft 2>/dev/null || true
 rm -f /run/minimalrouter/apply.sock /run/minimalrouter-applyd/* 2>/dev/null || true

@@ -45,6 +45,49 @@ type Server struct {
 	mu             sync.RWMutex
 }
 
+// runtimeSnapshotTTL bounds how stale a telemetry read may be.
+//
+// RuntimeSnapshot spawns eight short-lived `doas wg show` processes and reads a
+// dozen /proc and /sys files. The Overview polls /api/v1/system every two
+// seconds for the live bandwidth chart, and /api/v1/health and /api/v1/accounting
+// need the same data, so an uncached read turned one dashboard tab into hundreds
+// of process spawns per minute on an appliance capped at 128 MiB. One second is
+// short enough that the two-second chart still sees a fresh sample on every
+// other poll, and long enough to collapse the concurrent readers.
+const runtimeSnapshotTTL = time.Second
+
+type cachedRuntimeSnapshot struct {
+	mu        sync.Mutex
+	value     telemetry.RuntimeStatus
+	takenAt   time.Time
+	wanIface  string
+	lanIface  string
+	populated bool
+}
+
+var runtimeSnapshotCache cachedRuntimeSnapshot
+
+// runtimeSnapshot returns telemetry no older than runtimeSnapshotTTL. The
+// interface names are part of the freshness check so a configuration change
+// cannot serve counters read from the previous WAN or LAN device.
+func runtimeSnapshot(wanInterface, lanInterface, dataDir string) telemetry.RuntimeStatus {
+	runtimeSnapshotCache.mu.Lock()
+	defer runtimeSnapshotCache.mu.Unlock()
+	if runtimeSnapshotCache.populated &&
+		runtimeSnapshotCache.wanIface == wanInterface &&
+		runtimeSnapshotCache.lanIface == lanInterface &&
+		time.Since(runtimeSnapshotCache.takenAt) < runtimeSnapshotTTL {
+		return runtimeSnapshotCache.value
+	}
+	value := telemetry.RuntimeSnapshot(wanInterface, lanInterface, dataDir)
+	runtimeSnapshotCache.value = value
+	runtimeSnapshotCache.takenAt = time.Now()
+	runtimeSnapshotCache.wanIface = wanInterface
+	runtimeSnapshotCache.lanIface = lanInterface
+	runtimeSnapshotCache.populated = true
+	return value
+}
+
 type pendingTOTPEnrollment struct {
 	secret    string
 	expiresAt time.Time
@@ -980,7 +1023,7 @@ func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleRecoveryReconcile(w http.ResponseWriter, _ *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), apply.ReconcileBudget)
 	defer cancel()
 	if err := s.engine.Reconcile(ctx); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -1005,7 +1048,7 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 	if dataDir == "" {
 		dataDir = "/var/lib/minimalrouter"
 	}
-	runtimeStatus := telemetry.RuntimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
+	runtimeStatus := runtimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
 	connectionStatus := "Disconnected"
 	if cfg.WAN.Enabled && runtimeStatus.WANConnected {
 		connectionStatus = "Connected"

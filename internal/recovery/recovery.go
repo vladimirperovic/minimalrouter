@@ -170,6 +170,7 @@ func (m Manager) RestoreSnapshot(id string) (config.Snapshot, error) {
 	if err := json.Unmarshal([]byte(target.ConfigJSON), &restored); err != nil {
 		return config.Snapshot{}, fmt.Errorf("decode snapshot: %w", err)
 	}
+	restored.MigrateLegacyFields()
 	restored.Revision = current.Revision + 1
 	restored.UpdatedAt = time.Now().UTC()
 	if err := restored.Validate(); err != nil {

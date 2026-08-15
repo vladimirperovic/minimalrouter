@@ -40,6 +40,14 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 	server.ConfigureGatewayMonitor(monitor)
 	server.RegisterGatewayRoutes(mux)
 
+	untrusted := httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil)
+	untrusted.RemoteAddr = "192.168.2.10:12345"
+	untrustedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(untrustedResponse, untrusted)
+	if untrustedResponse.Code != http.StatusForbidden {
+		t.Fatalf("untrusted summary returned %d, want 403", untrustedResponse.Code)
+	}
+
 	unauthorized := httptest.NewRecorder()
 	handler.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/api/v1/gateway/summary", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
@@ -111,7 +119,14 @@ func TestGatewayEndpointsRequireAuthenticationAndReturnBoundedData(t *testing.T)
 		t.Fatalf("settings were not persisted: %+v err=%v", stored, err)
 	}
 
-	invalidResponse := get("/api/v1/gateway/history?window=30d")
+	// 30d became a supported window when the hourly rollup table landed, so the
+	// bounds check is asserted with a window the handler still rejects.
+	longWindowResponse := get("/api/v1/gateway/history?window=30d")
+	if longWindowResponse.Code != http.StatusOK {
+		t.Fatalf("30d history window returned %d: %s", longWindowResponse.Code, longWindowResponse.Body.String())
+	}
+
+	invalidResponse := get("/api/v1/gateway/history?window=90d")
 	if invalidResponse.Code != http.StatusBadRequest {
 		t.Fatalf("invalid history window returned %d", invalidResponse.Code)
 	}

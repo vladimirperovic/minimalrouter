@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
@@ -28,11 +29,14 @@ func TestNftablesWANInputIsFailClosed(t *testing.T) {
 	}
 }
 
+// Port forwards exist, but only inside the tunnel. The invariant that must
+// never regress is that no DNAT rule is ever bound to a WAN or ppp interface.
 func TestNftablesNeverEmitsWANPortForward(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.WAN.Enabled = true
 	cfg.WAN.Username = "test"
 	cfg.WAN.Password = "test"
+	cfg.WireGuard.Enabled = true
 	cfg.Firewall.WANIngressMode = "port_forwards" // invalid input must still fail closed in the generator
 	cfg.Firewall.PortForwards = []config.PortForwardRule{{
 		ID: "web", Name: "Web", Protocol: "tcp", ExternalPort: 8444,
@@ -42,8 +46,86 @@ func TestNftablesNeverEmitsWANPortForward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(rules, "dport 8444") || strings.Contains(rules, "dnat") {
-		t.Fatal("secure appliance profile emitted a forbidden WAN port forward")
+	for _, line := range strings.Split(rules, "\n") {
+		if !strings.Contains(line, "dnat") {
+			continue
+		}
+		if !strings.Contains(line, "iifname \"wg0\"") {
+			t.Fatalf("DNAT rule is not confined to the WireGuard tunnel: %s", line)
+		}
+		if strings.Contains(line, "ppp") || strings.Contains(line, cfg.WAN.Interface) {
+			t.Fatalf("DNAT rule reachable from WAN: %s", line)
+		}
+	}
+}
+
+// Without a tunnel there is no entry point, so no DNAT may be generated at all.
+func TestNftablesOmitsPortForwardWithoutWireGuard(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "test"
+	cfg.WireGuard.Enabled = false
+	cfg.Firewall.PortForwards = []config.PortForwardRule{{
+		ID: "web", Name: "Web", Protocol: "tcp", ExternalPort: 8444,
+		InternalIP: "192.168.1.10", InternalPort: 443, Enabled: true,
+	}}
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rules, "dnat") || strings.Contains(rules, "dport 8444") {
+		t.Fatal("port forward emitted without a WireGuard entry point")
+	}
+}
+
+// The collector duplicates the set names to avoid importing the generator.
+// If they ever drift, accounting silently reads a set that does not exist.
+func TestAccountingSetNamesMatchCollector(t *testing.T) {
+	if AccountingSetRX != accounting.AccountingSetRXName {
+		t.Fatalf("download set name drift: generator %q, collector %q", AccountingSetRX, accounting.AccountingSetRXName)
+	}
+	if AccountingSetTX != accounting.AccountingSetTXName {
+		t.Fatalf("upload set name drift: generator %q, collector %q", AccountingSetTX, accounting.AccountingSetTXName)
+	}
+}
+
+// Accounting is opt-in and must add nothing to the ruleset when disabled.
+func TestNftablesAccountingIsOptIn(t *testing.T) {
+	cfg := config.DefaultConfig()
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(rules, AccountingSetRX) || strings.Contains(rules, AccountingSetTX) {
+		t.Fatal("accounting sets emitted while accounting is disabled")
+	}
+	cfg.Accounting.Enabled = true
+	rules, err = GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"set " + AccountingSetRX,
+		"set " + AccountingSetTX,
+		"update @" + AccountingSetTX,
+		"update @" + AccountingSetRX,
+	} {
+		if !strings.Contains(rules, want) {
+			t.Fatalf("enabled accounting is missing %q", want)
+		}
+	}
+	// Counters must never carry a verdict: a counting rule that also accepts
+	// would bypass the policy below it.
+	for _, line := range strings.Split(rules, "\n") {
+		if !strings.Contains(line, "update @acct_") {
+			continue
+		}
+		for _, verdict := range []string{" accept", " drop", " reject", " jump "} {
+			if strings.Contains(line, verdict) {
+				t.Fatalf("accounting rule carries a verdict: %s", line)
+			}
+		}
 	}
 }
 
@@ -456,5 +538,44 @@ func TestLanBroadcastAddress(t *testing.T) {
 	}
 	if got := lanBroadcastAddress("not-a-cidr"); got != "" {
 		t.Errorf("lanBroadcastAddress(invalid) = %s, want empty", got)
+	}
+}
+
+// accept is a terminal verdict for the chain. Accounting counters placed after
+// the accept rules never see the traffic they are supposed to measure, so the
+// feature reports near-zero usage for every device while still looking present
+// in the dashboard. This locks the counters ahead of every accept in the
+// forward chain, and behind the drops so nothing invalid is counted.
+func TestAccountingCountersPrecedeEveryForwardAccept(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Enabled = true
+	cfg.WAN.Username = "test"
+	cfg.WAN.Password = "long-enough-test-password"
+	cfg.WireGuard.Enabled = true
+	cfg.Accounting.Enabled = true
+
+	rules, err := GenerateNftables(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forward := rules[strings.Index(rules, "chain forward {"):]
+	forward = forward[:strings.Index(forward, "\n  }")]
+
+	for _, set := range []string{AccountingSetTX, AccountingSetRX} {
+		counter := strings.Index(forward, "update @"+set)
+		if counter < 0 {
+			t.Fatalf("forward chain does not count %s", set)
+		}
+		if invalid := strings.Index(forward, "ct state invalid drop"); invalid < 0 || invalid > counter {
+			t.Fatalf("%s counter runs before invalid packets are dropped", set)
+		}
+		for _, line := range strings.Split(forward, "\n") {
+			if !strings.HasSuffix(strings.TrimSpace(line), "accept") {
+				continue
+			}
+			if strings.Index(forward, line) < counter {
+				t.Fatalf("%s counter is placed after the terminal accept %q, so it can never observe accepted traffic", set, strings.TrimSpace(line))
+			}
+		}
 	}
 }

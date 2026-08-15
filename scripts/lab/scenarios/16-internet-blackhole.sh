@@ -5,7 +5,7 @@
 
 begin "16-internet-blackhole"
 phase "3-fault"
-require "fault: forwarded traffic blackholed" ispfault blackhole on
+require "fault: forwarded traffic blackholed" isp 'nft flush chain inet labfw blackhole; nft add rule inet labfw blackhole iifname ppp0 drop'
 sleep 3
 
 phase "4-mr-runtime"
@@ -18,7 +18,7 @@ phase "5-lan-client"
 check "client has no internet while blackholed" lan "! curl -s --max-time 5 http://$SIM_INET/marker.txt >/dev/null 2>&1"
 
 phase "6-revert"
-require "fault: blackhole cleared" ispfault blackhole off
+require "fault: blackhole cleared" isp "nft flush chain inet labfw blackhole"
 
 phase "7-recovery"
 check "LAN client internet back" check_lan_internet

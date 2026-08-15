@@ -1,0 +1,13 @@
+[Unit]
+Description=Bounded OpenCode lab scenario worker
+After=network-online.target opencode.service
+Requires=opencode.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nightly-lab.sh
+TimeoutStartSec=35min
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

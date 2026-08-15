@@ -13,12 +13,16 @@ phase "4-mr-runtime"
 check "MR up before DNS test" mr "uptime -s | grep -q ."
 
 phase "4.5-operator"
+cleanup_rebind() { isp "rm -f /etc/dnsmasq.d/rebind.conf && systemctl restart dnsmasq" >/dev/null 2>&1 || true; }
+trap cleanup_rebind EXIT HUP INT TERM
 # Configure the lab DNS to answer a public-ish name with a private address
 # (the simulated internet DNS server on ISP-LAB can be pointed at 10.250.0.10).
-isp "cat > /etc/dnsmasq.d/rebind.conf <<'EOF'
+require "install isolated upstream rebind answer" isp "cat > /etc/dnsmasq.d/rebind.conf <<'EOF'
 address=/rebind-test.invalid/10.250.0.10
 EOF
-systemctl restart dnsmasq" >/dev/null 2>&1
+systemctl restart dnsmasq && systemctl is-active --quiet dnsmasq
+"
+require "ISP resolver serves the private test answer" isp "host rebind-test.invalid 127.0.0.1 2>/dev/null | grep -q '10.250.0.10'"
 
 phase "4-mr-runtime-2"
 # Query through the router's DNS: if rebind protection is on, the answer is
@@ -31,7 +35,8 @@ check "local DNS still serves" check_local_dns
 check "internet still works" check_lan_internet
 
 phase "4.5-cleanup"
-isp "rm -f /etc/dnsmasq.d/rebind.conf && systemctl restart dnsmasq" >/dev/null 2>&1
+require "remove upstream rebind answer" isp "rm -f /etc/dnsmasq.d/rebind.conf && systemctl restart dnsmasq"
+trap - EXIT HUP INT TERM
 
 phase "7-recovery"
 check "canonical + last-good converge" check_converge

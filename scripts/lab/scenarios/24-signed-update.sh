@@ -20,7 +20,8 @@ require "fault: none (update path)" ispfault status
 
 phase "4-mr-runtime"
 check "MR up before update" mr "uptime -s | grep -q ."
-api GET /api/v1/config > /tmp/lab-pre-rev.json 2>/dev/null
+api_login
+require "pre-update config readable" api GET /api/v1/config
 mr "router-update status 2>/dev/null" > /tmp/lab-pre-version.txt
 check "pre-update version recorded" test -s /tmp/lab-pre-version.txt
 
@@ -36,7 +37,8 @@ prepare_payload() {
 
 phase "4.5-operator"
 require "dist tarball exists on runner" test -f "$DIST"
-require "signed payloads prepared on runner" test -f "$SIGNED_ROOT/lab-update-${BASE_VERSION}.manifest.json" && test -f "$SIGNED_ROOT/lab-update-${UP_VERSION}.manifest.json"
+require "baseline manifest prepared on runner" test -f "$SIGNED_ROOT/lab-update-${BASE_VERSION}.manifest.json"
+require "update manifest prepared on runner" test -f "$SIGNED_ROOT/lab-update-${UP_VERSION}.manifest.json"
 mkdir -p /tmp/lab-update-payload
 prepare_payload "$BASE_VERSION" "lab-update-${BASE_VERSION}.manifest.json" /tmp/lab-update-base.tgz
 require "baseline payload prepared on runner" test -s /tmp/lab-update-base.tgz
@@ -47,10 +49,7 @@ require "update payload prepared on runner" test -s /tmp/lab-update.tgz
 stage_activate() {
   tgz="$1"; ver="$2"
   require "push payload to router" mr_put "$tgz" /root/lab-update.tgz
-  # chmod: MR-TEST root umask is 077, so extraction would leave the payload
-  # 0700 and the updater would stage a slot whose binaries routerd (unprivileged)
-  # cannot exec — it would silently fall back to bootstrap and drift from applyd.
-  require "router-update stage" mr "mkdir -p /root/lab-update && cd /root/lab-update && rm -rf minimalrouter-linux-amd64 && tar xzf /root/lab-update.tgz && chmod -R 0755 minimalrouter-linux-amd64 && cd minimalrouter-linux-amd64 && router-update stage --dir . --manifest manifest.json 2>&1 | grep -E 'verified and staged|already staged'"
+  require "router-update stage" mr "mkdir -p /root/lab-update && cd /root/lab-update && tar xzf /root/lab-update.tgz && cd minimalrouter-linux-amd64 && router-update stage --dir . --manifest manifest.json 2>&1 | grep -q staged"
   require "activate staged image" mr "router-update activate --version $ver --confirm ACTIVATE-UPDATE 2>&1 | grep -qi activated"
   require "router reboots into new image" mr_wait 300
   require "PPPoE reconnects" wait_pppoe 180

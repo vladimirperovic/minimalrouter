@@ -23,6 +23,11 @@ const isValidIPv4 = (value: string): boolean => {
 export default function PortForwardsPanel({ onError }: Props) {
   const [rules, setRules] = useState<PortForwardRule[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Forwards are DNAT rules bound to the WireGuard server interface, so without
+  // an enabled tunnel there is no entry point and validation rejects them.
+  // Reflect that here instead of letting every submit fail server-side.
+  const [tunnelEnabled, setTunnelEnabled] = useState(false);
+  const [tunnelAddress, setTunnelAddress] = useState("");
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [protocol, setProtocol] = useState("tcp");
@@ -40,6 +45,8 @@ export default function PortForwardsPanel({ onError }: Props) {
       if (!response.ok) throw new Error(`Configuration load failed (${response.status})`);
       const config = (await response.json()) as RouterConfig;
       setRules(Array.isArray(config.firewall?.port_forwards) ? config.firewall.port_forwards : []);
+      setTunnelEnabled(Boolean(config.wireguard?.enabled));
+      setTunnelAddress(String(config.wireguard?.address || "").split("/")[0]);
       setLoaded(true);
     } catch (error) {
       onError(error instanceof Error ? error.message : "Port forwards configuration unavailable");
@@ -72,6 +79,10 @@ export default function PortForwardsPanel({ onError }: Props) {
 
   const add = async (event: FormEvent) => {
     event.preventDefault();
+    if (!tunnelEnabled) {
+      onError("Enable WireGuard first: port forwards are reachable only over the tunnel.");
+      return;
+    }
     if (!name.trim() || !/^[a-zA-Z0-9 _-]{1,64}$/.test(name.trim())) {
       onError("Name must be 1-64 characters (letters, digits, space, dash, underscore).");
       return;
@@ -113,86 +124,57 @@ export default function PortForwardsPanel({ onError }: Props) {
   };
 
   return (
-    <div className="classic-live-card classic-security-card">
-      <h3>Tunnel port forwards</h3>
-      <p className="classic-security-intro">
-        Reachable only over the WireGuard tunnel (e.g. 10.6.0.1:&lt;port&gt;) — never from the WAN.
-        Traffic arriving at the router&apos;s WireGuard address on the external port is forwarded to the internal host.
-      </p>
+    <section className="classic-live-card classic-security-card classic-port-forwards" aria-labelledby="tunnel-forwards-title">
+      <header className="port-forward-heading">
+        <div className="port-forward-title">
+          <span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h10M10 3l4 4-4 4M20 17H10M14 13l-4 4 4 4" /></svg></span>
+          <div><p className="eyebrow">WireGuard-only routing</p><h3 id="tunnel-forwards-title">Tunnel port forwards</h3><p>Send traffic arriving on the router&apos;s tunnel address to a service on the LAN. These rules are never exposed to WAN.</p></div>
+        </div>
+        <span className="port-forward-count">{rules.filter((rule) => rule.enabled).length} active</span>
+      </header>
 
       {!loaded ? (
-        <p className="classic-security-empty">Loading…</p>
+        <div className="port-forward-empty">Loading tunnel rules…</div>
+      ) : !tunnelEnabled ? (
+        <div className="port-forward-empty">
+          <div>
+            <strong>WireGuard is disabled</strong>
+            <p>
+              Port forwards are DNAT rules bound to the tunnel interface — they are never reachable from WAN. Enable
+              WireGuard in the WireGuard section to use them.
+            </p>
+          </div>
+        </div>
       ) : (
         <>
-          <form className="form-grid" onSubmit={add}>
-            <label className="field">
-              <span>Name</span>
-              <input onChange={(event) => setName(event.target.value)} placeholder="opencode" value={name} />
-            </label>
-            <label className="field">
-              <span>Protocol</span>
-              <select onChange={(event) => setProtocol(event.target.value)} value={protocol}>
-                <option value="tcp">TCP</option>
-                <option value="udp">UDP</option>
-                <option value="both">TCP + UDP</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>External port</span>
-              <input onChange={(event) => setExternalPort(event.target.value)} placeholder="4080" value={externalPort} />
-            </label>
-            <label className="field">
-              <span>Internal IP</span>
-              <input onChange={(event) => setInternalIP(event.target.value)} placeholder="192.168.1.50" value={internalIP} />
-            </label>
-            <label className="field">
-              <span>Internal port</span>
-              <input onChange={(event) => setInternalPort(event.target.value)} placeholder="4080" value={internalPort} />
-            </label>
-            <div className="modal-actions">
-              <button className="modal-action-button" disabled={saving} type="submit">
-                {saving ? "Applying…" : "Add forward"}
-              </button>
+          <form className="port-forward-composer" onSubmit={add}>
+            <div className="port-forward-fields">
+              <label className="field port-forward-name"><span>Rule name</span><input onChange={(event) => setName(event.target.value)} placeholder="OpenCode" value={name} /></label>
+              <label className="field port-forward-protocol"><span>Protocol</span><select onChange={(event) => setProtocol(event.target.value)} value={protocol}><option value="tcp">TCP</option><option value="udp">UDP</option><option value="both">TCP + UDP</option></select></label>
+              <label className="field"><span>Tunnel port</span><input inputMode="numeric" onChange={(event) => setExternalPort(event.target.value)} placeholder="4080" value={externalPort} /></label>
+              <span className="port-forward-arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M14 7l5 5-5 5" /></svg></span>
+              <label className="field port-forward-address"><span>LAN destination</span><input onChange={(event) => setInternalIP(event.target.value)} placeholder="192.168.1.50" value={internalIP} /></label>
+              <label className="field"><span>Service port</span><input inputMode="numeric" onChange={(event) => setInternalPort(event.target.value)} placeholder="4080" value={internalPort} /></label>
             </div>
+            <div className="port-forward-submit"><p><strong>Route preview</strong><span>{tunnelAddress || "tunnel address"}:{externalPort || "port"} → {internalIP || "LAN device"}:{internalPort || "port"}</span></p><button className="modal-action-button" disabled={saving} type="submit"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>{saving ? "Applying…" : "Add tunnel rule"}</button></div>
           </form>
 
           {rules.length === 0 ? (
-            <p className="classic-security-empty">No port forwards configured. WireGuard remains the only external entry point.</p>
+            <div className="port-forward-empty"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="14" rx="3" /><path d="M8 12h8" /></svg></span><div><strong>No tunnel rules configured</strong><p>Remote WireGuard devices can reach only the services already allowed by the firewall.</p></div></div>
           ) : (
-            <table className="classic-security-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Protocol</th>
-                  <th>External port</th>
-                  <th>Forwards to</th>
-                  <th>State</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((rule) => (
-                  <tr key={rule.id}>
-                    <td><strong>{rule.name}</strong></td>
-                    <td><code>{rule.protocol}</code></td>
-                    <td><code>{rule.external_port}</code></td>
-                    <td><code>{rule.internal_ip}:{rule.internal_port}</code></td>
-                    <td>{rule.enabled ? "enabled" : "disabled"}</td>
-                    <td className="table-actions">
-                      <button disabled={saving} onClick={() => toggle(rule.id)} type="button">
-                        {rule.enabled ? "Disable" : "Enable"}
-                      </button>
-                      <button disabled={saving} onClick={() => remove(rule.id)} type="button">
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="port-forward-rules" aria-label="Configured tunnel port forwards">
+              {rules.map((rule) => (
+                <article className={rule.enabled ? "is-enabled" : ""} key={rule.id}>
+                  <div className="port-forward-rule-name"><i aria-hidden="true" /><span><strong>{rule.name}</strong><small>{rule.enabled ? "Forwarding active" : "Rule paused"}</small></span></div>
+                  <code>{rule.protocol.toUpperCase()}</code>
+                  <div className="port-forward-route"><span>10.8.0.1:{rule.external_port}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M5 12h14M14 7l5 5-5 5" /></svg><strong>{rule.internal_ip}:{rule.internal_port}</strong></div>
+                  <div className="port-forward-actions"><button disabled={saving} onClick={() => toggle(rule.id)} type="button">{rule.enabled ? "Pause" : "Enable"}</button><button className="is-remove" disabled={saving} onClick={() => remove(rule.id)} type="button" aria-label={`Remove ${rule.name}`} title={`Remove ${rule.name}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l.7 13h9.6l.7-13M10 11v5M14 11v5" /></svg></button></div>
+                </article>
+              ))}
+            </div>
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }

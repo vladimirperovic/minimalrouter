@@ -1,13 +1,13 @@
 export type AccessWindow = { start: string; end: string };
 
 export const scheduleDays = [
-  ["monday", "Pon"],
-  ["tuesday", "Uto"],
-  ["wednesday", "Sri"],
-  ["thursday", "Čet"],
-  ["friday", "Pet"],
-  ["saturday", "Sub"],
-  ["sunday", "Ned"],
+  ["monday", "Mon"],
+  ["tuesday", "Tue"],
+  ["wednesday", "Wed"],
+  ["thursday", "Thu"],
+  ["friday", "Fri"],
+  ["saturday", "Sat"],
+  ["sunday", "Sun"],
 ] as const;
 
 export type ScheduleDay = (typeof scheduleDays)[number][0];
@@ -56,7 +56,7 @@ export function createEmptyGrid(): HourGrid {
 }
 
 export function slotsToWindows(slots: boolean[]): AccessWindow[] {
-  if (slots.length !== 24) throw new Error("Scheduler mora sadržati 24 sata za svaki dan.");
+  if (slots.length !== 24) throw new Error("The scheduler must contain 24 hours for every day.");
   const windows: AccessWindow[] = [];
   let start: number | null = null;
   for (let hour = 0; hour <= 24; hour += 1) {
@@ -104,14 +104,14 @@ export function createKidsProfile(input: {
 }): DeviceProfile {
   const addresses = input.addresses.map((address) => address.trim()).filter(Boolean);
   const services = [...new Set(input.services)];
-  if (addresses.length === 0) throw new Error("Dodajte najmanje jednu statičku IP adresu uređaja.");
+  if (addresses.length === 0) throw new Error("Add at least one static device IP address.");
   if (services.length === 0) throw new Error("Odaberite najmanje jedan servis.");
   for (const [day] of scheduleDays) {
     for (const window of input.dayWindows[day]) {
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(window.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(window.end)) {
         throw new Error("Vrijeme mora biti u HH:MM formatu.");
       }
-      if (window.start >= window.end) throw new Error("Kraj dozvoljenog perioda mora biti poslije početka.");
+      if (window.start >= window.end) throw new Error("The end of the allowed period must be after its start.");
     }
   }
   return {
@@ -126,7 +126,7 @@ export function createKidsProfile(input: {
 
 function describeWindows(windows: AccessWindow[]): string {
   if (windows.length === 0) return "blokirano";
-  if (windows.length === 1 && windows[0].start === "00:00" && windows[0].end === "23:59") return "cijeli dan";
+  if (windows.length === 1 && windows[0].start === "00:00" && windows[0].end === "23:59") return "all day";
   return windows.map((window) => `${window.start}–${window.end}`).join(", ");
 }
 

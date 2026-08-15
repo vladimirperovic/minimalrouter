@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -26,8 +27,18 @@ type speedtestResult struct {
 	SuggestedUploadMbps   int     `json:"suggested_upload_mbps"`
 }
 
+// speedtestMu serializes measurements. Two concurrent runs would saturate the
+// same line and report half the real throughput to both callers.
+var speedtestMu sync.Mutex
+
 func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] POST %s from %s\n", r.URL.Path, r.RemoteAddr)
+
+	if !speedtestMu.TryLock() {
+		http.Error(w, "A speed test is already running.", http.StatusConflict)
+		return
+	}
+	defer speedtestMu.Unlock()
 
 	cfg := s.engine.GetCurrentConfig()
 	if cfg.QoS.Enabled {
@@ -47,13 +58,17 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	dlMbps, err := measureDownload(client)
+	// Bind the measurement to the request: if the operator closes the tab or
+	// navigates away, the router stops pulling 75 MB through the WAN link.
+	ctx := r.Context()
+
+	dlMbps, err := measureDownload(ctx, client)
 	if err != nil {
 		http.Error(w, "Download speed test failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	ulMbps, err := measureUpload(client)
+	ulMbps, err := measureUpload(ctx, client)
 	if err != nil {
 		http.Error(w, "Upload speed test failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -70,8 +85,13 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
-func measureDownload(client *http.Client) (float64, error) {
-	resp, err := client.Get(speedtestHost + "/__down?bytes=" + strconv.Itoa(speedtestDownloadBytes))
+func measureDownload(ctx context.Context, client *http.Client) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		speedtestHost+"/__down?bytes="+strconv.Itoa(speedtestDownloadBytes), nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -89,18 +109,36 @@ func measureDownload(client *http.Client) (float64, error) {
 	return mbps(n, elapsed), nil
 }
 
-func measureUpload(client *http.Client) (float64, error) {
+// timedBody starts the clock at the first byte the transport actually reads
+// from the request body. Timing from before client.Do() charged DNS, the TCP
+// handshake and the TLS handshake to the upload, which understated every result
+// on a high-latency line.
+type timedBody struct {
+	inner     io.Reader
+	firstRead time.Time
+}
+
+func (t *timedBody) Read(p []byte) (int, error) {
+	if t.firstRead.IsZero() {
+		t.firstRead = time.Now()
+	}
+	return t.inner.Read(p)
+}
+
+func measureUpload(ctx context.Context, client *http.Client) (float64, error) {
 	// cf-based upload endpoint expects the bytes in the POST body; the
 	// response body is empty, so speed is derived from how fast the body
 	// drains into the connection.
-	req, err := http.NewRequest(http.MethodPost, speedtestHost+"/__up?bytes="+strconv.Itoa(speedtestUploadBytes), randomReader(speedtestUploadBytes))
+	body := &timedBody{inner: randomReader(speedtestUploadBytes)}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		speedtestHost+"/__up?bytes="+strconv.Itoa(speedtestUploadBytes), body)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = speedtestUploadBytes
 
-	start := time.Now()
+	fallbackStart := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
@@ -108,6 +146,10 @@ func measureUpload(client *http.Client) (float64, error) {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 
+	start := body.firstRead
+	if start.IsZero() {
+		start = fallbackStart
+	}
 	elapsed := time.Since(start).Seconds()
 	if elapsed <= 0 {
 		elapsed = 1

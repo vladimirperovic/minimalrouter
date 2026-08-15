@@ -25,11 +25,6 @@ depend() {
 
 start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
-    # supervise-daemon reopens the log files as the unprivileged routerd user,
-    # so they must already exist and be owned by routerd (root-owned /var/log
-    # is not writable by that user).
-    checkpath --file --owner routerd:routerd --mode 0600 /var/log/routerd.log
-    checkpath --file --owner routerd:routerd --mode 0600 /var/log/routerd.err
     # DHCP leases live in a dedicated dnsmasq-owned 0750 directory. Give the
     # management daemon only the supplementary group needed to read that live
     # status; canonical config/auth storage stays private to routerd.
@@ -38,7 +33,7 @@ start_pre() {
     # OpenRC must not report the management plane started merely because the
     # supervise-daemon parent exists. Pre-create a zero-length marker that only
     # routerd can fill after canonical reconcile and TLS setup have succeeded.
-    checkpath --directory --owner routerd:routerd --mode 0700 /run/minimalrouter
+    checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --file --owner routerd:routerd --mode 0600 /run/minimalrouter/routerd.ready
     : > /run/minimalrouter/routerd.ready
     chown routerd:routerd /run/minimalrouter/routerd.ready
@@ -46,8 +41,10 @@ start_pre() {
 }
 
 start_post() {
+    # 1200 x 0.25s = 300s. Must stay above apply.ReconcileBudget (270s) so a
+    # slow-but-succeeding canonical reconcile is not reported as a failed start.
     attempts=0
-    while [ "$attempts" -lt 640 ]; do
+    while [ "$attempts" -lt 1200 ]; do
         if [ -s /run/minimalrouter/routerd.ready ]; then
             chgrp routerd "$pidfile"
             chmod 0640 "$pidfile"

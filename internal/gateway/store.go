@@ -52,6 +52,17 @@ func OpenStore(dataDir string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
+const (
+	// hourlyRetention bounds the rollup table. 400 days keeps a full year plus
+	// slack while staying trivially small on disk.
+	hourlyRetention = 400 * 24 * time.Hour
+	maxHourlyRows   = 12000
+	// rawHistoryHorizon is how far back History() trusts raw samples. It sits
+	// just inside retentionPeriod so a request that straddles the prune boundary
+	// falls back to the rollup instead of returning a truncated series.
+	rawHistoryHorizon = 6 * 24 * time.Hour
+)
+
 func migrateGatewayStore(db *sql.DB) error {
 	_, err := db.Exec(`
 	CREATE TABLE IF NOT EXISTS gateway_samples (
@@ -75,6 +86,19 @@ func migrateGatewayStore(db *sql.DB) error {
 		type TEXT NOT NULL CHECK(type IN ('reconnect'))
 	);
 	CREATE INDEX IF NOT EXISTS idx_gateway_events_timestamp ON gateway_events(timestamp);
+	-- Raw samples are pruned after retentionPeriod (7 days). Proving an ISP
+	-- problem usually needs a longer view than that, but keeping 30 days of raw
+	-- 30-second samples would be ~86k rows. Roll each hour up instead: 400 days
+	-- of hourly rows is under 10k and answers "was last Tuesday evening bad?".
+	CREATE TABLE IF NOT EXISTS gateway_hourly (
+		hour_start INTEGER PRIMARY KEY,
+		samples INTEGER NOT NULL DEFAULT 0,
+		latency_sum REAL NOT NULL DEFAULT 0,
+		jitter_sum REAL NOT NULL DEFAULT 0,
+		loss_sum REAL NOT NULL DEFAULT 0,
+		worst_state TEXT NOT NULL DEFAULT 'unknown',
+		uptime_max INTEGER NOT NULL DEFAULT 0
+	);
 	CREATE TABLE IF NOT EXISTS gateway_settings (
 		id INTEGER PRIMARY KEY CHECK(id = 1),
 		enabled INTEGER NOT NULL,
@@ -170,6 +194,31 @@ func (s *Store) SaveSample(sample Sample) error {
 		sample.JitterMS, sample.PacketLossPercent, sample.PPPoEUptime); err != nil {
 		return fmt.Errorf("save gateway sample: %w", err)
 	}
+	hourStart := sample.Timestamp.UTC().Truncate(time.Hour).Unix()
+	if _, err := tx.Exec(`INSERT INTO gateway_hourly
+		(hour_start, samples, latency_sum, jitter_sum, loss_sum, worst_state, uptime_max)
+		VALUES (?, 1, ?, ?, ?, ?, ?)
+		ON CONFLICT(hour_start) DO UPDATE SET
+			samples = samples + 1,
+			latency_sum = latency_sum + excluded.latency_sum,
+			jitter_sum = jitter_sum + excluded.jitter_sum,
+			loss_sum = loss_sum + excluded.loss_sum,
+			uptime_max = MAX(uptime_max, excluded.uptime_max),
+			worst_state = CASE
+				WHEN `+stateSeverityCase("excluded.worst_state")+` > `+stateSeverityCase("worst_state")+`
+				THEN excluded.worst_state ELSE worst_state END`,
+		hourStart, sample.LatencyMS, sample.JitterMS, sample.PacketLossPercent,
+		string(sample.State), sample.PPPoEUptime); err != nil {
+		return fmt.Errorf("roll up gateway sample: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM gateway_hourly WHERE hour_start < ?`,
+		sample.Timestamp.Add(-hourlyRetention).UTC().Unix()); err != nil {
+		return fmt.Errorf("prune gateway rollup: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM gateway_hourly WHERE hour_start NOT IN
+		(SELECT hour_start FROM gateway_hourly ORDER BY hour_start DESC LIMIT ?)`, maxHourlyRows); err != nil {
+		return fmt.Errorf("bound gateway rollup: %w", err)
+	}
 	cutoff := sample.Timestamp.Add(-retentionPeriod).UTC().Unix()
 	if _, err := tx.Exec(`DELETE FROM gateway_samples WHERE timestamp < ?`, cutoff); err != nil {
 		return fmt.Errorf("prune old gateway samples: %w", err)
@@ -239,12 +288,65 @@ func (s *Store) LatestSample() (Sample, bool, error) {
 	return sample, true, nil
 }
 
+// stateSeverityCase renders the severity ordering used by worst_state as SQL so
+// the rollup keeps the worst state seen in the hour rather than the last one.
+func stateSeverityCase(column string) string {
+	return "(CASE " + column +
+		" WHEN 'offline' THEN 4" +
+		" WHEN 'flapping' THEN 3" +
+		" WHEN 'degraded' THEN 2" +
+		" WHEN 'healthy' THEN 1" +
+		" ELSE 0 END)"
+}
+
+// hourlyHistory serves windows longer than the raw retention from the rollup.
+func (s *Store) hourlyHistory(since time.Time, maxPoints int) ([]HistoryPoint, error) {
+	rows, err := s.db.Query(`SELECT hour_start, samples, latency_sum, jitter_sum, loss_sum,
+		worst_state, uptime_max FROM gateway_hourly WHERE hour_start >= ? ORDER BY hour_start ASC`,
+		since.UTC().Truncate(time.Hour).Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var raw []HistoryPoint
+	for rows.Next() {
+		var (
+			hourStart                      int64
+			samples                        int64
+			latencySum, jitterSum, lossSum float64
+			worstState                     string
+			uptimeMax                      int64
+		)
+		if err := rows.Scan(&hourStart, &samples, &latencySum, &jitterSum, &lossSum, &worstState, &uptimeMax); err != nil {
+			return nil, err
+		}
+		if samples <= 0 {
+			continue
+		}
+		raw = append(raw, HistoryPoint{
+			Timestamp:         time.Unix(hourStart, 0).UTC(),
+			State:             HealthState(worstState),
+			LatencyMS:         latencySum / float64(samples),
+			JitterMS:          jitterSum / float64(samples),
+			PacketLossPercent: lossSum / float64(samples),
+			PPPoEUptime:       uptimeMax,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return aggregateHistory(raw, since, maxPoints), nil
+}
+
 func (s *Store) History(since time.Time, maxPoints int) ([]HistoryPoint, error) {
 	if maxPoints < 1 {
 		maxPoints = 1
 	}
 	if maxPoints > 720 {
 		maxPoints = 720
+	}
+	if time.Since(since) > rawHistoryHorizon {
+		return s.hourlyHistory(since, maxPoints)
 	}
 	rows, err := s.db.Query(`SELECT timestamp, state, latency_ms, jitter_ms,
 		packet_loss_percent, pppoe_uptime_seconds FROM gateway_samples

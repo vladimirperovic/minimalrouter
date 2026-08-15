@@ -10,18 +10,7 @@ phase "4-mr-runtime"
 check "MR up before flood" mr "uptime -s | grep -q ."
 check "LAN client has lease" lan "ip -4 -o addr show | grep -q 192.168.1."
 phase "4.5-operator"
-require "DHCP DISCOVER flood" lan "python3 - << 'PY'
-import socket, struct, random
-s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-s.bind(('0.0.0.0', 68))
-xid=random.randint(1,2**32)
-for i in range(400):
-    mac=bytes([0x02, random.getrandbits(8), random.getrandbits(8), random.getrandbits(8), random.getrandbits(8), random.getrandbits(8)])
-    pkt=struct.pack('!BBBBIHH', 1,1,6,0, xid+i, 0x8000,0) + struct.pack('!4s4s4s4s', b'\x00'*4,b'\x00'*4,b'\x00'*4,b'\x00'*4) + mac + b'\x00'*192 + b'\x63\x82\x53\x63' + b'\x35\x01\x01'
-    s.sendto(pkt, ('255.255.255.255', 67))
-print('dhcp-flood-done')
-PY"
+require "DHCP DISCOVER flood" lan "test -x /root/lab-fault-dhcpflood.py && python3 /root/lab-fault-dhcpflood.py"
 sleep 3
 phase "4-mr-runtime-2"
 check "dnsmasq still alive" mr "rc-service dnsmasq status | grep -q started"

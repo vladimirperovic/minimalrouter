@@ -1,7 +1,4 @@
 packages:
   - '.'
-minimumReleaseAgeExclude:
-  - nanoid@3.3.18
 overrides:
   brace-expansion: '>=5.0.9'
-  nanoid: '3.3.18'

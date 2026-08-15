@@ -9,6 +9,61 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
+// wgPeerEndpointNets returns literal IPv4 addresses of enabled WireGuard
+// server peer endpoints. They are used only to keep the WireGuard UDP socket
+// reachable when a legitimate peer lives behind an ISP/private WAN address.
+// A peer endpoint address is never a trust identity: it may be shared NAT and
+// must never receive a broad input or forward ACCEPT.
+func wgPeerEndpointNets(cfg *config.SystemConfig) []string {
+	if !cfg.WireGuard.Enabled {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, peer := range cfg.WireGuard.Peers {
+		if !peer.Enabled {
+			continue
+		}
+		host, _, err := net.SplitHostPort(peer.Endpoint)
+		if err != nil {
+			host = peer.Endpoint
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || ip.To4() == nil {
+			continue
+		}
+		cidr := ip.String() + "/32"
+		if !seen[cidr] {
+			seen[cidr] = true
+			out = append(out, cidr)
+		}
+	}
+	return out
+}
+
+// writeKnownWGPeerEndpointInputRules creates the narrow exception needed when
+// a configured WireGuard peer endpoint is itself in a source range that the
+// WAN anti-spoof policy normally drops (for example a private ISP-side lab).
+// The exception is deliberately limited to UDP on the WireGuard listen port;
+// the source IP can never bypass normal router services or the forward chain.
+func writeKnownWGPeerEndpointInputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	endpoints := wgPeerEndpointNets(cfg)
+	if len(endpoints) == 0 || !cfg.WireGuard.Enabled {
+		return
+	}
+	sources := strings.Join(endpoints, ", ")
+	port := cfg.WireGuard.ListenPort
+	buf.WriteString("    # Known WireGuard peer endpoints: UDP socket only, never general trust\n")
+	if cfg.WAN.Interface != "" {
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { %s } ct state invalid drop\n", cfg.WAN.Interface, sources))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { %s } udp dport %d ct state new meter wg_known_wan_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop\n", cfg.WAN.Interface, sources, port))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { %s } udp dport %d accept\n", cfg.WAN.Interface, sources, port))
+	}
+	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } ct state invalid drop\n", sources))
+	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } udp dport %d ct state new meter wg_known_ppp_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop\n", sources, port))
+	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } udp dport %d accept\n\n", sources, port))
+}
+
 // lanBroadcastAddress computes the IPv4 broadcast address of a CIDR, or ""
 // when the prefix is not a valid IPv4 network.
 func lanBroadcastAddress(cidr string) string {
@@ -223,6 +278,123 @@ func writeExtraLANForwardRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
 }
 
 // GenerateNftables renders an atomic, deterministic nftables configuration string.
+// AccountingSetRX and AccountingSetTX are dynamic nftables sets keyed by LAN
+// host address, each carrying a byte counter. They are read (never written) by
+// routerd through two exact doas-allowlisted `nft -j list set` commands.
+//
+// The table is deleted and recreated on every apply, so these counters restart
+// from zero whenever configuration changes. The accounting collector treats any
+// decrease as a reset rather than as negative traffic.
+const (
+	AccountingSetRX = "acct_rx"
+	AccountingSetTX = "acct_tx"
+)
+
+// writeAccountingSets declares the per-host byte counters. Size is bounded so a
+// hostile or misconfigured LAN cannot grow kernel memory without limit, and the
+// timeout reclaims entries for devices that have left the network.
+func writeAccountingSets(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.Accounting.Enabled || cfg.LAN.Interface == "" {
+		return
+	}
+	for _, name := range []string{AccountingSetRX, AccountingSetTX} {
+		buf.WriteString(fmt.Sprintf("  set %s {\n", name))
+		buf.WriteString("    type ipv4_addr\n")
+		buf.WriteString("    size 512\n")
+		buf.WriteString("    flags dynamic,timeout\n")
+		buf.WriteString("    timeout 7d\n")
+		buf.WriteString("    counter\n")
+		buf.WriteString("  }\n\n")
+	}
+}
+
+// writeAccountingRules counts forwarded bytes per LAN host. The rules are pure
+// counters with no verdict, placed after the anti-spoof drops so only traffic
+// that already passed policy is measured. Download is keyed by destination
+// address, upload by source address.
+func writeAccountingRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.Accounting.Enabled || cfg.LAN.Interface == "" {
+		return
+	}
+	buf.WriteString("    # Per-device byte accounting (counters only, no verdict)\n")
+	buf.WriteString(fmt.Sprintf("    iifname \"%s\" update @%s { ip saddr }\n", cfg.LAN.Interface, AccountingSetTX))
+	buf.WriteString(fmt.Sprintf("    oifname \"%s\" update @%s { ip daddr }\n\n", cfg.LAN.Interface, AccountingSetRX))
+}
+
+// enabledTunnelPortForwards returns the port forwards that are reachable over
+// the WireGuard management tunnel. WAN-scoped exposure remains unsupported, so
+// nothing here can ever produce a rule bound to a WAN or ppp interface.
+func enabledTunnelPortForwards(cfg *config.SystemConfig) []config.PortForwardRule {
+	if !cfg.WireGuard.Enabled {
+		return nil
+	}
+	var out []config.PortForwardRule
+	for _, rule := range cfg.Firewall.PortForwards {
+		if rule.Enabled {
+			out = append(out, rule)
+		}
+	}
+	return out
+}
+
+// writeTunnelPortForwards emits the prerouting DNAT chain. Every rule is bound
+// to the WireGuard server interface, which is the appliance's only permitted
+// external entry point; a forward arriving on WAN or ppp0 matches nothing here
+// and is dropped by the default WAN policy exactly as before.
+func writeTunnelPortForwards(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	rules := enabledTunnelPortForwards(cfg)
+	if len(rules) == 0 {
+		return
+	}
+	wgInterface := cfg.WireGuard.Interface
+	if wgInterface == "" {
+		wgInterface = "wg0"
+	}
+	buf.WriteString("  chain prerouting {\n")
+	buf.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n\n")
+	buf.WriteString("    # Port forwards are reachable only over the WireGuard tunnel, never the WAN.\n")
+	for _, rule := range rules {
+		for _, protocol := range portForwardProtocols(rule.Protocol) {
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" %s dport %d dnat ip to %s:%d\n",
+				wgInterface, protocol, rule.ExternalPort, rule.InternalIP, rule.InternalPort))
+		}
+	}
+	buf.WriteString("  }\n\n")
+}
+
+// writeTunnelPortForwardForward opens the matching forward path. DNAT rewrites
+// the destination before the forward chain runs, so the accept must match the
+// translated address rather than the original port.
+func writeTunnelPortForwardForward(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	rules := enabledTunnelPortForwards(cfg)
+	if len(rules) == 0 {
+		return
+	}
+	wgInterface := cfg.WireGuard.Interface
+	if wgInterface == "" {
+		wgInterface = "wg0"
+	}
+	buf.WriteString("    # Tunnel port forwards: allow the DNAT-translated destination\n")
+	for _, rule := range rules {
+		for _, protocol := range portForwardProtocols(rule.Protocol) {
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" oifname \"%s\" ip daddr %s %s dport %d ct state new accept\n",
+				wgInterface, cfg.LAN.Interface, rule.InternalIP, protocol, rule.InternalPort))
+		}
+	}
+	buf.WriteString("\n")
+}
+
+func portForwardProtocols(protocol string) []string {
+	switch strings.ToLower(strings.TrimSpace(protocol)) {
+	case "both":
+		return []string{"tcp", "udp"}
+	case "udp":
+		return []string{"udp"}
+	default:
+		return []string{"tcp"}
+	}
+}
+
 func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	// Scenario-level policy is enforced in the generator as a second trust
 	// boundary. Even if a future control-plane path forgets its own guard, the
@@ -244,12 +416,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	// router-applyd wraps this owned table in an atomic delete-and-create batch.
 	buf.WriteString("table inet minimalrouter {\n")
 	writeDeviceProfileObjects(&buf, cfg)
-
-	// DNAT chain: tunnel-only port forwards. Traffic arriving at the router's
-	// WireGuard address on an external port is redirected to an internal host.
-	// The forward chain's existing wg0->LAN accept carries it the rest of the
-	// way; WAN ingress stays closed (WireGuard is the only external entry).
-	writePortForwardDNAT(&buf, cfg)
+	writeAccountingSets(&buf, cfg)
 
 	// Input Chain
 	buf.WriteString("  chain input {\n")
@@ -258,6 +425,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    iifname \"lo\" accept\n\n")
 
 	if cfg.WAN.Interface != "" {
+		writeKnownWGPeerEndpointInputRules(&buf, cfg)
 		buf.WriteString("    # Drop spoofed/reserved WAN sources before connection tracking accepts\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" fib saddr . iif oif missing drop\n", cfg.WAN.Interface))
@@ -332,6 +500,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("  chain forward {\n")
 	buf.WriteString("    type filter hook forward priority filter; policy drop;\n\n")
 	if cfg.WAN.Interface != "" {
+		// A configured WireGuard peer endpoint is never a forward trust
+		// identity. WAN traffic still passes the normal anti-spoof and
+		// established/default-deny policy regardless of source address.
 		buf.WriteString("    # WAN anti-spoofing precedes state acceptance\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 } drop\n", cfg.WAN.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" fib saddr . iif oif missing drop\n", cfg.WAN.Interface))
@@ -362,6 +533,12 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("\n")
 	}
 
+	// Counters must precede every accept. accept is a terminal verdict for the
+	// chain, so counters placed after the accept rules only ever saw traffic on
+	// its way to the policy drop -- which reported near-zero usage for every
+	// device while looking like a working feature. Invalid packets are already
+	// dropped above, so nothing counted here is junk.
+	writeAccountingRules(&buf, cfg)
 	buf.WriteString("    # Allow established/related\n")
 	buf.WriteString("    ct state established,related accept\n\n")
 	buf.WriteString("    # TCP MSS clamping prevents PPPoE fragmentation stalls\n")
@@ -383,6 +560,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		}
 		buf.WriteString("\n")
 	}
+	writeTunnelPortForwardForward(&buf, cfg)
 	writeWGClientForwardRules(&buf, cfg)
 	buf.WriteString("  }\n\n")
 
@@ -405,13 +583,15 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// A pre-existing Squid connection to a private segment must be cut when
 	// proxy isolation is enabled/changed; these UID+zone denies deliberately
-	// precede established/related acceptance. Squid answers LAN clients that
-	// dial the proxy, so responses (conntrack original direction toward the
-	// router's own LAN address) are accepted before the zone deny; only
-	// Squid-*initiated* egress into the LAN zone is blocked.
+	// precede established/related acceptance.
 	if cfg.SquidProxy.Enabled {
 		if cfg.LAN.Interface != "" {
-			buf.WriteString(fmt.Sprintf("    meta skuid squid oifname \"%s\" ct original ip daddr %s accept\n", cfg.LAN.Interface, cfg.LAN.IPAddress))
+			// Squid's listener is on the LAN interface. Its response packets
+			// therefore leave with the proxy port as their source port, but
+			// still carry the squid UID. Allow only those replies before the
+			// broad UID/private-zone deny below; arbitrary Squid egress to the
+			// LAN remains blocked.
+			buf.WriteString(fmt.Sprintf("    meta skuid squid oifname \"%s\" tcp sport %d accept\n", cfg.LAN.Interface, cfg.SquidProxy.Port))
 			buf.WriteString(fmt.Sprintf("    meta skuid squid oifname \"%s\" drop\n", cfg.LAN.Interface))
 		}
 		if cfg.WireGuard.Enabled && cfg.WireGuard.Interface != "" {
@@ -437,14 +617,6 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	if cfg.WireGuard.Enabled {
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.WireGuard.ListenPort))
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
-		// A peer with a configured endpoint initiates its handshake from the
-		// appliance, so the encrypted tunnel stream must be allowed to leave on
-		// the physical WAN. Peers without an endpoint dial in; their reply is
-		// already covered by the established/related accept above.
-		if cfg.WAN.Interface != "" {
-			buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport %d accept\n", cfg.WAN.Interface, cfg.WireGuard.ListenPort))
-		}
-		buf.WriteString(fmt.Sprintf("    oifname \"ppp*\" udp sport %d accept\n", cfg.WireGuard.ListenPort))
 	}
 	writeWGClientOutputRules(&buf, cfg)
 	if len(cfg.DHCP.DNSServers) > 0 {
@@ -486,6 +658,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("    counter drop\n")
 	buf.WriteString("  }\n\n")
 
+	// Prerouting (tunnel-scoped DNAT)
+	writeTunnelPortForwards(&buf, cfg)
+
 	// Postrouting (Masquerade NAT)
 	buf.WriteString("  chain postrouting {\n")
 	buf.WriteString("    type nat hook postrouting priority srcnat; policy accept;\n\n")
@@ -500,36 +675,4 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("}\n")
 
 	return buf.String(), nil
-}
-
-// writePortForwardDNAT renders the prerouting DNAT rules for tunnel-only port
-// forwards. Each enabled rule is matched on the WireGuard interface and
-// redirected to the internal host. Returns the count of rendered rules.
-func writePortForwardDNAT(buf *bytes.Buffer, cfg *config.SystemConfig) int {
-	rules := 0
-	if !cfg.WireGuard.Enabled {
-		return 0 // fail closed: forwards are tunnel-only
-	}
-	for _, pf := range cfg.Firewall.PortForwards {
-		if !pf.Enabled {
-			continue
-		}
-		if rules == 0 {
-			buf.WriteString("  chain dnat {\n")
-			buf.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
-		}
-		protocols := []string{pf.Protocol}
-		if strings.ToLower(pf.Protocol) == "both" {
-			protocols = []string{"tcp", "udp"}
-		}
-		for _, proto := range protocols {
-			buf.WriteString(fmt.Sprintf("    iifname \"%s\" %s dport %d dnat to %s:%d\n",
-				cfg.WireGuard.Interface, strings.ToLower(proto), pf.ExternalPort, pf.InternalIP, pf.InternalPort))
-			rules++
-		}
-	}
-	if rules > 0 {
-		buf.WriteString("  }\n\n")
-	}
-	return rules
 }

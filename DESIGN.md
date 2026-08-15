@@ -10,6 +10,9 @@ color and technical detail only where it helps the operator make a decision.
 - **Progressive detail.** Keep the overview concise; configuration belongs in dedicated sections.
 - **Semantic color only.** Blue = action/selection, green = healthy, amber = warning, red = failure/destructive.
 - **No fake telemetry.** Missing data is shown as unavailable, never simulated.
+  A status element must be driven by a measurement, not by the presence of
+  configuration: a service being *enabled* is not evidence that it is *working*.
+  A failed probe is drawn as a gap, never as a zero.
 - **Safe changes are visible.** Confirmation, rollback and recovery states must be obvious.
 
 ## Current desktop shell
@@ -24,6 +27,8 @@ The dashboard uses:
 
 The Overview is intentionally ordered as:
 
+0. the appliance-health banner, which is the single answer to "does this router
+   need attention?" and the only element allowed to summarise overall state;
 1. appliance/Internet status and PPPoE state;
 2. public IP, uptime, MTU, revision and update trust;
 3. storage, conntrack and time-sync chips;
@@ -72,12 +77,13 @@ Current sections are:
 4. Firewall
 5. WireGuard
 6. Dynamic DNS
-7. Squid Proxy
-8. DNS Filter
-9. Wi-Fi AP
-10. Recovery
-11. Security
-12. Logs
+7. Traffic
+8. Squid Proxy
+9. DNS Filter
+10. Wi-Fi AP
+11. Recovery
+12. Security
+13. Logs
 
 Features that are disabled or unavailable should stay explicit rather than being
 hidden or presented as active.

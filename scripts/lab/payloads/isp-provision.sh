@@ -80,8 +80,8 @@ cat > /usr/local/sbin/lab-nat <<'EOF'
 # mode sim: no upstream egress; only the lab segment (10.250.0.0/24) is reachable.
 IFACE=$(cat /etc/lab-iface)
 MODE=$(cat /etc/lab-mode)
-nft flush table inet labnat 2>/dev/null || true
 nft -f - <<NATEOF
+flush table inet labnat 2>/dev/null
 table inet labnat {
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
@@ -89,20 +89,16 @@ table inet labnat {
   }
 }
 NATEOF
-nft flush table inet labfw 2>/dev/null || true
 nft -f - <<FORWEOF
+flush table inet labfw 2>/dev/null
 table inet labfw {
   chain blackhole {
-  }
-  chain input {
-    type filter hook input priority filter; policy accept;
-    jump blackhole
   }
   chain forward {
     type filter hook forward priority filter; policy accept;
     jump blackhole
-    iifname "ppp*" oifname "$IFACE" accept
-    iifname "$IFACE" oifname "ppp*" ct state established,related accept
+    iifname "ppp+" oifname "$IFACE" accept
+    iifname "$IFACE" oifname "ppp+" ct state established,related accept
   }
 }
 FORWEOF
@@ -112,8 +108,8 @@ table inet labfw {
   chain forward {
     policy drop;
     jump blackhole
-    iifname "ppp*" oifname "$IFACE" accept
-    iifname "$IFACE" oifname "ppp*" ct state established,related accept
+    iifname "ppp+" oifname "$IFACE" accept
+    iifname "$IFACE" oifname "ppp+" ct state established,related accept
     oifname "eth0" ip saddr 10.250.0.0/24 drop
   }
 }
@@ -167,7 +163,7 @@ EOF
   systemctl restart dnsmasq
   echo "mode=$1"
 }
-pppoe() { systemctl "$1" pppoe-server; if [ "$1" = stop ]; then for pid in $(ps -eo pid,comm | awk '$2=="pppd" {print $1}'); do kill -9 $pid 2>/dev/null; done; fi; }
+pppoe() { systemctl "$1" pppoe-server; }
 auth() {  # good|bad
   if [ "$1" = good ]; then
     cat > /etc/ppp/chap-secrets <<EOF
@@ -211,7 +207,18 @@ mtu() {  # 1400|1492|1500
   echo "mtu=$1 (server restarted)"
 }
 dns() {  # on|out
-  case "$1" in on) systemctl start dnsmasq;; out) systemctl stop dnsmasq;; esac
+  case "$1" in
+    on)
+      nft flush chain inet labfw blackhole 2>/dev/null || true
+      systemctl start dnsmasq
+      ;;
+    out)
+      systemctl stop dnsmasq
+      nft flush chain inet labfw blackhole 2>/dev/null || true
+      nft add rule inet labfw blackhole iifname ppp0 udp dport 53 drop
+      nft add rule inet labfw blackhole iifname ppp0 tcp dport 53 drop
+      ;;
+  esac
   echo "dns=$1"
 }
 blackhole() {  # on [dest[:port]] | off
@@ -220,22 +227,20 @@ blackhole() {  # on [dest[:port]] | off
     if [ -n "${2:-}" ]; then
       case "$2" in
         *:*) dst="${2%:*}"; port="${2##*:}"
-             nft add rule inet labfw blackhole iifname '"ppp*"' ip daddr "$dst" tcp dport "$port" drop
-             nft add rule inet labfw blackhole iifname '"ppp*"' ip daddr "$dst" udp dport "$port" drop ;;
-        *)   nft add rule inet labfw blackhole iifname '"ppp*"' ip daddr "$2" drop ;;
+             nft add rule inet labfw blackhole iifname ppp0 ip daddr "$dst" tcp dport "$port" drop
+             nft add rule inet labfw blackhole iifname ppp0 ip daddr "$dst" udp dport "$port" drop ;;
+        *)   nft add rule inet labfw blackhole iifname ppp0 ip daddr "$2" drop ;;
       esac
     else
-      nft add rule inet labfw blackhole iifname '"ppp*"' drop
+      nft add rule inet labfw blackhole iifname ppp0 drop
     fi
   fi
   echo "blackhole=$1${2:+:$2}"
 }
 outage() {  # short|long|stop — composite ISP outage (pppoe stop + restart)
   case "$1" in
-    # short: stop now, auto-restart after 30 s in the background so the
-    # qm guest-exec call returns immediately (host exec timeout is 30 s).
-    short) systemctl stop pppoe-server; for pid in $(ps -eo pid,comm | awk '$2=="pppd" {print $1}'); do kill -9 $pid 2>/dev/null; done; (sleep 30; systemctl start pppoe-server) >/dev/null 2>&1 & echo "outage=short(30s)";;
-    long)  systemctl stop pppoe-server; for pid in $(ps -eo pid,comm | awk '$2=="pppd" {print $1}'); do kill -9 $pid 2>/dev/null; done; echo "outage=long(started)";;
+    short) systemctl stop pppoe-server; sleep 30; systemctl start pppoe-server; echo "outage=short(30s)";;
+    long)  systemctl stop pppoe-server; echo "outage=long(started)";;
     stop)  systemctl start pppoe-server; echo "outage=long(ended)";;
     *) echo "usage: outage short|long|stop";;
   esac

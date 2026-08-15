@@ -13,7 +13,25 @@ check "firewall still policy-drop" check_fw_not_fail_open
 check "LAN still up" check_lan_up
 check "local DNS still serves" check_local_dns
 check "local save still works" mr_save_lease
-check "routerd/applyd healthy after 60s outage" mr "rc-service routerd status | grep -q started && rc-service router-applyd status | grep -q started"
+
+# Exercise a real long-lived outage. Check local invariants at every minute so
+# a transient failure cannot hide behind a healthy final state.
+outage_seconds="${LAB_LONG_OUTAGE_SECONDS:-600}"
+case "$outage_seconds" in
+  *[!0-9]*|'') finish_scenario 1 ;;
+esac
+elapsed=0
+while [ "$elapsed" -lt "$outage_seconds" ]; do
+  remaining=$((outage_seconds-elapsed))
+  interval=60
+  [ "$remaining" -ge "$interval" ] || interval="$remaining"
+  sleep "$interval"
+  elapsed=$((elapsed+interval))
+  check "firewall policy-drop at ${elapsed}s outage" check_fw_not_fail_open
+  check "LAN up at ${elapsed}s outage" check_lan_up
+  check "local DNS serves at ${elapsed}s outage" check_local_dns
+  check "routerd/applyd healthy at ${elapsed}s outage" mr "rc-service routerd status | grep -q started && rc-service router-applyd status | grep -q started"
+done
 
 phase "5-lan-client"
 check "client lease intact" lan "ip -4 -o addr show | grep -q '192.168.1.'"

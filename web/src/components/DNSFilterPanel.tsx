@@ -23,7 +23,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [profileTemplate, setProfileTemplate] = useState<"" | "kids">("");
   const [name, setName] = useState("Kids");
   const [addresses, setAddresses] = useState("");
   const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
@@ -74,7 +73,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const closeModal = () => {
     setModalOpen(false);
-    setProfileTemplate("");
     setName("Kids");
     setAddresses("");
     setServices(["youtube", "steam", "wiki"]);
@@ -95,10 +93,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const submitProfile = async (event: FormEvent) => {
     event.preventDefault();
-    if (profileTemplate !== "kids") {
-      onError("Odaberite Kids profil prije podešavanja rasporeda.");
-      return;
-    }
     setSaving(true);
     try {
       const profile = createKidsProfile({
@@ -171,31 +165,16 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   return (
     <section className="section-block dns-filter" id="adguard">
-      <div className="section-heading dns-filter-heading">
-        <div>
-          <p className="eyebrow">DNS Filter & Device Profiles</p>
-          <h2>Scheduled service access</h2>
-          <p className="dns-filter-intro">
-            Uređaji koriste statičke LAN adrese. DNS odgovori pune nftables skupove,
-            a firewall prekida YouTube, Steam i druge izabrane servise izvan dozvoljenog vremena.
-          </p>
-        </div>
-        <div className="dns-filter-actions">
-          <span className="quiet-meta">Status: <strong>{enabled ? "Active" : "Disabled"}</strong></span>
-          <button className="button secondary" disabled={!apiConnected || saving} onClick={toggleGlobal} type="button">
-            {enabled ? "Disable DNS Filter" : "Enable DNS Filter"}
-          </button>
-          <button className="button primary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">
-            Add device profile
-          </button>
-        </div>
+      <div className="section-heading dns-filter-heading has-facts">
+        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>Scheduled service access</h2><p className="dns-filter-intro">Devices use static LAN addresses. DNS answers populate nftables sets, and the firewall applies service schedules per device.</p></div><div className="dns-filter-actions"><button className="button secondary" disabled={!apiConnected || saving} onClick={toggleGlobal} type="button">{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button><button className="button primary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Add device profile</button></div></div>
+        <dl className="subpage-hero-facts"><div><dt>Filtering</dt><dd>{enabled ? "Active" : "Disabled"}</dd><small>DNS and firewall policy</small></div><div><dt>Profiles</dt><dd>{profiles.length}</dd><small>configured devices</small></div><div><dt>Active profiles</dt><dd>{profiles.filter((profile) => profile.enabled).length}</dd><small>scheduled policies</small></div><div><dt>Services</dt><dd>{new Set(profiles.flatMap((profile) => profile.services)).size}</dd><small>unique service groups</small></div></dl>
       </div>
 
       <article className="card table-card">
         <div className="card-title-row">
           <div>
             <h3>Device profiles</h3>
-            <p>Za Kids profil biraš dozvoljene sate posebno za svaki dan u sedmici.</p>
+            <p>For a Kids profile you choose the allowed hours separately for each day of the week.</p>
           </div>
         </div>
         <div className="table-scroll">
@@ -206,7 +185,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
             </thead>
             <tbody>
               {profiles.length === 0 ? (
-                <tr><td className="empty-state" colSpan={6}>No device profiles yet.</td></tr>
+                <tr><td className="empty-state dns-profile-empty-cell" colSpan={6}><div className="dns-profile-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4" /><circle cx="12" cy="12" r="9" /></svg><strong>No device profiles yet</strong><span>Create a profile to schedule service access for selected devices.</span><button className="button secondary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Create first profile</button></div></td></tr>
               ) : profiles.map((profile) => (
                 <tr key={profile.id}>
                   <td><strong>{profile.name}</strong></td>
@@ -230,24 +209,17 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="modal-backdrop" role="presentation">
           <section aria-labelledby="profile-title" aria-modal="true" className="modal-panel dns-profile-modal" role="dialog">
             <div className="modal-heading">
-              <div><p className="eyebrow">Parental control</p><h2 id="profile-title">Device profile</h2></div>
+              <div className="dns-profile-modal-title"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 4.4 3 7.3 8 9 5-1.7 8-4.6 8-9V7z" /><path d="M9 12h6M12 9v6" /></svg></span><div><p className="eyebrow">Parental control</p><h2 id="profile-title">Add device profile</h2><p>Choose the devices, managed services and the hours when access is allowed.</p></div></div>
               <button aria-label="Close profile dialog" className="modal-close" onClick={closeModal} type="button">✕</button>
             </div>
-            <form className="form-grid" onSubmit={submitProfile}>
-              <label className="field">
-                <span>Profile type</span>
-                <select onChange={(event) => setProfileTemplate(event.target.value as "" | "kids")} required value={profileTemplate}>
-                  <option value="">Select profile…</option>
-                  <option value="kids">Kids</option>
-                </select>
-              </label>
-
-              {profileTemplate === "kids" && (
-                <>
-                  <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} required value={name} /></label>
-                  <label className="field"><span>Static IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
+            <form className="form-grid dns-profile-form" onSubmit={submitProfile}>
+              <div className="dns-profile-basics">
+                  <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} placeholder="Kids" required value={name} /></label>
+                  <label className="field"><span>Device IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
+              </div>
                   <fieldset className="field service-picker">
                     <legend>Managed services</legend>
+                    <p>Select the services controlled by this schedule.</p>
                     <div className="service-checkboxes">
                       {managedServices.map(([value, label]) => (
                         <label key={value}><input checked={services.includes(value)} onChange={() => toggleService(value)} type="checkbox" />{label}</label>
@@ -258,7 +230,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                   <fieldset className="weekly-scheduler">
                     <legend>Allowed time</legend>
                     <div className="scheduler-toolbar">
-                      <p>Obojeni sati su dozvoljeni. Klikni ili prevuci preko polja da promijeniš raspored.</p>
+                      <p>Coloured hours are allowed. Click or drag across the cells to change the schedule.</p>
                       <div>
                         <button className="button secondary compact" onClick={() => setGrid(createDefaultKidsGrid())} type="button">Default</button>
                         <button className="button secondary compact" onClick={() => setGrid(Object.fromEntries(scheduleDays.map(([day]) => [day, Array(24).fill(true)])) as HourGrid)} type="button">Allow all</button>
@@ -294,11 +266,8 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                       </div>
                     </div>
                   </fieldset>
-                  <p className="form-note">Podrazumijevano su YouTube, Steam i Wikipedia dozvoljeni radnim danima od 19:00, a vikendom cijeli dan. Ti možeš promijeniti svaki sat i svaki dan.</p>
-                </>
-              )}
-
-              <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving || profileTemplate !== "kids"} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
+                  <p className="form-note">By default YouTube, Steam and Wikipedia are allowed on weekdays from 19:00, and all day at weekends. You can change any hour on any day.</p>
+              <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
             </form>
           </section>
         </div>

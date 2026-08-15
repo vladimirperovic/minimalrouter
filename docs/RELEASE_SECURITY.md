@@ -77,48 +77,15 @@ router-update stage \
   --manifest /root/minimalrouter-linux-amd64.manifest.json
 ```
 
-Staging is fail-closed and performs these checks before committing an inactive
-slot:
+Staging performs all of these checks before committing an inactive slot:
 
-1. load the operating-system-pinned Ed25519 trust anchor and verify the signed
-   manifest against it;
-2. require a complete Minimal Router appliance payload with exactly one complete
-   supported architecture binary set, and reject a package that does not match
-   the running host architecture;
-3. reject unsafe manifest paths, symlinks, non-regular runtime files, root-only
-   daemon/script modes, and web assets that the unprivileged runtime cannot
-   read;
-4. enforce the signed `compatibility.json` bootstrap ABI, config schema and
-   runtime protocol contract;
-5. verify every manifest SHA-256 hash in constant time;
-6. copy **only** manifest-covered files into a private temporary slot with
-   normalized directory and file permissions independent of the caller's umask;
-7. verify the copied slot again, including runtime modes, compatibility metadata
-   and all signed content hashes;
-8. atomically rename the completed slot and mark it pending.
+1. verify the manifest against the pinned Ed25519 public key;
+2. reject unsafe paths, symlinks, and non-regular files;
+3. verify every SHA-256 hash in constant time;
+4. copy only manifest-covered files into a private temporary slot;
+5. atomically rename the completed slot and mark it pending.
 
 Release-provided shell scripts are never executed by the update manager.
-Unmanifested files in an extracted archive are never copied into an A/B slot.
-
-## Stable bootstrap and activation compatibility
-
-Ordinary A/B activation deliberately does **not** rewrite root-owned operating
-system integration files. Before the active pointer can move,
-`router-update` compares the candidate release byte-for-byte and mode-for-mode
-against the installed stable runtime layout, including:
-
-- `compatibility.json`;
-- `slot-exec`;
-- `routerd`, `router-applyd` and PPPoE OpenRC integration;
-- sysctl, module-load, logrotate and PPP QoS hook files;
-- the architecture-specific bootstrap `router-update` and `router-recovery`
-  binaries.
-
-If any of those files differ, A/B activation is refused and the operator must run
-the full signed distribution installer. This prevents a new slotted daemon from
-silently depending on a bootstrap/init/recovery layer that was not upgraded with
-it. `router-update` and `router-recovery` themselves always execute from the
-stable bootstrap path rather than from the slot under test.
 
 ## Activation and health confirmation
 
@@ -131,17 +98,10 @@ router-update activate \
   --confirm ACTIVATE-UPDATE
 ```
 
-After all runtime-layout compatibility checks pass, the current slot pointer is
-replaced atomically and the previous verified slot is retained. Activation then
-stops `routerd`, restarts `router-applyd` from the new current slot, starts
-`routerd` from that same slot, and requires the OpenRC service/readiness checks to
-succeed. If the new pair fails to start cleanly, the updater automatically moves
-the slot pointer back and restarts the previous pair. A failure of both the new
-slot and automatic rollback is reported as a hard recovery error rather than a
-successful activation.
+The current slot pointer is replaced atomically. The previous verified slot is
+retained. Reboot or restart according to the release notes, then verify:
 
-After activation, also verify the network behavior appropriate to the release:
-
+- routerd and router-applyd start cleanly;
 - LAN management remains reachable;
 - WAN, DHCP, DNS, firewall, WireGuard, and device-profile policy behave as
   expected;
@@ -158,10 +118,10 @@ From the local console:
 router-update rollback --confirm ROLLBACK-UPDATE
 ```
 
-Rollback atomically restores the previous verified slot pointer and restarts the
-runtime pair from it. It does not restore configuration snapshots; use
-`router-recovery snapshots` and `router-recovery restore-snapshot` when the
-problem is configuration rather than software payload.
+Rollback atomically restores the previous verified slot pointer. It does not
+restore configuration snapshots; use `router-recovery snapshots` and
+`router-recovery restore-snapshot` when the problem is configuration rather than
+software payload.
 
 ## Key compromise
 

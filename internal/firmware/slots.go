@@ -86,9 +86,6 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 				return err
 			}
 		}
-		if err := normalizeSlotDirectoryModes(tempDir); err != nil {
-			return err
-		}
 
 		if err := VerifyFirmware(tempDir, manifest, m.TrustedKey); err != nil {
 			return fmt.Errorf("verify copied release slot: %w", err)
@@ -400,7 +397,7 @@ func (m SlotManager) ensureRoot() error {
 	return os.Chmod(filepath.Join(m.Root, "slots"), 0o755)
 }
 
-func (m SlotManager) withLock(fn func() error) error {
+func (m SlotManager) withLock(fn func() error) (err error) {
 	if err := m.ensureRoot(); err != nil {
 		return err
 	}
@@ -408,7 +405,11 @@ func (m SlotManager) withLock(fn func() error) error {
 	if err != nil {
 		return err
 	}
-	defer lock.Close()
+	defer func() {
+		if closeErr := lock.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close update lock: %w", closeErr))
+		}
+	}()
 	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
 		return err
 	}
@@ -528,7 +529,7 @@ func (m SlotManager) linkVersion(name string) (string, bool, error) {
 	return version, true, nil
 }
 
-func copyRegularFile(source, destination string) (returnErr error) {
+func copyRegularFile(source, destination string) error {
 	info, err := os.Lstat(source)
 	if err != nil || !info.Mode().IsRegular() {
 		return fmt.Errorf("release file is missing or unsafe: %s", source)
@@ -541,41 +542,19 @@ func copyRegularFile(source, destination string) (returnErr error) {
 		return err
 	}
 	defer input.Close()
-	mode := info.Mode().Perm() & 0o755
-	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm()&0o755)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := output.Close(); closeErr != nil {
-			returnErr = errors.Join(returnErr, closeErr)
-		}
-	}()
-	if err := output.Chmod(mode); err != nil {
-		return err
-	}
 	if _, err := io.Copy(output, input); err != nil {
+		output.Close()
 		return err
 	}
 	if err := output.Sync(); err != nil {
+		output.Close()
 		return err
 	}
-	return nil
-}
-
-func normalizeSlotDirectoryModes(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		if err := os.Chmod(path, 0o755); err != nil {
-			return fmt.Errorf("normalize staged directory mode %s: %w", path, err)
-		}
-		return nil
-	})
+	return output.Close()
 }
 
 func syncDir(path string) error {

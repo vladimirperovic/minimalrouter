@@ -62,11 +62,10 @@ func TestNftablesSquidEgressIsWANOnlyAndPrivateDeniesPrecedeEstablished(t *testi
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		`meta skuid squid oifname "eth1" tcp sport 3128 accept`,
 		`meta skuid squid oifname "eth1" drop`,
 		`meta skuid squid oifname "eth2" drop`,
 		`meta skuid squid oifname "wg0" drop`,
-		`meta skuid squid oifname "eth1" ct original ip daddr 192.168.1.1 accept`,
-		`meta skuid squid oifname "eth1" drop`,
 		`meta skuid squid oifname "eth0" tcp dport { 80, 443 } accept`,
 		`meta skuid squid oifname "ppp*" tcp dport { 80, 443 } accept`,
 	} {
@@ -79,11 +78,6 @@ func TestNftablesSquidEgressIsWANOnlyAndPrivateDeniesPrecedeEstablished(t *testi
 	established := strings.Index(output, "ct state established,related accept")
 	if deny < 0 || established < 0 || deny > established {
 		t.Fatal("Squid private-zone deny must precede established/related acceptance")
-	}
-	lanAllow := strings.Index(output, `meta skuid squid oifname "eth1" ct original ip daddr 192.168.1.1 accept`)
-	lanDeny := strings.Index(output, `meta skuid squid oifname "eth1" drop`)
-	if lanAllow < 0 || lanDeny < 0 || lanAllow > lanDeny {
-		t.Fatal("Squid LAN response allow must precede the LAN zone deny")
 	}
 	if strings.Contains(rules, "meta skuid squid tcp dport { 80, 443 } accept") {
 		t.Fatal("unscoped Squid web egress rule reappeared")

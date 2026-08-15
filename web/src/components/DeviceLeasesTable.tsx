@@ -46,15 +46,15 @@ export default function DeviceLeasesTable({ leases, config }: { leases: Lease[];
     <section className="modern-device-section">
       <div className="modern-section-heading">
         <div className="modern-heading-titles">
-          <h2>DHCP leases</h2>
-          <span className="modern-heading-sub">Devices currently holding an address on the LAN</span>
+          <h2>Connected devices</h2>
+          <span className="modern-heading-sub">Current LAN clients · {staticMacs.size} static reservation{staticMacs.size === 1 ? "" : "s"}</span>
         </div>
         <div className="modern-device-tools">
           <div className="modern-search-wrapper">
             <svg className="modern-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
             <input
               type="text"
-              placeholder="Search by name, IP, or MAC..."
+              placeholder="Search name, IP or MAC"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="modern-search-input"
@@ -63,7 +63,7 @@ export default function DeviceLeasesTable({ leases, config }: { leases: Lease[];
               <button type="button" className="modern-search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">✕</button>
             )}
           </div>
-          <span className="modern-device-count">{filteredLeases.length} {filteredLeases.length === 1 ? "device" : "devices"}</span>
+          <span className="modern-device-count">{searchQuery ? `${filteredLeases.length} match${filteredLeases.length === 1 ? "" : "es"}` : "Live lease table"}</span>
         </div>
       </div>
 
@@ -80,9 +80,9 @@ export default function DeviceLeasesTable({ leases, config }: { leases: Lease[];
           <thead>
             <tr>
               <th className="elegant-th-num">#</th>
-              <th>Host Name</th>
-              <th>IP Address</th>
-              <th>MAC Address</th>
+              <th>Host name</th>
+              <th>IP address</th>
+              <th>MAC address</th>
               <th>Expires</th>
               <th className="elegant-th-actions">Actions</th>
             </tr>

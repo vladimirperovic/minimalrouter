@@ -64,7 +64,7 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
         }
       } catch {
         if (active) {
-          setInterfaceWarnings(["Automatsko otkrivanje nije dostupno. Potvrdite Linux imena kartica na lokalnoj konzoli."]);
+          setInterfaceWarnings(["Automatic discovery is unavailable. Confirm the Linux interface names on the local console."]);
         }
       } finally {
         if (active) setInterfacesLoading(false);
@@ -86,25 +86,25 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
     setErrorMsg("");
     if (step === 2) {
       if (!wanIf || !lanIf) {
-        setErrorMsg("Odaberite i WAN i LAN karticu.");
+        setErrorMsg("Select both a WAN and a LAN interface.");
         return;
       }
       if (wanIf === lanIf) {
-        setErrorMsg("WAN i LAN moraju biti dvije različite kartice.");
+        setErrorMsg("WAN and LAN must be two different interfaces.");
         return;
       }
     }
     if (step === 3 && ((pppoeUser && !pppoePass) || (!pppoeUser && pppoePass))) {
-      setErrorMsg("Unesite oba PPPoE podatka ili ostavite oba polja prazna.");
+      setErrorMsg("Enter both PPPoE credentials, or leave both fields empty.");
       return;
     }
     if (step === 4) {
       if (adminPass.length < 12) {
-        setErrorMsg("Administrator lozinka mora imati najmanje 12 karaktera.");
+        setErrorMsg("The administrator password must be at least 12 characters.");
         return;
       }
       if (adminPass !== adminPassConfirm) {
-        setErrorMsg("Administrator lozinke se ne poklapaju.");
+        setErrorMsg("The administrator passwords do not match.");
         return;
       }
     }
@@ -135,14 +135,14 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "Greška pri primjeni konfiguracije");
+        throw new Error(text || "Applying the configuration failed");
       }
       setPppoePass("");
       setAdminPass("");
       setAdminPassConfirm("");
       setStep(6);
     } catch (error) {
-      setErrorMsg(error instanceof Error ? error.message : "Neuspješna primjena podešavanja");
+      setErrorMsg(error instanceof Error ? error.message : "Setup could not be applied");
     } finally {
       setSubmitting(false);
     }
@@ -169,27 +169,27 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
 
         {step === 1 && (
           <div className="setup-page">
-            <p className="eyebrow">Prva instalacija</p>
-            <h1 id="setup-title">Dobrodošli u novi ruter.</h1>
-            <p className="setup-lead">Čarobnjak podešava WAN/LAN uloge, opcionu PPPoE vezu i administratorsku zaštitu. Svaki izbor možete pregledati prije primjene.</p>
+            <p className="eyebrow">First-run installation</p>
+            <h1 id="setup-title">Welcome to your new router.</h1>
+            <p className="setup-lead">This wizard sets the WAN and LAN roles, an optional PPPoE connection, and administrator protection. You can review every choice before anything is applied.</p>
             <div className="setup-feature-grid">
-              <article><span>Sigurna primjena</span><strong>Snapshot i rollback</strong><p>Disruptivne izmjene se provjeravaju i mogu vratiti na prethodno stanje.</p></article>
-              <article><span>Lokalni oporavak</span><strong>Bez podrazumijevane lozinke</strong><p>Recovery konzola ostaje lokalna i ne otvara mrežni endpoint.</p></article>
+              <article><span>Safe apply</span><strong>Snapshot and rollback</strong><p>Disruptive changes are verified and can be returned to the previous state.</p></article>
+              <article><span>Local recovery</span><strong>No default password</strong><p>The recovery console stays local and opens no network endpoint.</p></article>
             </div>
-            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={next} type="button">Započni podešavanje →</button></div>
+            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={next} type="button">Start setup →</button></div>
           </div>
         )}
 
         {step === 2 && (
           <div className="setup-page">
-            <p className="eyebrow">Mrežni priključci</p>
-            <h1 id="setup-title">Potvrdite WAN i LAN kartice</h1>
-            <p className="setup-lead">Preporuka koristi fizičku karticu, link i postojeću default rutu. Ne primjenjuje se bez vaše potvrde.</p>
-            {interfacesLoading ? <p className="setup-note">Otkrivanje kartica…</p> : null}
+            <p className="eyebrow">Network interfaces</p>
+            <h1 id="setup-title">Confirm the WAN and LAN interfaces</h1>
+            <p className="setup-lead">The recommendation uses the physical interface, link state and any existing default route. Nothing is applied without your confirmation.</p>
+            {interfacesLoading ? <p className="setup-note">Discovering interfaces…</p> : null}
             {interfaceWarnings.map((warning) => <p className="setup-warning" key={warning}>{warning}</p>)}
             <div className="setup-interface-grid">
               <label className="field"><span>WAN — internet</span><select onChange={(event) => setWanIf(event.target.value)} value={wanIf}>{options.map((item) => <option key={`wan-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
-              <label className="field"><span>LAN — lokalna mreža</span><select onChange={(event) => setLanIf(event.target.value)} value={lanIf}>{options.map((item) => <option key={`lan-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
+              <label className="field"><span>LAN — local network</span><select onChange={(event) => setLanIf(event.target.value)} value={lanIf}>{options.map((item) => <option key={`lan-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
             </div>
             <div className="setup-interface-list">
               {options.map((item) => (
@@ -205,63 +205,63 @@ export default function SetupWizard({ onComplete, onClose }: SetupWizardProps) {
                 </article>
               ))}
             </div>
-            <p className="setup-note">LAN gateway nakon instalacije: <code>{lanIP}/24</code>. Konzolni recovery može kasnije bezbjedno promijeniti LAN.</p>
-            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Nastavi →</button></div>
+            <p className="setup-note">LAN gateway after installation: <code>{lanIP}/24</code>. The LAN address can be changed safely later from the console.</p>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Back</button><button className="button primary" onClick={next} type="button">Continue →</button></div>
           </div>
         )}
 
         {step === 3 && (
           <div className="setup-page">
-            <p className="eyebrow">Internet konekcija</p>
-            <h1 id="setup-title">Unesite PPPoE podatke</h1>
-            <p className="setup-lead">Unesite oba podatka dobijena od ISP-a. Za izolovanu laboratoriju ostavite oba polja prazna.</p>
+            <p className="eyebrow">Internet connection</p>
+            <h1 id="setup-title">Enter your PPPoE credentials</h1>
+            <p className="setup-lead">Enter both credentials supplied by your ISP. For an isolated lab, leave both fields empty.</p>
             <div className="setup-fields">
-              <label className="field"><span>PPPoE korisničko ime</span><input autoComplete="username" onChange={(event) => setPppoeUser(event.target.value)} placeholder="korisnik@isp.net" value={pppoeUser} /></label>
-              <label className="field"><span>PPPoE lozinka</span><input autoComplete="current-password" onChange={(event) => setPppoePass(event.target.value)} type="password" value={pppoePass} /></label>
+              <label className="field"><span>PPPoE username</span><input autoComplete="username" onChange={(event) => setPppoeUser(event.target.value)} placeholder="user@isp.net" value={pppoeUser} /></label>
+              <label className="field"><span>PPPoE password</span><input autoComplete="current-password" onChange={(event) => setPppoePass(event.target.value)} type="password" value={pppoePass} /></label>
             </div>
-            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Nastavi →</button></div>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Back</button><button className="button primary" onClick={next} type="button">Continue →</button></div>
           </div>
         )}
 
         {step === 4 && (
           <div className="setup-page">
-            <p className="eyebrow">Sigurnost rutera</p>
-            <h1 id="setup-title">Kreirajte administrator lozinku</h1>
-            <p className="setup-lead">Najmanje 12 karaktera. Nema fabričke ili rezervne mrežne lozinke.</p>
+            <p className="eyebrow">Router security</p>
+            <h1 id="setup-title">Create the administrator password</h1>
+            <p className="setup-lead">At least 12 characters. There is no factory password and no network fallback.</p>
             <div className="setup-fields">
-              <label className="field"><span>Administrator lozinka</span><input autoComplete="new-password" className={adminPass.length >= 12 ? "is-valid" : ""} onChange={(event) => setAdminPass(event.target.value)} type="password" value={adminPass} /></label>
-              <label className="field"><span>Potvrdite lozinku</span><input autoComplete="new-password" className={adminPassConfirm !== "" && adminPassConfirm === adminPass ? "is-valid" : ""} onChange={(event) => setAdminPassConfirm(event.target.value)} type="password" value={adminPassConfirm} /></label>
-              <div className="setup-password-meter"><progress aria-label="Password minimum length" max={12} value={Math.min(adminPass.length, 12)} /><span>{adminPass.length >= 12 ? "✓ Minimalna dužina ispunjena" : `${adminPass.length}/12 karaktera`}</span></div>
+              <label className="field"><span>Administrator password</span><input autoComplete="new-password" className={adminPass.length >= 12 ? "is-valid" : ""} onChange={(event) => setAdminPass(event.target.value)} type="password" value={adminPass} /></label>
+              <label className="field"><span>Confirm password</span><input autoComplete="new-password" className={adminPassConfirm !== "" && adminPassConfirm === adminPass ? "is-valid" : ""} onChange={(event) => setAdminPassConfirm(event.target.value)} type="password" value={adminPassConfirm} /></label>
+              <div className="setup-password-meter"><progress aria-label="Password minimum length" max={12} value={Math.min(adminPass.length, 12)} /><span>{adminPass.length >= 12 ? "✓ Minimum length met" : `${adminPass.length}/12 characters`}</span></div>
             </div>
-            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Nazad</button><button className="button primary" onClick={next} type="button">Pregledaj →</button></div>
+            <div className="setup-actions"><button className="button secondary" onClick={previous} type="button">Back</button><button className="button primary" onClick={next} type="button">Review →</button></div>
           </div>
         )}
 
         {step === 5 && (
           <div className="setup-page">
-            <p className="eyebrow">Završna potvrda</p>
-            <h1 id="setup-title">Pregled podešavanja</h1>
+            <p className="eyebrow">Final confirmation</p>
+            <h1 id="setup-title">Review your setup</h1>
             <div className="setup-review-grid">
               <article><span>WAN</span><strong>{wanIf}</strong></article>
               <article><span>LAN</span><strong>{lanIf}</strong></article>
-              <article><span>Internet</span><strong>{pppoeUser ? `PPPoE: ${pppoeUser}` : "PPPoE isključen"}</strong></article>
+              <article><span>Internet</span><strong>{pppoeUser ? `PPPoE: ${pppoeUser}` : "PPPoE disabled"}</strong></article>
               <article><span>LAN gateway</span><strong>{lanIP}/24</strong></article>
               <article><span>DHCP</span><strong>192.168.1.100–192.168.1.200</strong></article>
-              <article><span>Recovery</span><strong>Lokalna konzola</strong></article>
+              <article><span>Recovery</span><strong>Local console</strong></article>
             </div>
-            <p className="setup-warning">Potvrdite da kablovi odgovaraju odabranim ulogama. Pogrešan izbor može prekinuti pristup dok ga ne popravite na konzoli.</p>
-            <div className="setup-actions"><button className="button secondary" disabled={submitting} onClick={previous} type="button">Nazad</button><button className="button success" disabled={submitting} onClick={finish} type="button">{submitting ? "Primjenjujem…" : "Primijeni podešavanja"}</button></div>
+            <p className="setup-warning">Confirm the cabling matches the roles you selected. A wrong choice can cut off access until you repair it on the console.</p>
+            <div className="setup-actions"><button className="button secondary" disabled={submitting} onClick={previous} type="button">Back</button><button className="button success" disabled={submitting} onClick={finish} type="button">{submitting ? "Applying…" : "Apply setup"}</button></div>
           </div>
         )}
 
         {step === 6 && (
           <div className="setup-page setup-success">
             <span aria-hidden="true" className="setup-success-icon">✓</span>
-            <p className="eyebrow">Podešavanje završeno</p>
-            <h1 id="setup-title">Ruter je inicijalizovan.</h1>
-            <p className="setup-lead">Otvorite novu upravljačku adresu i provjerite prikazani TLS fingerprint prije prijave.</p>
+            <p className="eyebrow">Setup complete</p>
+            <h1 id="setup-title">The router is initialised.</h1>
+            <p className="setup-lead">Open the new management address and verify the displayed TLS fingerprint before signing in.</p>
             <code>https://{lanIP}:8443</code>
-            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={onComplete} type="button">Nastavi na prijavu</button></div>
+            <div className="setup-actions setup-actions-end"><button className="button primary" onClick={onComplete} type="button">Continue to sign-in</button></div>
           </div>
         )}
       </section>

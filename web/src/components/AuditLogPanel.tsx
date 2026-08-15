@@ -71,9 +71,9 @@ export default function AuditLogPanel() {
 
   return (
     <section className="dashboard-section" id="logs">
-      <div className="dashboard-section-heading">
-        <div><p className="eyebrow">Local metadata</p><h2>Security and activity log</h2><p className="section-copy">Bounded SQLite events without passwords, keys, request bodies, or generated configurations.</p></div>
-        <div className="toolbar"><span className="quiet-meta">{updated ? `Updated ${updated.toLocaleTimeString()}` : "Not loaded"}</span><button className="button secondary" disabled={loading} onClick={() => void load()} type="button">{loading ? "Refreshing…" : "Refresh"}</button><button className="button secondary" disabled={visible.length === 0} onClick={exportJSON} type="button">Export JSON</button></div>
+      <div className="dashboard-section-heading has-facts">
+        <div className="subpage-hero-head"><div><p className="eyebrow">Local metadata</p><h2>Security and activity log</h2><p className="section-copy">Bounded SQLite events without passwords, keys, request bodies, or generated configurations.</p></div><div className="toolbar"><button className="button secondary" disabled={loading} onClick={() => void load()} type="button">{loading ? "Refreshing…" : "Refresh"}</button><button className="button secondary" disabled={visible.length === 0} onClick={exportJSON} type="button">Export JSON</button></div></div>
+        <dl className="subpage-hero-facts"><div><dt>Events loaded</dt><dd>{events.length}</dd><small>{visible.length} currently displayed</small></div><div><dt>Security</dt><dd>{events.filter((event) => category(event) === "security").length}</dd><small>authentication events</small></div><div><dt>Network</dt><dd>{events.filter((event) => category(event) === "network").length}</dd><small>service policy events</small></div><div><dt>Last refresh</dt><dd>{updated ? updated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not loaded"}</dd><small>stored locally</small></div></dl>
       </div>
       {error && <div className="dashboard-alert is-error" role="alert">{error}</div>}
       <article className="card table-card">

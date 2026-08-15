@@ -82,3 +82,36 @@ func TestDecryptBackupRejectsUnboundedArgon2Parameters(t *testing.T) {
 		}
 	}
 }
+
+func TestDecryptBackupRejectsUnknownBoundedArgon2Profile(t *testing.T) {
+	valid, err := EncryptConfigBackup(DefaultConfig(), "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope BackupEnvelope
+	if err := json.Unmarshal(valid, &envelope); err != nil {
+		t.Fatal(err)
+	}
+
+	// These values are within the old generic safety bounds, but are not the
+	// known v1 profile. Reject them before Argon2 runs so future profiles cannot
+	// silently consume more memory than the appliance budget allows.
+	for _, mutate := range []struct {
+		name   string
+		change func(*BackupEnvelope)
+	}{
+		{"higher memory", func(e *BackupEnvelope) { e.ArgonMemory = 128 * 1024 }},
+		{"extra thread", func(e *BackupEnvelope) { e.ArgonThreads = 2 }},
+		{"different time cost", func(e *BackupEnvelope) { e.ArgonTime = 4 }},
+	} {
+		attack := envelope
+		mutate.change(&attack)
+		raw, err := json.Marshal(attack)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := DecryptConfigBackup(raw, "correct horse battery staple"); err == nil {
+			t.Fatalf("backup with %s was accepted", mutate.name)
+		}
+	}
+}

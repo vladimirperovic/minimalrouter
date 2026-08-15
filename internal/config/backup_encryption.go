@@ -113,10 +113,10 @@ func DecryptConfigBackup(data []byte, passphrase string) (SystemConfig, error) {
 		envelope.KDF != "argon2id" {
 		return SystemConfig{}, errors.New("unsupported backup format")
 	}
-	if envelope.ArgonTime < 1 || envelope.ArgonTime > 8 ||
-		envelope.ArgonMemory < 32*1024 || envelope.ArgonMemory > 256*1024 ||
-		envelope.ArgonThreads < 1 || envelope.ArgonThreads > 4 {
-		return SystemConfig{}, errors.New("backup KDF parameters are outside safe bounds")
+	if envelope.ArgonTime != backupArgonTime ||
+		envelope.ArgonMemory != backupArgonMemory ||
+		envelope.ArgonThreads != backupArgonThreads {
+		return SystemConfig{}, errors.New("unsupported backup KDF profile")
 	}
 	salt, err := base64.StdEncoding.DecodeString(envelope.Salt)
 	if err != nil || len(salt) != 16 {
