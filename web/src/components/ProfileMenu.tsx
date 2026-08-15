@@ -121,6 +121,19 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
     return false;
   };
 
+  const finishUpdateRequest = async (response: Response) => {
+    const body = (await response.json().catch(() => ({}))) as FirmwareUpdateResult;
+    if (!response.ok || !body.success || !body.version) {
+      throw new Error(body.error || `Update failed (${response.status})`);
+    }
+    setUpdateMessage(`${body.version} verified. Restarting into the new slot…`);
+    const activated = await waitForActivatedVersion(body.version);
+    if (!activated) {
+      setUpdateMessage("The new version did not become active within the recovery window. The previous slot may have been retained or restored; check the local update log before trying again.");
+      await checkFirmware();
+    }
+  };
+
   const installUpdate = async () => {
     const version = firmware?.latest_version;
     if (!version || !firmware?.update_available || updating) return;
@@ -131,18 +144,31 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
     setUpdating(true);
     try {
       const response = await apiFetch("/api/v1/firmware/update", { method: "POST" });
-      const body = (await response.json().catch(() => ({}))) as FirmwareUpdateResult;
-      if (!response.ok || !body.success || !body.version) {
-        throw new Error(body.error || `Update failed (${response.status})`);
-      }
-      setUpdateMessage(`${body.version} verified. Restarting into the new slot…`);
-      const activated = await waitForActivatedVersion(body.version);
-      if (!activated) {
-        setUpdateMessage("The new version did not become active within the recovery window. The previous slot may have been retained or restored; check the local update log before trying again.");
-        await checkFirmware();
-      }
+      await finishUpdateRequest(response);
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "Update failed";
+      setUpdateMessage(message);
+      setError(message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const uploadSignedBuild = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (updating) return;
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    if (!window.confirm("Install this signed build now? The manifest and archive will be verified by the pinned firmware key before the A/B slot can activate.")) return;
+
+    setError("");
+    setUpdateMessage("Uploading and verifying signed build…");
+    setUpdating(true);
+    try {
+      const response = await apiFetch("/api/v1/firmware/upload", { method: "POST", body: data });
+      await finishUpdateRequest(response);
+    } catch (uploadError) {
+      const message = uploadError instanceof Error ? uploadError.message : "Build upload failed";
       setUpdateMessage(message);
       setError(message);
     } finally {
@@ -223,6 +249,14 @@ export default function ProfileMenu({ changePassword, logout, error, setError }:
                   <button type="button" className="button secondary small" disabled={updating || checkingUpdate} onClick={() => void checkFirmware()}>{checkingUpdate ? "Checking…" : "Check again"}</button>
                   <button type="button" className="button primary small" disabled={updating || checkingUpdate || !firmware?.enabled || !firmware?.update_available || Boolean(firmware?.pending_version)} onClick={() => void installUpdate()}>{updating ? "Updating…" : "Update now"}</button>
                 </div>
+
+                <div className="profile-update-divider"><span>or install a signed build</span></div>
+                <form className="profile-update-upload" onSubmit={uploadSignedBuild}>
+                  <label><span>Signed manifest</span><input accept=".json,application/json" disabled={updating || !firmware?.enabled || Boolean(firmware?.pending_version)} name="manifest" required type="file" /></label>
+                  <label><span>Release archive</span><input accept=".tar.gz,.tgz,application/gzip" disabled={updating || !firmware?.enabled || Boolean(firmware?.pending_version)} name="archive" required type="file" /></label>
+                  <p>Use the matching architecture archive and its signed <code>.manifest.json</code>. Unsigned, altered, wrong-architecture, same-version, or older builds are rejected by the updater.</p>
+                  <button className="button secondary small" disabled={updating || !firmware?.enabled || Boolean(firmware?.pending_version)} type="submit">{updating ? "Updating…" : "Upload signed build"}</button>
+                </form>
               </div>
             </>
           )}
