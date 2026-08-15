@@ -6,6 +6,6 @@
 .help-tools{display:flex;gap:8px;margin:0 0 14px 6px}
 .help-tools input{flex:1;min-width:0;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 11px;color:var(--text);font:13px ui-monospace,Menlo,monospace;outline:0}
 .help-tools input:focus{border-color:var(--accent)}
-.help-tools button{width:38px;flex:none;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--text);cursor:pointer;font-size:15px}
+.help-tools button{width:38px;flex:none;background:var(--panel2);border:1px solid var(--line);border-radius:9px;color:var(--text);cursor:pointer;font-size:15px;transition:border-color .15s}
 .help-tools button:hover{border-color:var(--accent)}
 .help-count{margin:0 0 14px 6px;color:var(--muted);font:12px ui-monospace,Menlo,monospace}
