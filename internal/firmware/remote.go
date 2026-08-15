@@ -28,12 +28,15 @@ const (
 var releaseAPIURL = defaultReleaseAPIURL
 
 // PublishedRelease is the minimal trusted-by-policy metadata needed to select
-// and fetch a public Minimal Router release. Cryptographic trust is established
-// later by the pinned Ed25519 key, never by GitHub metadata alone.
+// and fetch a public Minimal Router release. Version is normalized to the
+// manifest/A-B-slot form without a leading "v"; tag retains the GitHub tag.
+// Cryptographic trust is established later by the pinned Ed25519 key, never by
+// GitHub metadata alone.
 type PublishedRelease struct {
 	Version     string
 	Prerelease  bool
 	PublishedAt time.Time
+	tag         string
 	assets      map[string]string
 }
 
@@ -47,8 +50,8 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-func canonicalReleaseAssetURL(version, name string) string {
-	return releaseDownloadBaseURL + url.PathEscape(version) + "/" + url.PathEscape(name)
+func canonicalReleaseAssetURL(tag, name string) string {
+	return releaseDownloadBaseURL + url.PathEscape(tag) + "/" + url.PathEscape(name)
 }
 
 func releaseHTTPClient() *http.Client {
@@ -100,21 +103,28 @@ func LatestPublishedRelease(ctx context.Context) (PublishedRelease, error) {
 	var best PublishedRelease
 	found := false
 	for _, item := range releases {
-		version := strings.TrimSpace(item.TagName)
-		if item.Draft || !IsReleaseVersion(version) {
+		tag := strings.TrimSpace(item.TagName)
+		if item.Draft || !IsReleaseVersion(tag) {
 			continue
 		}
+		version := strings.TrimPrefix(tag, "v")
 		assets := make(map[string]string, len(item.Assets))
 		for _, asset := range item.Assets {
 			if asset.Name != "" {
 				// The release API is used only to prove that the named asset exists.
 				// Never follow a URL supplied in remote metadata; construct the one
 				// canonical public Minimal Router GitHub download URL ourselves.
-				assets[asset.Name] = canonicalReleaseAssetURL(version, asset.Name)
+				assets[asset.Name] = canonicalReleaseAssetURL(tag, asset.Name)
 			}
 		}
 		publishedAt, _ := time.Parse(time.RFC3339, item.PublishedAt)
-		candidate := PublishedRelease{Version: version, Prerelease: item.Prerelease, PublishedAt: publishedAt, assets: assets}
+		candidate := PublishedRelease{
+			Version:     version,
+			Prerelease:  item.Prerelease,
+			PublishedAt: publishedAt,
+			tag:         tag,
+			assets:      assets,
+		}
 		if !found {
 			best, found = candidate, true
 			continue
@@ -275,7 +285,7 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 	if arch != "amd64" && arch != "arm64" {
 		return "", "", fmt.Errorf("unsupported update architecture %q", arch)
 	}
-	if !IsReleaseVersion(release.Version) {
+	if !IsReleaseVersion(release.Version) || !IsReleaseVersion(release.tag) {
 		return "", "", errors.New("invalid published release version")
 	}
 	archiveName := "minimalrouter-linux-" + arch + ".tar.gz"
@@ -283,7 +293,7 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 	archiveURL := release.assets[archiveName]
 	manifestURL := release.assets[manifestName]
 	if archiveURL == "" || manifestURL == "" {
-		return "", "", fmt.Errorf("release %s does not contain %s and %s", release.Version, archiveName, manifestName)
+		return "", "", fmt.Errorf("release %s does not contain %s and %s", release.tag, archiveName, manifestName)
 	}
 
 	if err := os.RemoveAll(destination); err != nil {
@@ -305,7 +315,7 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 		return "", "", fmt.Errorf("read signed manifest: %w", err)
 	}
 	if manifest.Version != release.Version {
-		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", release.Version, manifest.Version)
+		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", release.tag, manifest.Version)
 	}
 	if err := downloadReleaseFile(ctx, archiveURL, archivePath, maxReleaseArchive); err != nil {
 		return "", "", fmt.Errorf("download release archive: %w", err)
