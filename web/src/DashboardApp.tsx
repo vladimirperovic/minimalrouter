@@ -724,7 +724,7 @@ function Dashboard() {
             speedTest={speedTest}
             speedTesting={speedTesting}
             runtime={runtime}
-          />
+           onNavigate={showSection} />
         )}
       </main>
     </div>

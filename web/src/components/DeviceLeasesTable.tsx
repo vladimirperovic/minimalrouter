@@ -15,7 +15,7 @@ function formatRelative(timestamp: number) {
   return `in ${days} d`;
 }
 
-export default function DeviceLeasesTable({ leases, config }: { leases: Lease[]; config: RouterConfig }) {
+export default function DeviceLeasesTable({ leases, config, onAddStatic }: { leases: Lease[]; config: RouterConfig; onAddStatic: (lease: Lease) => void }) {
   const [searchQuery, setSearchQuery] = useState("");
 
   const staticMacs = useMemo(() => new Set((config.dhcp.static_leases || []).map((sl) => sl.mac.toLowerCase())), [config.dhcp.static_leases]);
@@ -29,18 +29,6 @@ export default function DeviceLeasesTable({ leases, config }: { leases: Lease[];
       l.mac.includes(lower)
     );
   }, [leases, searchQuery]);
-
-  const wakeOnLan = async (mac: string) => {
-    try {
-      await apiFetch("/api/v1/network/wol", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mac }),
-      });
-    } catch (e) {
-      console.error("WOL failed", e);
-    }
-  };
 
   return (
     <section className="modern-device-section">
@@ -112,13 +100,13 @@ export default function DeviceLeasesTable({ leases, config }: { leases: Lease[];
                   <td className="elegant-cell-actions">
                     <button
                       type="button"
-                      onClick={() => void wakeOnLan(lease.mac)}
+                      onClick={() => onAddStatic(lease)}
                       className="elegant-btn-wol"
-                      title="Wake-on-LAN"
-                      aria-label={`Wake ${lease.hostname || lease.mac} via Wake-on-LAN`}
+                      title="Add as static DHCP reservation"
+                      aria-label={`Add ${lease.hostname || lease.mac} as static reservation`}
                     >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-                      <span>Wake</span>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg>
+                      <span>Static</span>
                     </button>
                   </td>
                 </tr>

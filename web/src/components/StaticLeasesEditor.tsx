@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from "react";
+import { useMemo, type FormEvent, useState } from "react";
+import { apiFetch } from "../lib/api";
 import type { RouterConfig, StaticLease } from "../api-types";
 
 // dnsmasq already receives `dhcp-host=` for every static lease, so reservations
@@ -12,6 +13,7 @@ type Props = {
   applyConfig: (mutate: (next: RouterConfig) => void, success: string) => void;
   prefill?: { mac?: string; ip?: string; hostname?: string } | null;
   onPrefillConsumed?: () => void;
+  liveLeases?: { mac: string }[];
 };
 
 const MAC_PATTERN = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
@@ -32,13 +34,26 @@ function insidePool(ip: string, start: string, end: string): boolean {
   return target >= toNumber(start) && target <= toNumber(end);
 }
 
-export default function StaticLeasesEditor({ config, busy, applyConfig, prefill, onPrefillConsumed }: Props) {
+export default function StaticLeasesEditor({ config, busy, applyConfig, prefill, onPrefillConsumed, liveLeases }: Props) {
   const leases: StaticLease[] = config.dhcp.static_leases || [];
   const [hostname, setHostname] = useState(prefill?.hostname ?? "");
   const [mac, setMac] = useState(prefill?.mac ?? "");
   const [ip, setIp] = useState(prefill?.ip ?? "");
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const onlineMacs = useMemo(() => new Set((liveLeases || []).map((l) => l.mac.toLowerCase())), [liveLeases]);
+
+  const wakeOnLan = async (mac: string) => {
+    try {
+      await apiFetch("/api/v1/network/wol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+    } catch (e) {
+      console.error("WOL failed", e);
+    }
+  };
 
   const poolWarning = ip && insidePool(ip, config.dhcp.range_start, config.dhcp.range_end);
 
@@ -130,13 +145,15 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             ) : (
               filteredLeases.map((lease) => (
                 <tr key={lease.id}>
-                  <td>{lease.hostname || "Unnamed device"}</td>
+                  <td>
+                    <span className={`static-online ${onlineMacs.has(lease.mac.toLowerCase()) ? "is-online" : ""}`} title={onlineMacs.has(lease.mac.toLowerCase()) ? "Online (ima aktivnu DHCP rezervaciju)" : "Nije trenutno online"} aria-hidden="true" />
+                    {lease.hostname || "Unnamed device"}
+                  </td>
                   <td><code>{lease.mac}</code></td>
                   <td><code>{lease.ip_address}</code></td>
-                  <td>
-                    <button className="button secondary small" disabled={busy} onClick={() => remove(lease.id)} type="button">
-                      Remove
-                    </button>
+                  <td className="static-actions">
+                    <button className="button secondary small" disabled={busy || onlineMacs.has(lease.mac.toLowerCase())} onClick={() => void wakeOnLan(lease.mac)} title="Wake-on-LAN" type="button">Wake</button>
+                    <button className="button secondary small" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
                   </td>
                 </tr>
               ))

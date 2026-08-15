@@ -54,6 +54,7 @@ type Props = {
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
   setError: (message: string) => void;
+  onNavigate: (id: SectionID) => void;
 };
 
 function formatBytes(value = 0) {
@@ -295,8 +296,8 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
 export default function DashboardSections({
   active, config, gatewaySummary, gatewaySettings, runtime, leases, snapshots, busy,
   load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError,
-}: Props) {
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError, onNavigate }: Props) {
+  const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   // The status card reports the provider the router is actually running, which
   // is not necessarily the tab the operator is looking at.
@@ -366,7 +367,7 @@ export default function DashboardSections({
   };
 
   return <>
-{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable leases={leases} config={config} /></section>}
+{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} /></section>}
 
 {active === "gateway" && <GatewayQualityPanel busy={busy} onApply={applyGatewayMonitoring} onError={setError} settings={gatewaySettings} summary={gatewaySummary} />}
 
@@ -378,8 +379,8 @@ export default function DashboardSections({
     <StaticDNSRecordsEditor disabled={busy} key={config.revision} records={config.dns?.records || []} />
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div>
   </form>
-  <DeviceLeasesTable leases={leases} config={config} />
-  <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} />
+  <DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} />
+  <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} liveLeases={leases} prefill={staticPrefill} onPrefillConsumed={() => setStaticPrefill(null)} />
 </section>}
 
 {active === "firewall" && <section className="dashboard-section" id="firewall">

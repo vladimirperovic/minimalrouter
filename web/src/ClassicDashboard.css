@@ -2487,6 +2487,16 @@
   background: rgba(198, 223, 252, .1);
   color: #e7f1ff;
 }
+.subpage-hero-head .toolbar a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.subpage-hero-head .toolbar .button:hover,
+.subpage-hero-head .dns-filter-actions .button:hover {
+  background: rgba(198, 223, 252, .26);
+  color: #ffffff;
+}
 
 .service-inline-control {
   display: flex;
@@ -3227,3 +3237,23 @@
 .static-leases tbody td code{font-size:.85rem}
 .static-leases .empty-state{padding:1rem}
 @media(max-width:640px){.static-lease-search{max-width:none}}
+
+/* QoS — speed test i predlozena podesavanja */
+.qos-speedtest{margin:.9rem 0 1.1rem;padding:1.1rem 1.2rem;border:1px solid var(--dashboard-border);border-radius:14px;background:var(--surface)}
+.qos-speedtest-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:.8rem}
+.qos-speedtest-head h4{margin:0 0 .2rem;font:600 1rem var(--font-sans);color:var(--text-primary)}
+.qos-speedtest-head p{margin:0;color:var(--text-secondary);font-size:.85rem;max-width:52ch}
+.qos-speedtest-result{display:flex;align-items:stretch;gap:.7rem;flex-wrap:wrap}
+.qos-speedtest-measured,.qos-speedtest-suggested{flex:1;min-width:180px;padding:.8rem 1rem;border:1px solid var(--dashboard-border);border-radius:10px;background:var(--surface-muted)}
+.qos-speedtest-suggested{border-color:var(--classic-blue)}
+.qos-speedtest-result small{display:block;font:700 .62rem var(--font-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:.3rem}
+.qos-speedtest-result b{display:block;font:700 1.25rem var(--font-sans);color:var(--text-primary)}
+.qos-speedtest-result span{display:block;color:var(--text-secondary);font:500 .78rem var(--font-mono);margin-top:.15rem}
+.qos-speedtest-result .button{align-self:center}
+@media(max-width:640px){.qos-speedtest-head{flex-direction:column;align-items:flex-start}}
+
+/* Rezervacije: online tacka + WOL */
+.static-online{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--text-tertiary);margin-right:.55rem;vertical-align:1px}
+.static-online.is-online{background:var(--classic-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--classic-green) 22%,transparent)}
+.static-actions{display:flex;gap:.4rem;white-space:nowrap}
+@media(max-width:640px){.static-actions{flex-direction:column}}
