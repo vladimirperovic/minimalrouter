@@ -217,7 +217,15 @@ cp -R web/dist/. /usr/libexec/minimalrouter/bootstrap/web/dist/
 chown -R root:root /usr/libexec/minimalrouter/bootstrap/web
 chmod -R a+rX /usr/libexec/minimalrouter/bootstrap/web
 rm -rf /usr/share/minimalrouter/web
-ln -s /usr/libexec/minimalrouter/bootstrap/web/dist /usr/share/minimalrouter/web
+# Web UI prati aktuelni A/B slot (web/dist u slotu, ili web/ za starije sloteve),
+# uz bootstrap kao pad za prvi boot pre aktivacije slota.
+WEB_TARGET="/var/lib/minimalrouter-update/current/web/dist"
+[ -d "$WEB_TARGET" ] || WEB_TARGET="/var/lib/minimalrouter-update/current/web"
+if [ -d "$WEB_TARGET" ] && [ -f "$WEB_TARGET/index.html" ]; then
+    ln -s "$WEB_TARGET" /usr/share/minimalrouter/web
+else
+    ln -s /usr/libexec/minimalrouter/bootstrap/web/dist /usr/share/minimalrouter/web
+fi
 
 echo "[5/7] Installing service and kernel configuration..."
 cp init.d/routerd /etc/init.d/routerd
