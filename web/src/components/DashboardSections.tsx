@@ -391,6 +391,33 @@ export default function DashboardSections({
 
 {active === "qos" && <section className="dashboard-section" id="qos">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Applied to {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${config.qos.enabled ? "" : "is-off"}`}>QoS {config.qos.enabled ? "Active" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Algorithm</dt><dd>{config.qos.algorithm}</dd><small>{config.qos.enabled ? "qdisc applied" : "inactive"}</small></div><div><dt>Download</dt><dd>{config.qos.download_limit_mbps} Mbps</dd><small>ingress limit</small></div><div><dt>Upload</dt><dd>{config.qos.upload_limit_mbps} Mbps</dd><small>egress limit</small></div><div><dt>Interface</dt><dd>{config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}</dd><small>shaping target</small></div></dl></div>
+  <div className="qos-speedtest">
+    <div className="qos-speedtest-head">
+      <div><h4>Speed test</h4><p>Measures your real WAN speed and suggests QoS limits (90% of the result — the standard CAKE/SQM recommendation).</p></div>
+      <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Testing…" : "Test speed"}</button>
+    </div>
+    {speedTest && (
+      <div className="qos-speedtest-result">
+        <div className="qos-speedtest-measured"><small>Measured</small><b>{speedTest.download_mbps.toFixed(1)} Mbps ↓</b><span>{speedTest.upload_mbps.toFixed(1)} Mbps ↑</span></div>
+        <div className="qos-speedtest-suggested"><small>Suggested for QoS</small><b>{speedTest.suggested_download_mbps.toFixed(1)} Mbps ↓</b><span>{speedTest.suggested_upload_mbps.toFixed(1)} Mbps ↑</span></div>
+        <button
+          className="button primary small"
+          onClick={() => {
+            const root = document.getElementById("qos");
+            const down = root?.querySelector<HTMLInputElement>('input[name="download_limit_mbps"]');
+            const up = root?.querySelector<HTMLInputElement>('input[name="upload_limit_mbps"]');
+            const form = root?.querySelector<HTMLFormElement>("form.settings-form");
+            if (down && up && form && speedTest) {
+              down.value = String(speedTest.suggested_download_mbps);
+              up.value = String(speedTest.suggested_upload_mbps);
+              form.requestSubmit();
+            }
+          }}
+          type="button"
+        >Apply suggested</button>
+      </div>
+    )}
+  </div>
   <label className="checkbox-row"><input checked={config.qos.enabled} type="checkbox" onChange={(e) => toggleQoS(e.target.checked)} /><span>Enable QoS traffic shaping</span></label>
   <form className="settings-form" key={`qos-${config.revision}`} onSubmit={submitQoS}>
     <div className="form-grid two">

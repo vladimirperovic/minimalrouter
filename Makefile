@@ -1,7 +1,7 @@
 .PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
 
 GO_BUILD_FLAGS := -trimpath
-BUILD_VERSION ?= dev
+BUILD_VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 BUILD_COMMIT ?= unknown
 BUILD_DATE ?= unknown
 RELEASE_VERSION ?=

@@ -644,7 +644,7 @@ function Dashboard() {
           </section>)}
         </nav>
         <div className="dashboard-sidebar-footer">
-          <div className="dashboard-brand-revision">Minimal Router OS <span>r{config.revision}</span></div>
+          <div className="dashboard-brand-revision">Minimal Router OS <span>{system.version && system.version !== "dev" ? system.version : `r${config.revision}`}</span></div>
         </div>
       </aside>
 
