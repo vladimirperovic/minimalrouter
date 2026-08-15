@@ -1270,7 +1270,7 @@
 @media(max-width:560px){.tl-item{grid-template-columns:22px 44px minmax(0,1fr)}}
 
 /* Help dugme u topbaru */
-.classic-help-button{display:inline-flex;align-items:center;gap:.4rem;text-decoration:none;font:600 .68rem var(--font-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary)}
+.classic-help-button{display:inline-flex;align-items:center;gap:.45rem;min-height:48px;width:auto;padding:0 14px;text-decoration:none;font:600 .68rem var(--font-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--classic-text)}
 .classic-help-button svg{width:15px;height:15px}
 .classic-help-button:hover{color:var(--classic-blue)}
 @media(max-width:640px){.classic-help-button span{display:none}}
