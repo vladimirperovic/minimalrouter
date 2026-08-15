@@ -1834,7 +1834,8 @@
 }
 
 .classic-security-table-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 430px;
 }
 
 .classic-security-table {
