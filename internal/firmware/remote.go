@@ -1,0 +1,346 @@
+package firmware
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	defaultReleaseAPIURL   = "https://api.github.com/repos/vladimirperovic/minimalrouter/releases?per_page=20"
+	releaseDownloadBaseURL = "https://github.com/vladimirperovic/minimalrouter/releases/download/"
+	maxReleaseManifest     = 1 << 20
+	maxReleaseArchive      = 128 << 20
+	maxExpandedRelease     = 256 << 20
+)
+
+var releaseAPIURL = defaultReleaseAPIURL
+
+// PublishedRelease is the minimal trusted-by-policy metadata needed to select
+// and fetch a public Minimal Router release. Version is normalized to the
+// manifest/A-B-slot form without a leading "v"; tag retains the GitHub tag.
+// Cryptographic trust is established later by the pinned Ed25519 key, never by
+// GitHub metadata alone.
+type PublishedRelease struct {
+	Version     string
+	Prerelease  bool
+	PublishedAt time.Time
+	tag         string
+	assets      map[string]string
+}
+
+type githubRelease struct {
+	TagName     string `json:"tag_name"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
+	PublishedAt string `json:"published_at"`
+	Assets      []struct {
+		Name string `json:"name"`
+	} `json:"assets"`
+}
+
+func canonicalReleaseAssetURL(tag, name string) string {
+	return releaseDownloadBaseURL + url.PathEscape(tag) + "/" + url.PathEscape(name)
+}
+
+func releaseHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 2 * time.Minute,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 5 {
+				return errors.New("too many release download redirects")
+			}
+			if req.URL.Scheme != "https" {
+				return errors.New("release download redirected away from HTTPS")
+			}
+			return nil
+		},
+	}
+}
+
+func getReleaseJSON(ctx context.Context, endpoint string, dst any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "minimalrouter-update")
+	resp, err := releaseHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("release service returned HTTP %d", resp.StatusCode)
+	}
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseManifest))
+	if err := decoder.Decode(dst); err != nil {
+		return fmt.Errorf("decode release metadata: %w", err)
+	}
+	return nil
+}
+
+// LatestPublishedRelease selects the highest valid non-draft SemVer release.
+// Beta/prerelease builds are deliberately eligible because Minimal Router is
+// currently distributed as a signed Beta.
+func LatestPublishedRelease(ctx context.Context) (PublishedRelease, error) {
+	var releases []githubRelease
+	if err := getReleaseJSON(ctx, releaseAPIURL, &releases); err != nil {
+		return PublishedRelease{}, err
+	}
+
+	var best PublishedRelease
+	found := false
+	for _, item := range releases {
+		tag := strings.TrimSpace(item.TagName)
+		if item.Draft || !IsReleaseVersion(tag) {
+			continue
+		}
+		version := strings.TrimPrefix(tag, "v")
+		assets := make(map[string]string, len(item.Assets))
+		for _, asset := range item.Assets {
+			if asset.Name != "" {
+				// The release API is used only to prove that the named asset exists.
+				// Never follow a URL supplied in remote metadata; construct the one
+				// canonical public Minimal Router GitHub download URL ourselves.
+				assets[asset.Name] = canonicalReleaseAssetURL(tag, asset.Name)
+			}
+		}
+		publishedAt, _ := time.Parse(time.RFC3339, item.PublishedAt)
+		candidate := PublishedRelease{
+			Version:     version,
+			Prerelease:  item.Prerelease,
+			PublishedAt: publishedAt,
+			tag:         tag,
+			assets:      assets,
+		}
+		if !found {
+			best, found = candidate, true
+			continue
+		}
+		cmp, err := CompareReleaseVersions(candidate.Version, best.Version)
+		if err == nil && cmp > 0 {
+			best = candidate
+		}
+	}
+	if !found {
+		return PublishedRelease{}, errors.New("no published Minimal Router release is available")
+	}
+	return best, nil
+}
+
+func downloadReleaseFile(ctx context.Context, assetURL, destination string, maximum int64) error {
+	parsed, err := url.Parse(assetURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" ||
+		!strings.HasPrefix(parsed.EscapedPath(), "/vladimirperovic/minimalrouter/releases/download/") {
+		return errors.New("release asset URL is outside the canonical Minimal Router GitHub release path")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "minimalrouter-update")
+	resp, err := releaseHTTPClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("release asset returned HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength > maximum {
+		return errors.New("release asset exceeds size limit")
+	}
+	file, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	written, copyErr := io.Copy(file, io.LimitReader(resp.Body, maximum+1))
+	closeErr := file.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if written > maximum {
+		return errors.New("release asset exceeds size limit")
+	}
+	return nil
+}
+
+func safeArchivePath(name, prefix string) (string, error) {
+	clean := path.Clean(strings.TrimSpace(name))
+	if clean == "." || clean == "" || path.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("unsafe release archive path %q", name)
+	}
+	if clean != prefix && !strings.HasPrefix(clean, prefix+"/") {
+		return "", fmt.Errorf("release archive contains unexpected top-level path %q", name)
+	}
+	return clean, nil
+}
+
+func extractReleaseArchive(archivePath, destination, arch string) (string, error) {
+	if arch != "amd64" && arch != "arm64" {
+		return "", fmt.Errorf("unsupported update architecture %q", arch)
+	}
+	prefix := "minimalrouter-linux-" + arch
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer archive.Close()
+	gz, err := gzip.NewReader(archive)
+	if err != nil {
+		return "", fmt.Errorf("open release archive: %w", err)
+	}
+	defer gz.Close()
+
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		return "", err
+	}
+	root, err := os.OpenRoot(destination)
+	if err != nil {
+		return "", fmt.Errorf("open release extraction root: %w", err)
+	}
+	defer root.Close()
+
+	reader := tar.NewReader(gz)
+	var expanded int64
+	seenRoot := false
+
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("read release archive: %w", err)
+		}
+		clean, err := safeArchivePath(header.Name, prefix)
+		if err != nil {
+			return "", err
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := root.MkdirAll(clean, 0o755); err != nil {
+				return "", err
+			}
+			if err := root.Chmod(clean, os.FileMode(header.Mode)&os.ModePerm); err != nil {
+				return "", err
+			}
+			if clean == prefix {
+				seenRoot = true
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if header.Size < 0 || header.Size > maxReleaseArchive || expanded > maxExpandedRelease-header.Size {
+				return "", errors.New("expanded release exceeds size limit")
+			}
+			expanded += header.Size
+			parent := path.Dir(clean)
+			if parent != "." {
+				if err := root.MkdirAll(parent, 0o755); err != nil {
+					return "", err
+				}
+			}
+			file, err := root.OpenFile(clean, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			if err != nil {
+				return "", err
+			}
+			written, copyErr := io.CopyN(file, reader, header.Size)
+			closeErr := file.Close()
+			if copyErr != nil || written != header.Size {
+				if copyErr != nil {
+					return "", copyErr
+				}
+				return "", errors.New("short release archive entry")
+			}
+			if closeErr != nil {
+				return "", closeErr
+			}
+			if err := root.Chmod(clean, os.FileMode(header.Mode)&os.ModePerm); err != nil {
+				return "", err
+			}
+			seenRoot = true
+		default:
+			return "", fmt.Errorf("release archive contains unsupported entry type at %q", header.Name)
+		}
+	}
+	if !seenRoot {
+		return "", errors.New("release archive is empty")
+	}
+	info, err := root.Lstat(prefix)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("release archive payload root is missing")
+	}
+	return filepath.Join(destination, prefix), nil
+}
+
+// PreparePublishedRelease downloads the architecture-specific signed manifest
+// and archive into a private routerd-owned inbox and safely extracts regular
+// files only. The root updater performs the authoritative signature, hash,
+// mode, architecture, forward-version and A/B-slot checks afterwards.
+func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch, destination string) (string, string, error) {
+	if arch != "amd64" && arch != "arm64" {
+		return "", "", fmt.Errorf("unsupported update architecture %q", arch)
+	}
+	if !IsReleaseVersion(release.Version) || !IsReleaseVersion(release.tag) {
+		return "", "", errors.New("invalid published release version")
+	}
+	archiveName := "minimalrouter-linux-" + arch + ".tar.gz"
+	manifestName := "minimalrouter-linux-" + arch + ".manifest.json"
+	archiveURL := release.assets[archiveName]
+	manifestURL := release.assets[manifestName]
+	if archiveURL == "" || manifestURL == "" {
+		return "", "", fmt.Errorf("release %s does not contain %s and %s", release.tag, archiveName, manifestName)
+	}
+
+	if err := os.RemoveAll(destination); err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		return "", "", err
+	}
+	if err := os.Chmod(destination, 0o700); err != nil {
+		return "", "", err
+	}
+	manifestPath := filepath.Join(destination, "manifest.json")
+	archiveFilePath := filepath.Join(destination, "release.tar.gz")
+	if err := downloadReleaseFile(ctx, manifestURL, manifestPath, maxReleaseManifest); err != nil {
+		return "", "", fmt.Errorf("download signed manifest: %w", err)
+	}
+	manifest, err := LoadManifest(manifestPath)
+	if err != nil {
+		return "", "", fmt.Errorf("read signed manifest: %w", err)
+	}
+	if manifest.Version != release.Version {
+		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", release.tag, manifest.Version)
+	}
+	if err := downloadReleaseFile(ctx, archiveURL, archiveFilePath, maxReleaseArchive); err != nil {
+		return "", "", fmt.Errorf("download release archive: %w", err)
+	}
+	extractRoot := filepath.Join(destination, "release")
+	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
+		return "", "", err
+	}
+	payloadRoot, err := extractReleaseArchive(archiveFilePath, extractRoot, arch)
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.Remove(archiveFilePath); err != nil {
+		return "", "", err
+	}
+	return payloadRoot, manifestPath, nil
+}

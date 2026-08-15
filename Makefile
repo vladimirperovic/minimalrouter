@@ -1,9 +1,12 @@
-.PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64
+.PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
 
 GO_BUILD_FLAGS := -trimpath
 BUILD_VERSION ?= dev
 BUILD_COMMIT ?= unknown
 BUILD_DATE ?= unknown
+RELEASE_VERSION ?=
+RELEASE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+FIRMWARE_SIGNING_KEY ?=
 GO_LDFLAGS := -s -w -buildid= \
 	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Version=$(BUILD_VERSION) \
 	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Commit=$(BUILD_COMMIT) \
@@ -24,6 +27,8 @@ help:
 		'  make check               Run format, tests, vet, and dashboard build' \
 		'  make dist-amd64          Build the self-contained x86-64 archive' \
 		'  make dist-arm64          Build the self-contained ARM64 archive' \
+		'  make signed-dist-amd64   Build, sign, and repack x86-64 archive + manifest' \
+		'  make signed-dist-arm64   Build, sign, and repack ARM64 archive + manifest' \
 		'  make dist                Build both distribution archives' \
 		'  make iso                 Prepare the Alpine image overlay (not a signed release ISO)' \
 		'  make clean               Remove local build output'
@@ -156,6 +161,48 @@ dist-amd64: build-linux-amd64 web-build
 	@sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
 	@echo "=== Distribution: build/minimalrouter-linux-amd64.tar.gz ==="
 	@ls -lh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
+
+signed-dist-amd64:
+	@test -n "$(RELEASE_VERSION)" || { echo 'ERROR: RELEASE_VERSION is required (for example 0.1.3)' >&2; exit 1; }
+	@test -n "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: FIRMWARE_SIGNING_KEY is required' >&2; exit 1; }
+	@test -f "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: firmware signing key file does not exist' >&2; exit 1; }
+	@set -eu; \
+		version='$(RELEASE_VERSION)'; version="$${version#v}"; \
+		commit='$(RELEASE_COMMIT)'; \
+		build_date="$$(git show -s --format=%cI "$$commit")"; \
+		$(MAKE) BUILD_VERSION="$$version" BUILD_COMMIT="$$commit" BUILD_DATE="$$build_date" dist-amd64; \
+		go run ./cmd/firmware-sign \
+			--dir build/dist/minimalrouter-linux-amd64 \
+			--key "$(FIRMWARE_SIGNING_KEY)" \
+			--version "$$version" \
+			--commit "$$commit" \
+			--public-key-output build/dist/minimalrouter-linux-amd64/firmware-signing.pub \
+			--output build/minimalrouter-linux-amd64.manifest.json; \
+		tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64; \
+		sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256; \
+		echo "=== Signed distribution ready ==="; \
+		ls -lh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.manifest.json build/minimalrouter-linux-amd64.tar.gz.sha256
+
+signed-dist-arm64:
+	@test -n "$(RELEASE_VERSION)" || { echo 'ERROR: RELEASE_VERSION is required (for example 0.1.3)' >&2; exit 1; }
+	@test -n "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: FIRMWARE_SIGNING_KEY is required' >&2; exit 1; }
+	@test -f "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: firmware signing key file does not exist' >&2; exit 1; }
+	@set -eu; \
+		version='$(RELEASE_VERSION)'; version="$${version#v}"; \
+		commit='$(RELEASE_COMMIT)'; \
+		build_date="$$(git show -s --format=%cI "$$commit")"; \
+		$(MAKE) BUILD_VERSION="$$version" BUILD_COMMIT="$$commit" BUILD_DATE="$$build_date" dist-arm64; \
+		go run ./cmd/firmware-sign \
+			--dir build/dist/minimalrouter-linux-arm64 \
+			--key "$(FIRMWARE_SIGNING_KEY)" \
+			--version "$$version" \
+			--commit "$$commit" \
+			--public-key-output build/dist/minimalrouter-linux-arm64/firmware-signing.pub \
+			--output build/minimalrouter-linux-arm64.manifest.json; \
+		tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64; \
+		sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256; \
+		echo "=== Signed distribution ready ==="; \
+		ls -lh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.manifest.json build/minimalrouter-linux-arm64.tar.gz.sha256
 
 # Build both architectures
 dist: dist-arm64 dist-amd64

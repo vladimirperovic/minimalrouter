@@ -36,9 +36,64 @@ depend() {
     use logger
 }
 
+install_web_update_bridge() {
+    # Web updates deliberately cross the root boundary only through this
+    # installer-managed integration file. A/B activation compares this OpenRC
+    # script byte-for-byte with the installed copy, so a release that changes
+    # the privilege contract requires the full distribution installer first.
+    install -d -m 0755 -o root -g root /usr/libexec/minimalrouter /etc/doas.d
+
+    cat > /usr/libexec/minimalrouter/routerd-update <<'UPDATE_HELPER'
+#!/bin/sh
+set -eu
+
+INBOX=/var/lib/minimalrouter/update-inbox
+
+case "$(uname -m)" in
+    x86_64) BIN_ARCH=amd64 ;;
+    aarch64) BIN_ARCH=arm64 ;;
+    *) echo "ERROR: unsupported update architecture" >&2; exit 1 ;;
+esac
+
+case "${1:-}" in
+    stage)
+        [ "$#" -eq 1 ] || { echo "ERROR: stage accepts no arguments" >&2; exit 2; }
+        exec /usr/sbin/router-update stage \
+            --dir "$INBOX/release/minimalrouter-linux-$BIN_ARCH" \
+            --manifest "$INBOX/manifest.json"
+        ;;
+    activate)
+        [ "$#" -eq 1 ] || { echo "ERROR: activate accepts no arguments" >&2; exit 2; }
+        pending="$(/usr/sbin/router-update status | sed -n 's/.*"pending"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+        [ -n "$pending" ] || { echo "ERROR: no verified release is pending activation" >&2; exit 1; }
+        exec /usr/sbin/router-update activate --version "$pending" --confirm ACTIVATE-UPDATE
+        ;;
+    *)
+        echo "Usage: routerd-update {stage|activate}" >&2
+        exit 2
+        ;;
+esac
+UPDATE_HELPER
+    chown root:root /usr/libexec/minimalrouter/routerd-update
+    chmod 0755 /usr/libexec/minimalrouter/routerd-update
+
+    cat > /etc/doas.d/51-minimalrouter-update.conf <<'DOAS_UPDATE'
+permit nopass routerd as root cmd /usr/libexec/minimalrouter/routerd-update args stage
+permit nopass routerd as root cmd /usr/libexec/minimalrouter/routerd-update args activate
+DOAS_UPDATE
+    chown root:root /etc/doas.d/51-minimalrouter-update.conf
+    chmod 0400 /etc/doas.d/51-minimalrouter-update.conf
+}
+
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
+    # Updating is optional. A damaged/read-only update integration must never
+    # prevent the core router from starting; the dashboard reports the update
+    # feature unavailable while routing/recovery continue normally.
+    if ! install_web_update_bridge; then
+        ewarn "signed web-update privilege bridge is unavailable"
+    fi
     rm -f /run/minimalrouter/apply.sock
 }
 
