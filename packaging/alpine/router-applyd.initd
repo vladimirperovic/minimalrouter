@@ -74,8 +74,8 @@ case "${1:-}" in
         ;;
 esac
 UPDATE_HELPER
-    chown root:routerd /usr/libexec/minimalrouter/routerd-update
-    chmod 0750 /usr/libexec/minimalrouter/routerd-update
+    chown root:root /usr/libexec/minimalrouter/routerd-update
+    chmod 0755 /usr/libexec/minimalrouter/routerd-update
 
     cat > /etc/doas.d/51-minimalrouter-update.conf <<'DOAS_UPDATE'
 permit nopass routerd as root cmd /usr/libexec/minimalrouter/routerd-update args stage
@@ -88,10 +88,12 @@ DOAS_UPDATE
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
-    install_web_update_bridge || {
-        eerror "could not install the signed web-update privilege bridge"
-        return 1
-    }
+    # Updating is optional. A damaged/read-only update integration must never
+    # prevent the core router from starting; the dashboard reports the update
+    # feature unavailable while routing/recovery continue normally.
+    if ! install_web_update_bridge; then
+        ewarn "signed web-update privilege bridge is unavailable"
+    fi
     rm -f /run/minimalrouter/apply.sock
 }
 
