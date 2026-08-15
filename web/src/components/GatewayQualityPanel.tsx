@@ -143,15 +143,36 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
 
     <article className="card">
       <div className="card-title-row"><div><h3>Network diagnostics</h3><p>One bounded check across PPPoE, public reachability, DNS and HTTPS. No configuration is changed.</p></div><button className="button secondary" disabled={busy || diagnosing} onClick={() => void diagnose()} type="button">{diagnosing ? "Diagnosing…" : "Diagnose connection"}</button></div>
-      {diagnostics && <div className="metric-grid compact">
-        {Object.entries(diagnostics.checks).map(([name, check]) => <article key={name}><span>{name.toUpperCase()}</span><strong>{check.ok ? "OK" : "Failed"}</strong><small>{check.detail}</small></article>)}
-      </div>}
-      {diagnostics && <p className="form-note"><strong>Result:</strong> {diagnostics.overall === "healthy" ? "Internet path is healthy." : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}.`}</p>}
+      {diagnostics && (
+        <div className="diag">
+          <div className={`diag-result ${diagnostics.overall === "healthy" ? "is-good" : "is-bad"}`}>
+            <span className="diag-result-icon" aria-hidden="true">{diagnostics.overall === "healthy" ? "✓" : "!"}</span>
+            <div>
+              <small>Result</small>
+              <strong>{diagnostics.overall === "healthy" ? "Internet path is healthy" : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}`}</strong>
+            </div>
+          </div>
+          <div className="diag-checks">
+            {Object.entries(diagnostics.checks).map(([name, check]) => (
+              <article key={name} className={`diag-check ${check.ok ? "is-good" : "is-bad"}`}>
+                <span className="diag-check-icon" aria-hidden="true">{check.ok ? "✓" : "✕"}</span>
+                <div><b>{name.toUpperCase()}</b><small>{check.detail}</small></div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
     </article>
 
-    <article className="card">
-      <div className="card-title-row"><div><h3>Automatic recovery</h3><p>Enabled whenever WAN monitoring is enabled. It only reacts to the PPPoE link itself being continuously down for 3 minutes — never to packet loss, DNS failure, or one unreachable website.</p></div><span className={`classic-status-chip ${settings.enabled ? "" : "is-off"}`}>{settings.enabled ? "Armed" : "Paused"}</span></div>
-      <p className="form-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress.</p>
+    <article className="card rec-card">
+      <div className="rec-head">
+        <div>
+          <h3>Automatic recovery</h3>
+          <p>Conservative PPPoE auto-recovery after a verified 3-minute link outage — it never reacts to packet loss, DNS failure or one unreachable website.</p>
+        </div>
+        <span className={`rec-chip ${settings.enabled ? "is-armed" : "is-off"}`}><i aria-hidden="true" />{settings.enabled ? "Armed" : "Paused"}</span>
+      </div>
+      <p className="rec-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress.</p>
     </article>
 
     <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
