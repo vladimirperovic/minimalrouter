@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -17,10 +18,11 @@ import (
 )
 
 const (
-	defaultReleaseAPIURL = "https://api.github.com/repos/vladimirperovic/minimalrouter/releases?per_page=20"
-	maxReleaseManifest   = 1 << 20
-	maxReleaseArchive    = 128 << 20
-	maxExpandedRelease   = 256 << 20
+	defaultReleaseAPIURL   = "https://api.github.com/repos/vladimirperovic/minimalrouter/releases?per_page=20"
+	releaseDownloadBaseURL = "https://github.com/vladimirperovic/minimalrouter/releases/download/"
+	maxReleaseManifest     = 1 << 20
+	maxReleaseArchive      = 128 << 20
+	maxExpandedRelease     = 256 << 20
 )
 
 var releaseAPIURL = defaultReleaseAPIURL
@@ -41,18 +43,19 @@ type githubRelease struct {
 	Prerelease  bool   `json:"prerelease"`
 	PublishedAt string `json:"published_at"`
 	Assets      []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
+		Name string `json:"name"`
 	} `json:"assets"`
 }
 
+func canonicalReleaseAssetURL(version, name string) string {
+	return releaseDownloadBaseURL + url.PathEscape(version) + "/" + url.PathEscape(name)
+}
+
 func releaseHTTPClient() *http.Client {
-	redirects := 0
 	return &http.Client{
 		Timeout: 2 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			redirects++
-			if redirects > 5 || len(via) > 5 {
+			if len(via) > 5 {
 				return errors.New("too many release download redirects")
 			}
 			if req.URL.Scheme != "https" {
@@ -103,8 +106,11 @@ func LatestPublishedRelease(ctx context.Context) (PublishedRelease, error) {
 		}
 		assets := make(map[string]string, len(item.Assets))
 		for _, asset := range item.Assets {
-			if asset.Name != "" && strings.HasPrefix(asset.BrowserDownloadURL, "https://") {
-				assets[asset.Name] = asset.BrowserDownloadURL
+			if asset.Name != "" {
+				// The release API is used only to prove that the named asset exists.
+				// Never follow a URL supplied in remote metadata; construct the one
+				// canonical public Minimal Router GitHub download URL ourselves.
+				assets[asset.Name] = canonicalReleaseAssetURL(version, asset.Name)
 			}
 		}
 		publishedAt, _ := time.Parse(time.RFC3339, item.PublishedAt)
@@ -124,11 +130,13 @@ func LatestPublishedRelease(ctx context.Context) (PublishedRelease, error) {
 	return best, nil
 }
 
-func downloadReleaseFile(ctx context.Context, url, destination string, maximum int64) error {
-	if !strings.HasPrefix(url, "https://") {
-		return errors.New("release asset URL must use HTTPS")
+func downloadReleaseFile(ctx context.Context, assetURL, destination string, maximum int64) error {
+	parsed, err := url.Parse(assetURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" ||
+		!strings.HasPrefix(parsed.EscapedPath(), "/vladimirperovic/minimalrouter/releases/download/") {
+		return errors.New("release asset URL is outside the canonical Minimal Router GitHub release path")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return err
 	}
