@@ -1,7 +1,13 @@
 .PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64
 
 GO_BUILD_FLAGS := -trimpath
-GO_LDFLAGS := -s -w -buildid=
+BUILD_VERSION ?= dev
+BUILD_COMMIT ?= unknown
+BUILD_DATE ?= unknown
+GO_LDFLAGS := -s -w -buildid= \
+	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Version=$(BUILD_VERSION) \
+	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Commit=$(BUILD_COMMIT) \
+	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.BuildDate=$(BUILD_DATE)
 
 help:
 	@printf '%s\n' \

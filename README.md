@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <img alt="Next version: v0.1.2" src="https://img.shields.io/badge/next-v0.1.2-6b7280" />
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.2"><img alt="Beta release: v0.1.2" src="https://img.shields.io/badge/beta-v0.1.2-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -57,14 +57,16 @@ way a settings page allows, that is what this is for.
 
 <a id="status"></a>
 
-> **Beta.** The core is carrying real PPPoE traffic in a validated Proxmox
-> deployment: DHCP/DNS, NAT, WireGuard, Dynamic DNS, gateway monitoring,
-> snapshots and recovery all work end to end. Signed A/B update and release
-> tooling are implemented; the remaining release gates are real-lab/endurance
-> evidence and independent validation. Local-console recovery remains the
-> deliberate safety path. See
+> **Beta.** `v0.1.2` is the first repository-native signed beta release, with
+> AMD64/ARM64 artifacts, signed firmware manifests, checksums, SPDX SBOMs and
+> GitHub attestations. The core is carrying real PPPoE traffic in a validated
+> Proxmox deployment: DHCP/DNS, NAT, WireGuard, Dynamic DNS, gateway monitoring,
+> snapshots and recovery work end to end. Development continues toward `v0.1.3`;
+> the remaining promotion gates are real-lab/endurance evidence and independent
+> validation rather than missing core router features. Local-console recovery
+> remains the deliberate safety path. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for exactly what is
-> proven today and what is not.
+> proven publicly today and what is not.
 
 ## Why it is easy to adapt
 

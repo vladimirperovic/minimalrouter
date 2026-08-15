@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/vladimirperovic/minimalrouter/internal/buildinfo"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
@@ -93,6 +94,8 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 type DiagnosticBundle struct {
 	Timestamp      time.Time           `json:"timestamp"`
 	AppVersion     string              `json:"app_version"`
+	GitCommit      string              `json:"git_commit"`
+	BuildDate      string              `json:"build_date"`
 	Privacy        string              `json:"privacy"`
 	RedactedConfig config.SystemConfig `json:"config"`
 	ServiceHealth  map[string]string   `json:"service_health"`
@@ -102,7 +105,9 @@ type DiagnosticBundle struct {
 func BuildDiagnosticBundle(cfg config.SystemConfig) ([]byte, error) {
 	bundle := DiagnosticBundle{
 		Timestamp:      time.Now(),
-		AppVersion:     "v0.1-alpha",
+		AppVersion:     buildinfo.DisplayVersion(),
+		GitCommit:      buildinfo.Commit,
+		BuildDate:      buildinfo.BuildDate,
 		Privacy:        "PRIVATE — contains network topology; do not share publicly",
 		RedactedConfig: RedactedSystemConfig(cfg),
 		ServiceHealth: map[string]string{

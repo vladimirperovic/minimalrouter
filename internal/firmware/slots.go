@@ -55,12 +55,15 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 		if len(m.TrustedKey) != ed25519.PublicKeySize {
 			return ErrInvalidPublicKey
 		}
-		if err := VerifyFirmware(sourceDir, manifest, m.TrustedKey); err != nil {
+		if err := ValidateReleaseCandidate(sourceDir, manifest, m.TrustedKey); err != nil {
 			return fmt.Errorf("verify release source: %w", err)
 		}
 
 		state, err := m.stateWithoutOperation()
 		if err != nil {
+			return err
+		}
+		if err := validateForwardUpgrade(manifest.Version, state.Current); err != nil {
 			return err
 		}
 		finalDir := filepath.Join(m.Root, "slots", manifest.Version)
@@ -87,7 +90,7 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			}
 		}
 
-		if err := VerifyFirmware(tempDir, manifest, m.TrustedKey); err != nil {
+		if err := ValidateReleaseCandidate(tempDir, manifest, m.TrustedKey); err != nil {
 			return fmt.Errorf("verify copied release slot: %w", err)
 		}
 		if err := syncDir(tempDir); err != nil {

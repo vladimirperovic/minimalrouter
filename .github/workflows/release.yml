@@ -76,7 +76,15 @@ jobs:
           pnpm --dir web build
 
       - name: Build AMD64 and ARM64 distributions
-        run: make dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_date="$(git show -s --format=%cI "$GITHUB_SHA")"
+          make \
+            BUILD_VERSION="$GITHUB_REF_NAME" \
+            BUILD_COMMIT="$GITHUB_SHA" \
+            BUILD_DATE="$build_date" \
+            dist
 
       - name: Load GitHub Actions protected firmware signing secret
         env:
@@ -182,15 +190,19 @@ jobs:
             build/minimalrouter-linux-arm64.manifest.json
             build/SHA256SUMS
 
-      - name: Publish immutable GitHub release assets
+      # Draft-first publication is compatible with GitHub immutable releases:
+      # every asset is attached before the release becomes public/locked.
+      - name: Publish signed beta GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --prerelease \
             --verify-tag \
-            --title "Minimal Router OS $GITHUB_REF_NAME" \
+            --title "Minimal Router OS $GITHUB_REF_NAME (Beta)" \
             --generate-notes \
             build/minimalrouter-linux-amd64.tar.gz \
             build/minimalrouter-linux-arm64.tar.gz \
@@ -199,3 +211,7 @@ jobs:
             build/minimalrouter-linux-amd64.spdx.json \
             build/minimalrouter-linux-arm64.spdx.json \
             build/SHA256SUMS
+          gh release edit "$GITHUB_REF_NAME" --draft=false --prerelease
+          if [ "$(gh release view "$GITHUB_REF_NAME" --json isImmutable --jq '.isImmutable')" != "true" ]; then
+            echo "::warning::Release immutability is not enabled for this repository; signed manifests and attestations still protect the published artifacts."
+          fi
