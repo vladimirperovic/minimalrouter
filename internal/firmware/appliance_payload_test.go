@@ -2,7 +2,7 @@ package firmware
 
 import "testing"
 
-func completeAMD64ManifestForTest() *FirmwareManifest {
+func completeManifestForArchForTest(arch string) *FirmwareManifest {
 	files := map[string]string{}
 	for _, path := range []string{
 		"web/dist/index.html",
@@ -16,14 +16,18 @@ func completeAMD64ManifestForTest() *FirmwareManifest {
 		"modules/minimalrouter.conf",
 		"logrotate/minimalrouter",
 		"ip-up.d-minimalrouter-qos",
-		"bin/routerd-amd64",
-		"bin/router-applyd-amd64",
-		"bin/router-recovery-amd64",
-		"bin/router-update-amd64",
+		"bin/routerd-" + arch,
+		"bin/router-applyd-" + arch,
+		"bin/router-recovery-" + arch,
+		"bin/router-update-" + arch,
 	} {
 		files[path] = "00"
 	}
 	return &FirmwareManifest{Version: "1.2.3", Files: files}
+}
+
+func completeAMD64ManifestForTest() *FirmwareManifest {
+	return completeManifestForArchForTest("amd64")
 }
 
 func TestValidateAppliancePayloadAcceptsCompleteSingleArchitecture(t *testing.T) {

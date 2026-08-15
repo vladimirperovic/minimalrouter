@@ -1,14 +1,35 @@
 # Changelog
 
 All notable user-visible changes are documented here. The project intends to use
-semantic versioning when the first stable release is published. During early
-alpha, compatibility may change between commits.
+semantic versioning when the first stable release is published. During beta,
+compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.2**.
+Next development version: **v0.1.3**.
 
-### Added (v0.1.2 preview)
+### Fixed
+
+- Ambiguous login failures no longer make the optional TOTP field mandatory for
+  users who do not have two-factor authentication enabled.
+- Runtime status and diagnostic exports now report build-injected release
+  version, source commit and build date instead of the stale `v0.1-alpha` label.
+- Firmware API preflight and A/B staging now share one signed-appliance candidate
+  validation boundary, including executable/layout checks in addition to hashes.
+- Normal A/B staging is forward-only. Returning to an older verified slot remains
+  available through the explicit rollback command rather than signed-release
+  replay through the ordinary stage path.
+- Future GitHub releases are published as Beta pre-releases using a draft-first
+  flow, with release build metadata embedded in the Go binaries. The workflow
+  reports when repository-level release immutability is not enabled.
+
+## [v0.1.2] — 2026-08-15
+
+First repository-native signed Beta release. The release contains AMD64 and ARM64
+install archives, Ed25519-signed appliance manifests, SHA-256 checksums, SPDX
+SBOMs and GitHub attestations, built from an SSH-signed release tag.
+
+### Added
 
 - Public, interactive GitHub Pages dashboard demo with synthetic documentation
   data. It never connects to a router or contains production credentials.
@@ -323,11 +344,11 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 
 ### Known limitations
 
-- Early alpha; not supported as an unattended production firewall.
+- Beta; not yet supported as an unattended production firewall.
 - No stable signed ISO or owner-qualified recovery media.
 - Real target Proxmox, NIC, PPPoE, external scan, long-duration, full-disk,
   inode-exhaustion, read-only-filesystem, process-kill, and destructive power-loss
-  evidence is still required.
+  evidence is still required in the public evidence set.
 - IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
   ecosystem are not current stable features.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.

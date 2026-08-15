@@ -73,10 +73,6 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}
-		if err := firmware.ValidateApplianceFileModes(*directory, manifest); err != nil {
-			fmt.Fprintf(stderr, "ERROR: %v\n", err)
-			return 1
-		}
 		if err := manager.Stage(*directory, manifest); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1

@@ -190,19 +190,20 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           />
         </label>
         {requiresTOTP && <label className="field">
-          <span>Six-digit TOTP code</span>
+          <span>Two-factor code <small>(only if enabled)</small></span>
           <input
+            aria-describedby="totp-help"
             autoComplete="one-time-code"
             inputMode="numeric"
             maxLength={6}
             onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
-            required
             value={totpCode}
           />
+          <small id="totp-help">Leave this blank if two-factor authentication is not configured.</small>
         </label>}
         {error && <p className="auth-error" role="alert">{error}</p>}
         <button className="button primary auth-submit" disabled={submitting} type="submit">
-          {submitting ? "Signing in…" : requiresTOTP ? "Verify and sign in" : "Sign in"}
+          {submitting ? "Signing in…" : "Sign in"}
         </button>
         </form>
       </section>

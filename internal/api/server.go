@@ -23,6 +23,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
+	"github.com/vladimirperovic/minimalrouter/internal/buildinfo"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
@@ -574,7 +575,7 @@ func (s *Server) handleFirmwareVerify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Firmware updates are disabled: no trusted signing key is installed", http.StatusServiceUnavailable)
 		return
 	}
-	if err := firmware.VerifyFirmware(stagingDir, &manifest, trustedKey); err != nil {
+	if err := firmware.ValidateReleaseCandidate(stagingDir, &manifest, trustedKey); err != nil {
 		log.Printf("[SECURITY] Firmware verification rejected: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -1059,7 +1060,9 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 
 	response := map[string]interface{}{
 		"status":                  connectionStatus,
-		"version":                 "v0.1-alpha",
+		"version":                 buildinfo.DisplayVersion(),
+		"git_commit":              buildinfo.Commit,
+		"build_date":              buildinfo.BuildDate,
 		"hostname":                cfg.System.Hostname,
 		"domain":                  cfg.System.Domain,
 		"wan_iface":               cfg.WAN.Interface,
