@@ -166,8 +166,7 @@ func activatePendingUpdateDetached() error {
 	command.Stderr = logFile
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
-		logFile.Close()
-		return err
+		return errors.Join(err, logFile.Close())
 	}
 	return logFile.Close()
 }
@@ -341,7 +340,7 @@ func (s *Server) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 		switch name {
 		case "manifest":
 			if manifestSeen || part.FileName() == "" {
-				part.Close()
+				_ = part.Close()
 				writeFirmwareJSON(w, http.StatusBadRequest, map[string]string{"error": "Exactly one signed manifest file is required."})
 				return
 			}
@@ -349,18 +348,18 @@ func (s *Server) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 			err = saveFirmwareUpload(part, manifestSource, maxFirmwareManifestUpload)
 		case "archive":
 			if archiveSeen || part.FileName() == "" {
-				part.Close()
+				_ = part.Close()
 				writeFirmwareJSON(w, http.StatusBadRequest, map[string]string{"error": "Exactly one release archive file is required."})
 				return
 			}
 			archiveSeen = true
 			err = saveFirmwareUpload(part, archiveSource, maxFirmwareArchiveUpload)
 		default:
-			part.Close()
+			_ = part.Close()
 			writeFirmwareJSON(w, http.StatusBadRequest, map[string]string{"error": "Firmware upload contains an unexpected form field."})
 			return
 		}
-		part.Close()
+		_ = part.Close()
 		if err != nil {
 			if strings.Contains(err.Error(), "size limit") {
 				writeFirmwareJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": err.Error()})
