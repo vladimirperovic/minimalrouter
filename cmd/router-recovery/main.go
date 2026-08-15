@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -16,120 +17,253 @@ import (
 const defaultDataDir = "/var/lib/minimalrouter"
 
 func main() {
-	if len(os.Args) < 2 {
-		usage(os.Stderr)
-		os.Exit(2)
-	}
-	if os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" {
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
 		usage(os.Stdout)
 		return
 	}
 	if os.Geteuid() != 0 {
 		fatal(errors.New("router-recovery must be run as root on the local console"))
 	}
+	if len(os.Args) < 2 {
+		interactiveMenu()
+		return
+	}
+	runCommand(os.Args[1], os.Args[2:])
+}
 
-	switch os.Args[1] {
+func runCommand(command string, args []string) {
+	switch command {
 	case "interfaces":
-		recommendation, err := networkinfo.Discover()
-		if err != nil {
-			fatal(err)
-		}
-		fmt.Printf("Recommended WAN: %s\nRecommended LAN: %s\n", recommendation.WAN, recommendation.LAN)
-		for _, item := range recommendation.Interfaces {
-			fmt.Printf("- %-15s physical=%t carrier=%t up=%t default-route=%t mac=%s\n",
-				item.Name, item.Physical, item.Carrier, item.Up, item.DefaultRoute, item.MACAddress)
-		}
-		for _, warning := range recommendation.Warnings {
-			fmt.Printf("WARNING: %s\n", warning)
-		}
-
+		showInterfaces()
 	case "reset-auth":
 		fs := flag.NewFlagSet("reset-auth", flag.ExitOnError)
-		disableTOTP := fs.Bool("disable-totp", false, "remove the configured TOTP secret")
-		passwordStdin := fs.Bool("password-stdin", false, "read the new password from stdin")
-		_ = fs.Parse(os.Args[2:])
-		manager, closeStore := openManager()
+		disable := fs.Bool("disable-totp", false, "remove configured TOTP secret")
+		stdin := fs.Bool("password-stdin", false, "read new password from stdin")
+		_ = fs.Parse(args)
+		m, closeStore := openManager()
 		defer closeStore()
-		password := readPassword(*passwordStdin)
-		if err := manager.ResetAuthentication(password, *disableTOTP); err != nil {
+		if err := m.ResetAuthentication(readPassword(*stdin), *disable); err != nil {
 			fatal(err)
 		}
 		fmt.Println("Administrator credentials reset and all sessions revoked.")
-
 	case "set-lan":
 		fs := flag.NewFlagSet("set-lan", flag.ExitOnError)
 		iface := fs.String("interface", "", "Linux LAN interface name")
-		cidr := fs.String("cidr", "", "LAN host address and prefix, for example 192.168.10.1/24")
-		_ = fs.Parse(os.Args[2:])
-		manager, closeStore := openManager()
+		cidr := fs.String("cidr", "", "LAN host address/prefix")
+		_ = fs.Parse(args)
+		m, closeStore := openManager()
 		defer closeStore()
-		snapshot, err := manager.SetLAN(*iface, *cidr)
+		snap, err := m.SetLAN(*iface, *cidr)
 		if err != nil {
 			fatal(err)
 		}
-		fmt.Printf("LAN configuration stored. Undo snapshot: %s. Restart router services to reconcile.\n", snapshot.ID)
-
+		fmt.Printf("LAN stored. Undo snapshot: %s. Restart router services to reconcile.\n", snap.ID)
+	case "set-wan":
+		fs := flag.NewFlagSet("set-wan", flag.ExitOnError)
+		iface := fs.String("interface", "", "Linux WAN interface name")
+		_ = fs.Parse(args)
+		m, closeStore := openManager()
+		defer closeStore()
+		snap, err := m.SetWAN(*iface)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Printf("WAN stored. Undo snapshot: %s. Restart router services to reconcile.\n", snap.ID)
 	case "snapshots":
-		manager, closeStore := openManager()
-		defer closeStore()
-		snapshots, err := manager.ListSnapshots()
-		if err != nil {
-			fatal(err)
-		}
-		for _, snapshot := range snapshots {
-			fmt.Printf("%s revision=%d created=%s checksum=%s\n", snapshot.ID, snapshot.Revision, snapshot.CreatedAt, snapshot.Checksum)
-		}
-
+		listSnapshots()
 	case "restore-snapshot":
 		fs := flag.NewFlagSet("restore-snapshot", flag.ExitOnError)
 		id := fs.String("id", "", "snapshot identifier")
 		confirm := fs.String("confirm", "", "must equal RESTORE-SNAPSHOT")
-		_ = fs.Parse(os.Args[2:])
+		_ = fs.Parse(args)
 		if *confirm != "RESTORE-SNAPSHOT" {
 			fatal(errors.New("snapshot restore requires --confirm RESTORE-SNAPSHOT"))
 		}
-		manager, closeStore := openManager()
+		m, closeStore := openManager()
 		defer closeStore()
-		undo, err := manager.RestoreSnapshot(*id)
+		undo, err := m.RestoreSnapshot(*id)
 		if err != nil {
 			fatal(err)
 		}
-		fmt.Printf("Snapshot restored. Undo snapshot: %s. Restart router services to reconcile.\n", undo.ID)
-
+		fmt.Printf("Snapshot restored. Undo snapshot: %s. Restart router services.\n", undo.ID)
+	case "restore-last-good":
+		m, closeStore := openManager()
+		defer closeStore()
+		undo, id, err := m.RestoreLatestSnapshot()
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Printf("Restored latest verified snapshot %s. Undo snapshot: %s. Restart router services.\n", id, undo.ID)
 	case "factory-reset":
-		fs := flag.NewFlagSet("factory-reset", flag.ExitOnError)
-		wan := fs.String("wan", "", "WAN interface; auto-recommended when omitted")
-		lan := fs.String("lan", "", "LAN interface; auto-recommended when omitted")
-		confirm := fs.String("confirm", "", "must equal FACTORY-RESET")
-		passwordStdin := fs.Bool("password-stdin", false, "read the new administrator password from stdin")
-		_ = fs.Parse(os.Args[2:])
-		if *confirm != "FACTORY-RESET" {
-			fatal(errors.New("factory reset requires --confirm FACTORY-RESET"))
-		}
-		if *wan == "" || *lan == "" {
-			recommendation, err := networkinfo.Discover()
-			if err != nil {
-				fatal(fmt.Errorf("discover interfaces: %w", err))
-			}
-			if *wan == "" {
-				*wan = recommendation.WAN
-			}
-			if *lan == "" {
-				*lan = recommendation.LAN
-			}
-		}
-		manager, closeStore := openManager()
-		defer closeStore()
-		password := readPassword(*passwordStdin)
-		snapshot, err := manager.FactoryReset(*wan, *lan, password)
-		if err != nil {
-			fatal(err)
-		}
-		fmt.Printf("Factory defaults stored; TOTP and sessions cleared. Recovery snapshot: %s. Reboot or restart both router services.\n", snapshot.ID)
-
+		factoryReset(args)
 	default:
 		usage(os.Stderr)
 		os.Exit(2)
+	}
+}
+
+func interactiveMenu() {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("\nMinimal Router Recovery Console\n===============================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\n0) Shell\nq) Quit\n\nSelect: ")
+		choice, _ := reader.ReadString('\n')
+		choice = strings.TrimSpace(choice)
+		switch choice {
+		case "1":
+			showInterfaces()
+		case "2":
+			fmt.Print("WAN interface: ")
+			iface, _ := reader.ReadString('\n')
+			withManager(func(m recovery.Manager) error {
+				snap, err := m.SetWAN(strings.TrimSpace(iface))
+				if err == nil {
+					fmt.Println("Saved; undo snapshot:", snap.ID)
+				}
+				return err
+			})
+		case "3":
+			fmt.Print("LAN interface: ")
+			iface, _ := reader.ReadString('\n')
+			fmt.Print("LAN CIDR (e.g. 192.168.1.1/24): ")
+			cidr, _ := reader.ReadString('\n')
+			withManager(func(m recovery.Manager) error {
+				snap, err := m.SetLAN(strings.TrimSpace(iface), strings.TrimSpace(cidr))
+				if err == nil {
+					fmt.Println("Saved; undo snapshot:", snap.ID)
+				}
+				return err
+			})
+		case "4":
+			if confirm(reader, "Restore latest verified snapshot?") {
+				withManager(func(m recovery.Manager) error {
+					undo, id, err := m.RestoreLatestSnapshot()
+					if err == nil {
+						fmt.Printf("Restored %s; undo snapshot %s\n", id, undo.ID)
+					}
+					return err
+				})
+			}
+		case "5":
+			listSnapshots()
+			fmt.Print("Snapshot ID to restore (blank cancels): ")
+			id, _ := reader.ReadString('\n')
+			id = strings.TrimSpace(id)
+			if id != "" && confirm(reader, "Restore this snapshot?") {
+				withManager(func(m recovery.Manager) error {
+					undo, err := m.RestoreSnapshot(id)
+					if err == nil {
+						fmt.Println("Restored; undo snapshot:", undo.ID)
+					}
+					return err
+				})
+			}
+		case "6":
+			fmt.Println("Factory reset remains confirmation-protected. Run: router-recovery factory-reset --password-stdin --confirm FACTORY-RESET")
+		case "7":
+			fmt.Println("Run: router-recovery reset-auth --password-stdin --disable-totp")
+		case "8":
+			if confirm(reader, "Restart router-applyd and routerd?") {
+				run("rc-service", "router-applyd", "restart")
+				run("rc-service", "routerd", "restart")
+			}
+		case "9":
+			if confirm(reader, "Reboot this router VM now?") {
+				run("reboot")
+			}
+		case "0":
+			fmt.Println("Type 'exit' to return to recovery console.")
+			cmd := exec.Command("/bin/sh")
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			_ = cmd.Run()
+		case "q", "Q":
+			return
+		default:
+			fmt.Println("Unknown selection.")
+		}
+	}
+}
+
+func showInterfaces() {
+	recommendation, err := networkinfo.Discover()
+	if err != nil {
+		fmt.Println("ERROR:", err)
+		return
+	}
+	fmt.Printf("Recommended WAN: %s\nRecommended LAN: %s\n", recommendation.WAN, recommendation.LAN)
+	for _, item := range recommendation.Interfaces {
+		fmt.Printf("- %-15s physical=%t carrier=%t up=%t default-route=%t mac=%s\n", item.Name, item.Physical, item.Carrier, item.Up, item.DefaultRoute, item.MACAddress)
+	}
+	for _, warning := range recommendation.Warnings {
+		fmt.Println("WARNING:", warning)
+	}
+}
+
+func listSnapshots() {
+	m, closeStore := openManager()
+	defer closeStore()
+	snapshots, err := m.ListSnapshots()
+	if err != nil {
+		fmt.Println("ERROR:", err)
+		return
+	}
+	for _, snapshot := range snapshots {
+		fmt.Printf("%s revision=%d created=%s checksum=%s\n", snapshot.ID, snapshot.Revision, snapshot.CreatedAt, snapshot.Checksum)
+	}
+}
+
+func factoryReset(args []string) {
+	fs := flag.NewFlagSet("factory-reset", flag.ExitOnError)
+	wan := fs.String("wan", "", "WAN interface")
+	lan := fs.String("lan", "", "LAN interface")
+	confirmFlag := fs.String("confirm", "", "must equal FACTORY-RESET")
+	stdin := fs.Bool("password-stdin", false, "read password from stdin")
+	_ = fs.Parse(args)
+	if *confirmFlag != "FACTORY-RESET" {
+		fatal(errors.New("factory reset requires --confirm FACTORY-RESET"))
+	}
+	if *wan == "" || *lan == "" {
+		recommendation, err := networkinfo.Discover()
+		if err != nil {
+			fatal(err)
+		}
+		if *wan == "" {
+			*wan = recommendation.WAN
+		}
+		if *lan == "" {
+			*lan = recommendation.LAN
+		}
+	}
+	m, closeStore := openManager()
+	defer closeStore()
+	snap, err := m.FactoryReset(*wan, *lan, readPassword(*stdin))
+	if err != nil {
+		fatal(err)
+	}
+	fmt.Println("Factory defaults stored. Recovery snapshot:", snap.ID)
+}
+
+func withManager(fn func(recovery.Manager) error) {
+	m, closeStore := openManager()
+	defer closeStore()
+	if err := fn(m); err != nil {
+		fmt.Println("ERROR:", err)
+	}
+}
+
+func confirm(reader *bufio.Reader, prompt string) bool {
+	fmt.Print(prompt, " Type YES: ")
+	value, _ := reader.ReadString('\n')
+	return strings.TrimSpace(value) == "YES"
+}
+
+func run(name string, args ...string) {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Println("ERROR:", err)
 	}
 }
 
@@ -151,7 +285,7 @@ func readPassword(fromStdin bool) string {
 	}
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && len(line) == 0 {
-		fatal(fmt.Errorf("read password: %w", err))
+		fatal(err)
 	}
 	password := strings.TrimRight(line, "\r\n")
 	if password == "" {
@@ -161,13 +295,15 @@ func readPassword(fromStdin bool) string {
 }
 
 func usage(w *os.File) {
-	fmt.Fprintln(w, `Usage: router-recovery <command> [options]
-
+	fmt.Fprintln(w, `Usage: router-recovery [command] [options]
+No command opens the interactive local recovery console.
 Commands:
   interfaces
   reset-auth --password-stdin [--disable-totp]
+  set-wan --interface NAME
   set-lan --interface NAME --cidr ADDRESS/PREFIX
   snapshots
+  restore-last-good
   restore-snapshot --id SNAPSHOT --confirm RESTORE-SNAPSHOT
   factory-reset [--wan NAME --lan NAME] --password-stdin --confirm FACTORY-RESET
   help`)

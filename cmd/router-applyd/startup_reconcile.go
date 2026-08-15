@@ -139,9 +139,7 @@ func clearPendingConfirmation() error {
 // restoreFirstRunRuntime exposes only the local setup plane. It deliberately
 // keeps IPv4 forwarding disabled and WAN/optional services stopped until the
 // wizard has atomically committed both network configuration and administrator
-// credentials. The generated default firewall is still loaded as an
-// independent fail-closed boundary, so setup safety never depends on interface
-// topology or on forwarding merely happening to be unavailable.
+// credentials.
 func restoreFirstRunRuntime() (retErr error) {
 	cfg := config.DefaultConfig()
 	cfg.WAN.Enabled = false
@@ -200,10 +198,6 @@ func restoreFirstRunRuntime() (retErr error) {
 		return fmt.Errorf("prepare first-run DHCP lease state: %w", err)
 	}
 
-	// Reassert hardening. applyKernelHardening no longer enables forwarding —
-	// enableIPForwarding() does that, and only after nftables is loaded — so the
-	// explicit disable below is a positive assertion of the setup-plane
-	// invariant rather than an undo of a value we just set.
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
 	}
@@ -250,10 +244,10 @@ func verifyFirstRunRuntime(cfg config.SystemConfig) error {
 	return nil
 }
 
-// preflightStartup separates security/core syntax from optional feature
-// availability. Invalid nftables/dnsmasq/PPPoE/wg0 configuration must fail
-// closed; an unavailable office VPN, Wi-Fi radio, DDNS provider or proxy must
-// not prevent the wired LAN management plane from booting.
+// preflightStartup checks only security/core configuration that must be proven
+// before routing can start. Optional services are deliberately left out of this
+// critical path: in particular an outbound WireGuard hostname must never delay
+// PPPoE, because PPPoE is what provides the DNS/Internet path it may need.
 func preflightStartup(cfg config.SystemConfig, candidates map[string]string) error {
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
@@ -272,26 +266,6 @@ func preflightStartup(cfg config.SystemConfig, candidates map[string]string) err
 				return fmt.Errorf("management WireGuard: %w", err)
 			}
 			log.Printf("startup WireGuard server preflight degraded (LAN management remains available): %v", err)
-		}
-	}
-	if cfg.WGClient.Enabled {
-		if err := preflightWireGuardTimeout(8*time.Second, candidates["wireguard-client-runtime"]); err != nil {
-			log.Printf("startup WireGuard client preflight degraded (non-fatal): %v", err)
-		}
-	}
-	if cfg.WiFi.Enabled {
-		if err := preflightWiFi(cfg.WiFi.Interface); err != nil {
-			log.Printf("startup Wi-Fi preflight degraded (wired LAN remains available): %v", err)
-		}
-	}
-	if cfg.Cloudflare.DDNSEnabled {
-		if err := runFixed("/usr/sbin/inadyn", "--check-config", "-f", candidates["cf-ddns"]); err != nil {
-			log.Printf("startup DDNS preflight degraded (non-fatal): %v", err)
-		}
-	}
-	if cfg.SquidProxy.Enabled {
-		if err := runFixed("/usr/sbin/squid", "-k", "parse", "-f", candidates["squid"]); err != nil {
-			log.Printf("startup Squid preflight degraded (non-fatal): %v", err)
 		}
 	}
 	return nil
@@ -347,8 +321,6 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		return err
 	}
 	// ExtraLAN is a service segment, not a prerequisite for the core home LAN.
-	// Configure each segment independently; missing dedicated hardware leaves
-	// that segment unavailable while nftables still keeps the interface denied.
 	for _, lan := range cfg.Firewall.ExtraLANs {
 		if !lan.Enabled {
 			continue
@@ -368,10 +340,7 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		return err
 	}
 	// The generated dnsmasq configuration binds the WG server interface and
-	// its tunnel address (interface=wg0, listen-address=...), so the tunnel
-	// must be up before dnsmasq starts. bind-dynamic also tolerates a late
-	// interface, but this ordering makes the normal path deterministic and
-	// keeps DNS available immediately on wg0.
+	// its tunnel address, so bring the management tunnel up before DNS.
 	if err := activateWireGuard(cfg); err != nil {
 		if cfg.System.ManagementAccess == "wireguard_only" {
 			return fmt.Errorf("restore startup management WireGuard: %w", err)
@@ -381,24 +350,22 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 	if err := runFixed("/sbin/rc-service", "dnsmasq", "restart"); err != nil {
 		return fmt.Errorf("restart startup dnsmasq: %w", err)
 	}
-	// The outbound tunnel (wg1) may carry a hostname endpoint, and wg(8)
-	// resolves it with getaddrinfo at setconf time. dnsmasq must already be up
-	// so that resolution goes through the router's own resolver instead of
-	// blocking on a dead external resolver. The shorter timeout also keeps
-	// startup reconciliation inside the supervisor's readiness window when the
-	// endpoint hostname cannot be resolved (e.g. WAN is still down).
-	if err := activateWireGuardClientTimeout(cfg, 15*time.Second); err != nil {
-		log.Printf("startup WireGuard client not brought up (non-fatal): %v", err)
-	}
+
+	// PPPoE is the primary WAN dependency and must be launched before optional
+	// services that may themselves need DNS/Internet. Starting it here removes
+	// up to 23 seconds of avoidable wg1 DNS timeout from the cold-boot path.
 	if cfg.WAN.Enabled {
-		// ISP/carrier/hardware availability is external to local correctness.
-		// Keep the secure LAN management plane available and let pppd/OpenRC
-		// reconnect later if the WAN cannot start at this instant.
 		if err := runFixed("/sbin/rc-service", "pppoe-wan", "restart"); err != nil {
 			log.Printf("startup PPPoE unavailable (LAN management remains online): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "pppoe-wan", "stop")
+	}
+
+	// Optional outbound WireGuard is attempted only after PPPoE has been
+	// launched. Failure is degraded, never a reason to hold the primary WAN.
+	if err := activateWireGuardClientTimeout(cfg, 15*time.Second); err != nil {
+		log.Printf("startup WireGuard client not brought up (non-fatal): %v", err)
 	}
 	if cfg.QoS.Enabled {
 		if err := applyQoS(cfg); err != nil {
@@ -408,14 +375,19 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		clearQoS(cfg)
 	}
 	if cfg.WiFi.Enabled {
-		if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
+		if err := preflightWiFi(cfg.WiFi.Interface); err != nil {
+			log.Printf("startup Wi-Fi preflight degraded (wired LAN remains available): %v", err)
+		} else if err := runFixed("/sbin/rc-service", "hostapd", "restart"); err != nil {
 			log.Printf("startup Wi-Fi unavailable (wired LAN remains online): %v", err)
 		}
 	} else {
 		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	}
 	if cfg.Cloudflare.DDNSEnabled {
-		if err := secureDDNSConfiguration(); err != nil {
+		if err := runFixed("/usr/sbin/inadyn", "--check-config", "-f", candidates["cf-ddns"]); err != nil {
+			log.Printf("startup DDNS preflight degraded (non-fatal): %v", err)
+			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+		} else if err := secureDDNSConfiguration(); err != nil {
 			log.Printf("startup DDNS unavailable: %v", err)
 			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 		} else if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
@@ -425,7 +397,10 @@ func restoreLastGoodRuntime(cfg config.SystemConfig) (retErr error) {
 		_ = runFixed("/sbin/rc-service", "inadyn", "stop")
 	}
 	if cfg.SquidProxy.Enabled {
-		if group, lookupErr := user.LookupGroup("squid"); lookupErr != nil {
+		if err := runFixed("/usr/sbin/squid", "-k", "parse", "-f", candidates["squid"]); err != nil {
+			log.Printf("startup Squid preflight degraded (non-fatal): %v", err)
+			_ = runFixed("/sbin/rc-service", "squid", "stop")
+		} else if group, lookupErr := user.LookupGroup("squid"); lookupErr != nil {
 			log.Printf("startup Squid unavailable: service group missing: %v", lookupErr)
 			_ = runFixed("/sbin/rc-service", "squid", "stop")
 		} else if gid, parseErr := strconv.Atoi(group.Gid); parseErr != nil || os.Chown("/etc/squid/passwd", 0, gid) != nil {
