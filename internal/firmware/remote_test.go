@@ -76,8 +76,8 @@ func TestExtractReleaseArchivePreservesReviewedModes(t *testing.T) {
 
 func TestExtractReleaseArchiveRejectsTraversalAndLinks(t *testing.T) {
 	for name, entries := range map[string][]archiveEntry{
-		"traversal": {{name: "../escape", typeflag: tar.TypeReg, mode: 0o644, body: "bad"}},
-		"symlink": {{name: "minimalrouter-linux-amd64/link", typeflag: tar.TypeSymlink, mode: 0o777}},
+		"traversal":  {{name: "../escape", typeflag: tar.TypeReg, mode: 0o644, body: "bad"}},
+		"symlink":    {{name: "minimalrouter-linux-amd64/link", typeflag: tar.TypeSymlink, mode: 0o777}},
 		"other-root": {{name: "other/file", typeflag: tar.TypeReg, mode: 0o644, body: "bad"}},
 	} {
 		t.Run(name, func(t *testing.T) {
