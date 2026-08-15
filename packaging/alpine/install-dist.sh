@@ -331,13 +331,16 @@ esac
 
 rm -f /var/lib/minimalrouter-update/.current-new
 ln -s "slots/${BASELINE_VERSION}" /var/lib/minimalrouter-update/.current-new
-mv -f /var/lib/minimalrouter-update/.current-new /var/lib/minimalrouter-update/current
+# BusyBox mv follows a destination symlink to a directory unless -T is used.
+# Without it, a reinstall can leave current pointing at the old slot while
+# state.json claims the new baseline is active.
+mv -fT /var/lib/minimalrouter-update/.current-new /var/lib/minimalrouter-update/current
 
 if [ -n "$OLD_CURRENT_VERSION" ] && [ "$OLD_CURRENT_VERSION" != "$BASELINE_VERSION" ] && \
    [ -d "/var/lib/minimalrouter-update/slots/${OLD_CURRENT_VERSION}" ]; then
     rm -f /var/lib/minimalrouter-update/.previous-new
     ln -s "slots/${OLD_CURRENT_VERSION}" /var/lib/minimalrouter-update/.previous-new
-    mv -f /var/lib/minimalrouter-update/.previous-new /var/lib/minimalrouter-update/previous
+    mv -fT /var/lib/minimalrouter-update/.previous-new /var/lib/minimalrouter-update/previous
 else
     rm -f /var/lib/minimalrouter-update/previous
     OLD_CURRENT_VERSION=""
