@@ -38,6 +38,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
   const [mac, setMac] = useState(prefill?.mac ?? "");
   const [ip, setIp] = useState(prefill?.ip ?? "");
   const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const poolWarning = ip && insidePool(ip, config.dhcp.range_start, config.dhcp.range_end);
 
@@ -90,6 +91,14 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
     }, "DHCP reservation removed.");
   };
 
+  const filteredLeases = searchQuery
+    ? leases.filter((lease) =>
+        (lease.hostname || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lease.mac.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        lease.ip_address.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : leases;
+
   return (
     <article className="card table-card static-leases">
       <div className="card-title-row">
@@ -97,7 +106,17 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
           <h3>DHCP reservations</h3>
           <p>Always hand the same address to a device. Written to dnsmasq as <code>dhcp-host</code>.</p>
         </div>
-        <span className="quiet-meta">{leases.length} reserved</span>
+        <span className="quiet-meta">{filteredLeases.length} / {leases.length} reserved</span>
+      </div>
+      <div className="modern-search-wrapper static-lease-search">
+        <svg className="modern-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+        <input
+          type="text"
+          placeholder="Search name, IP or MAC"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="modern-search-input"
+        />
       </div>
 
       <div className="table-scroll">
@@ -106,10 +125,10 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {leases.length === 0 ? (
-              <tr><td className="empty-state" colSpan={4}>No reservations yet.</td></tr>
+            {filteredLeases.length === 0 ? (
+              <tr><td className="empty-state" colSpan={4}>No matching reservations.</td></tr>
             ) : (
-              leases.map((lease) => (
+              filteredLeases.map((lease) => (
                 <tr key={lease.id}>
                   <td>{lease.hostname || "Unnamed device"}</td>
                   <td><code>{lease.mac}</code></td>
