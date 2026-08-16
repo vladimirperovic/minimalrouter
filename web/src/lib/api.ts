@@ -254,8 +254,7 @@ export async function apiFetch(
         if (existing) return (await existing).clone();
 
         const epoch = passiveGetEpoch;
-        let inFlight: Promise<Response>;
-        inFlight = networkFetch(input, init, headers, method).then((response) => {
+        const inFlight = networkFetch(input, init, headers, method).then((response) => {
           const master = response.clone();
           if (response.ok && epoch === passiveGetEpoch) {
             passiveGetCache.set(key, { response: master.clone(), storedAt: Date.now() });
