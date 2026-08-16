@@ -28,7 +28,13 @@ OUT_ISO="$BUILD_DIR/minimalrouter-${VERSION_SAFE}-amd64.iso"
 OUT_SHA="$OUT_ISO.sha256"
 APK_MANIFEST="$BUILD_DIR/APK-SHA256SUMS"
 
-REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts e2fsprogs syslinux grub grub-efi dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+# linux-firmware-none intentionally satisfies linux-lts' linux-firmware-any
+# dependency. MinimalRouter is a wired router appliance and the standard Alpine
+# ISO already carries boot-time hardware support; bundling every GPU/Wi-Fi/DSP
+# firmware family would add roughly a gigabyte that a Proxmox/VirtIO router can
+# never use. Physical appliances needing device-specific firmware can install
+# the appropriate signed Alpine firmware package later.
+REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs syslinux grub grub-efi dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -57,7 +63,8 @@ fetch_apks() {
         repo_root="$(pwd)"
         # The official Alpine container is used only as an apk client. Every APK
         # remains signed by Alpine; no locally built or unsigned package enters
-        # the ISO.
+        # the ISO. Installing linux-firmware-none into the resolver environment
+        # forces the small explicit linux-firmware-any provider before fetching.
         docker run --rm \
             -v "$repo_root:/work" \
             -w /work \
@@ -68,13 +75,15 @@ fetch_apks() {
                   "https://dl-cdn.alpinelinux.org/alpine/v3.22/community" \
                   > /etc/apk/repositories
                 apk update >/dev/null
+                apk add --no-cache linux-firmware-none >/dev/null
                 apk fetch --recursive --output /work/build/iso/apks \
-                  alpine-base alpine-conf linux-lts e2fsprogs syslinux grub grub-efi dosfstools util-linux \
+                  alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs syslinux grub grub-efi dosfstools util-linux \
                   nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates \
                   wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
                   chrony chrony-openrc logrotate
             '
     elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache linux-firmware-none >/dev/null
         apk fetch --recursive --output "$APK_DIR" $REQUIRED_PACKAGES
     else
         echo "ERROR: building the offline APK bundle requires Docker or Alpine apk(8)" >&2
