@@ -10,15 +10,19 @@ import (
 )
 
 type temporaryQoSClient struct {
-	mu          sync.Mutex
-	requests    []ApplyRequest
-	failRequest int
+	mu                    sync.Mutex
+	requests              []ApplyRequest
+	failRequest           int
+	transportErrorRequest int
 }
 
 func (c *temporaryQoSClient) Apply(_ context.Context, req ApplyRequest) (*ApplyResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requests = append(c.requests, req)
+	if c.transportErrorRequest > 0 && len(c.requests) == c.transportErrorRequest {
+		return nil, errors.New("injected transport failure")
+	}
 	if c.failRequest > 0 && len(c.requests) == c.failRequest {
 		return &ApplyResponse{ID: req.ID, Success: false, Error: "injected failure"}, nil
 	}
@@ -93,6 +97,35 @@ func TestWithQoSBypassedRestoresAfterMeasurementFailure(t *testing.T) {
 	}
 	if engine.GetStatus().RecoveryRequired {
 		t.Fatal("successful restoration marked recovery required")
+	}
+}
+
+func TestWithQoSBypassedReconcilesAfterAmbiguousBypassFailure(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.QoS.Enabled = true
+	client := &temporaryQoSClient{transportErrorRequest: 1}
+	engine := NewEngineWithClient(cfg, nil, client)
+	called := false
+
+	err := engine.WithQoSBypassed(context.Background(), func(context.Context) error {
+		called = true
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected bypass transport failure")
+	}
+	if called {
+		t.Fatal("measurement ran even though the temporary bypass was not verified")
+	}
+	requests := client.snapshot()
+	if len(requests) != 2 {
+		t.Fatalf("privileged request count = %d, want 2", len(requests))
+	}
+	if requests[1].Op != OpReconcile || !requests[1].Config.QoS.Enabled {
+		t.Fatalf("canonical restore was not attempted after ambiguous bypass failure: %#v", requests)
+	}
+	if engine.GetStatus().RecoveryRequired {
+		t.Fatal("successful canonical reconcile marked recovery required")
 	}
 }
 
