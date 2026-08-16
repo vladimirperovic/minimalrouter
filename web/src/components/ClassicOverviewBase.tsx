@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/api";
 import HealthBanner, { HealthCheckDetails } from "./HealthBanner";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
+type WANSpeedEstimate = { download_mbps: number; upload_mbps: number };
 
 type Props = {
   config: RouterConfig;
@@ -20,6 +21,23 @@ type Props = {
 };
 
 type IconName = "check" | "gateway" | "key" | "shield" | "traffic" | "clock";
+
+const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
+const WAN_ESTIMATE_ATTEMPT_KEY = "minimalrouter:wan-speed-estimate-attempt";
+const WAN_ESTIMATE_RETRY_MS = 24 * 60 * 60 * 1000;
+
+function storedWANEstimate(): WANSpeedEstimate | null {
+  try {
+    const raw = window.localStorage.getItem(WAN_ESTIMATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WANSpeedEstimate>;
+    if (typeof parsed.download_mbps !== "number" || !Number.isFinite(parsed.download_mbps) || parsed.download_mbps <= 0) return null;
+    if (typeof parsed.upload_mbps !== "number" || !Number.isFinite(parsed.upload_mbps) || parsed.upload_mbps <= 0) return null;
+    return { download_mbps: parsed.download_mbps, upload_mbps: parsed.upload_mbps };
+  } catch {
+    return null;
+  }
+}
 
 function OverviewIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -86,7 +104,7 @@ function smoothPath(points: ChartPoint[]) {
     const afterNext = points[index + 2] || next;
     const controlOne = { x: current.x + (next.x - previous.x) / 6, y: current.y + (next.y - previous.y) / 6 };
     const controlTwo = { x: next.x - (afterNext.x - current.x) / 6, y: next.y - (afterNext.y - current.y) / 6 };
-    path += ` C${controlOne.x.toFixed(1)},${controlOne.y.toFixed(1)} ${controlTwo.x.toFixed(1)},${controlTwo.y.toFixed(1)} ${next.x.toFixed(1)},${next.y.toFixed(1)}`;
+    path += ` C${controlOne.x.toFixed(1)},${controlOne.y.toFixed(1)} ${controlTwo.x.toFixed(1)},${controlTwo.y.toFixed(1)} ${next.x.toFixed(1)},${next.y.toFixed(1)} ${next.x.toFixed(1)},${next.y.toFixed(1)}`;
   }
   return path;
 }
@@ -152,6 +170,7 @@ export default function ClassicOverview({
   const [securityCount, setSecurityCount] = useState<number | null>(null);
   const [lastLogin, setLastLogin] = useState<{ timestamp: string; actor: string } | null>(null);
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
+  const [wanEstimate, setWanEstimate] = useState<WANSpeedEstimate | null>(storedWANEstimate);
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
   const healthDetailsRef = useRef<HTMLElement>(null);
 
@@ -162,30 +181,67 @@ export default function ClassicOverview({
 
   useEffect(() => {
     let active = true;
-    const sample = () => {
-      void apiFetch("/api/v1/system")
-        .then((response) => response.ok ? response.json() : Promise.reject(new Error("System status unavailable")))
-        .then((data: SystemStatus) => {
-          if (!active || !data.runtime) return;
-          const now = Date.now();
-          const rx = data.runtime.rx_bytes || 0;
-          const tx = data.runtime.tx_bytes || 0;
-          if (lastBytesRef.current) {
-            const elapsed = Math.max(0.1, (now - lastBytesRef.current.time) / 1000);
-            const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * elapsed));
-            const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * elapsed));
-            setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-30));
-          }
-          lastBytesRef.current = { rx, tx, time: now };
-        })
-        .catch(() => undefined);
+    let timer = 0;
+
+    const sample = async () => {
+      if (!active || document.hidden) return;
+      try {
+        const response = await apiFetch("/api/v1/system");
+        if (!response.ok) throw new Error("System status unavailable");
+        const data = await response.json() as SystemStatus;
+        if (!active || !data.runtime) return;
+        const now = Date.now();
+        const rx = data.runtime.rx_bytes || 0;
+        const tx = data.runtime.tx_bytes || 0;
+        if (lastBytesRef.current) {
+          const elapsed = Math.max(0.1, (now - lastBytesRef.current.time) / 1000);
+          const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * elapsed));
+          const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * elapsed));
+          setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-12));
+        }
+        lastBytesRef.current = { rx, tx, time: now };
+      } catch {
+        // Live bandwidth is advisory; a failed sample must not disturb routing UI.
+      }
     };
-    sample();
-    const interval = window.setInterval(sample, 2000);
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!active || document.hidden) return;
+      timer = window.setTimeout(() => {
+        void sample().finally(schedule);
+      }, 5000);
+    };
+
+    const resume = () => {
+      window.clearTimeout(timer);
+      if (!active || document.hidden) return;
+      // Never turn time spent in a hidden tab into an apparent bandwidth spike.
+      lastBytesRef.current = null;
+      void sample().finally(schedule);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        window.clearTimeout(timer);
+        return;
+      }
+      resume();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    resume();
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
+  }, []);
+
+  useEffect(() => {
+    const refreshEstimate = () => setWanEstimate(storedWANEstimate());
+    window.addEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
+    return () => window.removeEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
   }, []);
 
   useEffect(() => {
@@ -257,6 +313,24 @@ export default function ClassicOverview({
   const lastLoginTime = lastLoginDate ? lastLoginDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Checking";
   const lastLoginDetail = lastLogin && lastLoginDate ? `${lastLogin.actor} · ${lastLoginDate.toLocaleDateString()}` : "Audit event pending";
   const loss = Math.min(100, Math.max(0, gatewaySummary?.packet_loss_percent || 0));
+
+  useEffect(() => {
+    if (wanEstimate || !wanConnected || document.hidden) return;
+    let lastAttempt = 0;
+    try {
+      lastAttempt = Number(window.localStorage.getItem(WAN_ESTIMATE_ATTEMPT_KEY) || 0);
+      if (Date.now() - lastAttempt < WAN_ESTIMATE_RETRY_MS) return;
+      window.localStorage.setItem(WAN_ESTIMATE_ATTEMPT_KEY, String(Date.now()));
+    } catch {
+      // Storage can be unavailable in private mode. A missing estimate is fine.
+      return;
+    }
+
+    const controller = new AbortController();
+    void apiFetch("/api/v1/qos/speedtest?mode=estimate", { method: "POST", signal: controller.signal })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [wanConnected, wanEstimate]);
 
   // The DNS chip used to be a hardcoded green span. It now mirrors whatever the
   // health endpoint measured about dnsmasq, and says so honestly when the
@@ -339,6 +413,7 @@ export default function ClassicOverview({
           <div className="overview-wan-quality">
             <span><small>Latency</small><strong>{formatMetric(gatewaySummary?.latency_ms, " ms")}</strong></span>
             <span><small>Jitter</small><strong>{formatMetric(gatewaySummary?.jitter_ms, " ms")}</strong></span>
+            <span><small>Line estimate</small><strong>{wanEstimate ? `~${wanEstimate.download_mbps.toFixed(0)} ↓ / ${wanEstimate.upload_mbps.toFixed(0)} ↑ Mbps` : wanConnected ? "Measuring…" : "Not measured"}</strong></span>
             <span><small>Probe targets</small><strong>{gatewaySummary?.targets?.length || gatewayTargetCount}</strong></span>
           </div>
         </section>
