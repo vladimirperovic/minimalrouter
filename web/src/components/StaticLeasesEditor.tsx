@@ -1,4 +1,4 @@
-import { useMemo, type FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { apiFetch } from "../lib/api";
 import type { RouterConfig, StaticLease } from "../api-types";
 
@@ -34,14 +34,13 @@ function insidePool(ip: string, start: string, end: string): boolean {
   return target >= toNumber(start) && target <= toNumber(end);
 }
 
-export default function StaticLeasesEditor({ config, busy, applyConfig, prefill, onPrefillConsumed, liveLeases }: Props) {
+export default function StaticLeasesEditor({ config, busy, applyConfig, prefill, onPrefillConsumed }: Props) {
   const leases: StaticLease[] = config.dhcp.static_leases || [];
   const [hostname, setHostname] = useState(prefill?.hostname ?? "");
   const [mac, setMac] = useState(prefill?.mac ?? "");
   const [ip, setIp] = useState(prefill?.ip ?? "");
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const onlineMacs = useMemo(() => new Set((liveLeases || []).map((l) => l.mac.toLowerCase())), [liveLeases]);
 
   const wakeOnLan = async (mac: string) => {
     try {
@@ -145,14 +144,11 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             ) : (
               filteredLeases.map((lease) => (
                 <tr key={lease.id}>
-                  <td>
-                    <span className={`static-online ${onlineMacs.has(lease.mac.toLowerCase()) ? "is-online" : ""}`} title={onlineMacs.has(lease.mac.toLowerCase()) ? "Online (ima aktivnu DHCP rezervaciju)" : "Nije trenutno online"} aria-hidden="true" />
-                    {lease.hostname || "Unnamed device"}
-                  </td>
+                  <td>{lease.hostname || "Unnamed device"}</td>
                   <td><code>{lease.mac}</code></td>
                   <td><code>{lease.ip_address}</code></td>
                   <td className="static-actions">
-                    <button className="button secondary small" disabled={busy || onlineMacs.has(lease.mac.toLowerCase())} onClick={() => void wakeOnLan(lease.mac)} title="Wake-on-LAN" type="button">Wake</button>
+                    <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
                     <button className="button secondary small" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
                   </td>
                 </tr>
