@@ -60,8 +60,9 @@ jobs:
         run: |
           sha256sum -c build/iso/minimalrouter-*-amd64.iso.sha256
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
-          xorriso -indev "$iso" -find /minimalrouter/VERSION -print | grep -q /minimalrouter/VERSION
-          xorriso -indev "$iso" -find /minimalrouter.apkovl.tar.gz -print | grep -q /minimalrouter.apkovl.tar.gz
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F VERSION
+          xorriso -indev "$iso" -ls / 2>/dev/null | grep -F minimalrouter.apkovl.tar.gz
+          xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep -F 'El Torito boot img'
 
       - name: Boot ISO and verify installer welcome
         run: |
