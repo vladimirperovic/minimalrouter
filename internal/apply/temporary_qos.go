@@ -54,14 +54,23 @@ func (e *Engine) WithQoSBypassed(ctx context.Context, fn func(context.Context) e
 	bypassReq.RequireConfirmation = false
 	bypassReq.DeferLastGood = true
 
+	// Even a rejected or transport-failed bypass attempt may have changed part
+	// of the runtime before the failure became observable to routerd. Never
+	// return directly from this point: a canonical RECONCILE below is the safety
+	// boundary that proves QoS and the rest of the runtime are back in sync.
+	var bypassErr error
 	if err := e.applyTemporaryRuntime(bypassReq); err != nil {
-		return fmt.Errorf("activate temporary QoS bypass: %w", err)
+		bypassErr = fmt.Errorf("activate temporary QoS bypass: %w", err)
 	}
 
-	measurementErr := fn(ctx)
+	var measurementErr error
+	if bypassErr == nil {
+		measurementErr = fn(ctx)
+	}
 
 	// Restoration deliberately ignores request cancellation. Closing the tab may
 	// cancel the measurement, but it must never leave QoS disabled afterwards.
+	// The same restore also runs after an unsuccessful/ambiguous bypass attempt.
 	restoreID := fmt.Sprintf("speedtest-qos-restore-%d", time.Now().UnixNano())
 	restoreReq, buildErr := buildApplyRequest(restoreID, canonical)
 	if buildErr == nil {
@@ -85,7 +94,7 @@ func (e *Engine) WithQoSBypassed(ctx context.Context, fn func(context.Context) e
 		e.mu.Unlock()
 	}
 
-	return errors.Join(measurementErr, restoreErr)
+	return errors.Join(bypassErr, measurementErr, restoreErr)
 }
 
 func (e *Engine) applyTemporaryRuntime(req ApplyRequest) error {
