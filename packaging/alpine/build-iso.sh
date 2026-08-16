@@ -34,7 +34,7 @@ APK_MANIFEST="$BUILD_DIR/APK-SHA256SUMS"
 # firmware family would add roughly a gigabyte that a Proxmox/VirtIO router can
 # never use. Physical appliances needing device-specific firmware can install
 # the appropriate signed Alpine firmware package later.
-REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs syslinux grub grub-efi dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -77,7 +77,7 @@ fetch_apks() {
                 apk update >/dev/null
                 apk add --no-cache linux-firmware-none >/dev/null
                 apk fetch --recursive --output /work/build/iso/apks \
-                  alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs syslinux grub grub-efi dosfstools util-linux \
+                  alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi dosfstools util-linux \
                   nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates \
                   wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
                   chrony chrony-openrc logrotate
