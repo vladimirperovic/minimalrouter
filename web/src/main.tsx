@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import DashboardApp from "./DashboardApp";
 import "./index.css";
+import "./UXCleanup.css";
 
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);

@@ -78,23 +78,32 @@ func main() {
 		engine = apply.NewEngine(initialCfg, store)
 	}
 	if adminHash != "" {
-		// The privileged apply budget is privilegedApplyTimeout (2m) x
-		// privilegedApplyAttempts (2) = 4m worst case. A 150s budget here used to
-		// cancel the second attempt mid-flight and turn a recoverable transport
-		// retry into a fatal start. Keep this above the helper budget, and keep
-		// routerd.initd start_post above this value.
-		reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apply.ReconcileBudget)
-		if err := engine.Reconcile(reconcileCtx); err != nil {
+		if startupRuntimeVerified(initialCfg) {
+			// router-applyd already restored and verified this exact last-good
+			// configuration during the same cold boot. Avoid immediately rewriting
+			// every artifact, nftables policy, LAN state and QoS a second time.
+			// Missing/stale/mismatched one-shot proof falls through to the full
+			// canonical reconciliation below.
+			log.Printf("[BOOT] privileged startup runtime already verified canonical revision %d; duplicate reconcile skipped", initialCfg.Revision)
+		} else {
+			// The privileged apply budget is privilegedApplyTimeout (2m) x
+			// privilegedApplyAttempts (2) = 4m worst case. A 150s budget here used to
+			// cancel the second attempt mid-flight and turn a recoverable transport
+			// retry into a fatal start. Keep this above the helper budget, and keep
+			// routerd.initd start_post above this value.
+			reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apply.ReconcileBudget)
+			if err := engine.Reconcile(reconcileCtx); err != nil {
+				reconcileCancel()
+				// Serving the API after a failed canonical reconcile can create a
+				// management lockout: SQLite may contain a recovery LAN address while
+				// the kernel/helper still runs the old last-good address. OpenRC
+				// supervises routerd, so fail this start attempt and retry instead of
+				// exposing a management process whose destination policy describes a
+				// runtime that was never proven active.
+				log.Fatalf("Refusing startup because canonical runtime reconciliation failed: %v", err)
+			}
 			reconcileCancel()
-			// Serving the API after a failed canonical reconcile can create a
-			// management lockout: SQLite may contain a recovery LAN address while
-			// the kernel/helper still runs the old last-good address. OpenRC
-			// supervises routerd, so fail this start attempt and retry instead of
-			// exposing a management process whose destination policy describes a
-			// runtime that was never proven active.
-			log.Fatalf("Refusing startup because canonical runtime reconciliation failed: %v", err)
 		}
-		reconcileCancel()
 	}
 
 	sessionMgr := persistent.NewPersistentSessionManagerWithSecureCookies(store, !previewHTTP)
@@ -140,9 +149,9 @@ func main() {
 
 	// EnsureCertificateWithAdditionalSANs reads and parses PEM material from
 	// disk. Doing that on every ClientHello made each TLS handshake pay disk I/O
-	// plus an X509 keypair parse, which the 2-second dashboard poll turns into a
-	// constant cost. Cache the result and rebuild only when the inputs that go
-	// into the SAN list actually change.
+	// plus an X509 keypair parse, which high-frequency dashboard polling turns
+	// into a constant cost. Cache the result and rebuild only when the inputs
+	// that go into the SAN list actually change.
 	var (
 		certMu        sync.Mutex
 		cachedCert    *tls.Certificate

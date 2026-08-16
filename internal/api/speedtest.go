@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -16,15 +17,19 @@ import (
 const (
 	speedtestDownloadBytes = 50 << 20
 	speedtestUploadBytes   = 25 << 20
+	estimateDownloadBytes  = 8 << 20
+	estimateUploadBytes    = 4 << 20
 	speedtestSuggestedPct  = 90
 	speedtestHost          = "https://speed.cloudflare.com"
 )
 
 type speedtestResult struct {
-	DownloadMbps          float64 `json:"download_mbps"`
-	UploadMbps            float64 `json:"upload_mbps"`
-	SuggestedDownloadMbps int     `json:"suggested_download_mbps"`
-	SuggestedUploadMbps   int     `json:"suggested_upload_mbps"`
+	DownloadMbps           float64 `json:"download_mbps"`
+	UploadMbps             float64 `json:"upload_mbps"`
+	SuggestedDownloadMbps  int     `json:"suggested_download_mbps"`
+	SuggestedUploadMbps    int     `json:"suggested_upload_mbps"`
+	QoSTemporarilyBypassed bool    `json:"qos_temporarily_bypassed"`
+	Estimate               bool    `json:"estimate"`
 }
 
 // speedtestMu serializes measurements. Two concurrent runs would saturate the
@@ -34,6 +39,22 @@ var speedtestMu sync.Mutex
 func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] POST %s from %s\n", r.URL.Path, r.RemoteAddr)
 
+	mode := r.URL.Query().Get("mode")
+	if mode != "" && mode != "estimate" {
+		http.Error(w, "Unsupported speed test mode", http.StatusBadRequest)
+		return
+	}
+	isEstimate := mode == "estimate"
+	downloadBytes := int64(speedtestDownloadBytes)
+	uploadBytes := int64(speedtestUploadBytes)
+	if isEstimate {
+		// First-run WAN estimation is advisory, not a benchmark. Keep it outside
+		// the boot critical path and use a small sample so it does not consume a
+		// full 75 MB measurement just to populate the overview hint.
+		downloadBytes = estimateDownloadBytes
+		uploadBytes = estimateUploadBytes
+	}
+
 	if !speedtestMu.TryLock() {
 		http.Error(w, "A speed test is already running.", http.StatusConflict)
 		return
@@ -41,10 +62,7 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	defer speedtestMu.Unlock()
 
 	cfg := s.engine.GetCurrentConfig()
-	if cfg.QoS.Enabled {
-		http.Error(w, "Disable QoS before running a speed test: an active shaper would report its own limit, not your line speed.", http.StatusConflict)
-		return
-	}
+	qosWasEnabled := cfg.QoS.Enabled
 
 	// The appliance has IPv6 disabled (no default route), so force IPv4 to
 	// avoid a silent dial timeout when the resolver returns v6 addresses first.
@@ -58,36 +76,45 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Bind the measurement to the request: if the operator closes the tab or
-	// navigates away, the router stops pulling 75 MB through the WAN link.
+	// Bind the measurement itself to the request: if the operator closes the
+	// tab or navigates away, the router stops pulling test traffic through the
+	// WAN link. WithQoSBypassed deliberately restores canonical QoS with its own
+	// background timeout even after this request context is cancelled.
 	ctx := r.Context()
-
-	dlMbps, err := measureDownload(ctx, client)
+	var dlMbps, ulMbps float64
+	err := s.engine.WithQoSBypassed(ctx, func(measureCtx context.Context) error {
+		var err error
+		dlMbps, err = measureDownload(measureCtx, client, downloadBytes)
+		if err != nil {
+			return fmt.Errorf("download speed test failed: %w", err)
+		}
+		ulMbps, err = measureUpload(measureCtx, client, uploadBytes)
+		if err != nil {
+			return fmt.Errorf("upload speed test failed: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		http.Error(w, "Download speed test failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	ulMbps, err := measureUpload(ctx, client)
-	if err != nil {
-		http.Error(w, "Upload speed test failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Speed test failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	res := speedtestResult{
-		DownloadMbps:          dlMbps,
-		UploadMbps:            ulMbps,
-		SuggestedDownloadMbps: roundPct(dlMbps, speedtestSuggestedPct),
-		SuggestedUploadMbps:   roundPct(ulMbps, speedtestSuggestedPct),
+		DownloadMbps:           dlMbps,
+		UploadMbps:             ulMbps,
+		SuggestedDownloadMbps:  roundPct(dlMbps, speedtestSuggestedPct),
+		SuggestedUploadMbps:    roundPct(ulMbps, speedtestSuggestedPct),
+		QoSTemporarilyBypassed: qosWasEnabled,
+		Estimate:               isEstimate,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
 }
 
-func measureDownload(ctx context.Context, client *http.Client) (float64, error) {
+func measureDownload(ctx context.Context, client *http.Client, sampleBytes int64) (float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		speedtestHost+"/__down?bytes="+strconv.Itoa(speedtestDownloadBytes), nil)
+		speedtestHost+"/__down?bytes="+strconv.FormatInt(sampleBytes, 10), nil)
 	if err != nil {
 		return 0, err
 	}
@@ -125,18 +152,18 @@ func (t *timedBody) Read(p []byte) (int, error) {
 	return t.inner.Read(p)
 }
 
-func measureUpload(ctx context.Context, client *http.Client) (float64, error) {
-	// cf-based upload endpoint expects the bytes in the POST body; the
-	// response body is empty, so speed is derived from how fast the body
-	// drains into the connection.
-	body := &timedBody{inner: randomReader(speedtestUploadBytes)}
+func measureUpload(ctx context.Context, client *http.Client, sampleBytes int64) (float64, error) {
+	// Cloudflare's upload endpoint expects the bytes in the POST body; the
+	// response body is empty, so speed is derived from how fast the body drains
+	// into the connection.
+	body := &timedBody{inner: randomReader(sampleBytes)}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		speedtestHost+"/__up?bytes="+strconv.Itoa(speedtestUploadBytes), body)
+		speedtestHost+"/__up?bytes="+strconv.FormatInt(sampleBytes, 10), body)
 	if err != nil {
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.ContentLength = speedtestUploadBytes
+	req.ContentLength = sampleBytes
 
 	fallbackStart := time.Now()
 	resp, err := client.Do(req)
@@ -154,7 +181,7 @@ func measureUpload(ctx context.Context, client *http.Client) (float64, error) {
 	if elapsed <= 0 {
 		elapsed = 1
 	}
-	return mbps(speedtestUploadBytes, elapsed), nil
+	return mbps(sampleBytes, elapsed), nil
 }
 
 func mbps(bytes int64, seconds float64) float64 {

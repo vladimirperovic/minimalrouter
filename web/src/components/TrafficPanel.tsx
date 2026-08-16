@@ -118,7 +118,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
               </div>
               <button className="button secondary small" disabled={busy} onClick={() => void load()} type="button">Refresh</button>
             </div>
-            <div className="table-scroll">
+            <div className="table-scroll traffic-table-scroll">
               <table>
                 <thead>
                   <tr><th>Device</th><th>Address</th><th>Download</th><th>Upload</th><th>Total</th><th>Share</th></tr>

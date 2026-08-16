@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/api";
 import HealthBanner, { HealthCheckDetails } from "./HealthBanner";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
+type WANSpeedEstimate = { download_mbps: number; upload_mbps: number };
 
 type Props = {
   config: RouterConfig;
@@ -20,6 +21,23 @@ type Props = {
 };
 
 type IconName = "check" | "gateway" | "key" | "shield" | "traffic" | "clock";
+
+const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
+const WAN_ESTIMATE_ATTEMPT_KEY = "minimalrouter:wan-speed-estimate-attempt";
+const WAN_ESTIMATE_RETRY_MS = 24 * 60 * 60 * 1000;
+
+function storedWANEstimate(): WANSpeedEstimate | null {
+  try {
+    const raw = window.localStorage.getItem(WAN_ESTIMATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WANSpeedEstimate>;
+    if (typeof parsed.download_mbps !== "number" || !Number.isFinite(parsed.download_mbps) || parsed.download_mbps <= 0) return null;
+    if (typeof parsed.upload_mbps !== "number" || !Number.isFinite(parsed.upload_mbps) || parsed.upload_mbps <= 0) return null;
+    return { download_mbps: parsed.download_mbps, upload_mbps: parsed.upload_mbps };
+  } catch {
+    return null;
+  }
+}
 
 function OverviewIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -95,10 +113,6 @@ function smoothPathFor(values: number[], width: number, height: number, domain?:
   return smoothPath(chartPoints(values, width, height, domain));
 }
 
-// A failed probe has no latency. Substituting 0 drew an outage as the best
-// possible result — the exact opposite of what happened. Instead the series is
-// split into contiguous measured runs and the gaps are left empty, keeping the
-// x-position of every sample so the time axis stays honest.
 function segmentedPaths(values: Array<number | null>, width: number, height: number, fixedDomain?: ChartDomain): string[] {
   const measured = values.filter((value): value is number => value !== null);
   if (measured.length === 0) return [];
@@ -152,6 +166,7 @@ export default function ClassicOverview({
   const [securityCount, setSecurityCount] = useState<number | null>(null);
   const [lastLogin, setLastLogin] = useState<{ timestamp: string; actor: string } | null>(null);
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
+  const [wanEstimate, setWanEstimate] = useState<WANSpeedEstimate | null>(storedWANEstimate);
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
   const healthDetailsRef = useRef<HTMLElement>(null);
 
@@ -162,30 +177,66 @@ export default function ClassicOverview({
 
   useEffect(() => {
     let active = true;
-    const sample = () => {
-      void apiFetch("/api/v1/system")
-        .then((response) => response.ok ? response.json() : Promise.reject(new Error("System status unavailable")))
-        .then((data: SystemStatus) => {
-          if (!active || !data.runtime) return;
-          const now = Date.now();
-          const rx = data.runtime.rx_bytes || 0;
-          const tx = data.runtime.tx_bytes || 0;
-          if (lastBytesRef.current) {
-            const elapsed = Math.max(0.1, (now - lastBytesRef.current.time) / 1000);
-            const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * elapsed));
-            const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * elapsed));
-            setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-30));
-          }
-          lastBytesRef.current = { rx, tx, time: now };
-        })
-        .catch(() => undefined);
+    let timer = 0;
+
+    const sample = async () => {
+      if (!active || document.hidden) return;
+      try {
+        const response = await apiFetch("/api/v1/system");
+        if (!response.ok) throw new Error("System status unavailable");
+        const data = await response.json() as SystemStatus;
+        if (!active || !data.runtime) return;
+        const now = Date.now();
+        const rx = data.runtime.rx_bytes || 0;
+        const tx = data.runtime.tx_bytes || 0;
+        if (lastBytesRef.current) {
+          const elapsed = Math.max(0.1, (now - lastBytesRef.current.time) / 1000);
+          const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * elapsed));
+          const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * elapsed));
+          setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-12));
+        }
+        lastBytesRef.current = { rx, tx, time: now };
+      } catch {
+        // Live bandwidth is advisory; a failed sample must not disturb routing UI.
+      }
     };
-    sample();
-    const interval = window.setInterval(sample, 2000);
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!active || document.hidden) return;
+      timer = window.setTimeout(() => {
+        void sample().finally(schedule);
+      }, 5000);
+    };
+
+    const resume = () => {
+      window.clearTimeout(timer);
+      if (!active || document.hidden) return;
+      lastBytesRef.current = null;
+      void sample().finally(schedule);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        window.clearTimeout(timer);
+        return;
+      }
+      resume();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    resume();
     return () => {
       active = false;
-      window.clearInterval(interval);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
+  }, []);
+
+  useEffect(() => {
+    const refreshEstimate = () => setWanEstimate(storedWANEstimate());
+    window.addEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
+    return () => window.removeEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
   }, []);
 
   useEffect(() => {
@@ -258,9 +309,22 @@ export default function ClassicOverview({
   const lastLoginDetail = lastLogin && lastLoginDate ? `${lastLogin.actor} · ${lastLoginDate.toLocaleDateString()}` : "Audit event pending";
   const loss = Math.min(100, Math.max(0, gatewaySummary?.packet_loss_percent || 0));
 
-  // The DNS chip used to be a hardcoded green span. It now mirrors whatever the
-  // health endpoint measured about dnsmasq, and says so honestly when the
-  // health endpoint itself cannot be reached.
+  useEffect(() => {
+    if (wanEstimate || !wanConnected || document.hidden) return;
+    try {
+      const lastAttempt = Number(window.localStorage.getItem(WAN_ESTIMATE_ATTEMPT_KEY) || 0);
+      if (Date.now() - lastAttempt < WAN_ESTIMATE_RETRY_MS) return;
+      window.localStorage.setItem(WAN_ESTIMATE_ATTEMPT_KEY, String(Date.now()));
+    } catch {
+      return;
+    }
+
+    const controller = new AbortController();
+    void apiFetch("/api/v1/qos/speedtest?mode=estimate", { method: "POST", signal: controller.signal })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [wanConnected, wanEstimate]);
+
   const dnsCheck = health?.checks?.find((check) => check.id === "dns_dhcp" || check.id.startsWith("dns"));
   const dnsChipClass = healthUnavailable || !dnsCheck
     ? "is-off"
@@ -273,8 +337,6 @@ export default function ClassicOverview({
           : "is-warning";
   const dnsChipLabel = healthUnavailable || !dnsCheck ? "unknown" : dnsCheck.state === "healthy" ? "ok" : dnsCheck.state.replace("_", " ");
 
-  // This line used to read "Within normal operating range" unconditionally --
-  // it said the same thing at 5% and at 99% disk usage.
   const worstResource = Math.max(memoryPercent, diskPercent, Math.min(100, runtime.cpu_load_percent ?? 0));
   const resourceNote = typeof runtime.memory_total_bytes !== "number"
     ? { className: "is-unknown", label: "Resource telemetry unavailable" }
@@ -320,7 +382,7 @@ export default function ClassicOverview({
     )}
 
     <article className={`overview-status-hero ${heroState}`}>
-        <div className="overview-hero-command">
+      <div className="overview-hero-command">
         <div className="overview-hero-summary">
           <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
           <h1>{headline}</h1>
@@ -339,6 +401,7 @@ export default function ClassicOverview({
           <div className="overview-wan-quality">
             <span><small>Latency</small><strong>{formatMetric(gatewaySummary?.latency_ms, " ms")}</strong></span>
             <span><small>Jitter</small><strong>{formatMetric(gatewaySummary?.jitter_ms, " ms")}</strong></span>
+            <span><small>Line estimate</small><strong>{wanEstimate ? `~${wanEstimate.download_mbps.toFixed(0)} ↓ / ${wanEstimate.upload_mbps.toFixed(0)} ↑ Mbps` : wanConnected ? "Measuring…" : "Not measured"}</strong></span>
             <span><small>Probe targets</small><strong>{gatewaySummary?.targets?.length || gatewayTargetCount}</strong></span>
           </div>
         </section>
@@ -394,9 +457,7 @@ export default function ClassicOverview({
           <article><div><span>Memory</span><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small></div><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} /></article>
           <article><div><span>Disk</span><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small></div><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} /></article>
         </div>
-        <div className={`overview-resource-note ${resourceNote.className}`}>
-          <OverviewIcon name="check" /><span>{resourceNote.label}</span>
-        </div>
+        <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
       </section>
 
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
@@ -413,22 +474,13 @@ export default function ClassicOverview({
                 </linearGradient>
               </defs>
               <g className="overview-chart-grid"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" /><line x1="0" y1="145" x2="1000" y2="145" /></g>
-              {latencySegments.map((path, index) => (
-                <path className="overview-chart-line is-latency" d={path} key={index} />
-              ))}
+              {latencySegments.map((path, index) => <path className="overview-chart-line is-latency" d={path} key={index} />)}
             </svg>
             {history.length === 0 && <span className="overview-chart-empty">Waiting for gateway history</span>}
-            {history.length > 0 && latencySegments.length === 0 && (
-              <span className="overview-chart-empty">No successful probes in this window</span>
-            )}
+            {history.length > 0 && latencySegments.length === 0 && <span className="overview-chart-empty">No successful probes in this window</span>}
           </div>
           <div className="overview-chart-axis"><span>60 min</span><span>45 min</span><span>30 min</span><span>15 min</span><span>Now</span></div>
-          {history.length > measuredLatencyCount && (
-            <p className="overview-chart-note">
-              {history.length - measuredLatencyCount} of {history.length} samples had no successful probe; those periods are
-              left blank rather than drawn as 0&nbsp;ms.
-            </p>
-          )}
+          {history.length > measuredLatencyCount && <p className="overview-chart-note">{history.length - measuredLatencyCount} of {history.length} samples had no successful probe; those periods are left blank rather than drawn as 0&nbsp;ms.</p>}
         </div>
         <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss.toFixed(1)}% throughout</strong></div><progress max="100" value={loss} /></div>
         <p className="overview-quality-note">Read-only WAN quality monitor</p>

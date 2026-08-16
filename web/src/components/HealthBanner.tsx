@@ -38,7 +38,7 @@ function needsAttention(check: ApplianceHealthCheck): boolean {
   return check.state !== "healthy";
 }
 
-export function useApplianceHealth(pollMs = 15000) {
+export function useApplianceHealth(pollMs = 30000) {
   const [health, setHealth] = useState<ApplianceHealth | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
@@ -65,11 +65,32 @@ export function useApplianceHealth(pollMs = 15000) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
-    const timer = window.setInterval(() => void load(), pollMs);
+    let timer = 0;
+    let stopped = false;
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!stopped && document.visibilityState === "visible") {
+        timer = window.setTimeout(() => void poll(), pollMs);
+      }
+    };
+    const poll = async () => {
+      if (stopped || document.visibilityState !== "visible") return;
+      await load(controller.signal);
+      schedule();
+    };
+    const onVisibilityChange = () => {
+      window.clearTimeout(timer);
+      if (document.visibilityState === "visible") void poll();
+    };
+
+    void poll();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
+      stopped = true;
       controller.abort();
-      window.clearInterval(timer);
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load, pollMs]);
 

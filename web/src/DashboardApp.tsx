@@ -42,8 +42,6 @@ const navIcons: Record<SectionID, ReactNode> = {
   traffic: <><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></>,
 };
 
-// Appearance is a per-browser preference, not router state, so it lives in
-// localStorage. Previously every reload dropped the operator back to light mode.
 const THEME_STORAGE_KEY = "minimalrouter:theme";
 
 function initialTheme(): boolean {
@@ -61,27 +59,12 @@ function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
 
-// Derive the dotted netmask from the prefix length so cidr and netmask can never
-// disagree. The previous code only handled /16 and /24 and silently produced
-// 255.255.255.0 for everything else.
 function netmaskForPrefix(prefix: number): string {
   const bounded = Math.min(32, Math.max(0, Math.trunc(prefix)));
   const mask = bounded === 0 ? 0 : (0xffffffff << (32 - bounded)) >>> 0;
   return [24, 16, 8, 0].map((shift) => (mask >>> shift) & 0xff).join(".");
 }
 
-// Every section below is a non-pointer struct without `omitempty` in
-// config.SystemConfig, so a healthy appliance always emits all of them. The
-// dashboard dereferences them unconditionally during render — config.cloudflare
-// .ddns_provider and friends — so a 200 carrying a body without them throws
-// inside React and unmounts every page, not just the one section that is
-// missing. A response that is not a router configuration is treated as no
-// configuration at all: the existing "Configuration unavailable" path keeps the
-// last known-good state and offers Retry.
-// Exactly the sections some section body reads as config.<name>.<field> with no
-// optional chaining. Sections the UI already guards (dns, wg_client, accounting)
-// are deliberately absent: requiring them would turn a survivable gap into a
-// dead dashboard.
 const REQUIRED_CONFIG_SECTIONS = [
   "wan", "lan", "dhcp", "firewall", "wireguard",
   "cloudflare", "squid_proxy", "adguard", "qos", "wifi",
@@ -131,9 +114,7 @@ function Dashboard() {
       if (sequence !== pollSequence.current) return;
       if (configResult.status === "fulfilled" && configResult.value.ok) {
         const body = (await configResult.value.json()) as RouterConfig | null;
-        if (!isRenderableConfig(body)) {
-          throw new Error("Configuration unavailable");
-        }
+        if (!isRenderableConfig(body)) throw new Error("Configuration unavailable");
         setConfig(body);
       } else {
         throw new Error("Configuration unavailable");
@@ -149,10 +130,6 @@ function Dashboard() {
         unavailable.push("system status");
       }
       if (gatewayResult.status === "fulfilled" && gatewayResult.value.ok) {
-        // A 200 is not proof of a usable body. The summary is read as
-        // summary.link.connected during render, so a payload without `link`
-        // throws and unmounts the whole dashboard instead of degrading one
-        // panel. An unreadable summary is unavailable, never assumed connected.
         const body = (await gatewayResult.value.json()) as GatewaySummary | null;
         if (body && typeof body === "object" && body.link && typeof body.link === "object") {
           setGatewaySummary(body);
@@ -165,12 +142,8 @@ function Dashboard() {
         unavailable.push("gateway quality");
       }
       if (gatewaySettingsResult.status === "fulfilled" && gatewaySettingsResult.value.ok) {
-        // targets is read as .length during render; a payload missing it would
-        // throw and take down the dashboard, so keep the last known-good value.
         const body = (await gatewaySettingsResult.value.json()) as GatewaySettings | null;
-        if (body && Array.isArray(body.targets)) {
-          setGatewaySettings(body);
-        }
+        if (body && Array.isArray(body.targets)) setGatewaySettings(body);
       }
       if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
         const body = await snapshotsResult.value.json();
@@ -189,23 +162,45 @@ function Dashboard() {
   }, []);
 
   useEffect(() => {
-    let active = true;
+    let polling = true;
     let timer = 0;
-    const poll = async () => {
-      await load();
-      if (active) timer = window.setTimeout(poll, 15000);
+
+    const schedule = () => {
+      window.clearTimeout(timer);
+      if (!polling || document.hidden) return;
+      timer = window.setTimeout(() => void poll(), 30_000);
     };
+
+    const poll = async () => {
+      if (!polling || document.hidden) return;
+      await load();
+      schedule();
+    };
+
+    const onVisibilityChange = () => {
+      window.clearTimeout(timer);
+      if (!polling) return;
+      if (document.hidden) {
+        pollController.current?.abort();
+        return;
+      }
+      // Returning to the dashboard gets one fresh coherent snapshot immediately.
+      void poll();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     void poll();
     return () => {
-      active = false;
+      polling = false;
       window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       pollController.current?.abort();
     };
   }, [load]);
 
-  // Depend on the deadline value rather than the object identity: the 15-second
+  // Depend on the deadline value rather than the object identity: the 30-second
   // poll replaces pendingTx with an equal-but-new object, which used to restart
-  // this interval four times a minute.
+  // this interval on every dashboard refresh.
   const confirmationDeadline = pendingTx?.confirmation_deadline ?? null;
   useEffect(() => {
     if (!confirmationDeadline) {
@@ -316,12 +311,6 @@ function Dashboard() {
         ...next.lan,
         interface: field(form, "lan_interface"),
         ip_address: field(form, "lan_ip"),
-        // The prefix is intentionally not editable here: ProcessTransaction
-        // rejects any live LAN subnet change ("use the local recovery console"),
-        // so offering a prefix selector only produced guaranteed failures. Keep
-        // the current prefix and derive the netmask from it instead of the old
-        // /16-or-/24 branch, which produced a netmask that disagreed with the
-        // CIDR for every other prefix length.
         cidr: `${field(form, "lan_ip")}/${currentPrefix}`,
         netmask: netmaskForPrefix(currentPrefix),
       };
@@ -602,9 +591,6 @@ function Dashboard() {
   }
 
   const activeLabel = navigation.find(([id]) => id === active)?.[1] || "Overview";
-
-  // The bell used to be decorative: it always showed an unread dot and always
-  // said everything was normal. It now reports what /api/v1/health measured.
   const failingChecks = health?.checks?.filter((check) => check.state !== "healthy") ?? [];
   const alertCount = system.recovery_required ? failingChecks.length + 1 : failingChecks.length;
   const alertSummary = healthUnavailable
@@ -630,30 +616,22 @@ function Dashboard() {
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
-        <div className="dashboard-brand">
-          <div className="dashboard-brand-title"><strong>minimalrouter</strong></div>
-        </div>
+        <div className="dashboard-brand"><div className="dashboard-brand-title"><strong>minimalrouter</strong></div></div>
         <nav className="dashboard-navigation" aria-label="Router sections">
           {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label}>
             <h2>{group.label}</h2>
-            <div>
-              {group.items.map(([id, label]) => (
-                <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
-              ))}
-            </div>
+            <div>{group.items.map(([id, label]) => (
+              <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
+            ))}</div>
           </section>)}
         </nav>
-        <div className="dashboard-sidebar-footer">
-          <div className="dashboard-brand-revision">Minimal Router OS <span>{system.version && system.version !== "dev" ? system.version : `r${config.revision}`}</span></div>
-        </div>
+        <div className="dashboard-sidebar-footer"><div className="dashboard-brand-revision">Minimal Router OS <span>{system.version && system.version !== "dev" ? system.version : `r${config.revision}`}</span></div></div>
       </aside>
 
       <main className="dashboard-main">
         <header className="dashboard-topbar classic-topbar">
           <button aria-label="Open navigation" className="dashboard-menu" onClick={() => setMenuOpen((value) => !value)} type="button">☰</button>
-          <div className="classic-page-heading">
-            <h1>{activeLabel}</h1>
-          </div>
+          <div className="classic-page-heading"><h1>{activeLabel}</h1></div>
           <div className="classic-topbar-actions">
             <div className="classic-live-sync"><i aria-hidden="true" /><span><strong>Live</strong><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Connecting"}</small></span></div>
             <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
@@ -661,23 +639,12 @@ function Dashboard() {
                 ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
                 : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.8" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>}
             </button>
-            <button
-              aria-label={`Notifications: ${alertSummary}`}
-              className="classic-topbar-button classic-notification-button"
-              onClick={() => { showSection("overview"); setNotice(alertSummary); }}
-              type="button"
-            >
+            <button aria-label={`Notifications: ${alertSummary}`} className="classic-topbar-button classic-notification-button" onClick={() => { showSection("overview"); setNotice(alertSummary); }} type="button">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
               {alertCount > 0 && <i aria-hidden="true" />}
             </button>
-            <span className={`classic-setup-pill ${applianceState.className}`}>
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg>
-              {applianceState.label}
-            </span>
-            <a aria-label="Help and operator guide" className="classic-topbar-button classic-help-button" href="/help.html" rel="noreferrer" target="_blank">
-              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9.2" /><path d="M9.2 9.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.8-1.1 1.6" /><circle cx="12" cy="16.8" r=".5" /></svg>
-              <span>Help</span>
-            </a>
+            <span className={`classic-setup-pill ${applianceState.className}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg>{applianceState.label}</span>
+            <a aria-label="Help and operator guide" className="classic-topbar-button classic-help-button" href="/help.html" rel="noreferrer" target="_blank"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9.2" /><path d="M9.2 9.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.8-1.1 1.6" /><circle cx="12" cy="16.8" r=".5" /></svg><span>Help</span></a>
             <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
           </div>
         </header>
@@ -688,9 +655,7 @@ function Dashboard() {
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
         {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
-
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
-
         {active !== "security" && (
           <DashboardSections
             key={`dashboard-sections-${config.revision}`}
@@ -724,7 +689,8 @@ function Dashboard() {
             speedTest={speedTest}
             speedTesting={speedTesting}
             runtime={runtime}
-           onNavigate={showSection} />
+            onNavigate={showSection}
+          />
         )}
       </main>
     </div>

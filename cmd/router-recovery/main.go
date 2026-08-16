@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	networkinfo "github.com/vladimirperovic/minimalrouter/internal/network"
@@ -75,9 +74,9 @@ func runCommand(command string, args []string) {
 	case "restore-snapshot":
 		fs := flag.NewFlagSet("restore-snapshot", flag.ExitOnError)
 		id := fs.String("id", "", "snapshot identifier")
-		confirm := fs.String("confirm", "", "must equal RESTORE-SNAPSHOT")
+		confirmFlag := fs.String("confirm", "", "must equal RESTORE-SNAPSHOT")
 		_ = fs.Parse(args)
-		if *confirm != "RESTORE-SNAPSHOT" {
+		if *confirmFlag != "RESTORE-SNAPSHOT" {
 			fatal(errors.New("snapshot restore requires --confirm RESTORE-SNAPSHOT"))
 		}
 		m, closeStore := openManager()
@@ -105,44 +104,27 @@ func runCommand(command string, args []string) {
 
 func interactiveMenu() {
 	reader := bufio.NewReader(os.Stdin)
-	startReader := func(input chan string, stop chan struct{}) {
-		go func() {
-			for {
-				line, err := reader.ReadString('\n')
-				if err != nil {
-					return
-				}
-				select {
-				case input <- strings.TrimSpace(line):
-				case <-stop:
-					return
-				}
-			}
-		}()
-	}
-	input := make(chan string, 8)
-	stop := make(chan struct{})
-	startReader(input, stop)
-	readWith := func(timeout time.Duration) (string, bool) {
-		select {
-		case s := <-input:
-			return s, true
-		case <-time.After(timeout):
+	readLine := func(prompt string) (string, bool) {
+		fmt.Print(prompt)
+		line, err := reader.ReadString('\n')
+		if err != nil && len(line) == 0 {
 			return "", false
 		}
+		return strings.TrimSpace(line), true
 	}
-	menu := func() {
-		fmt.Print("\nMinimal Router Recovery Console\n===============================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\n0) Shell\nq) Quit\n\nSelect: ")
+	ask := func(prompt string) (string, bool) { return readLine(prompt) }
+	askConfirm := func(prompt string) bool {
+		fmt.Printf("%s (type YES): ", prompt)
+		return confirm(func() (string, bool) { return readLine("") }, prompt)
 	}
-	ask := func(prompt string) (string, bool) {
-		fmt.Print(prompt)
-		return readWith(120 * time.Second)
-	}
-	menu()
+
 	for {
-		choice, ok := readWith(30 * time.Second)
-		if !ok || choice == "" {
-			menu()
+		fmt.Print("\nMinimal Router Recovery Console\n===============================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\n0) Shell\nq) Quit\n\nSelect: ")
+		choice, ok := readLine("")
+		if !ok {
+			return
+		}
+		if choice == "" {
 			continue
 		}
 		switch choice {
@@ -175,7 +157,7 @@ func interactiveMenu() {
 				})
 			}
 		case "4":
-			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restore latest verified snapshot?") {
+			if askConfirm("Restore latest verified snapshot?") {
 				withManager(func(m recovery.Manager) error {
 					undo, id, err := m.RestoreLatestSnapshot()
 					if err == nil {
@@ -187,7 +169,7 @@ func interactiveMenu() {
 		case "5":
 			listSnapshots()
 			id, ok := ask("Snapshot ID to restore (blank cancels): ")
-			if ok && id != "" && confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restore this snapshot?") {
+			if ok && id != "" && askConfirm("Restore this snapshot?") {
 				withManager(func(m recovery.Manager) error {
 					undo, err := m.RestoreSnapshot(id)
 					if err == nil {
@@ -201,25 +183,24 @@ func interactiveMenu() {
 		case "7":
 			fmt.Println("Run: router-recovery reset-auth --password-stdin --disable-totp")
 		case "8":
-			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Restart router-applyd and routerd?") {
+			if askConfirm("Restart router-applyd and routerd?") {
 				run("rc-service", "router-applyd", "restart")
 				run("rc-service", "routerd", "restart")
 			}
 		case "9":
-			if confirm(func() (string, bool) { return readWith(120 * time.Second) }, "Reboot this router VM now?") {
+			if askConfirm("Reboot this router VM now?") {
 				run("reboot")
 			}
 		case "0":
-			close(stop)
 			fmt.Println("Type 'exit' to return to recovery console.")
 			cmd := exec.Command("/bin/sh")
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			_ = cmd.Run()
-			stop = make(chan struct{})
-			input = make(chan string, 8)
-			startReader(input, stop)
+			// Recreate the buffered reader after the shell returns so no buffered
+			// terminal input can leak between the recovery menu and the shell.
+			reader = bufio.NewReader(os.Stdin)
 		case "q", "Q":
 			return
 		default:
@@ -295,7 +276,7 @@ func withManager(fn func(recovery.Manager) error) {
 	}
 }
 
-func confirm(readLine func() (string, bool), prompt string) bool {
+func confirm(readLine func() (string, bool), _ string) bool {
 	value, ok := readLine()
 	if !ok {
 		return false

@@ -6,7 +6,35 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.3**.
+Next development version: **v0.1.5**.
+
+## [v0.1.4] — 2026-08-16
+
+### Highlights
+
+- Startup diagnostics are anchored to the actual Linux boot ID, retain only the
+  last five boots, stop network probes after each milestone succeeds, and become
+  completely read-only after the boot capture is complete.
+- The local recovery console remains an on-demand tool rather than a daemon and
+  no longer keeps an idle refresh goroutine or timer running while waiting for
+  operator input.
+- Passive appliance work is reduced: per-device accounting collects every five
+  minutes, passive SQLite maintenance runs hourly, and WireGuard telemetry avoids
+  repeated helper processes when an interface is absent and caches stable state.
+- Dashboard polling is visibility-aware. Live WAN byte counters sample every five
+  seconds only while the tab is visible; the coherent dashboard snapshot refreshes
+  every 30 seconds and immediately refreshes when the operator returns to the tab.
+- The Overview can make one lightweight post-connect WAN estimate outside the boot
+  critical path and displays it as an approximate download/upload line rate. A
+  later full Speed Test replaces that estimate automatically.
+- Speed Test temporarily removes QoS only from the active runtime, never from the
+  canonical configuration or durable last-good state, and always reconciles the
+  canonical runtime before returning. Restore failure enters `RecoveryRequired`.
+- Smart Change Preview, conservative PPPoE auto-recovery, one-click network
+  diagnostics, Startup Timeline, the local recovery console, and the complete
+  English operator guide are part of the same appliance reliability baseline.
+- Large unreferenced duplicate dashboard screenshots were removed; the numbered
+  documentation screenshot set remains canonical.
 
 ### Fixed
 
@@ -280,7 +308,7 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 ### Fixed
 
 - Lost IPC responses after a completed apply or confirmation no longer force an
-  unnecessary unknown outcome when the helper can return the saved result.
+  unnecessary unknown outcome when the helper can return its saved result.
 - A helper restart after an incomplete privileged operation can no longer treat
   the same request as fresh and repeat side effects.
 - A different transaction can no longer bypass an unresolved helper intent or

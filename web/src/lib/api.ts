@@ -3,6 +3,34 @@ import { demoApiFetch, isDemoMode } from "./demoApi";
 let csrfToken = "";
 let lastCanonicalRevision: number | null = null;
 
+const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
+
+type CachedResponse = {
+  response: Response;
+  storedAt: number;
+};
+
+// Passive dashboard data does not need to wake the appliance at animation-like
+// rates. Keep the one live bandwidth source reasonably fresh while allowing
+// stable configuration/status cards to settle at an appliance-friendly cadence.
+// Mutations invalidate this cache immediately below, so operator actions never
+// wait for a polling TTL to become visible.
+const PASSIVE_GET_TTL_MS = new Map<string, number>([
+  ["/api/v1/system", 5_000],
+  ["/api/v1/transactions/pending", 5_000],
+  ["/api/v1/config", 30_000],
+  ["/api/v1/gateway/summary", 30_000],
+  ["/api/v1/gateway/settings", 30_000],
+  ["/api/v1/gateway/history", 30_000],
+  ["/api/v1/snapshots", 30_000],
+  ["/api/v1/audit/events", 30_000],
+  ["/api/v1/health", 30_000],
+]);
+
+const passiveGetCache = new Map<string, CachedResponse>();
+const passiveGetInFlight = new Map<string, Promise<Response>>();
+let passiveGetEpoch = 0;
+
 export function setCSRFToken(token: string) {
   csrfToken = token;
 }
@@ -35,16 +63,17 @@ export async function refreshSession(): Promise<boolean> {
   }
 }
 
-function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
-  if (method !== "GET" || !response.ok) return;
+function requestPath(input: RequestInfo | URL): string {
   const rawURL = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-  let path = rawURL;
   try {
-    path = new URL(rawURL, window.location.origin).pathname;
+    return new URL(rawURL, window.location.origin).pathname;
   } catch {
-    // Relative API paths are already safe to compare as-is.
+    return rawURL;
   }
-  if (path !== "/api/v1/config") return;
+}
+
+function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
+  if (method !== "GET" || !response.ok || requestPath(input) !== "/api/v1/config") return;
   void response.clone().json().then((body: { revision?: unknown }) => {
     const revision = typeof body.revision === "number" ? body.revision : Number(body.revision);
     if (!Number.isSafeInteger(revision) || revision < 0) return;
@@ -59,13 +88,49 @@ function trackCanonicalRevision(input: RequestInfo | URL, method: string, respon
   }).catch(() => undefined);
 }
 
-function requestPath(input: RequestInfo | URL): string {
-  const rawURL = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+function trackWANSpeedEstimate(input: RequestInfo | URL, method: string, response: Response) {
+  if (method !== "POST" || !response.ok || requestPath(input) !== "/api/v1/qos/speedtest") return;
+  void response.clone().json().then((body: { download_mbps?: unknown; upload_mbps?: unknown }) => {
+    const download = Number(body.download_mbps);
+    const upload = Number(body.upload_mbps);
+    if (!Number.isFinite(download) || download <= 0 || !Number.isFinite(upload) || upload <= 0) return;
+    try {
+      window.localStorage.setItem(WAN_ESTIMATE_STORAGE_KEY, JSON.stringify({
+        download_mbps: download,
+        upload_mbps: upload,
+        measured_at: Date.now(),
+      }));
+      window.dispatchEvent(new Event("minimalrouter:wan-speed-estimate"));
+    } catch {
+      // Browser storage is optional. The speed test result itself is still valid.
+    }
+  }).catch(() => undefined);
+}
+
+function requestCacheKey(input: RequestInfo | URL): string {
+  const rawURL = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   try {
-    return new URL(rawURL, window.location.origin).pathname;
+    const url = new URL(rawURL, window.location.origin);
+    return `${url.pathname}${url.search}`;
   } catch {
     return rawURL;
   }
+}
+
+function passiveTTL(path: string): number | null {
+  for (const [prefix, ttl] of PASSIVE_GET_TTL_MS) {
+    if (path === prefix || path.startsWith(`${prefix}?`)) return ttl;
+  }
+  return null;
+}
+
+function clearPassiveGetCache() {
+  // An older GET may already be on the wire when a mutation succeeds. Bumping
+  // the epoch prevents that pre-mutation response from repopulating the cache
+  // after invalidation and hiding the freshly committed configuration/status.
+  passiveGetEpoch += 1;
+  passiveGetCache.clear();
+  passiveGetInFlight.clear();
 }
 
 type ChangePreview = {
@@ -113,6 +178,28 @@ async function confirmConfigChange(body: BodyInit | null | undefined, headers: H
   return window.confirm(message);
 }
 
+async function networkFetch(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  headers: Headers,
+  method: string,
+): Promise<Response> {
+  const response = await fetch(input, {
+    ...init,
+    headers,
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (response.status === 401) {
+    csrfToken = "";
+    clearPassiveGetCache();
+    window.dispatchEvent(new Event("minimalrouter:unauthorized"));
+  }
+  trackCanonicalRevision(input, method, response);
+  trackWANSpeedEstimate(input, method, response);
+  return response;
+}
+
 export async function apiFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
@@ -147,16 +234,57 @@ export async function apiFetch(
     }
   }
 
-  const response = await fetch(input, {
-    ...init,
-    headers,
-    credentials: "same-origin",
-    cache: "no-store",
-  });
-  if (response.status === 401) {
-    csrfToken = "";
-    window.dispatchEvent(new Event("minimalrouter:unauthorized"));
+  if (method === "GET") {
+    const path = requestPath(input);
+    const ttl = passiveTTL(path);
+    if (ttl !== null) {
+      const key = requestCacheKey(input);
+      const cached = passiveGetCache.get(key);
+      const now = Date.now();
+      // Background tabs must not keep waking the router. A stale last-known-good
+      // passive snapshot is preferable until the operator returns to the page.
+      if (cached && (document.hidden || now - cached.storedAt < ttl)) {
+        return cached.response.clone();
+      }
+
+      // Only coalesce requests that do not carry their own AbortSignal. A
+      // component-owned signal must retain its cancellation semantics.
+      if (!init.signal) {
+        const existing = passiveGetInFlight.get(key);
+        if (existing) return (await existing).clone();
+
+        const epoch = passiveGetEpoch;
+        const inFlight = networkFetch(input, init, headers, method).then((response) => {
+          const master = response.clone();
+          if (response.ok && epoch === passiveGetEpoch) {
+            passiveGetCache.set(key, { response: master.clone(), storedAt: Date.now() });
+          }
+          return master;
+        }).finally(() => {
+          // Cache invalidation intentionally clears the in-flight registry so a
+          // post-mutation caller cannot coalesce onto a stale request. If that
+          // older request completes after a newer one has claimed the same key,
+          // it must not delete the newer coalescing entry.
+          if (passiveGetInFlight.get(key) === inFlight) {
+            passiveGetInFlight.delete(key);
+          }
+        });
+        passiveGetInFlight.set(key, inFlight);
+        return (await inFlight).clone();
+      }
+
+      const epoch = passiveGetEpoch;
+      const response = await networkFetch(input, init, headers, method);
+      if (response.ok && epoch === passiveGetEpoch) {
+        passiveGetCache.set(key, { response: response.clone(), storedAt: Date.now() });
+      }
+      return response;
+    }
   }
-  trackCanonicalRevision(input, method, response);
+
+  const response = await networkFetch(input, init, headers, method);
+  if (mutating && response.ok) {
+    clearPassiveGetCache();
+  }
   return response;
 }

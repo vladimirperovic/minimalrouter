@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,7 +17,8 @@ import (
 
 const (
 	Window         = 10 * time.Minute
-	SampleInterval = 15 * time.Second
+	CheckInterval  = 5 * time.Second
+	SampleInterval = 30 * time.Second
 	MaxBoots       = 5
 )
 
@@ -59,32 +61,81 @@ type Recorder struct {
 	lastTotal uint64
 }
 
-func New(dir string) (*Recorder, error) {
-	dir = filepath.Join(dir, "startup")
+func New(dataDir string) (*Recorder, error) {
+	dir := filepath.Join(dataDir, "startup")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
+
 	now := time.Now().UTC()
-	r := &Recorder{
-		dir:     dir,
-		started: now,
-		boot: Boot{
-			ID:        now.Format("20060102T150405.000000000Z"),
-			StartedAt: now,
-		},
+	bootID, startedAt := kernelBootIdentity(now)
+	boot := Boot{ID: bootID, StartedAt: startedAt}
+	path := filepath.Join(dir, bootID+".json")
+	reused := false
+	if data, err := os.ReadFile(path); err == nil {
+		var existing Boot
+		if json.Unmarshal(data, &existing) == nil && existing.ID == bootID && !existing.StartedAt.IsZero() {
+			boot = existing
+			startedAt = existing.StartedAt
+			reused = true
+		}
 	}
-	r.Event("routerd", "Management process started")
+
+	r := &Recorder{dir: dir, started: startedAt, boot: boot}
+	if reused && r.boot.Completed {
+		return r, nil
+	}
+	if reused {
+		r.Event("routerd", "Management process restarted")
+	} else {
+		r.Event("routerd", "Management process started")
+	}
 	if err := r.persist(); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
+// kernelBootIdentity anchors the timeline to the actual Linux boot rather than
+// the routerd process lifetime. A routerd restart therefore continues the same
+// boot capture instead of creating a fake new boot. The timestamp fallback is
+// used only on non-Linux/test environments where procfs is unavailable.
+func kernelBootIdentity(now time.Time) (string, time.Time) {
+	idBytes, idErr := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	uptimeBytes, uptimeErr := os.ReadFile("/proc/uptime")
+	if idErr == nil && uptimeErr == nil {
+		id := strings.TrimSpace(string(idBytes))
+		fields := strings.Fields(string(uptimeBytes))
+		if validBootID(id) && len(fields) > 0 {
+			if seconds, err := strconv.ParseFloat(fields[0], 64); err == nil && seconds >= 0 {
+				return id, now.Add(-time.Duration(seconds * float64(time.Second))).UTC()
+			}
+		}
+	}
+	return now.Format("20060102T150405.000000000Z"), now
+}
+
+func validBootID(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func (r *Recorder) Event(kind, message string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
 	r.boot.Events = append(r.boot.Events, Event{
-		OffsetSeconds: int64(time.Since(r.started).Seconds()),
+		OffsetSeconds: r.offsetSeconds(),
 		Kind:          kind,
 		Message:       message,
 	})
@@ -94,11 +145,16 @@ func (r *Recorder) Event(kind, message string) {
 func (r *Recorder) Ready(kind string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	seconds := int64(time.Since(r.started).Seconds())
+	if r.boot.Completed {
+		return
+	}
+	seconds := r.offsetSeconds()
+	changed := false
 	setOnce := func(dst **int64) {
 		if *dst == nil {
 			value := seconds
 			*dst = &value
+			changed = true
 		}
 	}
 	switch kind {
@@ -113,52 +169,128 @@ func (r *Recorder) Ready(kind string) {
 	case "wireguard":
 		setOnce(&r.boot.Readiness.WireGuardSeconds)
 	}
-	_ = r.persistLocked()
+	// Once a milestone is recorded, repeated checks must be read-only. The old
+	// code rewrote the JSON file every 15 seconds even after every milestone was
+	// already ready.
+	if changed {
+		_ = r.persistLocked()
+	}
+}
+
+func (r *Recorder) offsetSeconds() int64 {
+	seconds := int64(time.Since(r.started).Seconds())
+	if seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface string, wgEnabled bool) {
-	ticker := time.NewTicker(SampleInterval)
-	defer ticker.Stop()
-	deadline := time.NewTimer(Window)
+	r.mu.Lock()
+	alreadyCompleted := r.boot.Completed
+	r.mu.Unlock()
+	if alreadyCompleted {
+		return
+	}
+
+	remaining := time.Until(r.started.Add(Window))
+	if remaining <= 0 {
+		r.complete()
+		return
+	}
+
+	checkTicker := time.NewTicker(CheckInterval)
+	defer checkTicker.Stop()
+	sampleTicker := time.NewTicker(SampleInterval)
+	defer sampleTicker.Stop()
+	deadline := time.NewTimer(remaining)
 	defer deadline.Stop()
+
+	// Record one lightweight local sample at process start. Network probes are
+	// handled separately and stop permanently as soon as their milestone is met.
+	r.sample()
+	if r.checkReadiness(ctx, pppoeEnabled, wgInterface, wgEnabled) {
+		r.complete()
+		return
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-deadline.C:
-			r.mu.Lock()
-			r.boot.Completed = true
-			_ = r.persistLocked()
-			r.mu.Unlock()
+			r.complete()
 			return
-		case <-ticker.C:
+		case <-sampleTicker.C:
 			r.sample()
-			if pppoeEnabled {
-				if _, err := net.InterfaceByName("ppp0"); err == nil {
-					r.Ready("pppoe")
-				}
+		case <-checkTicker.C:
+			if r.checkReadiness(ctx, pppoeEnabled, wgInterface, wgEnabled) {
+				r.complete()
+				return
 			}
-			if wgEnabled && wgInterface != "" {
-				if _, err := net.InterfaceByName(wgInterface); err == nil {
-					r.Ready("wireguard")
-				}
-			}
-			dnsCtx, cancelDNS := context.WithTimeout(ctx, 2*time.Second)
-			if _, err := net.DefaultResolver.LookupHost(dnsCtx, "example.com"); err == nil {
-				r.Ready("dns")
-			}
-			cancelDNS()
-
-			internetCtx, cancelInternet := context.WithTimeout(ctx, 2*time.Second)
-			dialer := net.Dialer{}
-			if conn, err := dialer.DialContext(internetCtx, "tcp", "1.1.1.1:443"); err == nil {
-				_ = conn.Close()
-				r.Ready("internet")
-			}
-			cancelInternet()
 		}
 	}
+}
+
+// checkReadiness performs only checks that have not succeeded yet. DNS and
+// Internet probes are deferred until PPPoE exists when PPPoE is configured, so
+// first boot never burns timeout/CPU on probes that cannot possibly succeed.
+// It returns true when every milestone expected by this configuration is ready.
+func (r *Recorder) checkReadiness(ctx context.Context, pppoeEnabled bool, wgInterface string, wgEnabled bool) bool {
+	r.mu.Lock()
+	readiness := r.boot.Readiness
+	r.mu.Unlock()
+
+	if pppoeEnabled && readiness.PPPoESeconds == nil {
+		if _, err := net.InterfaceByName("ppp0"); err == nil {
+			r.Ready("pppoe")
+			readiness.PPPoESeconds = int64Ptr(r.offsetSeconds())
+		}
+	}
+	if wgEnabled && wgInterface != "" && readiness.WireGuardSeconds == nil {
+		if _, err := net.InterfaceByName(wgInterface); err == nil {
+			r.Ready("wireguard")
+			readiness.WireGuardSeconds = int64Ptr(r.offsetSeconds())
+		}
+	}
+
+	wanReady := !pppoeEnabled || readiness.PPPoESeconds != nil
+	if wanReady && readiness.DNSSeconds == nil {
+		dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		_, err := net.DefaultResolver.LookupHost(dnsCtx, "example.com")
+		cancel()
+		if err == nil {
+			r.Ready("dns")
+			readiness.DNSSeconds = int64Ptr(r.offsetSeconds())
+		}
+	}
+	if wanReady && readiness.InternetSeconds == nil {
+		internetCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		conn, err := (&net.Dialer{}).DialContext(internetCtx, "tcp", "1.1.1.1:443")
+		cancel()
+		if err == nil {
+			_ = conn.Close()
+			r.Ready("internet")
+			readiness.InternetSeconds = int64Ptr(r.offsetSeconds())
+		}
+	}
+
+	managementReady := readiness.ManagementSeconds != nil
+	pppoeReady := !pppoeEnabled || readiness.PPPoESeconds != nil
+	wgReady := !wgEnabled || wgInterface == "" || readiness.WireGuardSeconds != nil
+	return managementReady && pppoeReady && wgReady && readiness.DNSSeconds != nil && readiness.InternetSeconds != nil
+}
+
+func int64Ptr(value int64) *int64 { return &value }
+
+func (r *Recorder) complete() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
+	r.boot.Completed = true
+	_ = r.persistLocked()
 }
 
 func (r *Recorder) sample() {
@@ -167,6 +299,9 @@ func (r *Recorder) sample() {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
 	cpu := 0.0
 	if r.lastTotal > 0 && total > r.lastTotal {
 		deltaTotal := total - r.lastTotal
@@ -182,7 +317,7 @@ func (r *Recorder) sample() {
 	r.lastTotal = total
 	r.lastCPU = idle
 	r.boot.Samples = append(r.boot.Samples, Sample{
-		OffsetSeconds: int64(time.Since(r.started).Seconds()),
+		OffsetSeconds: r.offsetSeconds(),
 		CPUPercent:    cpu,
 		MemoryUsedMB:  used,
 		MemoryTotalMB: totalMB,
@@ -258,28 +393,39 @@ func (r *Recorder) persistLocked() error {
 	return prune(r.dir)
 }
 
+type bootFile struct {
+	name    string
+	modTime time.Time
+}
+
 func prune(dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	var names []string
+	files := make([]bootFile, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			names = append(names, entry.Name())
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
 		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, bootFile{name: entry.Name(), modTime: info.ModTime()})
 	}
-	if len(names) <= MaxBoots {
+	if len(files) <= MaxBoots {
 		return nil
 	}
-	for _, name := range names[:len(names)-MaxBoots] {
-		_ = os.Remove(filepath.Join(dir, name))
+	sort.Slice(files, func(i, j int) bool { return files[i].modTime.Before(files[j].modTime) })
+	for _, file := range files[:len(files)-MaxBoots] {
+		_ = os.Remove(filepath.Join(dir, file.name))
 	}
 	return nil
 }
 
-func Load(dir string) ([]Boot, error) {
-	dir = filepath.Join(dir, "startup")
+func Load(dataDir string) ([]Boot, error) {
+	dir := filepath.Join(dataDir, "startup")
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return []Boot{}, nil
@@ -287,9 +433,8 @@ func Load(dir string) ([]Boot, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Boot, 0, MaxBoots)
-	for i := len(entries) - 1; i >= 0 && len(out) < MaxBoots; i-- {
-		entry := entries[i]
+	out := make([]Boot, 0, len(entries))
+	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
@@ -301,6 +446,10 @@ func Load(dir string) ([]Boot, error) {
 		if json.Unmarshal(data, &boot) == nil {
 			out = append(out, boot)
 		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartedAt.After(out[j].StartedAt) })
+	if len(out) > MaxBoots {
+		out = out[:MaxBoots]
 	}
 	return out, nil
 }

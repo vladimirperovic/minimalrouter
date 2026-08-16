@@ -68,10 +68,13 @@ func NewCollector(store *Store, reader Reader, settings func() (bool, int)) *Col
 		store:    store,
 		reader:   reader,
 		settings: settings,
-		// One minute is far below the 7-day set timeout and cheap: two short
-		// command runs per tick, versus the per-request cost of reading counters
-		// on demand from the dashboard.
-		interval: time.Minute,
+		// Accounting is monthly aggregate telemetry, not a real-time safety
+		// signal. Five minutes limits the always-on appliance to two short nft
+		// reads per five minutes instead of two per minute while still staying
+		// far below the kernel set timeout. A hard power loss can lose at most
+		// the latest interval, which is an acceptable trade-off for optional
+		// accounting on a minimal router.
+		interval: 5 * time.Minute,
 	}
 }
 

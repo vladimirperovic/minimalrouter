@@ -154,6 +154,33 @@ curl -kfsS -b /tmp/minimalrouter.cookies \
     https://192.168.1.1:8443/api/v1/config \
     | jq -e '.revision >= 1'
 
+# Exercise a configured service start, which is the real cold-boot optimization
+# path. router-applyd restores and verifies last-good before its socket appears;
+# routerd may skip its immediately duplicated full reconcile only when the
+# root-created SHA-256 handoff exactly matches SQLite canonical state.
+rc-service routerd stop
+rc-service router-applyd stop
+rc-service router-applyd start
+[ -f /run/minimalrouter/startup-verified.sha256 ]
+rc-service routerd start
+wait_socket
+wait_setup
+[ -f /run/minimalrouter/routerd-state/startup-fastpath-consumed ]
+grep -q 'duplicate reconcile skipped' /var/log/routerd.log
+skip_count_before="$(grep -c 'duplicate reconcile skipped' /var/log/routerd.log)"
+[ "$skip_count_before" -eq 1 ]
+
+# supervise-daemon respawns routerd directly without OpenRC start_pre. The
+# routerd-owned O_EXCL consumed marker must force that second process back onto
+# the full canonical RECONCILE path rather than reusing the cold-boot proof.
+routerd_before="$(wait_child "$ROUTERD_PIDFILE")"
+kill -KILL "$routerd_before"
+routerd_after="$(wait_child "$ROUTERD_PIDFILE" "$routerd_before")"
+[ "$routerd_after" != "$routerd_before" ]
+wait_setup
+skip_count_after="$(grep -c 'duplicate reconcile skipped' /var/log/routerd.log)"
+[ "$skip_count_after" -eq "$skip_count_before" ]
+
 rc-service routerd stop
 rc-service router-applyd stop
 trap - EXIT INT TERM

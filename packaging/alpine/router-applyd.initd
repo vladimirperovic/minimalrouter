@@ -88,6 +88,9 @@ DOAS_UPDATE
 start_pre() {
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
+    # A startup verification hint is valid only for this helper start. Remove
+    # any stale handoff before the privileged process performs reconciliation.
+    rm -f /run/minimalrouter/startup-verified.sha256
     # Updating is optional. A damaged/read-only update integration must never
     # prevent the core router from starting; the dashboard reports the update
     # feature unavailable while routing/recovery continue normally.
@@ -97,12 +100,37 @@ start_pre() {
     rm -f /run/minimalrouter/apply.sock
 }
 
+publish_startup_hash() {
+    last_good=/var/lib/minimalrouter-applyd/last-good.json
+    marker=/run/minimalrouter/startup-verified.sha256
+    [ -f "$last_good" ] || return 0
+
+    digest="$(sha256sum "$last_good" 2>/dev/null || true)"
+    digest="${digest%% *}"
+    case "$digest" in
+        ''|*[!0-9a-f]*) return 0 ;;
+    esac
+    [ "${#digest}" -eq 64 ] || return 0
+
+    if printf '%s\n' "$digest" > "$marker"; then
+        chown root:root "$marker" 2>/dev/null || true
+        chmod 0600 "$marker" 2>/dev/null || true
+    else
+        rm -f "$marker"
+    fi
+}
+
 # routerd must not be released merely because the supervisor was forked. The
 # socket appears only after startup reconciliation has completed successfully.
 start_post() {
     attempts=0
     while [ "$attempts" -lt 360 ]; do
         if [ -S /run/minimalrouter/apply.sock ]; then
+            # saveLastGood serializes config.SystemConfig with json.Marshal.
+            # Hashing that exact root-owned file lets routerd prove its SQLite
+            # canonical config is byte-for-byte the runtime just verified by
+            # this helper, without repeating a second full apply on cold boot.
+            publish_startup_hash
             chgrp routerd "$pidfile"
             chmod 0640 "$pidfile"
             return 0

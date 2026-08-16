@@ -31,6 +31,18 @@ var (
 	lastCPUPct    float64
 )
 
+const wireGuardTelemetryTTL = 30 * time.Second
+
+type cachedWireGuardPeers struct {
+	peers   []WireGuardPeerStatus
+	takenAt time.Time
+}
+
+var wireGuardTelemetryCache = struct {
+	sync.Mutex
+	items map[string]cachedWireGuardPeers
+}{items: make(map[string]cachedWireGuardPeers)}
+
 func readUint(path string) uint64 {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -245,11 +257,6 @@ func safeWGShow(interfaceName, field string) (string, error) {
 	default:
 		return "", os.ErrPermission
 	}
-	// Bounded like every other privileged read on this path. RuntimeSnapshot
-	// runs up to eight of these behind a single cache lock, so an unbounded
-	// child would not stall one request but every reader of /api/v1/system,
-	// /api/v1/health and /api/v1/accounting at once -- including the dashboard
-	// the operator would use to diagnose it.
 	ctx, cancel := context.WithTimeout(context.Background(), wgShowTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "doas", "/usr/bin/wg", "show", interfaceName, field)
@@ -270,7 +277,29 @@ func ensureWGPeer(peers map[string]*WireGuardPeerStatus, order *[]string, public
 	return peer
 }
 
+func cloneWGPeers(peers []WireGuardPeerStatus) []WireGuardPeerStatus {
+	if len(peers) == 0 {
+		return nil
+	}
+	return append([]WireGuardPeerStatus(nil), peers...)
+}
+
 func readWireGuardInterface(interfaceName string) []WireGuardPeerStatus {
+	// A disabled tunnel is by far the common case. Avoid spawning doas/wg at
+	// all when the interface does not exist instead of discovering that four
+	// times through failed privileged child processes.
+	if _, err := net.InterfaceByName(interfaceName); err != nil {
+		return nil
+	}
+
+	now := time.Now()
+	wireGuardTelemetryCache.Lock()
+	cached, ok := wireGuardTelemetryCache.items[interfaceName]
+	wireGuardTelemetryCache.Unlock()
+	if ok && now.Sub(cached.takenAt) < wireGuardTelemetryTTL {
+		return cloneWGPeers(cached.peers)
+	}
+
 	peers := make(map[string]*WireGuardPeerStatus)
 	order := make([]string, 0, 8)
 
@@ -297,7 +326,7 @@ func readWireGuardInterface(interfaceName string) []WireGuardPeerStatus {
 		}
 	}
 	if out, err := safeWGShow(interfaceName, "latest-handshakes"); err == nil {
-		now := time.Now().Unix()
+		nowUnix := now.Unix()
 		for _, line := range strings.Split(out, "\n") {
 			fields := strings.Fields(line)
 			if len(fields) < 2 {
@@ -306,7 +335,7 @@ func readWireGuardInterface(interfaceName string) []WireGuardPeerStatus {
 			peer := ensureWGPeer(peers, &order, fields[0])
 			if ts, parseErr := strconv.ParseInt(fields[1], 10, 64); parseErr == nil && ts > 0 {
 				peer.LastHandshake = ts
-				peer.Online = now >= ts && now-ts < 180
+				peer.Online = nowUnix >= ts && nowUnix-ts < 180
 			}
 		}
 	}
@@ -328,6 +357,9 @@ func readWireGuardInterface(interfaceName string) []WireGuardPeerStatus {
 			result = append(result, *peer)
 		}
 	}
+	wireGuardTelemetryCache.Lock()
+	wireGuardTelemetryCache.items[interfaceName] = cachedWireGuardPeers{peers: cloneWGPeers(result), takenAt: now}
+	wireGuardTelemetryCache.Unlock()
 	return result
 }
 
