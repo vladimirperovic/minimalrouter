@@ -58,9 +58,8 @@ jobs:
 
       - name: Verify ISO checksum and payload
         run: |
-          cd build/iso
-          sha256sum -c minimalrouter-*-amd64.iso.sha256
-          iso="$(ls minimalrouter-*-amd64.iso)"
+          sha256sum -c build/iso/minimalrouter-*-amd64.iso.sha256
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
           xorriso -indev "$iso" -find /minimalrouter/VERSION -print | grep -q /minimalrouter/VERSION
           xorriso -indev "$iso" -find /minimalrouter.apkovl.tar.gz -print | grep -q /minimalrouter.apkovl.tar.gz
 
