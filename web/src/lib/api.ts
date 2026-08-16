@@ -254,14 +254,21 @@ export async function apiFetch(
         if (existing) return (await existing).clone();
 
         const epoch = passiveGetEpoch;
-        const inFlight = networkFetch(input, init, headers, method).then((response) => {
+        let inFlight: Promise<Response>;
+        inFlight = networkFetch(input, init, headers, method).then((response) => {
           const master = response.clone();
           if (response.ok && epoch === passiveGetEpoch) {
             passiveGetCache.set(key, { response: master.clone(), storedAt: Date.now() });
           }
           return master;
         }).finally(() => {
-          passiveGetInFlight.delete(key);
+          // Cache invalidation intentionally clears the in-flight registry so a
+          // post-mutation caller cannot coalesce onto a stale request. If that
+          // older request completes after a newer one has claimed the same key,
+          // it must not delete the newer coalescing entry.
+          if (passiveGetInFlight.get(key) === inFlight) {
+            passiveGetInFlight.delete(key);
+          }
         });
         passiveGetInFlight.set(key, inFlight);
         return (await inFlight).clone();
