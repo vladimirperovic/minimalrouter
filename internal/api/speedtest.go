@@ -22,11 +22,11 @@ const (
 )
 
 type speedtestResult struct {
-	DownloadMbps          float64 `json:"download_mbps"`
-	UploadMbps            float64 `json:"upload_mbps"`
-	SuggestedDownloadMbps int     `json:"suggested_download_mbps"`
-	SuggestedUploadMbps   int     `json:"suggested_upload_mbps"`
-	QoSTemporarilyBypassed bool   `json:"qos_temporarily_bypassed"`
+	DownloadMbps           float64 `json:"download_mbps"`
+	UploadMbps             float64 `json:"upload_mbps"`
+	SuggestedDownloadMbps  int     `json:"suggested_download_mbps"`
+	SuggestedUploadMbps    int     `json:"suggested_upload_mbps"`
+	QoSTemporarilyBypassed bool    `json:"qos_temporarily_bypassed"`
 }
 
 // speedtestMu serializes measurements. Two concurrent runs would saturate the
