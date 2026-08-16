@@ -131,6 +131,9 @@ func validBootID(value string) bool {
 func (r *Recorder) Event(kind, message string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
 	r.boot.Events = append(r.boot.Events, Event{
 		OffsetSeconds: r.offsetSeconds(),
 		Kind:          kind,
@@ -142,6 +145,9 @@ func (r *Recorder) Event(kind, message string) {
 func (r *Recorder) Ready(kind string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
 	seconds := r.offsetSeconds()
 	changed := false
 	setOnce := func(dst **int64) {
@@ -180,6 +186,13 @@ func (r *Recorder) offsetSeconds() int64 {
 }
 
 func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface string, wgEnabled bool) {
+	r.mu.Lock()
+	alreadyCompleted := r.boot.Completed
+	r.mu.Unlock()
+	if alreadyCompleted {
+		return
+	}
+
 	remaining := time.Until(r.started.Add(Window))
 	if remaining <= 0 {
 		r.complete()
@@ -286,6 +299,9 @@ func (r *Recorder) sample() {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.boot.Completed {
+		return
+	}
 	cpu := 0.0
 	if r.lastTotal > 0 && total > r.lastTotal {
 		deltaTotal := total - r.lastTotal
