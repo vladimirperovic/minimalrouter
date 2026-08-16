@@ -14,13 +14,11 @@ import (
 
 func writeStartupHash(t *testing.T, dir string, cfg config.SystemConfig, mode os.FileMode) string {
 	t.Helper()
-	// Match router-applyd saveLastGood: indented JSON plus a trailing newline.
-	// The OpenRC handoff hashes the persisted file bytes, not compact JSON.
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	// Match router-applyd saveLastGood: compact json.Marshal output.
+	data, err := json.Marshal(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = append(data, '\n')
 	digest := sha256.Sum256(data)
 	path := filepath.Join(dir, "startup.sha256")
 	if err := os.WriteFile(path, []byte(hex.EncodeToString(digest[:])+"\n"), mode); err != nil {
@@ -29,7 +27,7 @@ func writeStartupHash(t *testing.T, dir string, cfg config.SystemConfig, mode os
 	return path
 }
 
-func TestStartupRuntimeVerifiedAtMatchesExactLastGoodSerialization(t *testing.T) {
+func TestStartupRuntimeVerifiedAtMatchesExactCanonicalConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
 	path := writeStartupHash(t, t.TempDir(), cfg, 0600)
 	info, err := os.Stat(path)
@@ -37,7 +35,7 @@ func TestStartupRuntimeVerifiedAtMatchesExactLastGoodSerialization(t *testing.T)
 		t.Fatal(err)
 	}
 	if !startupRuntimeVerifiedAt(cfg, path, info.ModTime().Add(time.Second)) {
-		t.Fatal("fresh exact last-good hash was not accepted")
+		t.Fatal("fresh exact canonical hash was not accepted")
 	}
 
 	changed := cfg.DeepCopy()
@@ -47,13 +45,14 @@ func TestStartupRuntimeVerifiedAtMatchesExactLastGoodSerialization(t *testing.T)
 	}
 }
 
-func TestStartupRuntimeVerifiedAtRejectsCompactJSONHash(t *testing.T) {
+func TestStartupRuntimeVerifiedAtRejectsDifferentJSONSerialization(t *testing.T) {
 	cfg := config.DefaultConfig()
-	compact, err := json.Marshal(cfg)
+	indented, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(compact)
+	indented = append(indented, '\n')
+	digest := sha256.Sum256(indented)
 	path := filepath.Join(t.TempDir(), "startup.sha256")
 	if err := os.WriteFile(path, []byte(hex.EncodeToString(digest[:])+"\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -63,7 +62,7 @@ func TestStartupRuntimeVerifiedAtRejectsCompactJSONHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if startupRuntimeVerifiedAt(cfg, path, info.ModTime().Add(time.Second)) {
-		t.Fatal("compact JSON hash was accepted even though helper hashes last-good file bytes")
+		t.Fatal("hash of differently serialized JSON was accepted")
 	}
 }
 
