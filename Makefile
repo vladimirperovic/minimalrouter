@@ -41,6 +41,7 @@ build:
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
+	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup ./cmd/router-setup
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-sign ./cmd/firmware-sign
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-keygen ./cmd/firmware-keygen
 
@@ -54,6 +55,7 @@ build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-amd64 ./cmd/router-setup
 
 build-linux-amd64: build-linux
 
@@ -63,6 +65,7 @@ build-linux-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-arm64 ./cmd/router-setup
 
 web-build:
 	pnpm --dir web build
@@ -109,6 +112,7 @@ dist-arm64: build-linux-arm64 web-build
 	@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64
 	@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64
 	@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64
+	@cp bin/router-setup-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-setup-arm64
 	@sh scripts/fetch-cloudflared.sh arm64 build/dist/minimalrouter-linux-arm64/bin/cloudflared-arm64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-arm64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-arm64/slot-exec
@@ -121,8 +125,9 @@ dist-arm64: build-linux-arm64 web-build
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-arm64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-arm64/logrotate/minimalrouter
 	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-arm64/ip-up.d-minimalrouter-qos
-	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install.sh
-	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/slot-exec
+	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-arm64/install.sh
+	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install-core.sh
+	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/install-core.sh build/dist/minimalrouter-linux-arm64/slot-exec
 	@tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
 	@sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
 	@echo "=== Distribution: build/minimalrouter-linux-arm64.tar.gz ==="
@@ -143,6 +148,7 @@ dist-amd64: build-linux-amd64 web-build
 	@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64
 	@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64
 	@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64
+	@cp bin/router-setup-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-setup-amd64
 	@sh scripts/fetch-cloudflared.sh amd64 build/dist/minimalrouter-linux-amd64/bin/cloudflared-amd64
 	@cp -R web/dist/. build/dist/minimalrouter-linux-amd64/web/dist/
 	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-amd64/slot-exec
@@ -155,8 +161,9 @@ dist-amd64: build-linux-amd64 web-build
 	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-amd64/modules/minimalrouter.conf
 	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-amd64/logrotate/minimalrouter
 	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-amd64/ip-up.d-minimalrouter-qos
-	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install.sh
-	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/slot-exec
+	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-amd64/install.sh
+	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install-core.sh
+	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/install-core.sh build/dist/minimalrouter-linux-amd64/slot-exec
 	@tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
 	@sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
 	@echo "=== Distribution: build/minimalrouter-linux-amd64.tar.gz ==="
