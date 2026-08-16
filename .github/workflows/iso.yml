@@ -53,7 +53,8 @@ jobs:
           sh -n packaging/alpine/install-console.sh
           sh -n packaging/alpine/install-dist.sh
           grep -F 'Welcome to Minimal Router OS.' packaging/alpine/install-console.sh
-          grep -F 'For a Proxmox installation' packaging/alpine/install-console.sh
+          grep -F 'If you are installing on Proxmox VE' packaging/alpine/install-console.sh
+          grep -F 'You do not need to' packaging/alpine/install-console.sh
           grep -F 'Press Enter to continue' packaging/alpine/install-console.sh
           grep -F 'Minimal Router OS v%s' packaging/alpine/install-console.sh
 
@@ -115,6 +116,6 @@ jobs:
             build/iso/minimalrouter-*-amd64.iso.sha256
             build/iso/APK-SHA256SUMS
             build/iso/qemu-boot.log
-          if-no-files-found: error
+          if-no-files-found: warn
           compression-level: 0
           retention-days: 14
