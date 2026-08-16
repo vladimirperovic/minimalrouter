@@ -29,6 +29,7 @@ const PASSIVE_GET_TTL_MS = new Map<string, number>([
 
 const passiveGetCache = new Map<string, CachedResponse>();
 const passiveGetInFlight = new Map<string, Promise<Response>>();
+let passiveGetEpoch = 0;
 
 export function setCSRFToken(token: string) {
   csrfToken = token;
@@ -124,6 +125,10 @@ function passiveTTL(path: string): number | null {
 }
 
 function clearPassiveGetCache() {
+  // An older GET may already be on the wire when a mutation succeeds. Bumping
+  // the epoch prevents that pre-mutation response from repopulating the cache
+  // after invalidation and hiding the freshly committed configuration/status.
+  passiveGetEpoch += 1;
   passiveGetCache.clear();
   passiveGetInFlight.clear();
 }
@@ -248,9 +253,10 @@ export async function apiFetch(
         const existing = passiveGetInFlight.get(key);
         if (existing) return (await existing).clone();
 
+        const epoch = passiveGetEpoch;
         const inFlight = networkFetch(input, init, headers, method).then((response) => {
           const master = response.clone();
-          if (response.ok) {
+          if (response.ok && epoch === passiveGetEpoch) {
             passiveGetCache.set(key, { response: master.clone(), storedAt: Date.now() });
           }
           return master;
@@ -261,8 +267,9 @@ export async function apiFetch(
         return (await inFlight).clone();
       }
 
+      const epoch = passiveGetEpoch;
       const response = await networkFetch(input, init, headers, method);
-      if (response.ok) {
+      if (response.ok && epoch === passiveGetEpoch) {
         passiveGetCache.set(key, { response: response.clone(), storedAt: Date.now() });
       }
       return response;
