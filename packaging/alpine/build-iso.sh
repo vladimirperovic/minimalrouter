@@ -15,6 +15,7 @@ ALPINE_SHA_URL="${ALPINE_ISO_URL}.sha256"
 VERSION="$(tr -d '\r\n' < VERSION)"
 [ -n "$VERSION" ] || { echo "ERROR: VERSION is empty" >&2; exit 1; }
 VERSION_SAFE="$(printf '%s' "$VERSION" | tr -cd '0-9A-Za-z._-')"
+VOLUME_VERSION="$(printf '%s' "$VERSION" | tr -cd '0-9A-Za-z' | cut -c1-12)"
 
 BUILD_DIR="build/iso"
 CACHE_DIR="$BUILD_DIR/cache"
@@ -128,6 +129,12 @@ LABEL minimalrouter
 EOF
 }
 
+iso_ls_has() {
+    dir="$1"
+    name="$2"
+    xorriso -indev "$OUT_ISO" -ls "$dir" 2>/dev/null | grep -qF "$name"
+}
+
 need curl
 need sha256sum
 need tar
@@ -179,26 +186,21 @@ xorriso \
     -map "$INJECT_DIR/minimalrouter" /minimalrouter \
     -map "$BUILD_DIR/minimalrouter.apkovl.tar.gz" /minimalrouter.apkovl.tar.gz \
     -map "$BUILD_DIR/syslinux.cfg" /boot/syslinux/syslinux.cfg \
-    -volid "MINIMALROUTER_${VERSION_SAFE}" \
+    -volid "MR_${VOLUME_VERSION}" \
     -commit \
     -end
 
-# Verify that the installer-critical files are actually present in the final ISO.
-for iso_path in \
-    /minimalrouter/VERSION \
-    /minimalrouter/minimalrouter-linux-amd64/install.sh \
-    /minimalrouter/minimalrouter-linux-amd64/install-core.sh \
-    /minimalrouter/minimalrouter-linux-amd64/bin/router-setup-amd64 \
-    /minimalrouter.apkovl.tar.gz \
-    /boot/vmlinuz-lts \
-    /boot/initramfs-lts \
-    /boot/modloop-lts
-do
-    xorriso -indev "$OUT_ISO" -find "$iso_path" -print 2>/dev/null | grep -qxF "$iso_path" || {
-        echo "ERROR: final ISO is missing $iso_path" >&2
-        exit 1
-    }
-done
+# Verify the actual ISO directories rather than relying on xorriso -find output,
+# whose printed path format differs across xorriso releases.
+iso_ls_has /minimalrouter VERSION || { echo "ERROR: final ISO is missing /minimalrouter/VERSION" >&2; exit 1; }
+iso_ls_has /minimalrouter minimalrouter-linux-amd64 || { echo "ERROR: final ISO is missing the MinimalRouter distribution" >&2; exit 1; }
+iso_ls_has /minimalrouter/minimalrouter-linux-amd64 install.sh || { echo "ERROR: final ISO is missing install.sh" >&2; exit 1; }
+iso_ls_has /minimalrouter/minimalrouter-linux-amd64 install-core.sh || { echo "ERROR: final ISO is missing install-core.sh" >&2; exit 1; }
+iso_ls_has /minimalrouter/minimalrouter-linux-amd64/bin router-setup-amd64 || { echo "ERROR: final ISO is missing router-setup-amd64" >&2; exit 1; }
+iso_ls_has / minimalrouter.apkovl.tar.gz || { echo "ERROR: final ISO is missing the boot overlay" >&2; exit 1; }
+iso_ls_has /boot vmlinuz-lts || { echo "ERROR: final ISO is missing vmlinuz-lts" >&2; exit 1; }
+iso_ls_has /boot initramfs-lts || { echo "ERROR: final ISO is missing initramfs-lts" >&2; exit 1; }
+iso_ls_has /boot modloop-lts || { echo "ERROR: final ISO is missing modloop-lts" >&2; exit 1; }
 
 sha256sum "$OUT_ISO" > "$OUT_SHA"
 
