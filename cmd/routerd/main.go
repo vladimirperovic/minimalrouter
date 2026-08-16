@@ -393,6 +393,7 @@ func managementDestinationHandler(engine *apply.Engine, next http.Handler) http.
 							allowedHosts[ip.String()] = struct{}{}
 						}
 					}
+				}
 			}
 		}
 		if os.Getenv("MINIMALROUTER_ALLOW_LOOPBACK_PREVIEW") == "1" && destination.IsLoopback() {
