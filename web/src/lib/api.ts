@@ -3,6 +3,8 @@ import { demoApiFetch, isDemoMode } from "./demoApi";
 let csrfToken = "";
 let lastCanonicalRevision: number | null = null;
 
+const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
+
 type CachedResponse = {
   response: Response;
   storedAt: number;
@@ -60,16 +62,17 @@ export async function refreshSession(): Promise<boolean> {
   }
 }
 
-function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
-  if (method !== "GET" || !response.ok) return;
+function requestPath(input: RequestInfo | URL): string {
   const rawURL = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-  let path = rawURL;
   try {
-    path = new URL(rawURL, window.location.origin).pathname;
+    return new URL(rawURL, window.location.origin).pathname;
   } catch {
-    // Relative API paths are already safe to compare as-is.
+    return rawURL;
   }
-  if (path !== "/api/v1/config") return;
+}
+
+function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
+  if (method !== "GET" || !response.ok || requestPath(input) !== "/api/v1/config") return;
   void response.clone().json().then((body: { revision?: unknown }) => {
     const revision = typeof body.revision === "number" ? body.revision : Number(body.revision);
     if (!Number.isSafeInteger(revision) || revision < 0) return;
@@ -84,13 +87,23 @@ function trackCanonicalRevision(input: RequestInfo | URL, method: string, respon
   }).catch(() => undefined);
 }
 
-function requestPath(input: RequestInfo | URL): string {
-  const rawURL = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
-  try {
-    return new URL(rawURL, window.location.origin).pathname;
-  } catch {
-    return rawURL;
-  }
+function trackWANSpeedEstimate(input: RequestInfo | URL, method: string, response: Response) {
+  if (method !== "POST" || !response.ok || requestPath(input) !== "/api/v1/qos/speedtest") return;
+  void response.clone().json().then((body: { download_mbps?: unknown; upload_mbps?: unknown }) => {
+    const download = Number(body.download_mbps);
+    const upload = Number(body.upload_mbps);
+    if (!Number.isFinite(download) || download <= 0 || !Number.isFinite(upload) || upload <= 0) return;
+    try {
+      window.localStorage.setItem(WAN_ESTIMATE_STORAGE_KEY, JSON.stringify({
+        download_mbps: download,
+        upload_mbps: upload,
+        measured_at: Date.now(),
+      }));
+      window.dispatchEvent(new Event("minimalrouter:wan-speed-estimate"));
+    } catch {
+      // Browser storage is optional. The speed test result itself is still valid.
+    }
+  }).catch(() => undefined);
 }
 
 function requestCacheKey(input: RequestInfo | URL): string {
@@ -178,6 +191,7 @@ async function networkFetch(
     window.dispatchEvent(new Event("minimalrouter:unauthorized"));
   }
   trackCanonicalRevision(input, method, response);
+  trackWANSpeedEstimate(input, method, response);
   return response;
 }
 
