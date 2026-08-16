@@ -20,6 +20,12 @@ case "$(uname -m)" in
     *) echo "ERROR: unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
+MR_VERSION="dev"
+if [ -r "$SCRIPT_DIR/VERSION" ]; then
+    MR_VERSION="$(tr -d '\r\n' < "$SCRIPT_DIR/VERSION")"
+    [ -n "$MR_VERSION" ] || MR_VERSION="dev"
+fi
+
 SETUP_BIN="$SCRIPT_DIR/bin/router-setup-${BIN_ARCH}"
 CORE_INSTALLER="$SCRIPT_DIR/install-core.sh"
 PROVISION_FILE=/run/minimalrouter-console-setup.json
@@ -33,6 +39,42 @@ trap 'cleanup; exit 129' HUP
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
+show_welcome() {
+    command -v clear >/dev/null 2>&1 && clear || true
+    cat <<'ASCII'
+ __  __ _       _                 _ ____             _
+|  \/  (_)_ __ (_)_ __ ___   __ _| |  _ \ ___  _   _| |_ ___ _ __
+| |\/| | | '_ \| | '_ ` _ \ / _` | | |_) / _ \| | | | __/ _ \ '__|
+| |  | | | | | | | | | | | | (_| | |  _ < (_) | |_| | ||  __/ |
+|_|  |_|_|_| |_|_|_| |_| |_|\__,_|_|_| \_\___/ \__,_|\__\___|_|
+ASCII
+    printf '\nMinimal Router OS v%s\n' "$MR_VERSION"
+    printf 'Welcome to Minimal Router OS.\n\n'
+    cat <<'EOF'
+Before you continue
+-------------------
+For a Proxmox installation, the VM should already have:
+  • at least 1 vCPU, 1 GiB RAM and an 8 GiB virtual disk;
+  • two network adapters (VirtIO is recommended);
+  • one adapter connected to the WAN bridge leading to the ISP modem/ONT;
+  • one adapter connected to an isolated LAN bridge for your clients;
+  • console access available until the dashboard is confirmed working.
+
+Network preparation:
+  • the ISP modem/ONT must expose PPPoE to the WAN adapter (bridge/pass-through);
+  • have the PPPoE username and password ready;
+  • do not connect the new MinimalRouter LAN to the same broadcast domain as
+    another active DHCP server while performing the first installation.
+
+The installer will probe the network adapters, propose WAN/LAN roles, and ask
+for confirmation before applying the router configuration. PPPoE credentials
+and the dashboard password are entered locally and are never echoed on screen.
+EOF
+    printf '\nPress Enter to continue, or Ctrl+C to abort. '
+    IFS= read -r _mr_continue
+    printf '\n'
+}
+
 [ -x "$SETUP_BIN" ] || { echo "ERROR: missing console setup helper: $SETUP_BIN" >&2; exit 1; }
 [ -f "$CORE_INSTALLER" ] || { echo "ERROR: missing core installer: $CORE_INSTALLER" >&2; exit 1; }
 
@@ -40,6 +82,7 @@ trap 'cleanup; exit 143' TERM
 # CI, scripted installs and redirected stdin keep the existing non-interactive path.
 if [ -t 0 ] && [ "${MINIMALROUTER_SKIP_CONSOLE_SETUP:-0}" != "1" ]; then
     INTERACTIVE_SETUP=1
+    show_welcome
 
     # The full core installer owns dependency policy. Install only the two tools
     # needed before it runs: ip(8) for link state and pppoe-discovery for safe
@@ -100,5 +143,5 @@ if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     rc-service chronyd start
     rc-service routerd start
     echo
-    printf '\033[32m●\033[0m Minimal Router OS is ready. Dashboard: https://192.168.1.1:8443\n'
+    printf '\033[32m●\033[0m Minimal Router OS v%s is ready. Dashboard: https://192.168.1.1:8443\n' "$MR_VERSION"
 fi
