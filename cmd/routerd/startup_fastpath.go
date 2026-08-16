@@ -61,16 +61,14 @@ func startupRuntimeVerifiedAt(cfg config.SystemConfig, path string, now time.Tim
 		return false
 	}
 
-	// router-applyd persists last-good.json with json.MarshalIndent plus a final
-	// newline, and its OpenRC service hashes those exact bytes after the startup
-	// reconcile. Reproduce that serialization here. Hashing compact json.Marshal
-	// would never match the helper handoff and would silently disable this boot
-	// fast path on every production start.
-	canonical, err := json.MarshalIndent(cfg, "", "  ")
+	// router-applyd saveLastGood persists config.SystemConfig with json.Marshal,
+	// and its OpenRC service hashes those exact root-owned bytes after startup
+	// reconciliation. Reproduce the same deterministic struct serialization so
+	// the fast path is accepted only for the exact canonical configuration.
+	canonical, err := json.Marshal(cfg)
 	if err != nil {
 		return false
 	}
-	canonical = append(canonical, '\n')
 	expected := sha256.Sum256(canonical)
 	return subtle.ConstantTimeCompare(hintBytes, expected[:]) == 1
 }
