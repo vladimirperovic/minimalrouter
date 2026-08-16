@@ -219,6 +219,14 @@ if ! chroot /mnt sh "$TARGET_INSTALLER/install-core.sh" --offline; then
     fail "MinimalRouter core installation into the target system failed"
 fi
 
+# Freeze the verified live configuration before copying SQLite/WAL and the
+# helper's last-good state. This avoids carrying a database that is changing
+# underneath cp(1), while preserving exactly the WAN/LAN/PPPoE/admin state that
+# already passed the production transaction path.
+rc-service routerd stop >/dev/null 2>&1 || true
+rc-service router-applyd stop >/dev/null 2>&1 || true
+sync
+
 # Replace the fresh default database with the exact configuration that was
 # already verified on the live system: WAN/LAN roles, PPPoE credentials and the
 # hashed dashboard administrator password. The privileged helper will reconcile
