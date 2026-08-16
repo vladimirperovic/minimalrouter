@@ -53,22 +53,30 @@ ASCII
     cat <<'EOF'
 Before you continue
 -------------------
-For a Proxmox installation, the VM should already have:
-  • at least 1 vCPU, 1 GiB RAM and an 8 GiB virtual disk;
-  • two network adapters (VirtIO is recommended);
-  • one adapter connected to the WAN bridge leading to the ISP modem/ONT;
-  • one adapter connected to an isolated LAN bridge for your clients;
-  • console access available until the dashboard is confirmed working.
+If you are installing on Proxmox VE, you should already have:
+  - a QEMU/KVM virtual machine (not an LXC container);
+  - at least 1 vCPU, 1 GiB RAM and an 8 GiB virtual disk;
+  - CPU type "host" recommended for a fixed home/lab node;
+  - two network adapters (VirtIO is recommended);
+  - one adapter connected to the WAN bridge leading to the ISP modem/ONT;
+  - one adapter connected to an isolated LAN bridge for your clients;
+  - working Proxmox console access and a rollback/snapshot path.
 
 Network preparation:
-  • the ISP modem/ONT must expose PPPoE to the WAN adapter (bridge/pass-through);
-  • have the PPPoE username and password ready;
-  • do not connect the new MinimalRouter LAN to the same broadcast domain as
-    another active DHCP server while performing the first installation.
+  - the ISP modem/ONT must expose PPPoE to the WAN adapter using bridge or
+    pass-through mode;
+  - have the PPPoE username and password ready;
+  - keep your previous router available until this installation is verified;
+  - do not connect the new MinimalRouter LAN to the same broadcast domain as
+    another active DHCP server during the first installation.
 
-The installer will probe the network adapters, propose WAN/LAN roles, and ask
-for confirmation before applying the router configuration. PPPoE credentials
-and the dashboard password are entered locally and are never echoed on screen.
+This ISO already contains Alpine Linux, the linux-lts kernel, the required
+router packages, MinimalRouter and the Web Dashboard. You do not need to
+install Alpine separately.
+
+The installer will test the network adapters for PPPoE, propose WAN/LAN roles,
+and ask you to confirm or change them. PPPoE credentials and the dashboard
+administrator password are entered locally and are never echoed on screen.
 EOF
     printf '\nPress Enter to continue, or Ctrl+C to abort. '
     IFS= read -r _mr_continue
