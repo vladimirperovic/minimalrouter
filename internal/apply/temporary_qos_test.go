@@ -10,17 +10,18 @@ import (
 )
 
 type temporaryQoSClient struct {
-	mu                    sync.Mutex
-	requests              []ApplyRequest
-	failRequest           int
-	transportErrorRequest int
+	mu                  sync.Mutex
+	requests            []ApplyRequest
+	failRequest         int
+	transportErrorCount int
 }
 
 func (c *temporaryQoSClient) Apply(_ context.Context, req ApplyRequest) (*ApplyResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.requests = append(c.requests, req)
-	if c.transportErrorRequest > 0 && len(c.requests) == c.transportErrorRequest {
+	if c.transportErrorCount > 0 {
+		c.transportErrorCount--
 		return nil, errors.New("injected transport failure")
 	}
 	if c.failRequest > 0 && len(c.requests) == c.failRequest {
@@ -103,7 +104,10 @@ func TestWithQoSBypassedRestoresAfterMeasurementFailure(t *testing.T) {
 func TestWithQoSBypassedReconcilesAfterAmbiguousBypassFailure(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.QoS.Enabled = true
-	client := &temporaryQoSClient{transportErrorRequest: 1}
+	// applyPrivileged retries ambiguous transport failures twice with the same
+	// transaction ID. Fail both attempts so the bypass outcome remains unknown,
+	// then allow the canonical RECONCILE to succeed.
+	client := &temporaryQoSClient{transportErrorCount: privilegedApplyAttempts}
 	engine := NewEngineWithClient(cfg, nil, client)
 	called := false
 
@@ -118,10 +122,16 @@ func TestWithQoSBypassedReconcilesAfterAmbiguousBypassFailure(t *testing.T) {
 		t.Fatal("measurement ran even though the temporary bypass was not verified")
 	}
 	requests := client.snapshot()
-	if len(requests) != 2 {
-		t.Fatalf("privileged request count = %d, want 2", len(requests))
+	if len(requests) != privilegedApplyAttempts+1 {
+		t.Fatalf("privileged request count = %d, want %d", len(requests), privilegedApplyAttempts+1)
 	}
-	if requests[1].Op != OpReconcile || !requests[1].Config.QoS.Enabled {
+	for i := 0; i < privilegedApplyAttempts; i++ {
+		if requests[i].Op != OpApplyAll || requests[i].ID != requests[0].ID || !requests[i].DeferLastGood || requests[i].Config.QoS.Enabled {
+			t.Fatalf("unexpected bypass retry %d: %#v", i+1, requests[i])
+		}
+	}
+	restore := requests[privilegedApplyAttempts]
+	if restore.Op != OpReconcile || restore.DeferLastGood || !restore.Config.QoS.Enabled {
 		t.Fatalf("canonical restore was not attempted after ambiguous bypass failure: %#v", requests)
 	}
 	if engine.GetStatus().RecoveryRequired {
