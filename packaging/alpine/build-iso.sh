@@ -121,17 +121,18 @@ pidfile="/run/minimalrouter-installer.pid"
  }
 
 start() {
-    ebegin "Launching Minimal Router OS installer on tty1"
+    ebegin "Launching Minimal Router OS installer on ttyS0 (serial)"
 
     # Prevent init from respawning a login prompt on top of the installer.
     if [ -f /etc/inittab ]; then
-        sed -i 's#^tty1::respawn:#\# MinimalRouter owns tty1: #g' /etc/inittab 2>/dev/null || true
+        sed -i 's#^ttyS0::respawn:#\# MinimalRouter owns ttyS0: #g; s#^tty1::respawn:#\# MinimalRouter owns tty1: #g' /etc/inittab 2>/dev/null || true
         kill -HUP 1 2>/dev/null || true
     fi
+    pkill -TERM -f '[g]etty.*ttyS0' 2>/dev/null || true
     pkill -TERM -f '[g]etty.*tty1' 2>/dev/null || true
 
     (
-        exec </dev/tty1 >/dev/tty1 2>&1
+        exec </dev/ttyS0 >/dev/ttyS0 2>&1
         exec /etc/minimalrouter/live-installer.sh
     ) &
     echo $! > "$pidfile"
