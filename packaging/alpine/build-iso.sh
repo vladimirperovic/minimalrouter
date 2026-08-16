@@ -97,25 +97,60 @@ fetch_apks() {
 
 build_apkovl() {
     rm -rf "$OVERLAY_DIR"
-    mkdir -p "$OVERLAY_DIR/etc/minimalrouter"
+    mkdir -p \
+        "$OVERLAY_DIR/etc/minimalrouter" \
+        "$OVERLAY_DIR/etc/init.d" \
+        "$OVERLAY_DIR/etc/runlevels/default"
     install -m 0755 packaging/alpine/live-installer.sh "$OVERLAY_DIR/etc/minimalrouter/live-installer.sh"
 
-    cat > "$OVERLAY_DIR/etc/inittab" <<'EOF'
-::sysinit:/sbin/openrc sysinit
-::sysinit:/sbin/openrc boot
-::wait:/sbin/openrc default
+    # Alpine installs its stock /etc/inittab after apkovl processing, so using a
+    # custom tty1 entry there is not reliable. A dedicated OpenRC default service
+    # survives package installation, disables tty1's login getty at runtime and
+    # attaches the appliance installer directly to tty1. tty2-tty4 remain normal
+    # emergency consoles.
+    cat > "$OVERLAY_DIR/etc/init.d/minimalrouter-installer" <<'EOF'
+#!/sbin/openrc-run
+name="minimalrouter-installer"
+description="Minimal Router OS appliance installer"
 
-# tty1 is owned by the MinimalRouter installer. Other consoles remain available
-# as emergency Alpine shells if the installer cannot start.
-tty1::respawn:/etc/minimalrouter/live-installer.sh
-tty2::respawn:/sbin/getty 38400 tty2
-tty3::respawn:/sbin/getty 38400 tty3
-tty4::respawn:/sbin/getty 38400 tty4
+pidfile="/run/minimalrouter-installer.pid"
 
-::ctrlaltdel:/sbin/reboot
-::shutdown:/sbin/openrc shutdown
+ depend() {
+    need localmount
+    after bootmisc
+ }
+
+start() {
+    ebegin "Launching Minimal Router OS installer on tty1"
+
+    # Prevent init from respawning a login prompt on top of the installer.
+    if [ -f /etc/inittab ]; then
+        sed -i 's#^tty1::respawn:#\# MinimalRouter owns tty1: #g' /etc/inittab 2>/dev/null || true
+        kill -HUP 1 2>/dev/null || true
+    fi
+    pkill -TERM -f '[g]etty.*tty1' 2>/dev/null || true
+
+    (
+        exec </dev/tty1 >/dev/tty1 2>&1
+        exec /etc/minimalrouter/live-installer.sh
+    ) &
+    echo $! > "$pidfile"
+    chmod 0600 "$pidfile"
+    eend 0
+}
+
+stop() {
+    if [ -r "$pidfile" ]; then
+        pid="$(cat "$pidfile" 2>/dev/null || true)"
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+        rm -f "$pidfile"
+    fi
+    return 0
+}
 EOF
-    chmod 0644 "$OVERLAY_DIR/etc/inittab"
+    chmod 0755 "$OVERLAY_DIR/etc/init.d/minimalrouter-installer"
+    ln -s /etc/init.d/minimalrouter-installer "$OVERLAY_DIR/etc/runlevels/default/minimalrouter-installer"
+
     printf 'minimalrouter-installer\n' > "$OVERLAY_DIR/etc/hostname"
     printf 'Minimal Router OS installer\n' > "$OVERLAY_DIR/etc/issue"
 
