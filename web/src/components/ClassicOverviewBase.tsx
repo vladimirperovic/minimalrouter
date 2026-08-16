@@ -113,10 +113,6 @@ function smoothPathFor(values: number[], width: number, height: number, domain?:
   return smoothPath(chartPoints(values, width, height, domain));
 }
 
-// A failed probe has no latency. Substituting 0 drew an outage as the best
-// possible result — the exact opposite of what happened. Instead the series is
-// split into contiguous measured runs and the gaps are left empty, keeping the
-// x-position of every sample so the time axis stays honest.
 function segmentedPaths(values: Array<number | null>, width: number, height: number, fixedDomain?: ChartDomain): string[] {
   const measured = values.filter((value): value is number => value !== null);
   if (measured.length === 0) return [];
@@ -216,7 +212,6 @@ export default function ClassicOverview({
     const resume = () => {
       window.clearTimeout(timer);
       if (!active || document.hidden) return;
-      // Never turn time spent in a hidden tab into an apparent bandwidth spike.
       lastBytesRef.current = null;
       void sample().finally(schedule);
     };
@@ -316,13 +311,11 @@ export default function ClassicOverview({
 
   useEffect(() => {
     if (wanEstimate || !wanConnected || document.hidden) return;
-    let lastAttempt = 0;
     try {
-      lastAttempt = Number(window.localStorage.getItem(WAN_ESTIMATE_ATTEMPT_KEY) || 0);
+      const lastAttempt = Number(window.localStorage.getItem(WAN_ESTIMATE_ATTEMPT_KEY) || 0);
       if (Date.now() - lastAttempt < WAN_ESTIMATE_RETRY_MS) return;
       window.localStorage.setItem(WAN_ESTIMATE_ATTEMPT_KEY, String(Date.now()));
     } catch {
-      // Storage can be unavailable in private mode. A missing estimate is fine.
       return;
     }
 
@@ -332,9 +325,6 @@ export default function ClassicOverview({
     return () => controller.abort();
   }, [wanConnected, wanEstimate]);
 
-  // The DNS chip used to be a hardcoded green span. It now mirrors whatever the
-  // health endpoint measured about dnsmasq, and says so honestly when the
-  // health endpoint itself cannot be reached.
   const dnsCheck = health?.checks?.find((check) => check.id === "dns_dhcp" || check.id.startsWith("dns"));
   const dnsChipClass = healthUnavailable || !dnsCheck
     ? "is-off"
@@ -347,8 +337,6 @@ export default function ClassicOverview({
           : "is-warning";
   const dnsChipLabel = healthUnavailable || !dnsCheck ? "unknown" : dnsCheck.state === "healthy" ? "ok" : dnsCheck.state.replace("_", " ");
 
-  // This line used to read "Within normal operating range" unconditionally --
-  // it said the same thing at 5% and at 99% disk usage.
   const worstResource = Math.max(memoryPercent, diskPercent, Math.min(100, runtime.cpu_load_percent ?? 0));
   const resourceNote = typeof runtime.memory_total_bytes !== "number"
     ? { className: "is-unknown", label: "Resource telemetry unavailable" }
@@ -394,7 +382,7 @@ export default function ClassicOverview({
     )}
 
     <article className={`overview-status-hero ${heroState}`}>
-        <div className="overview-hero-command">
+      <div className="overview-hero-command">
         <div className="overview-hero-summary">
           <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
           <h1>{headline}</h1>
@@ -469,9 +457,7 @@ export default function ClassicOverview({
           <article><div><span>Memory</span><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small></div><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} /></article>
           <article><div><span>Disk</span><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small></div><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} /></article>
         </div>
-        <div className={`overview-resource-note ${resourceNote.className}`}>
-          <OverviewIcon name="check" /><span>{resourceNote.label}</span>
-        </div>
+        <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
       </section>
 
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
@@ -488,22 +474,13 @@ export default function ClassicOverview({
                 </linearGradient>
               </defs>
               <g className="overview-chart-grid"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" /><line x1="0" y1="145" x2="1000" y2="145" /></g>
-              {latencySegments.map((path, index) => (
-                <path className="overview-chart-line is-latency" d={path} key={index} />
-              ))}
+              {latencySegments.map((path, index) => <path className="overview-chart-line is-latency" d={path} key={index} />)}
             </svg>
             {history.length === 0 && <span className="overview-chart-empty">Waiting for gateway history</span>}
-            {history.length > 0 && latencySegments.length === 0 && (
-              <span className="overview-chart-empty">No successful probes in this window</span>
-            )}
+            {history.length > 0 && latencySegments.length === 0 && <span className="overview-chart-empty">No successful probes in this window</span>}
           </div>
           <div className="overview-chart-axis"><span>60 min</span><span>45 min</span><span>30 min</span><span>15 min</span><span>Now</span></div>
-          {history.length > measuredLatencyCount && (
-            <p className="overview-chart-note">
-              {history.length - measuredLatencyCount} of {history.length} samples had no successful probe; those periods are
-              left blank rather than drawn as 0&nbsp;ms.
-            </p>
-          )}
+          {history.length > measuredLatencyCount && <p className="overview-chart-note">{history.length - measuredLatencyCount} of {history.length} samples had no successful probe; those periods are left blank rather than drawn as 0&nbsp;ms.</p>}
         </div>
         <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss.toFixed(1)}% throughout</strong></div><progress max="100" value={loss} /></div>
         <p className="overview-quality-note">Read-only WAN quality monitor</p>
