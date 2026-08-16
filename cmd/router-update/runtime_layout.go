@@ -21,6 +21,11 @@ type runtimeLayoutFile struct {
 	mode       os.FileMode
 }
 
+type runtimeDispatcherLink struct {
+	systemPath string
+	target     string
+}
+
 var runtimeLayoutFiles = []runtimeLayoutFile{
 	{slotPath: "compatibility.json", systemPath: "/etc/minimalrouter/compatibility.json", mode: 0o644},
 	{slotPath: "slot-exec", systemPath: "/usr/libexec/minimalrouter/slot-exec", mode: 0o755},
@@ -31,6 +36,13 @@ var runtimeLayoutFiles = []runtimeLayoutFile{
 	{slotPath: "modules/minimalrouter.conf", systemPath: "/etc/modules-load.d/minimalrouter.conf", mode: 0o644},
 	{slotPath: "logrotate/minimalrouter", systemPath: "/etc/logrotate.d/minimalrouter", mode: 0o644},
 	{slotPath: "ip-up.d-minimalrouter-qos", systemPath: "/etc/ppp/ip-up.d/minimalrouter-qos", mode: 0o755},
+}
+
+var runtimeDispatcherLinks = []runtimeDispatcherLink{
+	{systemPath: "/usr/bin/routerd", target: "/usr/libexec/minimalrouter/slot-exec"},
+	{systemPath: "/usr/sbin/router-applyd", target: "/usr/libexec/minimalrouter/slot-exec"},
+	{systemPath: "/usr/sbin/router-recovery", target: "/usr/libexec/minimalrouter/slot-exec"},
+	{systemPath: "/usr/sbin/router-update", target: "/usr/libexec/minimalrouter/slot-exec"},
 }
 
 func rootedPath(root, absolute string) string {
@@ -76,6 +88,34 @@ func verifyLayoutFiles(slotRoot, systemRoot string, files []runtimeLayoutFile) e
 		info, err := os.Stat(installedPath)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != item.mode {
 			return fmt.Errorf("installed runtime layout has unsafe mode at %s; run the full distribution installer", item.systemPath)
+		}
+	}
+	return nil
+}
+
+// ensureRuntimeDispatcherLinks repairs only the fixed command entry points that
+// select the active A/B slot. The dispatcher binary itself has already been
+// content- and mode-verified by verifyRuntimeLayoutCompatibility, so replacing
+// a stale direct-binary path with this canonical symlink cannot introduce
+// unverified software. Keeping web selection inside slot-exec also preserves
+// rollback symmetry: frontend and backend always come from the same slot.
+func ensureRuntimeDispatcherLinks(systemRoot string) error {
+	for _, item := range runtimeDispatcherLinks {
+		path := rootedPath(systemRoot, item.systemPath)
+		if current, err := os.Readlink(path); err == nil && current == item.target {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("prepare dispatcher directory for %s: %w", item.systemPath, err)
+		}
+		tmp := path + ".minimalrouter-new"
+		_ = os.Remove(tmp)
+		if err := os.Symlink(item.target, tmp); err != nil {
+			return fmt.Errorf("create dispatcher link for %s: %w", item.systemPath, err)
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("install dispatcher link for %s: %w", item.systemPath, err)
 		}
 	}
 	return nil
@@ -170,6 +210,9 @@ func activateAndRestart(manager firmware.SlotManager, version, systemRoot string
 		return errors.New("no rollback baseline slot is registered; rerun the full distribution installer before the first A/B activation")
 	}
 	if err := verifyRuntimeLayoutCompatibility(manager.Root, version, systemRoot); err != nil {
+		return err
+	}
+	if err := ensureRuntimeDispatcherLinks(systemRoot); err != nil {
 		return err
 	}
 	if err := manager.Activate(version); err != nil {
