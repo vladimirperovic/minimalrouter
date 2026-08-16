@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -25,6 +26,7 @@ type speedtestResult struct {
 	UploadMbps            float64 `json:"upload_mbps"`
 	SuggestedDownloadMbps int     `json:"suggested_download_mbps"`
 	SuggestedUploadMbps   int     `json:"suggested_upload_mbps"`
+	QoSTemporarilyBypassed bool   `json:"qos_temporarily_bypassed"`
 }
 
 // speedtestMu serializes measurements. Two concurrent runs would saturate the
@@ -41,10 +43,7 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	defer speedtestMu.Unlock()
 
 	cfg := s.engine.GetCurrentConfig()
-	if cfg.QoS.Enabled {
-		http.Error(w, "Disable QoS before running a speed test: an active shaper would report its own limit, not your line speed.", http.StatusConflict)
-		return
-	}
+	qosWasEnabled := cfg.QoS.Enabled
 
 	// The appliance has IPv6 disabled (no default route), so force IPv4 to
 	// avoid a silent dial timeout when the resolver returns v6 addresses first.
@@ -58,27 +57,35 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	// Bind the measurement to the request: if the operator closes the tab or
-	// navigates away, the router stops pulling 75 MB through the WAN link.
+	// Bind the measurement itself to the request: if the operator closes the
+	// tab or navigates away, the router stops pulling 75 MB through the WAN
+	// link. WithQoSBypassed deliberately restores canonical QoS with its own
+	// background timeout even after this request context is cancelled.
 	ctx := r.Context()
-
-	dlMbps, err := measureDownload(ctx, client)
+	var dlMbps, ulMbps float64
+	err := s.engine.WithQoSBypassed(ctx, func(measureCtx context.Context) error {
+		var err error
+		dlMbps, err = measureDownload(measureCtx, client)
+		if err != nil {
+			return fmt.Errorf("download speed test failed: %w", err)
+		}
+		ulMbps, err = measureUpload(measureCtx, client)
+		if err != nil {
+			return fmt.Errorf("upload speed test failed: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		http.Error(w, "Download speed test failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	ulMbps, err := measureUpload(ctx, client)
-	if err != nil {
-		http.Error(w, "Upload speed test failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Speed test failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	res := speedtestResult{
-		DownloadMbps:          dlMbps,
-		UploadMbps:            ulMbps,
-		SuggestedDownloadMbps: roundPct(dlMbps, speedtestSuggestedPct),
-		SuggestedUploadMbps:   roundPct(ulMbps, speedtestSuggestedPct),
+		DownloadMbps:           dlMbps,
+		UploadMbps:             ulMbps,
+		SuggestedDownloadMbps:  roundPct(dlMbps, speedtestSuggestedPct),
+		SuggestedUploadMbps:    roundPct(ulMbps, speedtestSuggestedPct),
+		QoSTemporarilyBypassed: qosWasEnabled,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
