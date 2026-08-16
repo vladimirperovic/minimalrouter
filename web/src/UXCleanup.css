@@ -1,0 +1,208 @@
+/* Release 0.1.4 UI/UX cleanup. Keep overrides small and scoped so the
+   canonical dashboard styles remain the single visual foundation. */
+
+/* Header actions ---------------------------------------------------------- */
+.classic-help-button {
+  min-width: 112px;
+  height: 56px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid var(--border, #d9dde5);
+  border-radius: 18px;
+  background: var(--surface, #fff);
+  color: var(--text, #17191d);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.classic-help-button:hover {
+  border-color: color-mix(in srgb, var(--accent, #147df5) 34%, var(--border, #d9dde5));
+  background: color-mix(in srgb, var(--surface, #fff) 94%, var(--accent, #147df5));
+  box-shadow: 0 6px 18px rgb(15 23 42 / 9%);
+  transform: translateY(-1px);
+}
+
+.classic-help-button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent, #147df5) 25%, transparent);
+  outline-offset: 2px;
+}
+
+.classic-help-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Exactly twelve useful rows stay visible before tables become scrollable. */
+.elegant-table-container,
+.traffic-table-scroll {
+  max-height: 676px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.elegant-table-container thead th,
+.traffic-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface, #fff);
+  box-shadow: 0 1px 0 var(--border, #e3e5e9);
+}
+
+.elegant-device-table tbody tr,
+.traffic-table-scroll tbody tr {
+  height: 52px;
+}
+
+.elegant-table-container::-webkit-scrollbar,
+.traffic-table-scroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.elegant-table-container::-webkit-scrollbar-thumb,
+.traffic-table-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted, #8b8f99) 40%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+
+/* The older duplicate QoS speed-test block is intentionally hidden. 0.1.4
+   uses the single compact speed-test card above the QoS form. */
+#qos > .speedtest-note,
+#qos > .speedtest-block {
+  display: none;
+}
+
+.qos-speedtest {
+  margin-bottom: 22px;
+  padding: 22px 24px;
+  border-radius: 18px;
+}
+
+.qos-speedtest-head {
+  gap: 24px;
+}
+
+/* Startup Timeline -------------------------------------------------------- */
+.startup-timeline {
+  overflow: hidden;
+}
+
+.startup-timeline > .card-title-row {
+  padding: 24px 28px 20px;
+}
+
+.startup-timeline .tl-boots {
+  padding: 14px 28px 16px;
+  gap: 10px;
+  border-top: 1px solid var(--border, #e6e8ec);
+  border-bottom: 1px solid var(--border, #e6e8ec);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.startup-timeline .tl-boot {
+  min-height: 36px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.startup-timeline .tl-wrap {
+  padding: 26px 28px 0;
+}
+
+.startup-timeline .tl {
+  padding: 2px 0 18px 20px;
+}
+
+.startup-timeline .tl-item {
+  min-height: 68px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  column-gap: 18px;
+}
+
+.startup-timeline .tl-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.startup-timeline .tl-body b {
+  margin-bottom: 3px;
+  font-size: 16px;
+}
+
+.startup-timeline .tl-body small {
+  line-height: 1.45;
+}
+
+.startup-timeline .tl-summary {
+  margin: 0 -28px;
+  padding: 15px 28px 17px;
+  gap: 12px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  border-top: 1px dashed var(--border, #e0e3e8);
+  background: color-mix(in srgb, var(--surface, #fff) 97%, var(--text, #111827));
+}
+
+/* General subpage rhythm -------------------------------------------------- */
+.dashboard-section > .card,
+.dashboard-section > .service-inline-control,
+.dashboard-section > .service-config-card,
+.dashboard-section > .qos-speedtest {
+  scroll-margin-top: 20px;
+}
+
+@media (max-width: 900px) {
+  .classic-help-button {
+    min-width: 56px;
+    width: 56px;
+    padding: 0;
+  }
+
+  .classic-help-button > span:last-child {
+    display: none;
+  }
+
+  .elegant-table-container,
+  .traffic-table-scroll {
+    max-height: 620px;
+  }
+
+  .startup-timeline > .card-title-row,
+  .startup-timeline .tl-boots {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .startup-timeline .tl-wrap {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .startup-timeline .tl-summary {
+    margin-left: -20px;
+    margin-right: -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
