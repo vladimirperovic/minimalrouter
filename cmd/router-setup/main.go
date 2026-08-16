@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vladimirperovic/minimalrouter/internal/apply"
+	mrapply "github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	mrnetwork "github.com/vladimirperovic/minimalrouter/internal/network"
@@ -292,7 +292,7 @@ func apply(args []string) error {
 		return fmt.Errorf("first-run LAN address must remain %s", cfg.LAN.IPAddress)
 	}
 
-	engine := apply.NewEngine(initial, store)
+	engine := mrapply.NewEngine(initial, store)
 	txID := fmt.Sprintf("console-setup-%d", time.Now().UnixNano())
 	pppInterface := ""
 	pppAddress := ""
@@ -334,12 +334,9 @@ func discoverPPPoE(iface string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "pppoe-discovery", "-I", iface)
-	output, err := cmd.CombinedOutput()
+	output, _ := cmd.CombinedOutput()
 	text := strings.ToLower(string(output))
 	found := strings.Contains(text, "access-concentrator") || strings.Contains(text, "ac-ethernet-address") || strings.Contains(text, "pado")
-	if !found && err == nil && strings.TrimSpace(text) != "" {
-		found = true
-	}
 	if !found {
 		return false, ""
 	}
