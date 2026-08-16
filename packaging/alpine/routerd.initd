@@ -34,10 +34,24 @@ start_pre() {
     # supervise-daemon parent exists. Pre-create a zero-length marker that only
     # routerd can fill after canonical reconcile and TLS setup have succeeded.
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
+    checkpath --directory --owner routerd:routerd --mode 0700 /run/minimalrouter/routerd-state
     checkpath --file --owner routerd:routerd --mode 0600 /run/minimalrouter/routerd.ready
     : > /run/minimalrouter/routerd.ready
     chown routerd:routerd /run/minimalrouter/routerd.ready
     chmod 0600 /run/minimalrouter/routerd.ready
+
+    # Consume the root-only helper handoff exactly once per OpenRC start. The
+    # destination remains root-owned/read-only; routerd can verify but cannot
+    # forge it. The routerd-owned O_EXCL marker enforces one-shot behavior across
+    # supervise-daemon respawns that do not re-run this start_pre function.
+    rm -f /run/minimalrouter/routerd-startup-verified.sha256
+    rm -f /run/minimalrouter/routerd-state/startup-fastpath-consumed
+    if [ -f /run/minimalrouter/startup-verified.sha256 ]; then
+        if mv /run/minimalrouter/startup-verified.sha256 /run/minimalrouter/routerd-startup-verified.sha256; then
+            chown root:routerd /run/minimalrouter/routerd-startup-verified.sha256
+            chmod 0640 /run/minimalrouter/routerd-startup-verified.sha256
+        fi
+    fi
 }
 
 start_post() {
@@ -59,6 +73,7 @@ start_post() {
 
 stop_post() {
     : > /run/minimalrouter/routerd.ready 2>/dev/null || true
+    rm -f /run/minimalrouter/routerd-startup-verified.sha256
 }
 
 umask="0077"
