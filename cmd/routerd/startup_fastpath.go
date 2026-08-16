@@ -14,15 +14,21 @@ import (
 
 const (
 	startupVerifiedHashPath = "/run/minimalrouter/routerd-startup-verified.sha256"
+	startupConsumedPath     = "/run/minimalrouter/routerd-state/startup-fastpath-consumed"
 	startupVerifiedMaxAge   = 60 * time.Second
 )
 
 // startupRuntimeVerified proves that the privileged helper has just restored
 // and verified the exact canonical configuration routerd loaded from SQLite.
-// The marker is root-created on tmpfs by OpenRC only after router-applyd exposes
-// its post-reconcile socket. Any missing, stale, writable, malformed or
-// mismatched marker falls back to the normal full RECONCILE path.
+// The root-created hash cannot be forged by routerd. A separate routerd-owned
+// O_EXCL marker makes the optimization one-shot even when supervise-daemon
+// respawns routerd without re-running the OpenRC start_pre hook.
 func startupRuntimeVerified(cfg config.SystemConfig) bool {
+	consumed, err := os.OpenFile(startupConsumedPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return false
+	}
+	_ = consumed.Close()
 	return startupRuntimeVerifiedAt(cfg, startupVerifiedHashPath, time.Now())
 }
 
