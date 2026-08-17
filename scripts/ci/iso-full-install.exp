@@ -198,8 +198,9 @@ foreach command $checks {
 }
 send -- "echo FULL_ISO_INSTALL_OK\r"
 
+# INSTALLED_SSH_OK was already consumed above after proving a real SSH login.
+# Only wait here for markers emitted by the checks we just sent.
 foreach marker {
-    INSTALLED_SSH_OK
     CHECK_ROUTERD_OK
     CHECK_APPLYD_OK
     CHECK_SETUP_OK
