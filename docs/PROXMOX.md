@@ -1,93 +1,125 @@
-# Proxmox VE
+# Proxmox VE — v0.1.4 Golden ISO pilot
 
-Minimal Router OS should run as a QEMU/KVM VM, not an unprivileged LXC container.
-Use this guide only for a controlled pilot with console access and a known-good
-router ready for rollback.
+Minimal Router OS should run as a QEMU/KVM VM, not an LXC container.
+
+v0.1.4's preferred first-install path is the Golden Appliance ISO. You do not
+install Alpine separately before booting the ISO.
 
 Current evidence: [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md).
 
 ## Recommended VM
 
-- Alpine Linux 3.22 x86_64
-- Alpine `linux-lts` for the validated PPPoE path
-- 1 vCPU, CPU type `host` on a fixed homelab node
-- 1 GiB RAM
-- 8 GiB disk
-- two VirtIO NICs
-- QEMU Guest Agent
+The exact automated end-to-end target is deliberately conservative:
 
-The 2026-08-01 pilot observed about 73 MB RAM after a clean `linux-lts` boot and
-172 MB after the exercised workload. These are observations, not sizing
-requirements.
+- Machine: ordinary QEMU/KVM PC
+- Firmware: **SeaBIOS**
+- Architecture: AMD64 / x86-64
+- CPU: 1 vCPU or more; `host` is reasonable on a fixed homelab node
+- RAM: 1 GiB or more
+- Disk: one VirtIO disk, minimum 8 GiB
+- NICs: two VirtIO NICs
+- CD/DVD: MinimalRouter v0.1.4 ISO
+- Console: noVNC available during first pilot
+- Optional: `serial0` socket for `ttyS0` recovery
 
-## PPPoE preflight
-
-The tested `linux-virt` kernel did not provide the required PPPoE module;
-`linux-lts` did. Before installation:
-
-```sh
-uname -a
-modprobe pppoe
-```
-
-If `modprobe pppoe` fails, stop.
+The installed Golden image already contains Alpine 3.22, `linux-lts`, PPPoE
+support, MinimalRouter and runtime dependencies. QEMU Guest Agent is not required
+for installation and is not part of the minimum Golden appliance contract.
 
 ## Network layout
 
-Use two clearly documented NICs:
+Use two clearly documented adapters:
 
-- WAN: test/NAT bridge during initial setup
-- LAN: isolated bridge/switch
+- **WAN:** test/NAT bridge during initial setup, later the intended ONT/modem path
+- **LAN:** isolated bridge or switch used only by the test client
 
-Do not infer WAN/LAN from `eth0`, `eth1`, `ens18`, etc. Confirm by bridge,
-carrier, address and route.
+Do not infer WAN/LAN purely from `eth0`/`eth1`. Before confirming firstboot,
+compare the MAC addresses shown by MinimalRouter with the NICs in Proxmox.
 
 Never place the candidate DHCP server and the production router DHCP server on
 the same broadcast domain.
 
-## Setup
+## Serial console
 
-1. Create the Alpine VM and boot `linux-lts`.
-2. Verify `modprobe pppoe`.
-3. Attach the two VirtIO NICs and confirm their roles.
-4. Install QEMU Guest Agent and time synchronization.
-5. Take a known-good pre-install snapshot.
-6. Build and verify the exact Minimal Router commit.
-7. Install using [`INSTALLATION.md`](INSTALLATION.md).
-8. Complete first-run setup from a client on the isolated LAN.
-
-Useful guest checks:
+Add serial without removing noVNC:
 
 ```sh
-cat /etc/alpine-release
+qm set <VMID> --serial0 socket
+qm terminal <VMID>
+```
+
+Select:
+
+```text
+MinimalRouter Installer (serial ttyS0 115200)
+```
+
+when you want the install UI on serial. After firstboot, the same port becomes a
+normal root recovery getty at 115200.
+
+A serial-only display can be configured later, but keeping both console paths is
+safer during initial qualification.
+
+## Installation
+
+1. Create the blank VM using the profile above.
+2. Attach the verified `minimalrouter-0.1.4-amd64.iso`.
+3. Keep the LAN isolated from the production DHCP domain.
+4. Boot the ISO using VGA/noVNC or the dedicated serial entry.
+5. The live flasher verifies the Golden image and automatically selects the only
+   clearly virtual disk in the normal one-disk VM case.
+6. Wait for the raw image copy and automatic reboot.
+7. On installed firstboot, confirm WAN/LAN, optionally enter PPPoE, set the
+   Dashboard password, review, and set the recovery/SSH root password.
+8. After the Dashboard/SSH/serial summary appears, detach the ISO or put the disk
+   first in the boot order.
+9. Connect a client to the isolated LAN and open `https://192.168.1.1:8443`.
+
+Full flow: [`ISO_INSTALLATION.md`](ISO_INSTALLATION.md).
+
+## First verification
+
+From serial or trusted-LAN SSH:
+
+```sh
 uname -a
 modprobe pppoe
 ip -brief link
 ip -brief address
 ip route
-df -h
-df -i
+rc-service sshd status
 rc-service router-applyd status
 rc-service routerd status
-router-update status
+ss -lnt
+nft list ruleset
 ```
 
-## Pilot checklist
+Expected management paths:
 
-Before unattended use, record evidence for:
+```text
+Dashboard: https://192.168.1.1:8443
+SSH:       root@192.168.1.1
+Serial:    ttyS0 @ 115200
+```
 
-- repeated guest and Proxmox reboot cycles;
-- stable WAN/LAN identity;
-- repeated PPPoE reconnect and reboot recovery;
-- DHCP, DNS, NAT and WAN default-deny behavior;
-- rollback of an unconfirmed network change;
-- MinimalRouter-managed No-IP update and later IP-change propagation;
-- WireGuard recovery after PPPoE reconnect/reboot;
-- update activation and rollback;
-- encrypted backup restore into a fresh VM;
-- sustained throughput, packet rate, latency/loss, CPU/RAM and thermals;
+## Real-WAN pilot checklist
+
+Before the candidate replaces the known-good router, record evidence for:
+
+- correct WAN/LAN MAC mapping;
+- LAN DHCP and DNS;
+- real PPPoE authentication and default route;
+- Internet forwarding and expected NAT/firewall behavior;
+- no direct Dashboard or SSH exposure from WAN;
+- external WireGuard recovery path if configured;
+- normal guest reboot recovery;
+- cold Proxmox/guest reboot recovery;
+- MinimalRouter-managed No-IP update and later public-IP change;
+- backup export and restore into a fresh VM;
 - external IPv4/IPv6 scan;
-- at least seven days of stable operation.
+- sustained throughput, latency/loss, CPU/RAM and thermals;
+- repeated PPPoE reconnects;
+- abrupt-power tests only after rollback is prepared.
 
 ## Lifecycle and rollback
 
@@ -98,23 +130,18 @@ qm shutdown <VMID> --timeout 60
 qm status <VMID>
 ```
 
-Use `qm stop` only for a deliberate abrupt-power test after rollback is ready.
-A Proxmox snapshot is not a substitute for an encrypted Minimal Router backup.
+Use `qm stop` only for deliberate abrupt-power testing.
 
-For real-WAN testing, keep an out-of-band host-side rollback mechanism. The
-2026-08-01 pilot successfully returned to pfSense in about 93 seconds using such
-a path.
+Keep the previous router available until the pilot is complete. A Proxmox
+snapshot is useful, but it is not a substitute for an encrypted MinimalRouter
+backup.
 
-## Update
+## Current firmware boundary
 
-Use the A/B update commands rather than overwriting active binaries:
+The installer ISO itself retains BIOS and UEFI boot metadata. The **installed
+Golden disk** currently uses an MBR partition table and ExtLinux and is qualified
+end-to-end on SeaBIOS. UEFI installed-disk support must be tested separately
+before it is documented as supported.
 
-```sh
-router-update status
-router-update stage --dir <SIGNED_PAYLOAD> --manifest <SIGNED_MANIFEST>
-router-update activate --version <VERSION> --confirm ACTIVATE-UPDATE
-router-update rollback --confirm ROLLBACK-UPDATE
-```
-
-Minimal Router remains a controlled pilot, not yet an unattended pfSense
-replacement.
+Minimal Router v0.1.4 remains a controlled Beta pilot, not an unattended
+pfSense/OpenWrt replacement.

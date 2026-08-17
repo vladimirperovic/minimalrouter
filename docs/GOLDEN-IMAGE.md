@@ -1,161 +1,437 @@
-# MinimalRouter golden-image appliance
+# MinimalRouter v0.1.4 Golden Appliance ISO — source of truth
 
-This document records how the MinimalRouter v0.1.4 appliance ISO is built and installed so the process remains reproducible for future maintainers and for the private `minimalrouterhome` profile.
+This document records **how and why** the v0.1.4 Golden ISO is built. It exists so
+a future maintainer or AI agent does not accidentally return to the fragile
+installer model that preceded it.
 
-## Goal
+If the ISO is ever rebuilt, refactored or debugged, read this file before changing
+`packaging/alpine/`, `.github/workflows/iso.yml`, `scripts/ci/iso-full-install.exp`
+or the release workflow.
 
-The user VM is not an Alpine build machine. Installation must never depend on package repositories, dependency resolution, `setup-disk`, `apk add`, `mkinitfs`, a target chroot, or rerunning the MinimalRouter application installer.
+## The invariant
 
-The production model is:
+**The user's Proxmox VM is a flasher target, not an Alpine build host.**
 
-1. GitHub CI builds Alpine Linux and MinimalRouter once.
-2. CI creates a complete bootable 8 GiB disk image.
-3. CI compresses the image and records its SHA256 checksum.
-4. The bootable ISO contains that compressed golden image and a very small flasher.
-5. The flasher verifies the image, selects a safe target disk and writes the image byte-for-byte.
-6. The VM reboots from the installed disk.
-7. A one-shot first-boot wizard stores WAN/LAN, optional PPPoE, Dashboard credentials and the recovery password.
-8. Normal router services start only after first boot completes.
-
-## Build pipeline
-
-`packaging/alpine/build-iso.sh` is the top-level builder.
-
-It performs these stages:
-
-- builds the amd64 MinimalRouter distribution and Dashboard;
-- calls `packaging/alpine/build-rootfs.sh` to assemble the complete installed Alpine filesystem with the current Alpine 3.22 `linux-lts` kernel and all MinimalRouter runtime packages;
-- calls `packaging/alpine/build-golden-image.sh` to turn that filesystem into a bootable disk image;
-- downloads and verifies the Alpine Extended ISO used only as the live boot shell;
-- creates the tiny MinimalRouter flasher OpenRC overlay;
-- injects `golden.img.gz`, its SHA256 manifest and build metadata into the ISO;
-- preserves BIOS and UEFI bootability of the installer ISO.
-
-Package installation happens only while CI assembles the root filesystem. It never happens on the user VM.
-
-## Golden disk layout
-
-The v0.1.4 proven target layout is intentionally simple:
-
-- 8 GiB logical raw disk image;
-- DOS/MBR partition table;
-- one active Linux partition starting at 1 MiB;
-- ext4 root filesystem;
-- Syslinux/ExtLinux BIOS bootloader;
-- Alpine `linux-lts` kernel, its matching modules and its matching initramfs, all produced in the same CI build.
-
-The filesystem is labelled `minimalrouter-root`, but booting does not depend on a device path or filesystem label. CI reads the ext4 filesystem UUID immediately after formatting it and writes the same UUID into both `/etc/fstab` and ExtLinux:
+All operating-system construction happens before the user boots the ISO:
 
 ```text
-root=UUID=<golden-filesystem-uuid> rootfstype=ext4
+CI / trusted build host
+  ├─ build Go binaries + Dashboard
+  ├─ assemble Alpine 3.22 rootfs with linux-lts and runtime packages
+  ├─ install MinimalRouter into that rootfs
+  ├─ create one bootable 8 GiB MBR/ext4 Golden disk image
+  ├─ compress + SHA256 the image
+  └─ inject it into a verified Alpine Extended ISO with a tiny flasher
+
+User Proxmox VM
+  ├─ boot ISO
+  ├─ verify Golden image
+  ├─ raw-copy Golden image to safe target disk
+  ├─ persist selected console marker
+  ├─ reboot
+  └─ installed firstboot collects router-specific state
 ```
 
-This is important because the same image may appear as `/dev/vda`, `/dev/sda` or an NVMe device on different Proxmox configurations. The root filesystem identity travels inside the image itself.
+The live flasher must never become a second OS installer.
 
-## ISO flasher
+## Why the old model was abandoned
 
-`packaging/alpine/live-installer.sh` deliberately has a very small responsibility set.
+### 1. Offline APK/repository failures
 
-It may:
+The original all-in-one installer tried to perform package transactions from the
+live environment. Real recovery sessions hit failures such as temporary CDN
+errors, wrong `/media/cdrom/...` repository paths, missing `APKINDEX` discovery
+and packages such as `sfdisk` not being selectable.
 
-- locate `/minimalrouter/golden.img.gz` on the boot media;
-- validate SHA256 and gzip integrity;
-- check minimum RAM and disk size;
-- enumerate installation disks;
-- stop if an existing MinimalRouter image is detected;
-- automatically select the only clearly virtual QEMU/Proxmox disk;
-- require an exact `ERASE` confirmation for ambiguous/manual disk selection;
-- run `gzip -dc ... | dd of=<disk>`;
-- record whether the UI used `tty1` or `ttyS0` in the unused post-MBR gap;
+That made a router installer depend on networking and package-manager state before
+WAN/PPPoE was working — exactly when it must be most self-contained.
+
+**v0.1.4 rule:** `live-installer.sh` performs no `apk` transaction.
+
+### 2. Live-kernel / target-kernel mismatch
+
+The Alpine Extended ISO can boot one `linux-lts` patch release while the rootfs
+builder resolves a newer v3.22 `linux-lts`. During development we observed a live
+kernel and installed kernel with different patch releases. Trying to build or
+repair target initramfs/modules from the live kernel produced missing-module
+behavior and made the install depend on whichever package version happened to be
+resolved that day.
+
+**v0.1.4 rule:** kernel, initramfs and `/lib/modules/<release>` are assembled and
+validated together in CI. The live flasher never runs `mkinitfs`.
+
+### 3. Too many destructive steps on the user VM
+
+A traditional live installer had to partition, format, resolve packages, chroot,
+install MinimalRouter, build boot files and then configure networking. Every step
+created another failure/recovery branch and forced long commands through noVNC.
+
+The Golden model reduces the destructive target operation to essentially:
+
+```sh
+gzip -dc golden.img.gz | dd of=/dev/<safe-target> bs=4M
+sync
+reboot
+```
+
+### 4. CI harness false negatives
+
+Two late v0.1.4 failures were test-harness defects rather than appliance defects:
+
+- an `sshd` runlevel marker assumed whitespace before `sshd`, which is not
+  guaranteed by Alpine's `rc-update` formatting;
+- `INSTALLED_SSH_OK` had already been consumed after proving a real SSH login and
+  was incorrectly expected a second time later.
+
+These were fixed without weakening the real install checks. Future agents should
+never “solve” a failing E2E by deleting a real runtime assertion; first establish
+whether the failure is the appliance or the observer.
+
+## Authoritative source files
+
+Read these in order:
+
+```text
+packaging/alpine/build-iso.sh
+packaging/alpine/build-rootfs.sh
+packaging/alpine/build-golden-image.sh
+packaging/alpine/live-installer.sh
+packaging/alpine/firstboot.sh
+packaging/alpine/firstboot.initd
+scripts/ci/iso-full-install.exp
+.github/workflows/iso.yml
+.github/workflows/release.yml
+```
+
+User-facing guides:
+
+```text
+docs/ISO_INSTALLATION.md
+docs/PROXMOX.md
+docs/INSTALLATION.md
+```
+
+## Stage A — build MinimalRouter distribution
+
+`build-iso.sh` normally builds AMD64 with release metadata:
+
+```text
+BUILD_VERSION = VERSION
+BUILD_COMMIT  = source commit
+BUILD_DATE    = build timestamp
+```
+
+For ordinary CI, the distribution is created by the ISO builder.
+
+For a **GitHub release**, the order is different and security-sensitive:
+
+1. build release AMD64/ARM64 distributions;
+2. sign them with the protected firmware signing key;
+3. embed `firmware-signing.pub` into each distribution;
+4. call `build-iso.sh` with:
+
+```text
+MINIMALROUTER_USE_EXISTING_DIST=1
+MINIMALROUTER_REQUIRE_SIGNED_DIST=1
+```
+
+This prevents the ISO builder from overwriting the signed AMD64 payload with an
+unsigned development rebuild. A release ISO must fail if
+`build/dist/minimalrouter-linux-amd64/firmware-signing.pub` is absent.
+
+## Stage B — build Alpine rootfs
+
+`packaging/alpine/build-rootfs.sh` builds a clean Alpine 3.22 x86-64 rootfs in a
+trusted builder/container.
+
+Important packages include:
+
+```text
+alpine-base alpine-conf linux-lts linux-firmware-none
+e2fsprogs e2fsprogs-extra grub grub-efi syslinux dosfstools util-linux
+nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping
+ca-certificates openssh-server wireguard-tools-wg doas squid hostapd iw
+inadyn chrony logrotate
+```
+
+`resize2fs` is explicitly required because firstboot expands/verifies the Golden
+filesystem against the real VM disk.
+
+The rootfs builder:
+
+- seeds current official Alpine keys before target-root package operations;
+- installs packages into the target root;
+- runs MinimalRouter's distribution installer in image-build/offline mode;
+- removes build staging files;
+- removes `/etc/machine-id` and SSH host keys so clones do not share identity;
+- writes the installed console/MOTD guidance;
+- produces `minimalrouter-rootfs-<version>-amd64.tar.gz`.
+
+Package installation happens here, never in the user's live flasher.
+
+## Stage C — build the bootable Golden disk
+
+`packaging/alpine/build-golden-image.sh` creates a logical 8 GiB raw image.
+
+Current v0.1.4 layout:
+
+```text
+DOS/MBR partition table
+└─ partition 1
+   ├─ start: 1 MiB
+   ├─ type: Linux (83)
+   ├─ bootable
+   ├─ ext4
+   └─ label: minimalrouter-root
+```
+
+The builder reads the ext4 UUID and writes the same UUID into `/etc/fstab` and
+ExtLinux:
+
+```text
+root=UUID=<UUID> rootfstype=ext4
+```
+
+This makes the copied appliance independent of whether the target disk later
+appears as `/dev/vda`, `/dev/sda` or another supported block name.
+
+The image contains the exact matching set:
+
+```text
+/boot/vmlinuz-lts
+/boot/initramfs-lts
+/lib/modules/<same-kernel-release>
+```
+
+It also installs:
+
+```text
+/usr/libexec/minimalrouter/firstboot
+/etc/init.d/minimalrouter-firstboot
+/usr/sbin/router-setup
+```
+
+and records:
+
+```text
+/etc/minimalrouter/installed
+  installed_by=golden-image
+  image_layout=mbr-ext4
+  root_uuid=<UUID>
+```
+
+ExtLinux is installed once in CI, and Syslinux MBR code is written to the raw disk.
+The raw 8 GiB disk is then gzip-compressed; sparse/zero blocks compress heavily.
+
+## Stage D — build the live ISO shell
+
+`packaging/alpine/build-iso.sh` downloads the exact Alpine Extended base ISO and
+verifies its published SHA-256 before remastering it.
+
+The final ISO injects:
+
+```text
+/minimalrouter/VERSION
+/minimalrouter/BUILD_COMMIT
+/minimalrouter/BUILD_DATE
+/minimalrouter/BUILD-INFO
+/minimalrouter/golden.img.gz
+/minimalrouter/golden.img.gz.sha256
+/minimalrouter.apkovl.tar.gz
+/boot/syslinux/syslinux.cfg
+/boot/grub/grub.cfg
+```
+
+The live overlay adds one OpenRC service: `minimalrouter-installer`.
+
+Production boot entries:
+
+```text
+MinimalRouter Installer (VGA/noVNC)
+MinimalRouter Installer (serial ttyS0 115200)
+```
+
+VGA/noVNC is the default. Serial passes:
+
+```text
+minimalrouter.console=ttyS0 console=ttyS0,115200
+```
+
+## Stage E — live flasher safety contract
+
+`packaging/alpine/live-installer.sh` may:
+
+- locate the Golden image;
+- verify SHA-256 and gzip integrity;
+- verify minimum memory and target-disk size;
+- enumerate non-removable disks;
+- detect a previous MinimalRouter installation;
+- automatically erase only a single, clearly virtual QEMU/Proxmox disk;
+- require an exact manual disk path plus `ERASE` when selection is ambiguous;
+- raw-copy the Golden image;
+- write the console marker;
 - sync and reboot.
 
-It must not:
+It must **not**:
 
-- run `apk` package transactions;
-- run `setup-disk`;
-- partition or format the target;
-- mount or mutate the flashed target filesystem;
-- run `mkinitfs`;
-- chroot into the target;
-- rerun MinimalRouter installation scripts.
+```text
+apk add / apk update / apk fix
+setup-disk
+sfdisk / mkfs.*
+mkinitfs
+chroot
+install-core.sh
+unpack a target rootfs
+mount and patch the flashed target
+```
 
-The filesystem UUID, kernel, modules, initramfs, bootloader and application are final before the ISO is published.
+`.github/workflows/iso.yml` contains static guards that fail when these forbidden
+patterns are reintroduced.
 
-## First boot
+## Target-disk protection
 
-The golden image contains `minimalrouter-firstboot`, ordered before networking, SSH and the two MinimalRouter services.
+Automatic erase is allowed only when all are true:
 
-On the first installed-disk boot it asks only for router-specific state:
+1. QEMU/KVM/Proxmox is detected;
+2. exactly one candidate installation disk exists;
+3. it is non-removable;
+4. it is clearly a virtual disk type accepted by the safety check.
 
-1. WAN and LAN roles;
-2. optional PPPoE credentials;
-3. Web Dashboard administrator password;
-4. separate Linux root password for emergency console/trusted-LAN SSH recovery.
+Existing MinimalRouter installations are detected by an exact `tty1`/`ttyS0`
+marker in the post-MBR gap, with filesystem-label fallback for older images.
 
-The wizard then saves the configuration with `router-setup apply --offline`, generates unique SSH host keys, records `/etc/minimalrouter/firstboot-complete`, restores recovery gettys and allows the normal services to start.
+If detected, the ISO stops before overwrite.
 
-After first boot:
+## Console marker design
 
-- Web Dashboard: `https://192.168.1.1:8443`
-- SSH recovery: `ssh root@192.168.1.1`
-- Serial recovery: `ttyS0` at 115200 baud
+The flasher must remember whether the operator chose VGA or serial without
+mounting the freshly copied root filesystem.
 
-SSH is intended for the trusted LAN only and must not be exposed on WAN.
+It writes exactly one string at byte offset 32768 in the unused post-MBR gap:
 
-## CI proof
+```text
+tty1
+```
 
-`.github/workflows/iso.yml` treats the appliance path as a release gate.
+or:
 
-The workflow verifies that the live flasher contains none of the forbidden target-install commands, builds the exact golden image, verifies the ISO payload, boots the production ISO, then runs a complete QEMU installation test using an 8 GiB VirtIO disk.
+```text
+ttyS0
+```
 
-The end-to-end test must prove all of the following from the installed disk:
+Installed `firstboot.sh` reads that marker and binds its full interactive session
+to the selected console.
 
-- golden image checksum succeeds;
-- safe QEMU disk auto-selection works;
-- raw image copy completes;
-- reboot reaches the installed kernel;
-- first-boot wizard completes;
-- the installed kernel has its matching `/lib/modules/$(uname -r)` tree;
-- configuration database exists;
-- LAN address `192.168.1.1/24` is applied;
-- SSH is enabled and actually accepts a recovery login;
-- serial root recovery works;
-- nftables permits SSH on the trusted LAN;
-- `FULL_ISO_INSTALL_OK` is emitted only after all checks pass.
+## Stage F — installed firstboot
 
-An ISO should not be treated as a production candidate until this workflow is green.
+`minimalrouter-firstboot` is ordered:
 
-## Proxmox v0.1.4 target
+```text
+before networking sshd router-applyd routerd
+```
 
-The first proven installed-disk path is:
+Nothing network-facing may start with cloned/default state.
 
-- SeaBIOS;
-- amd64/x86_64;
-- at least 1 GiB RAM;
-- at least 8 GiB virtual disk;
-- two network adapters (WAN and LAN);
-- VirtIO Block is the exact disk model used by CI.
+Firstboot:
 
-The installer ISO itself remains BIOS and UEFI bootable, but the v0.1.4 golden target disk is currently a SeaBIOS/MBR appliance. A dual BIOS/UEFI golden disk is a later hardening step.
+1. verifies/expands the ext4 root filesystem with `resize2fs`;
+2. runs `router-setup collect` for WAN/LAN, optional PPPoE and Dashboard password;
+3. applies the reviewed config offline to canonical state;
+4. sets a separate recovery/root password;
+5. generates unique SSH host keys;
+6. restores `tty1` and `ttyS0` recovery gettys and adds `ttyS0` to `securetty`;
+7. writes `/etc/minimalrouter/firstboot-complete`;
+8. returns control to OpenRC so networking and MinimalRouter services may start.
 
-The current root partition occupies the 8 GiB golden-image layout. A larger target disk is accepted, but automatic partition growth beyond the image layout is a later enhancement.
+Expected management endpoints:
 
-## `minimalrouter` and `minimalrouterhome`
+```text
+https://192.168.1.1:8443
+ssh root@192.168.1.1
+ttyS0 @ 115200
+```
 
-The golden image must remain generic and contain no site secrets.
+## E2E test — what “green Appliance ISO” means
 
-The intended separation is:
+`scripts/ci/iso-full-install.exp` boots QEMU with:
 
-- public `minimalrouter`: application, appliance OS, installer, schemas and generic defaults;
-- private `minimalrouterhome`: Vladimir's site profile such as PPPoE, WireGuard, DHCP/static leases and other private configuration.
+- one blank 8 GiB VirtIO disk;
+- two VirtIO NICs;
+- serial stdio;
+- a host-forward used for a **real** SSH login after install.
 
-MinimalRouter v0.1.4 is also intended to expose pfSense-style XML configuration import/export under the Recovery area of the Web Dashboard. That XML profile is the appropriate portable input for a private home configuration; encrypted `.mrbak` remains the full protected backup format.
+CI changes only the ISO boot-menu default to the existing serial entry so Expect
+can drive the same production flasher.
 
-Secrets must never be baked into the public golden image or public repository.
+The test proves:
 
-## Recovery and rollback principles
+- Golden checksum/gzip verification;
+- safe VM disk auto-selection;
+- raw image copy and reboot;
+- installed `linux-lts` boot;
+- firstboot completion over `ttyS0`;
+- recovery root login on the installed `ttyS0` getty;
+- real password-authenticated SSH login;
+- LAN `192.168.1.1/24`;
+- nftables trusted-LAN SSH accept rule;
+- SSH TCP/22 listener;
+- `sshd` enabled in OpenRC;
+- firstboot-complete marker and SQLite state DB;
+- kernel and `/lib/modules/$(uname -r)` match;
+- `routerd` service and readiness marker;
+- Dashboard TCP/8443 listener;
+- valid Alpine v3.22 main/community repositories.
 
-- Keep the previous production router available until WAN, LAN, DHCP, DNS and reboot behavior have been verified on the new appliance.
-- Rebooting the ISO against a disk already marked as MinimalRouter must stop instead of silently overwriting it.
-- The golden image artifact and its checksum tie an installation to one CI-tested build.
-- Git history remains the source-level rollback path; appliance artifacts remain the binary-level test/install path.
+`FULL_ISO_INSTALL_OK` is emitted only after every required marker succeeds.
+
+The signed release workflow repeats this full install test against the release
+ISO after firmware signing and before publication.
+
+## Release artifacts
+
+v0.1.4 release publication includes the production ISO and verification material:
+
+```text
+minimalrouter-0.1.4-amd64.iso
+minimalrouter-0.1.4-amd64.iso.sha256
+SHA256SUMS
+```
+
+The ISO is also covered by a GitHub artifact attestation. The appliance inside the
+ISO is constructed from the signed AMD64 distribution and contains the pinned
+`firmware-signing.pub` trust anchor used by `router-update`.
+
+## What CI does not prove
+
+Do not turn automated evidence into a broader claim. v0.1.4 still needs separate
+real evidence for:
+
+- real ISP PPPoE authentication/reconnect behavior;
+- physical NICs;
+- installed-disk UEFI boot;
+- external IPv4/IPv6 scans;
+- thermals and sustained throughput;
+- abrupt power-loss behavior;
+- long unattended operation.
+
+The installer ISO contains UEFI boot metadata, but the current Golden target disk
+is MBR + ExtLinux and the full E2E target is SeaBIOS.
+
+## Future-agent checklist
+
+Before changing the ISO architecture:
+
+1. identify whether the failure is build, live flasher, firstboot, installed
+   runtime or test harness;
+2. do not add live package installation as a shortcut;
+3. do not regenerate target initramfs from the live kernel;
+4. keep one source of truth for kernel/modules inside the Golden image;
+5. preserve safe disk auto-selection and reinstall guard;
+6. preserve both VGA and `ttyS0` recovery;
+7. preserve firstboot-before-networking ordering;
+8. preserve signed release payload/trust anchor;
+9. keep real SSH/serial/runtime assertions in E2E;
+10. update this document and user install docs with any architecture change.
+
+If a future design cannot satisfy these invariants, document the reason and add
+equivalent or stronger safety/evidence before replacing them.
