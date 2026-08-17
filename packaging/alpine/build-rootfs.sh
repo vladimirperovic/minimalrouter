@@ -104,5 +104,20 @@ ISSUE
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
-sha256sum "$OUT" > "$OUT.sha256"
+
+# This text is part of the appliance UX, not optional documentation. Prove the
+# exact installed rootfs contains the address the user must open after reboot.
+tar -xOf "$OUT" ./etc/issue | grep -Fq 'Web Dashboard: https://192.168.1.1:8443' || {
+  echo "ERROR: installed console is missing the Web Dashboard management URL" >&2
+  exit 1
+}
+tar -xOf "$OUT" ./etc/motd | grep -Fq 'including https:// and port :8443' || {
+  echo "ERROR: installed MOTD is missing the dashboard port guidance" >&2
+  exit 1
+}
+
+# build-iso.sh renames this archive to /minimalrouter/rootfs.tar.gz. The checksum
+# manifest must therefore name the shipped file, not this builder-side path.
+rootfs_sha="$(sha256sum "$OUT" | awk '{print $1}')"
+printf '%s  rootfs.tar.gz\n' "$rootfs_sha" > "$OUT.sha256"
 echo "Built appliance rootfs: $OUT"
