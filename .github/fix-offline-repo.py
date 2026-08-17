@@ -24,10 +24,8 @@ build_apkovl() {''',
 }
 
 build_offline_repos() {
-    # setup-disk does a normal apk transaction into --root /mnt. Give it normal
-    # signed Alpine repositories rather than a flat collection of APK files.
-    # The APKINDEX files come directly from the same official v3.22 repositories
-    # used by apk fetch above, so Alpine's existing trusted keys verify them.
+    # setup-disk performs a normal apk transaction into --root /mnt. Provide
+    # normal signed Alpine repositories instead of a flat directory of APKs.
     rm -rf "$APK_REPO_DIR"
     mkdir -p \
         "$APK_REPO_DIR/main/$ALPINE_ARCH" \
@@ -40,8 +38,8 @@ build_offline_repos() {
         "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community/${ALPINE_ARCH}/APKINDEX.tar.gz" \
         "$APK_REPO_DIR/community/$ALPINE_ARCH/APKINDEX.tar.gz"
 
-    # Keep only one physical copy of every APK in the ISO. Rock Ridge preserves
-    # these relative symlinks and apk follows them when resolving package files.
+    # Keep one physical APK copy. Both repository trees point at the verified
+    # bundle; apk simply ignores packages not present in a given signed index.
     for repo in main community; do
         for apk in "$APK_DIR"/*.apk; do
             name="$(basename "$apk")"
@@ -49,9 +47,7 @@ build_offline_repos() {
         done
     done
 
-    # Prove before remastering that the signed indexes can resolve and fetch the
-    # exact packages setup-disk needs, using only the repository tree we will put
-    # on the ISO. This also catches a rare CDN index/package race during a build.
+    # Prove the exact local repository tree is usable before remastering.
     if command -v docker >/dev/null 2>&1; then
         repo_root="$(pwd)"
         docker run --rm --platform linux/amd64 \
@@ -115,37 +111,38 @@ one(p,
         cat /tmp/minimalrouter-apk-update.log >&2 || true
         fail "The Alpine base repository on the ISO could not be opened"
     fi''',
-'''    # setup-disk performs a normal apk transaction into /mnt, so provide the
-    # two signed local repositories assembled by build-iso.sh. Their indexes are
-    # the official Alpine v3.22 indexes; package files are the checksum-verified,
-    # Alpine-signed APKs already carried by this ISO.
+'''    # setup-disk performs a normal apk transaction into /mnt. Use the signed
+    # local repositories assembled into this ISO by build-iso.sh.
     repo_main="$MEDIA/minimalrouter/repo/main"
     repo_community="$MEDIA/minimalrouter/repo/community"
     for repo in "$repo_main" "$repo_community"; do
-        [ -f "$repo/$ALPINE_ARCH/APKINDEX.tar.gz" ] || fail "Signed offline Alpine repository index is missing: $repo"
+        [ -f "$repo/x86_64/APKINDEX.tar.gz" ] || fail "Signed offline Alpine repository index is missing: $repo"
     done
     ALPINE_MEDIA_REPOS="$repo_main $repo_community"
-    printf '%s\\n%s\\n' "$repo_main" "$repo_community" > /etc/apk/repositories
+    restore_alpine_media_repo''')
+
+one(p,
+'''restore_alpine_media_repo() {
+    [ -n "${ALPINE_MEDIA_REPO:-}" ] || fail "The Alpine media repository path was lost before disk installation"
+    [ -r "$ALPINE_MEDIA_REPO/APKINDEX.tar.gz" ] || fail "The Alpine media APKINDEX is no longer available: $ALPINE_MEDIA_REPO"
+    printf '%s\\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
     if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
         cat /tmp/minimalrouter-apk-update.log >&2 || true
-        fail "The signed offline Alpine repositories on the ISO could not be opened"
+        fail "The Alpine media repository could not be restored for setup-disk"
     fi
-    # Fail here, before touching a disk, if the target base packages are not
-    # resolvable from the local media.
+}''',
+'''restore_alpine_media_repo() {
+    [ -n "${ALPINE_MEDIA_REPOS:-}" ] || fail "The signed Alpine media repository paths were lost before disk installation"
+    : > /etc/apk/repositories
+    for repo in $ALPINE_MEDIA_REPOS; do
+        [ -r "$repo/x86_64/APKINDEX.tar.gz" ] || fail "The signed Alpine APKINDEX is no longer available: $repo"
+        printf '%s\\n' "$repo" >> /etc/apk/repositories
+    done
+    if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
+        cat /tmp/minimalrouter-apk-update.log >&2 || true
+        fail "The signed Alpine media repositories could not be restored for setup-disk"
+    fi
     for pkg in alpine-base e2fsprogs linux-lts openssl syslinux; do
         apk search --no-network -x "$pkg" 2>/dev/null | grep -q . || fail "Offline repository cannot resolve required target package: $pkg"
-    done''')
-
-# The script currently restores one local repository immediately before
-# setup-disk. Replace that guard with the complete signed pair.
-one(p,
-'''printf '%s\\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
-if ! apk update --no-network >/tmp/minimalrouter-apk-update-before-disk.log 2>&1; then''',
-'''printf '%s\\n%s\\n' "$repo_main" "$repo_community" > /etc/apk/repositories
-if ! apk update --no-network >/tmp/minimalrouter-apk-update-before-disk.log 2>&1; then''')
-
-one(p,
-'''printf '%s\\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
-if ! setup-disk -v -m sys "$TARGET" >/tmp/minimalrouter-setup-disk.log 2>&1; then''',
-'''printf '%s\\n%s\\n' "$repo_main" "$repo_community" > /etc/apk/repositories
-if ! setup-disk -v -m sys "$TARGET" >/tmp/minimalrouter-setup-disk.log 2>&1; then''')
+    done
+}''')
