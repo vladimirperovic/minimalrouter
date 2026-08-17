@@ -35,7 +35,7 @@ APK_MANIFEST="$BUILD_DIR/APK-SHA256SUMS"
 # firmware family would add roughly a gigabyte that a Proxmox/VirtIO router can
 # never use. Physical appliances needing device-specific firmware can install
 # the appropriate signed Alpine firmware package later.
-REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssl openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -79,7 +79,7 @@ fetch_apks() {
                 apk add --no-cache linux-firmware-none >/dev/null
                 apk fetch --recursive --output /work/build/iso/apks \
                   alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux \
-                  nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
+                  nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssl openssh-server \
                   wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
                   chrony chrony-openrc logrotate
             '
@@ -121,8 +121,8 @@ build_offline_repos() {
                 printf "%s\n"                   "/work/build/iso/apk-repo/main"                   "/work/build/iso/apk-repo/community"                   > /etc/apk/repositories
                 apk update --no-network >/dev/null
                 mkdir -p /tmp/mr-fetch
-                apk fetch --no-network --recursive --output /tmp/mr-fetch                   alpine-base e2fsprogs linux-lts openssl syslinux >/dev/null
-                for pkg in alpine-base e2fsprogs linux-lts openssl syslinux; do
+                apk fetch --no-network --recursive --output /tmp/mr-fetch                   alpine-base e2fsprogs linux-firmware-none linux-lts openssl syslinux >/dev/null
+                for pkg in alpine-base e2fsprogs linux-firmware-none linux-lts openssl syslinux; do
                     ls /tmp/mr-fetch/${pkg}-*.apk >/dev/null 2>&1 || {
                         echo "offline repository validation did not fetch $pkg" >&2
                         exit 1
