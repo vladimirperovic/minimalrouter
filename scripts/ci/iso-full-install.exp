@@ -27,7 +27,7 @@ spawn qemu-system-x86_64 \
     -drive file=$disk,format=raw,if=virtio \
     -netdev user,id=wan \
     -device virtio-net-pci,netdev=wan \
-    -netdev user,id=lan \
+    -netdev user,id=lan,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
     -device virtio-net-pci,netdev=lan \
     -display none \
     -serial stdio \
@@ -47,9 +47,30 @@ proc wait_and_send {pattern text} {
     }
 }
 
-# Match stable semantic fragments rather than every punctuation character. A
-# real TTY may inject terminal-control bytes around a prompt even though the
-# visible text is unchanged.
+proc verify_ssh {password marker} {
+    for {set i 0} {$i < 30} {incr i} {
+        if {![catch {
+            exec sshpass -p $password ssh \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                -o ConnectTimeout=2 \
+                -p 2222 \
+                root@127.0.0.1 "echo $marker"
+        } output]} {
+            if {[string first $marker $output] >= 0} {
+                puts "$marker (real SSH login succeeded)"
+                return
+            }
+        }
+        after 1000
+    }
+    puts stderr "SSH verification failed: $marker"
+    exit 60
+}
+
+# The first visible application screen is the MinimalRouter ASCII welcome and
+# the first actual question is PPPoE. There is no extra Enter gate before setup.
 wait_and_send {PPPoE username} "\r"
 wait_and_send {Use these WAN/LAN roles} "\r"
 wait_and_send {administrator password.*12 characters} "$dashboard_password\r"
@@ -68,10 +89,20 @@ expect {
     eof { puts stderr "QEMU exited before recovery password confirmation"; exit 25 }
 }
 
+# The live installer must expose a password-protected recovery SSH service on
+# the selected trusted LAN before any disk work starts. Verify a real login from
+# the CI host through QEMU's LAN-only forward.
+expect {
+    -re {Recovery access is active on the selected LAN} {}
+    timeout { puts stderr "timeout waiting for live recovery SSH"; exit 26 }
+    eof { puts stderr "QEMU exited before live recovery SSH"; exit 27 }
+}
+verify_ssh $recovery_password LIVE_SSH_OK
+
 expect {
     -re {Using the only attached installation disk automatically: /dev/vda} {}
-    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 26 }
-    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 27 }
+    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 28 }
+    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 29 }
 }
 
 # This marker is printed only after setup-disk, target APK installation,
@@ -87,18 +118,18 @@ expect {
 }
 
 # The live system reboots. -boot once=d makes the next boot use the installed
-# VirtIO disk even though the ISO is still attached.
+# VirtIO disk even though the ISO is still attached. Login over the real serial
+# console to prove ttyS0 recovery works after installation.
 expect {
     -re {login:} { send -- "root\r" }
-    timeout { puts stderr "timeout waiting for installed-system login"; exit 40 }
-    eof { puts stderr "QEMU exited before installed-system login"; exit 41 }
+    timeout { puts stderr "timeout waiting for installed-system serial login"; exit 40 }
+    eof { puts stderr "QEMU exited before installed-system serial login"; exit 41 }
 }
 expect {
     -re {Password:} { send -- "$recovery_password\r" }
-    timeout { puts stderr "timeout waiting for installed-system password"; exit 42 }
+    timeout { puts stderr "timeout waiting for installed-system serial password"; exit 42 }
 }
 
-# Wait for a root shell and validate what matters for a recoverable appliance.
 expect {
     -re {# $} {}
     -re {~ #} {}
@@ -140,6 +171,10 @@ foreach marker {
         eof { puts stderr "QEMU exited before marker: $marker"; exit 51 }
     }
 }
+
+# Prove the installed appliance is reachable over actual SSH as well, not just
+# that sshd appears in the process/listener tables.
+verify_ssh $recovery_password INSTALLED_SSH_OK
 
 send -- "poweroff -f\r"
 expect {
