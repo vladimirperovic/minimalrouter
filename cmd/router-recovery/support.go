@@ -85,16 +85,30 @@ func createSupportBundle(output string) (string, error) {
 	return output, nil
 }
 
-func tarGzipDirectory(dir, output string) error {
+func tarGzipDirectory(dir, output string) (retErr error) {
 	file, err := os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); retErr == nil && err != nil {
+			retErr = err
+		}
+	}()
+
 	gz := gzip.NewWriter(file)
-	defer gz.Close()
+	defer func() {
+		if err := gz.Close(); retErr == nil && err != nil {
+			retErr = err
+		}
+	}()
+
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
+	defer func() {
+		if err := tw.Close(); retErr == nil && err != nil {
+			retErr = err
+		}
+	}()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
