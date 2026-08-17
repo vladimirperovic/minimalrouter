@@ -42,10 +42,16 @@ trap - EXIT INT TERM
 docker run --rm --platform linux/amd64 \
   -v "$repo:/work" -w /work alpine:3.22 /bin/sh -ec '
     ROOT=/tmp/rootfs
-    rm -rf "$ROOT"; mkdir -p "$ROOT/etc/apk"
+    rm -rf "$ROOT"; mkdir -p "$ROOT/etc/apk/keys"
     printf "%s\n" \
       https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
       https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /tmp/repos
+
+    # apk --root verifies repositories using the target roots keyring, not the
+    # apk clients own /etc/apk/keys. Seed the freshly bootstrapped official
+    # Alpine keys before the very first target-root package transaction.
+    cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
+
     apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
       --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs \
       grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq \
