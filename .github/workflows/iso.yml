@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build-and-boot:
-    name: Build, install and boot MinimalRouter ISO
+    name: Build, install and boot minimalrouter ISO
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
@@ -52,18 +52,25 @@ jobs:
           sh -n packaging/alpine/live-installer.sh
           sh -n packaging/alpine/install-console.sh
           sh -n packaging/alpine/install-dist.sh
-          grep -F 'First-run setup starts automatically.' packaging/alpine/install-console.sh
+          grep -F '|                      minimalrouter                       |' packaging/alpine/install-console.sh
+          grep -F 'first-run setup starts automatically' packaging/alpine/install-console.sh
           ! grep -F 'Press Enter to continue' packaging/alpine/install-console.sh
-          grep -F 'when a suggested choice is correct, press Enter' packaging/alpine/install-console.sh
+          grep -F 'safe suggestions can be accepted with Enter' packaging/alpine/install-console.sh
           grep -F 'alpine-extended-${ALPINE_VERSION}-${ALPINE_ARCH}.iso' packaging/alpine/build-iso.sh
           grep -F 'dmesg -n 1' packaging/alpine/build-iso.sh
           grep -F 'openssh-server' packaging/alpine/build-iso.sh
           grep -F 'configure_live_ssh' packaging/alpine/live-installer.sh
           grep -F 'configure_target_recovery' packaging/alpine/live-installer.sh
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
+          grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
+          grep -F 'validate_target_disk' packaging/alpine/live-installer.sh
+          grep -F 'less than 1 GiB RAM' packaging/alpine/live-installer.sh
+          grep -F '/etc/minimalrouter/installed' packaging/alpine/live-installer.sh
           grep -F 'raw physical disk passed through to QEMU' packaging/alpine/live-installer.sh
           grep -F 'chroot /mnt /bin/sh -c' packaging/alpine/live-installer.sh
           grep -F 'minimalrouter.console=ttyS0' packaging/alpine/build-iso.sh
+          grep -F 'Suggested WAN:' cmd/router-setup/main.go | grep -F 'MAC'
+          grep -F 'low-confidence suggestion' cmd/router-setup/main.go
           grep -F 'LIVE_SSH_OK' scripts/ci/iso-full-install.exp
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
           test -f scripts/ci/iso-full-install.exp
