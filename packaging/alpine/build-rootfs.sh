@@ -64,20 +64,17 @@ docker run --rm --platform linux/amd64 \
 
     # Image-build mode in install.sh deliberately skips runtime kernel/module and
     # sysctl checks, so a privileged container and bind-mounted /proc,/sys,/dev
-    # are unnecessary.  Give the chroot only the basic character devices shell
-    # tools and OpenRC use while registering users, files and default services.
+    # are unnecessary. alpine-baselayout normally creates these basic device
+    # nodes during apk --root; create only a missing node instead of replacing it.
     mkdir -p "$ROOT/dev" "$ROOT/proc" "$ROOT/sys" "$ROOT/run"
-    mknod -m 666 "$ROOT/dev/null" c 1 3
-    mknod -m 666 "$ROOT/dev/zero" c 1 5
-    mknod -m 666 "$ROOT/dev/random" c 1 8
-    mknod -m 666 "$ROOT/dev/urandom" c 1 9
+    [ -c "$ROOT/dev/null" ] || { rm -f "$ROOT/dev/null"; mknod -m 666 "$ROOT/dev/null" c 1 3; }
+    [ -c "$ROOT/dev/zero" ] || { rm -f "$ROOT/dev/zero"; mknod -m 666 "$ROOT/dev/zero" c 1 5; }
+    [ -c "$ROOT/dev/random" ] || { rm -f "$ROOT/dev/random"; mknod -m 666 "$ROOT/dev/random" c 1 8; }
+    [ -c "$ROOT/dev/urandom" ] || { rm -f "$ROOT/dev/urandom"; mknod -m 666 "$ROOT/dev/urandom" c 1 9; }
 
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
 
-    # Device nodes were build-time scaffolding; the real target system gets its
-    # /dev from mdev/devtmpfs when the installed appliance boots.
-    rm -f "$ROOT/dev/null" "$ROOT/dev/zero" "$ROOT/dev/random" "$ROOT/dev/urandom"
     rm -rf "$ROOT/root/minimalrouter-installer" "$ROOT/var/cache/apk"/*
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
