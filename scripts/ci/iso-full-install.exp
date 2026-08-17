@@ -182,7 +182,7 @@ set checks {
     {test -s /etc/minimalrouter/firstboot-complete && echo CHECK_FIRSTBOOT_OK}
     {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
-    {rc-update show default | grep -q '[[:space:]]sshd' && echo CHECK_SSHD_ENABLED}
+    {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
     {grep -q 'v3.22/main' /etc/apk/repositories && grep -q 'v3.22/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
