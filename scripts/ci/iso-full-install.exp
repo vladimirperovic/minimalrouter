@@ -1,6 +1,8 @@
 #!/usr/bin/expect -f
 
-set timeout 1200
+# Slow TCG writes need several minutes, but a missing boot/prompt should not hold
+# the runner for twenty minutes. Seven minutes per awaited stage is ample for CI.
+set timeout 420
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
 set logpath [lindex $argv 2]
