@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 .github/offline-repo-fix.py
+          python3 .github/offline-repo-fix2.py
           sh -n packaging/alpine/install-dist.sh
           sh -n packaging/alpine/live-installer.sh
           expect -n scripts/ci/iso-full-install.exp
