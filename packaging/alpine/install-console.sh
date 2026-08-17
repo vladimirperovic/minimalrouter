@@ -123,18 +123,15 @@ fi
 # for package policy, kernel checks, A/B baseline creation and service layout.
 sh "$CORE_INSTALLER" "$@"
 
-# If this was a first interactive install, apply exactly the reviewed console
-# choices through the normal privileged transaction engine. The CLI commits the
-# setup only after a real PPP IPv4 session exists when PPPoE credentials were
-# supplied; a failed authentication therefore fails setup instead of leaving a
-# half-configured router behind.
+# If this was a first interactive install, persist exactly the reviewed console
+# choices for the first disk boot. On the live ISO the production router stack
+# is never started: the installed system reconciles the configuration natively
+# on its own kernel and modules (see router-setup apply --offline).
 if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     echo
-    echo "Applying and verifying first-run network configuration..."
-    rc-service router-applyd start
-
+    echo "Writing first-run configuration for the installed system..."
     SETUP_RC=0
-    "$SETUP_BIN" apply --input "$PROVISION_FILE" --data-dir /var/lib/minimalrouter || SETUP_RC=$?
+    "$SETUP_BIN" apply --offline --input "$PROVISION_FILE" --data-dir /var/lib/minimalrouter || SETUP_RC=$?
 
     # router-setup runs as root because it talks to the privileged helper. Give
     # canonical SQLite state back to routerd even on a failed setup/rollback.
@@ -143,13 +140,19 @@ if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     find /var/lib/minimalrouter -maxdepth 1 -type f -name 'minimalrouter.db*' -exec chmod 0600 {} \;
 
     if [ "$SETUP_RC" -ne 0 ]; then
-        echo "ERROR: first-run network verification failed; configuration was not finalized." >&2
+        echo "ERROR: first-run configuration could not be persisted." >&2
         exit "$SETUP_RC"
     fi
 
     rm -f "$PROVISION_FILE"
-    rc-service chronyd start
-    rc-service routerd start
     echo
-    printf '\033[32m●\033[0m Minimal Router OS v%s is ready. Dashboard: https://192.168.1.1:8443\n' "$MR_VERSION"
+    cat <<'ART'
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+ART
+    printf '\033[32m●\033[0m Minimal Router OS v%s configuration saved. The first disk boot will finalize the router.\n' "$MR_VERSION"
+    printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
 fi

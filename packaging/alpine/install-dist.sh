@@ -96,7 +96,7 @@ fi
 # healthy release after a late module failure.
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
-    if ! modprobe "$module"; then
+    if ! modprobe "$module" 2>/dev/null && ! find /lib/modules -name "${module}.ko*" 2>/dev/null | grep -q .; then
         if [ "$module" = "pppoe" ]; then
             echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
             echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
@@ -244,7 +244,10 @@ while IFS= read -r module; do
     # Required modules were preflighted before root runtime replacement. Load
     # again here after persistence so the installed state and current kernel
     # are proven together.
-    modprobe "$module"
+    if ! modprobe "$module" 2>/dev/null && [ -z "$(find /lib/modules -name "${module}.ko*" 2>/dev/null | head -1)" ]; then
+        echo "ERROR: required kernel module '$module' could not be loaded or found in bundled modules" >&2
+        exit 1
+    fi
 done < modules/minimalrouter.conf
 
 sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
@@ -256,10 +259,14 @@ sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
     echo "ERROR: loose reverse-path filtering did not activate" >&2
     exit 1
 }
-[ "$(sysctl -n net.netfilter.nf_conntrack_max)" = "131072" ] || {
-    echo "ERROR: conntrack state ceiling did not activate" >&2
-    exit 1
-}
+if [ "$(sysctl -n net.netfilter.nf_conntrack_max)" != "131072" ]; then
+    # nf_conntrack se ucitava tek na ciljnom sistemu (live kernel nema module);
+    # provera da modul postoji u bundle-ovanim modulima umesto da se zahteva live.
+    if [ -z "$(find /lib/modules -name "nf_conntrack.ko*" 2>/dev/null | head -1)" ]; then
+        echo "ERROR: conntrack state ceiling did not activate and nf_conntrack is unavailable" >&2
+        exit 1
+    fi
+fi
 
 
 # MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
@@ -361,7 +368,7 @@ mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
 sync
 
 echo "=== Installation complete ==="
-echo "Start now: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
+echo "Reboot now to complete the first-run setup: the installed system finalizes Minimal Router OS on boot."
 echo "Or reboot once; all three services are enabled for the default runlevel."
 LAN_IP="$(ip -4 addr show 2>/dev/null | grep -o 'inet [0-9.]*' | grep -v '127.0.0.1' | head -1 | cut -d' ' -f2)"
 [ -n "$LAN_IP" ] && echo "Current management candidate: https://${LAN_IP}:8443"

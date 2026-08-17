@@ -39,6 +39,21 @@ type consoleUI struct {
 	color  bool
 }
 
+func printBanner() {
+	art := `
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` + "`" + ` _ \| | '_ \| | '_ ` + "`" + ` _ \ / _` + "`" + ` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+`
+	for _, line := range strings.Split(strings.Trim(art, "\n"), "\n") {
+		fmt.Println(line)
+	}
+	fmt.Println("  first-run console setup")
+	fmt.Println("  -----------------------")
+}
+
 func main() {
 	if os.Geteuid() != 0 {
 		fatalf("router-setup must run as root")
@@ -96,8 +111,16 @@ func collect(args []string) error {
 
 	ui := &consoleUI{reader: bufio.NewReader(os.Stdin), color: terminalColor()}
 	fmt.Println()
-	fmt.Println("Minimal Router OS — first-run console setup")
-	fmt.Println("-------------------------------------------")
+	printBanner()
+	fmt.Println()
+	fmt.Println("What happens now:")
+	fmt.Println("  1. PPPoE credentials — leave empty to configure them later in the Web Dashboard")
+	fmt.Println("  2. WAN/LAN roles — WAN faces the ISP, LAN faces your clients (auto-assigned with two adapters)")
+	fmt.Println("  3. Dashboard administrator password (minimum 12 characters)")
+	fmt.Println("  4. Recovery console password — used only for local console recovery")
+	fmt.Println("  5. A final summary — nothing is applied before you confirm it")
+	fmt.Println()
+	fmt.Println("Nothing is committed until you review and confirm the final summary.")
 	fmt.Println("Nothing is committed until you review and confirm the final summary.")
 	fmt.Println()
 
@@ -164,9 +187,19 @@ func collect(args []string) error {
 		if err != nil {
 			return err
 		}
-		lan, err = ui.selectInterface("Select LAN", candidates, wan)
-		if err != nil {
-			return err
+		if len(candidates) == 2 {
+			for _, candidate := range candidates {
+				if candidate.Name != wan {
+					lan = candidate.Name
+					break
+				}
+			}
+			fmt.Printf("LAN: %s (the only other interface)\n", lan)
+		} else {
+			lan, err = ui.selectInterface("Select LAN", candidates, wan)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if wan == lan || wan == "" || lan == "" {
@@ -236,6 +269,7 @@ func apply(args []string) error {
 	fs.SetOutput(io.Discard)
 	input := fs.String("input", "/run/minimalrouter-console-setup.json", "root-only provisioning file")
 	dataDir := fs.String("data-dir", "/var/lib/minimalrouter", "canonical routerd data directory")
+	offline := fs.Bool("offline", false, "write the configuration without applying the network; the first disk boot reconciles it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -290,6 +324,17 @@ func apply(args []string) error {
 	cfg.LAN.Interface = requested.LANInterface
 	if requested.LANIPAddress != "" && requested.LANIPAddress != cfg.LAN.IPAddress {
 		return fmt.Errorf("first-run LAN address must remain %s", cfg.LAN.IPAddress)
+	}
+
+	if *offline {
+		// Live installer path: persist the reviewed configuration directly so
+		// the first boot of the installed system reconciles it natively. The
+		// live environment never runs the production router stack.
+		cfg.Revision = initial.Revision + 1
+		if err := store.CommitInitialSetup(cfg, hashedPassword); err != nil {
+			return fmt.Errorf("store initial configuration for first boot: %w", err)
+		}
+		return nil
 	}
 
 	engine := mrapply.NewEngine(initial, store)

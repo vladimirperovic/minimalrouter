@@ -34,7 +34,7 @@ APK_MANIFEST="$BUILD_DIR/APK-SHA256SUMS"
 # firmware family would add roughly a gigabyte that a Proxmox/VirtIO router can
 # never use. Physical appliances needing device-specific firmware can install
 # the appropriate signed Alpine firmware package later.
-REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -65,7 +65,7 @@ fetch_apks() {
         # remains signed by Alpine; no locally built or unsigned package enters
         # the ISO. Installing linux-firmware-none into the resolver environment
         # forces the small explicit linux-firmware-any provider before fetching.
-        docker run --rm \
+        docker run --rm --platform linux/amd64 \
             -v "$repo_root:/work" \
             -w /work \
             "alpine:${ALPINE_BRANCH#v}" \
@@ -77,7 +77,7 @@ fetch_apks() {
                 apk update >/dev/null
                 apk add --no-cache linux-firmware-none >/dev/null
                 apk fetch --recursive --output /work/build/iso/apks \
-                  alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi dosfstools util-linux \
+                  alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux \
                   nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates \
                   wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
                   chrony chrony-openrc logrotate
@@ -121,7 +121,14 @@ pidfile="/run/minimalrouter-installer.pid"
  }
 
 start() {
-    ebegin "Launching Minimal Router OS installer on ttyS0 (serial)"
+    # Instalater radi na vidljivoj konzoli: tty1 (VGA) ako postoji,
+    # inace ttyS0 (serial-only VM).
+    if [ -c /dev/tty1 ]; then
+        INSTALL_TTY="/dev/tty1"
+    else
+        INSTALL_TTY="/dev/ttyS0"
+    fi
+    ebegin "Launching Minimal Router OS installer on ${INSTALL_TTY#/dev/}"
 
     # Prevent init from respawning a login prompt on top of the installer.
     if [ -f /etc/inittab ]; then
@@ -132,7 +139,7 @@ start() {
     pkill -TERM -f '[g]etty.*tty1' 2>/dev/null || true
 
     (
-        exec </dev/ttyS0 >/dev/ttyS0 2>&1
+        exec <"$INSTALL_TTY" >"$INSTALL_TTY" 2>&1
         exec /etc/minimalrouter/live-installer.sh
     ) &
     echo $! > "$pidfile"
@@ -170,7 +177,19 @@ LABEL minimalrouter
   MENU LABEL Minimal Router OS Installer
   KERNEL /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts console=tty0 console=ttyS0,115200
+  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts console=ttyS0,115200 console=tty0
+EOF
+}
+
+build_grub_config() {
+    # UEFI/OVMF boot path gets the same serial console as the BIOS/syslinux path.
+    cat > "$BUILD_DIR/grub.cfg" <<'EOF'
+set timeout=1
+
+menuentry "Linux lts" {
+linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage console=ttyS0,115200 console=tty0
+initrd	/boot/initramfs-lts
+}
 EOF
 }
 
@@ -222,8 +241,15 @@ printf '%s\n' "${GITHUB_SHA:-unknown}" > "$INJECT_DIR/minimalrouter/BUILD_COMMIT
 rm -f "$OUT_ISO" "$OUT_SHA"
 
 echo "[6/7] Remastering the bootable Alpine ISO..."
+# The live kernel stays the base ISO's own (6.12.94): the base initramfs
+# carries storage modules built for exactly that kernel, and booting a newer
+# kernel makes the initramfs fail to load them ("mounting boot media failed").
+# The live environment gets the booted kernel's modules from the base ISO's
+# modloop-lts, mounted explicitly by the installer (see live-installer.sh).
+
 # xorriso replay preserves the original Alpine BIOS/UEFI hybrid boot equipment
-# while mapping our payload and apkovl into the ISO filesystem.
+# (kernel, initramfs and modloop stay the base ISO's own — the live boot is a
+# pure installer; the installed system runs its own bundle-matched kernel).
 xorriso \
     -indev "$BASE_ISO" \
     -outdev "$OUT_ISO" \

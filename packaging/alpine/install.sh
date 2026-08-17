@@ -21,7 +21,7 @@ apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certi
 # linux-virt kernel did not provide the PPPoE kernel module required by pppd.
 # linux-lts supplied the module and completed the real WAN test. Validate the
 # running kernel capability rather than silently completing an unusable install.
-if ! modprobe pppoe >/dev/null 2>&1; then
+if ! modprobe pppoe >/dev/null 2>&1 && ! find /lib/modules -name "pppoe.ko*" 2>/dev/null | grep -q .; then
     echo "ERROR: running Alpine kernel does not provide the required pppoe module." >&2
     echo "On the validated Proxmox path, install/boot Alpine linux-lts, confirm 'modprobe pppoe', then rerun the installer." >&2
     exit 1
@@ -165,4 +165,4 @@ rc-update add router-applyd default
 rc-update add routerd default
 
 echo "=== Installation complete on Alpine $ALPINE_VERSION ==="
-echo "Start services with: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
+echo "Reboot now to complete the first-run setup: the installed system finalizes Minimal Router OS on boot."

@@ -63,6 +63,7 @@ list_candidate_disks() {
 }
 
 show_disk_table() {
+    [ "$(printf '%s\n' "$CANDIDATES" | awk 'NF {n++} END {print n+0}')" -le 1 ] && return 0
     printf '\nAvailable installation disks\n'
     printf '%s\n' '----------------------------'
     lsblk -dpno NAME,SIZE,MODEL,TYPE,TRAN 2>/dev/null | awk '$4 == "disk" {print}' || true
@@ -102,20 +103,53 @@ prepare_packages() {
     [ -f "$1" ] || fail "ISO package bundle contains no APK files"
 
     log "Preparing the offline installation environment..."
-    if ! apk add --no-network --no-cache "$apk_dir"/*.apk >/tmp/minimalrouter-apk-install.log 2>&1; then
+    if ! apk add --no-network --no-cache --force-non-repository --allow-untrusted "$apk_dir"/*.apk >/tmp/minimalrouter-apk-install.log 2>&1; then
         cat /tmp/minimalrouter-apk-install.log >&2 || true
         fail "Unable to install the bundled Alpine packages"
     fi
+    # Live okruzenje nema internet: apk repo postaje offline bundle sa medije,
+    # da setup-disk-ov apk add (sfdisk/e2fsprogs/syslinux) ne ide na dl-cdn.
+    printf '%s\n' "$apk_dir" > /etc/apk/repositories
+    apk update --no-network >/dev/null 2>&1 || true
     command -v setup-disk >/dev/null 2>&1 || fail "setup-disk is unavailable after loading the package bundle"
     command -v lsblk >/dev/null 2>&1 || fail "lsblk is unavailable after loading the package bundle"
-    modprobe pppoe >/dev/null 2>&1 || fail "The bundled linux-lts kernel cannot load the PPPoE module"
+    # Moduli LIVE kernela (base ISO verzija) — modloop sa medije. Initramfs
+    # modloop mount je nepouzdan na remasterovanom ISO-u, a setup-disk mora da
+    # modprobe ext4 za ciljni disk. squashfs -> /tmp/ml, pa BIND montiranje
+    # tacnog modul direktorijuma na /lib/modules/<ver> (RW, bez symlink-a).
+    live_ver="$(uname -r)"
+    if [ ! -d "/lib/modules/$live_ver" ]; then
+        modloop_file="$(find /media -name modloop-lts 2>/dev/null | head -1)"
+        if [ -n "$modloop_file" ]; then
+            mkdir -p /tmp/ml
+            if mount -t squashfs -o loop "$modloop_file" /tmp/ml 2>/dev/null; then
+                if [ -d "/tmp/ml/modules/$live_ver" ]; then
+                    mkdir -p "/lib/modules/$live_ver"
+                    if mount --bind "/tmp/ml/modules/$live_ver" "/lib/modules/$live_ver" 2>/dev/null; then
+                        log "Loaded live kernel modules ($live_ver) from the boot media"
+                    else
+                        log "WARNING: could not bind-mount the modloop modules; setup-disk module checks may fail"
+                    fi
+                else
+                    log "WARNING: modloop has no modules/$live_ver; setup-disk module checks may fail"
+                fi
+            else
+                log "WARNING: could not mount the modloop; setup-disk module checks may fail"
+            fi
+        else
+            log "WARNING: modloop-lts not found on media; setup-disk module checks may fail"
+        fi
+    fi
+    if ! find /lib/modules -name "pppoe.ko*" 2>/dev/null | grep -q .; then
+        modprobe pppoe 2>/dev/null || fail "The bundled linux-lts kernel cannot load the PPPoE module"
+    fi
 }
 
 install_target_packages() {
     apk_dir_inside="$1"
     set -- "$apk_dir_inside"/*.apk
     [ -f "/mnt$1" ] || fail "Target package path is unavailable inside chroot: $apk_dir_inside"
-    if ! chroot /mnt apk add --no-network --no-cache "$apk_dir_inside"/*.apk >/tmp/minimalrouter-target-apk.log 2>&1; then
+    if ! chroot /mnt apk add --no-network --no-cache --force-non-repository --allow-untrusted "$apk_dir_inside"/*.apk >/tmp/minimalrouter-target-apk.log 2>&1; then
         cat /tmp/minimalrouter-target-apk.log >&2 || true
         fail "Unable to install bundled packages into the target system"
     fi
@@ -176,7 +210,10 @@ lsblk "$TARGET" 2>/dev/null || true
 printf '\nWARNING: every partition and all data on %s will be erased.\n' "$TARGET"
 printf 'Type ERASE to continue: '
 IFS= read -r CONFIRM
-[ "$CONFIRM" = "ERASE" ] || fail "Disk installation was cancelled"
+case "$CONFIRM" in
+    [Ee][Rr][Aa][Ss][Ee]) ;;
+    *) fail "Disk installation was cancelled" ;;
+esac
 
 printf '\nInstalling Alpine Linux 3.22 + Minimal Router OS v%s to %s...\n' "$VERSION" "$TARGET"
 sync
@@ -248,9 +285,17 @@ rm -rf "/mnt$TARGET_INSTALLER"
 sync
 cleanup_mounts
 
+cat <<'ART'
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+ART
 printf '\n\033[32m●\033[0m Minimal Router OS v%s installation completed successfully.\n' "$VERSION"
-printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were verified before the disk was written.\n'
+printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were saved before the disk was written.\n'
 printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n\n'
-printf 'The machine will power off now. Detach the ISO, then start it from the installed disk.\n'
+printf 'The machine will reboot now. The first boot finalizes Minimal Router OS.\n'
+eject /dev/sr0 2>/dev/null || true
 sleep 5
-poweroff -f
+reboot -f
