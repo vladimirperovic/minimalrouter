@@ -107,10 +107,12 @@ expect {
 
 # This marker is printed only after setup-disk, target APK installation,
 # install-core, SSH/serial target setup and configuration-state copy complete.
+# On failure, do not exit on the first word "ERROR:"; wait until fail() announces
+# the recovery shell so the complete Alpine diagnostic log reaches CI output.
 expect {
     -re {Minimal Router OS.*installation completed successfully} {}
-    -re {ERROR:} {
-        puts stderr "installer reported an error"
+    -re {A recovery shell will open on this console} {
+        puts stderr "installer reported an error after complete diagnostics were emitted"
         exit 30
     }
     timeout { puts stderr "timeout waiting for completed disk installation"; exit 31 }
