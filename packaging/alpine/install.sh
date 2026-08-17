@@ -13,7 +13,7 @@ fi
 
 # 2. Install system dependencies from the pinned repository.
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates openssh-server \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc logrotate
 
@@ -156,11 +156,12 @@ fi
 # 6. Enable services in OpenRC default runlevel
 # MinimalRouter owns every router interface. dhcpcd must not race
 # router-applyd/pppd for DHCP addresses or default routes at boot.
-for unused_service in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+for unused_service in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
 rc-update add chronyd default
+rc-update add sshd default
 rc-update add router-applyd default
 rc-update add routerd default
 

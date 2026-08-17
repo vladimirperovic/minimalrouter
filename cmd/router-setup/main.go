@@ -121,7 +121,6 @@ func collect(args []string) error {
 	fmt.Println("  5. A final summary — nothing is applied before you confirm it")
 	fmt.Println()
 	fmt.Println("Nothing is committed until you review and confirm the final summary.")
-	fmt.Println("Nothing is committed until you review and confirm the final summary.")
 	fmt.Println()
 
 	pppoeUser, err := ui.readLine("PPPoE username (leave empty for an isolated lab): ")

@@ -63,7 +63,7 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
@@ -309,11 +309,12 @@ fi
 echo "[7/7] Enabling services..."
 # MinimalRouter owns every router interface. dhcpcd must not race
 # router-applyd/pppd for DHCP addresses or default routes at boot.
-for svc in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+for svc in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done
 rc-update add chronyd default
+rc-update add sshd default
 rc-update add router-applyd default
 rc-update add routerd default
 

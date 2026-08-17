@@ -29,6 +29,7 @@ fi
 SETUP_BIN="$SCRIPT_DIR/bin/router-setup-${BIN_ARCH}"
 CORE_INSTALLER="$SCRIPT_DIR/install-core.sh"
 PROVISION_FILE=/run/minimalrouter-console-setup.json
+LIVE_LAN_FILE=/run/minimalrouter-live-lan
 INTERACTIVE_SETUP=0
 
 cleanup() {
@@ -117,6 +118,12 @@ if [ -t 0 ] && [ "${MINIMALROUTER_SKIP_CONSOLE_SETUP:-0}" != "1" ]; then
 
     rm -f "$PROVISION_FILE"
     "$SETUP_BIN" collect --output "$PROVISION_FILE" --data-dir /var/lib/minimalrouter
+    if [ "${MINIMALROUTER_ISO_INSTALL:-0}" = "1" ] && [ -s "$PROVISION_FILE" ]; then
+        live_lan="$(sed -n 's/.*"lan_interface":"\([^"]*\)".*/\1/p' "$PROVISION_FILE" | head -1)"
+        [ -n "$live_lan" ] || { echo "ERROR: selected LAN interface could not be recovered for ISO SSH" >&2; exit 1; }
+        printf '%s\n' "$live_lan" > "$LIVE_LAN_FILE"
+        chmod 0600 "$LIVE_LAN_FILE"
+    fi
 fi
 
 # Run the existing hardened installer unchanged. This keeps one source of truth

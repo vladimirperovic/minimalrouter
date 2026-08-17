@@ -103,14 +103,21 @@ prepare_packages() {
     [ -f "$1" ] || fail "ISO package bundle contains no APK files"
 
     log "Preparing the offline installation environment..."
-    if ! apk add --no-network --no-cache --force-non-repository --allow-untrusted "$apk_dir"/*.apk >/tmp/minimalrouter-apk-install.log 2>&1; then
+    if ! apk add --no-network --no-cache --force-non-repository "$apk_dir"/*.apk >/tmp/minimalrouter-apk-install.log 2>&1; then
         cat /tmp/minimalrouter-apk-install.log >&2 || true
         fail "Unable to install the bundled Alpine packages"
     fi
-    # Live okruzenje nema internet: apk repo postaje offline bundle sa medije,
-    # da setup-disk-ov apk add (sfdisk/e2fsprogs/syslinux) ne ide na dl-cdn.
-    printf '%s\n' "$apk_dir" > /etc/apk/repositories
-    apk update --no-network >/dev/null 2>&1 || true
+
+    # setup-disk requires a real APKINDEX. Discover the repository on the actual
+    # mounted Alpine ISO instead of assuming /media/cdrom or treating our flat
+    # package bundle as a repository.
+    base_repo="$(find "$MEDIA/apks" -type f -name APKINDEX.tar.gz -print 2>/dev/null | head -1 | xargs -r dirname)"
+    [ -n "$base_repo" ] || fail "The Alpine base repository (APKINDEX.tar.gz) was not found on the boot media"
+    printf '%s\n' "$base_repo" > /etc/apk/repositories
+    if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
+        cat /tmp/minimalrouter-apk-update.log >&2 || true
+        fail "The Alpine base repository on the ISO could not be opened"
+    fi
     command -v setup-disk >/dev/null 2>&1 || fail "setup-disk is unavailable after loading the package bundle"
     command -v lsblk >/dev/null 2>&1 || fail "lsblk is unavailable after loading the package bundle"
     # Moduli LIVE kernela (base ISO verzija) — modloop sa medije. Initramfs
@@ -149,10 +156,117 @@ install_target_packages() {
     apk_dir_inside="$1"
     set -- "$apk_dir_inside"/*.apk
     [ -f "/mnt$1" ] || fail "Target package path is unavailable inside chroot: $apk_dir_inside"
-    if ! chroot /mnt apk add --no-network --no-cache --force-non-repository --allow-untrusted "$apk_dir_inside"/*.apk >/tmp/minimalrouter-target-apk.log 2>&1; then
+    if ! chroot /mnt apk add --no-network --no-cache --force-non-repository "$apk_dir_inside"/*.apk >/tmp/minimalrouter-target-apk.log 2>&1; then
         cat /tmp/minimalrouter-target-apk.log >&2 || true
         fail "Unable to install bundled packages into the target system"
     fi
+}
+
+configure_live_ssh() {
+    live_lan_file=/run/minimalrouter-live-lan
+    [ -r "$live_lan_file" ] || fail "Selected LAN interface is unavailable for recovery SSH"
+    live_lan="$(tr -d '\r\n' < "$live_lan_file")"
+    [ -n "$live_lan" ] || fail "Selected LAN interface is empty"
+    [ -e "/sys/class/net/$live_lan" ] || fail "Selected LAN interface does not exist: $live_lan"
+
+    ip link set dev "$live_lan" up
+    ip addr flush dev "$live_lan" 2>/dev/null || true
+    ip addr add 192.168.1.1/24 dev "$live_lan"
+
+    mkdir -p /etc/ssh
+    ssh-keygen -A >/dev/null 2>&1
+    cat > /etc/ssh/sshd_config <<'SSHD'
+Port 22
+AddressFamily inet
+ListenAddress 192.168.1.1
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+X11Forwarding no
+AllowTcpForwarding no
+PermitTunnel no
+Subsystem sftp internal-sftp
+SSHD
+    rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1 || fail "Recovery SSH could not be started"
+
+    if [ -c /dev/ttyS0 ] && ! grep -q '^ttyS0::respawn:' /etc/inittab 2>/dev/null; then
+        printf '%s\n' 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /etc/inittab
+        grep -qxF ttyS0 /etc/securetty 2>/dev/null || printf '%s\n' ttyS0 >> /etc/securetty
+        kill -HUP 1 2>/dev/null || true
+    fi
+
+    printf '\nRecovery access is active on the selected LAN:\n'
+    printf '  SSH:    ssh root@192.168.1.1\n'
+    printf '  Serial: ttyS0 at 115200 baud\n'
+    printf 'Use the recovery password you just set. SSH is not exposed on the WAN.\n\n'
+}
+
+verify_bundle() {
+    manifest="$ISO_ROOT/APK-SHA256SUMS"
+    [ -r "$manifest" ] || fail "ISO APK checksum manifest is missing"
+    if ! (cd "$APK_DIR" && sha256sum -c "$manifest") >/tmp/minimalrouter-apk-sha.log 2>&1; then
+        cat /tmp/minimalrouter-apk-sha.log >&2 || true
+        fail "ISO APK bundle checksum verification failed"
+    fi
+}
+
+configure_target_recovery() {
+    root_shadow="$(grep '^root:' /etc/shadow | head -1)"
+    [ -n "$root_shadow" ] || fail "Live recovery password hash is unavailable"
+    grep -v '^root:' /mnt/etc/shadow > /mnt/etc/shadow.minimalrouter
+    { printf '%s\n' "$root_shadow"; cat /mnt/etc/shadow.minimalrouter; } > /mnt/etc/shadow
+    rm -f /mnt/etc/shadow.minimalrouter
+    chmod 0600 /mnt/etc/shadow
+
+    mkdir -p /mnt/etc/ssh
+    cat > /mnt/etc/ssh/sshd_config <<'SSHD'
+Port 22
+AddressFamily inet
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+X11Forwarding no
+AllowTcpForwarding no
+PermitTunnel no
+Subsystem sftp internal-sftp
+SSHD
+    chroot /mnt ssh-keygen -A >/dev/null 2>&1
+    chroot /mnt rc-update add sshd default >/dev/null
+
+    grep -qxF ttyS0 /mnt/etc/securetty 2>/dev/null || printf '%s\n' ttyS0 >> /mnt/etc/securetty
+    if ! grep -q '^ttyS0::respawn:' /mnt/etc/inittab 2>/dev/null; then
+        printf '%s\n' 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /mnt/etc/inittab
+    fi
+
+    if [ -f /mnt/etc/update-extlinux.conf ]; then
+        sed -i '/# MinimalRouter serial begin/,/# MinimalRouter serial end/d' /mnt/etc/update-extlinux.conf
+        cat >> /mnt/etc/update-extlinux.conf <<'EXTLINUX'
+# MinimalRouter serial begin
+serial_port=0
+serial_baud=115200
+default_kernel_opts="$default_kernel_opts console=tty0 console=ttyS0,115200"
+# MinimalRouter serial end
+EXTLINUX
+        chroot /mnt update-extlinux >/dev/null 2>&1 || fail "Could not persist the serial console in extlinux"
+    fi
+    if [ -f /mnt/etc/default/grub ] && [ -d /mnt/boot/grub ]; then
+        sed -i '/# MinimalRouter serial begin/,/# MinimalRouter serial end/d' /mnt/etc/default/grub
+        cat >> /mnt/etc/default/grub <<'GRUB'
+# MinimalRouter serial begin
+GRUB_TERMINAL="console serial"
+GRUB_SERIAL_COMMAND="serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1"
+GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT console=tty0 console=ttyS0,115200"
+# MinimalRouter serial end
+GRUB
+        chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || fail "Could not persist the serial console in GRUB"
+    fi
+
+    cat > /mnt/etc/apk/repositories <<'REPOS'
+https://dl-cdn.alpinelinux.org/alpine/v3.22/main
+https://dl-cdn.alpinelinux.org/alpine/v3.22/community
+REPOS
 }
 
 MEDIA="$(wait_for_media)" || fail "MinimalRouter payload was not found on the boot media"
@@ -166,12 +280,13 @@ VERSION="dev"
 [ -d "$DIST" ] || fail "MinimalRouter distribution payload is missing"
 [ -x "$DIST/bin/router-setup-amd64" ] || fail "router-setup is missing from the ISO payload"
 
+verify_bundle
 prepare_packages "$APK_DIR"
 
 # The normal installer owns the visible welcome/prerequisite screen, PPPoE
 # discovery, WAN/LAN confirmation, dashboard password and transactional network
 # verification. VERSION is copied beside it by the ISO builder.
-MINIMALROUTER_OFFLINE=1 sh "$DIST/install.sh" --offline || fail "MinimalRouter live configuration did not verify successfully"
+MINIMALROUTER_ISO_INSTALL=1 MINIMALROUTER_OFFLINE=1 sh "$DIST/install.sh" --offline || fail "MinimalRouter live configuration could not be prepared"
 
 printf '\nRecovery console password\n'
 printf '%s\n' '-------------------------'
@@ -180,6 +295,7 @@ printf 'It is separate from the Web Dashboard administrator password.\n\n'
 while ! passwd; do
     printf 'The passwords did not match or were rejected. Try again.\n'
 done
+configure_live_ssh
 
 BOOT_SOURCE="$(findmnt -no SOURCE "$MEDIA" 2>/dev/null || true)"
 BOOT_DISK="$(boot_disk_for_source "$BOOT_SOURCE")"
@@ -248,13 +364,19 @@ cp "$ISO_ROOT/VERSION" "/mnt$TARGET_INSTALLER/VERSION" 2>/dev/null || true
 # setup-disk may install only the base world. Reinstalling the signed APK bundle
 # inside the target is deterministic, offline and guarantees every router
 # dependency is present before install-core.sh performs its checks.
-APK_DIR_INSIDE="$APK_DIR"
+TARGET_APK_DIR=/var/cache/minimalrouter/apks
+rm -rf "/mnt$TARGET_APK_DIR"
+mkdir -p "/mnt$TARGET_APK_DIR"
+cp -a "$APK_DIR"/. "/mnt$TARGET_APK_DIR/"
+cp "$ISO_ROOT/APK-SHA256SUMS" "/mnt$TARGET_APK_DIR/APK-SHA256SUMS"
+APK_DIR_INSIDE="$TARGET_APK_DIR"
 install_target_packages "$APK_DIR_INSIDE"
 
 if ! chroot /mnt sh "$TARGET_INSTALLER/install-core.sh" --offline; then
     cleanup_mounts
     fail "MinimalRouter core installation into the target system failed"
 fi
+configure_target_recovery
 
 # Freeze the verified live configuration before copying SQLite/WAL and the
 # helper's last-good state. This avoids carrying a database that is changing
@@ -294,7 +416,9 @@ cat <<'ART'
 ART
 printf '\n\033[32m●\033[0m Minimal Router OS v%s installation completed successfully.\n' "$VERSION"
 printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were saved before the disk was written.\n'
-printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n\n'
+printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
+printf '\033[32m●\033[0m SSH after boot: ssh root@192.168.1.1 (LAN/WireGuard only)\n'
+printf '\033[32m●\033[0m Serial recovery: ttyS0 @ 115200\n\n'
 printf 'The machine will reboot now. The first boot finalizes Minimal Router OS.\n'
 eject /dev/sr0 2>/dev/null || true
 sleep 5

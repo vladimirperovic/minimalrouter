@@ -34,7 +34,7 @@ APK_MANIFEST="$BUILD_DIR/APK-SHA256SUMS"
 # firmware family would add roughly a gigabyte that a Proxmox/VirtIO router can
 # never use. Physical appliances needing device-specific firmware can install
 # the appropriate signed Alpine firmware package later.
-REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+REQUIRED_PACKAGES="alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -78,7 +78,7 @@ fetch_apks() {
                 apk add --no-cache linux-firmware-none >/dev/null
                 apk fetch --recursive --output /work/build/iso/apks \
                   alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs grub grub-efi syslinux dosfstools util-linux \
-                  nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates \
+                  nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
                   wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
                   chrony chrony-openrc logrotate
             '
@@ -121,22 +121,28 @@ pidfile="/run/minimalrouter-installer.pid"
  }
 
 start() {
-    # Instalater radi na vidljivoj konzoli: tty1 (VGA) ako postoji,
-    # inace ttyS0 (serial-only VM).
-    if [ -c /dev/tty1 ]; then
-        INSTALL_TTY="/dev/tty1"
-    else
-        INSTALL_TTY="/dev/ttyS0"
-    fi
+    INSTALL_TTY="/dev/tty1"
+    case " $(cat /proc/cmdline 2>/dev/null || true) " in
+        *" minimalrouter.console=ttyS0 "*) INSTALL_TTY="/dev/ttyS0" ;;
+        *) [ -c /dev/tty1 ] || INSTALL_TTY="/dev/ttyS0" ;;
+    esac
     ebegin "Launching Minimal Router OS installer on ${INSTALL_TTY#/dev/}"
 
-    # Prevent init from respawning a login prompt on top of the installer.
+    # The installer owns only its selected TTY. The other console remains a
+    # recovery path instead of being killed unconditionally.
     if [ -f /etc/inittab ]; then
-        sed -i 's#^ttyS0::respawn:#\# MinimalRouter owns ttyS0: #g; s#^tty1::respawn:#\# MinimalRouter owns tty1: #g' /etc/inittab 2>/dev/null || true
+        if [ "$INSTALL_TTY" = "/dev/ttyS0" ]; then
+            sed -i 's#^ttyS0::respawn:#\# MinimalRouter installer owns ttyS0: #g' /etc/inittab 2>/dev/null || true
+        else
+            sed -i 's#^tty1::respawn:#\# MinimalRouter installer owns tty1: #g' /etc/inittab 2>/dev/null || true
+        fi
         kill -HUP 1 2>/dev/null || true
     fi
-    pkill -TERM -f '[g]etty.*ttyS0' 2>/dev/null || true
-    pkill -TERM -f '[g]etty.*tty1' 2>/dev/null || true
+    pkill -TERM -f "[g]etty.*${INSTALL_TTY#/dev/}" 2>/dev/null || true
+
+    if [ -c /dev/ttyS0 ]; then
+        printf 'MinimalRouter installer service started; UI=%s; serial=ttyS0@115200\n' "${INSTALL_TTY#/dev/}" >/dev/ttyS0 2>/dev/null || true
+    fi
 
     (
         exec <"$INSTALL_TTY" >"$INSTALL_TTY" 2>&1
@@ -174,10 +180,16 @@ TIMEOUT 20
 DEFAULT minimalrouter
 
 LABEL minimalrouter
-  MENU LABEL Minimal Router OS Installer
+  MENU LABEL Minimal Router OS Installer (VGA/noVNC)
   KERNEL /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts console=ttyS0,115200 console=tty0
+  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts console=tty0 console=ttyS0,115200
+
+LABEL minimalrouter-serial
+  MENU LABEL Minimal Router OS Installer (serial ttyS0 115200)
+  KERNEL /boot/vmlinuz-lts
+  INITRD /boot/initramfs-lts
+  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts minimalrouter.console=ttyS0 console=tty0 console=ttyS0,115200
 EOF
 }
 
@@ -186,8 +198,17 @@ build_grub_config() {
     cat > "$BUILD_DIR/grub.cfg" <<'EOF'
 set timeout=1
 
-menuentry "Linux lts" {
-linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage console=ttyS0,115200 console=tty0
+serial --unit=0 --speed=115200 --word=8 --parity=no --stop=1
+terminal_input console serial
+terminal_output console serial
+
+menuentry "Minimal Router OS Installer (VGA/noVNC)" {
+linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage console=tty0 console=ttyS0,115200
+initrd	/boot/initramfs-lts
+}
+
+menuentry "Minimal Router OS Installer (serial ttyS0 115200)" {
+linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage minimalrouter.console=ttyS0 console=tty0 console=ttyS0,115200
 initrd	/boot/initramfs-lts
 }
 EOF
@@ -227,6 +248,7 @@ fetch_apks
 echo "[4/7] Building MinimalRouter boot overlay..."
 build_apkovl
 build_syslinux_config
+build_grub_config
 
 echo "[5/7] Preparing ISO payload..."
 rm -rf "$INJECT_DIR"
@@ -257,6 +279,7 @@ xorriso \
     -map "$INJECT_DIR/minimalrouter" /minimalrouter \
     -map "$BUILD_DIR/minimalrouter.apkovl.tar.gz" /minimalrouter.apkovl.tar.gz \
     -map "$BUILD_DIR/syslinux.cfg" /boot/syslinux/syslinux.cfg \
+    -map "$BUILD_DIR/grub.cfg" /boot/grub/grub.cfg \
     -volid "MR_${VOLUME_VERSION}" \
     -commit \
     -end
@@ -272,6 +295,8 @@ iso_ls_has / minimalrouter.apkovl.tar.gz || { echo "ERROR: final ISO is missing 
 iso_ls_has /boot vmlinuz-lts || { echo "ERROR: final ISO is missing vmlinuz-lts" >&2; exit 1; }
 iso_ls_has /boot initramfs-lts || { echo "ERROR: final ISO is missing initramfs-lts" >&2; exit 1; }
 iso_ls_has /boot modloop-lts || { echo "ERROR: final ISO is missing modloop-lts" >&2; exit 1; }
+iso_ls_has /boot/grub grub.cfg || { echo "ERROR: final ISO is missing the custom UEFI GRUB config" >&2; exit 1; }
+ls "$APK_DIR"/openssh-server-*.apk >/dev/null 2>&1 || { echo "ERROR: final ISO package bundle is missing openssh-server" >&2; exit 1; }
 
 sha256sum "$OUT_ISO" > "$OUT_SHA"
 
