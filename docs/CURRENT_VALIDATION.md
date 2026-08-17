@@ -1,21 +1,65 @@
 # Current validation status
 
-This is the short source of truth for current evidence. Historical reports remain
-in `docs/` for traceability. A code or scenario fix is not recorded as a real-lab
-PASS until the corresponding hardware/Proxmox run has been repeated.
+This document is the short source of truth for what is proven today. Historical
+reports remain in `docs/` for traceability. Automated CI evidence and real
+owner-Proxmox/ISP evidence are deliberately kept separate.
 
-## Current implementation
+## Current release line
 
-The repository currently includes:
+**Minimal Router OS v0.1.4 — Beta / controlled pilot.**
 
-- Alpine router packaging with `routerd` / `router-applyd` privilege separation
-- nftables firewall/NAT, PPPoE, DHCP/DNS, WireGuard, QoS and optional Wi-Fi/Squid
-- No-IP and Cloudflare DDNS through `inadyn`
-- transactional config apply, confirmation, rollback and canonical recovery
-- encrypted backups, snapshots and crash-safe A/B updates
-- bounded storage, log rotation, conntrack/time/service health aggregation
-- gateway quality history, live bandwidth, device search and Wake-on-LAN
-- automated Go/frontend/security/Alpine/QEMU/network-namespace test suites
+v0.1.4 has a CI-built Golden Appliance ISO for AMD64/Proxmox and signed
+AMD64/ARM64 distribution/update payloads. It is not yet recommended as an
+unattended replacement for pfSense/OpenWrt.
+
+## Golden Appliance ISO evidence — v0.1.4
+
+The architecture merged through PR #100 after a complete QEMU installation test
+passed. The release workflow is also required to repeat the same full E2E test
+against the signed release ISO before publication.
+
+The automated Golden path proves:
+
+- Alpine/MinimalRouter rootfs builds successfully;
+- Golden image checksum and gzip integrity pass;
+- production ISO boots and starts its flasher automatically;
+- one clearly virtual QEMU disk is safely auto-selected;
+- the Golden image is raw-copied to a blank 8 GiB VirtIO disk;
+- the VM reboots into the installed `linux-lts` appliance;
+- firstboot completes over `ttyS0`;
+- installed serial root recovery login works;
+- a real password-authenticated SSH login works through the test LAN;
+- LAN `192.168.1.1/24` is present;
+- nftables contains the expected trusted-LAN SSH accept rule;
+- SSH TCP/22 is listening and enabled in OpenRC;
+- firstboot completion marker and canonical SQLite state exist;
+- running kernel matches `/lib/modules/$(uname -r)`;
+- `routerd` reaches its readiness marker;
+- Dashboard TCP/8443 is listening;
+- Alpine v3.22 main/community repository configuration remains valid.
+
+The test emits `FULL_ISO_INSTALL_OK` only after the required markers pass.
+
+### Exact boundary of that evidence
+
+The complete installed-disk E2E target is currently:
+
+```text
+AMD64 / x86-64
+QEMU/KVM
+SeaBIOS
+MBR + ExtLinux Golden disk
+8 GiB VirtIO Block target
+2 VirtIO NICs
+serial ttyS0-driven E2E
+```
+
+The installer ISO contains BIOS and UEFI boot metadata, but this does **not** yet
+qualify the installed Golden disk for UEFI.
+
+Automated QEMU installation does not prove real ISP PPPoE, physical NICs,
+external Internet exposure, thermals, power-loss behavior or long-duration
+operation.
 
 ## Real Proxmox evidence — 2026-08-01
 
@@ -30,169 +74,95 @@ Router for about 27 minutes and then successfully returned to pfSense.
 | Ping 1.1.1.1 | 2.77 ms | **1.94 ms** |
 | Ping 8.8.8.8 | 8.54 ms | **7.61 ms** |
 | DNS (200 queries) | **12.65 ms, 200/200** | 13.00 ms, 200/200 |
-| CPU stress | **0% loss, dashboard 30/30** | — |
 | RAM after test | **172 MB** | — |
 
 Additional results:
 
-- real PPPoE and Internet forwarding: **PASS**
-- external phone WireGuard handshake: **PASS**
-- dashboard access through WireGuard: **PASS**
-- pfSense operational fallback: **PASS**, about 93 seconds
+- real PPPoE and Internet forwarding: **PASS**;
+- external phone WireGuard handshake: **PASS**;
+- Dashboard access through WireGuard: **PASS**;
+- pfSense operational fallback: **PASS**, about 93 seconds.
 
 The tested Alpine `linux-virt` guest lacked the PPPoE module required by the real
-WAN path. `linux-lts` provided it and the pilot succeeded. The supported pilot
-preflight is therefore `modprobe pppoe`; failure is a hard stop.
+WAN path. `linux-lts` provided it and the pilot succeeded. The v0.1.4 Golden image
+therefore standardizes the AMD64 appliance on `linux-lts` rather than asking the
+user to discover this during installation.
 
-The deployment uses No-IP. The successful external WireGuard pilot used a
-manually provisioned hostname on the Proxmox side, so Minimal Router-managed
-No-IP and later public-IP propagation still require a real-provider rerun.
+The successful external WireGuard pilot used a manually provisioned hostname on
+the Proxmox side. MinimalRouter-managed No-IP and later public-IP propagation
+still require a real-provider rerun.
 
-## Isolated-lab evidence — 2026-08-06
+## Isolated Proxmox lab evidence — 2026-08-06
 
-A dedicated Proxmox lab (ISP simulator + router + LAN client on isolated
-`vmbr-lab-*` bridges) validated:
+A dedicated ISP-simulator → router → LAN-client lab validated:
 
-- PPPoE CHAP negotiation: **PASS**
-- PPPoE PAP negotiation: **PASS**
-- private/CGNAT WAN address with safe router-local egress: **PASS after fix**
-- reboot with PPPoE session recovery and correct dnsmasq/WireGuard ordering: **PASS**
-
-The validated fixes include the nftables output-chain anti-leak fib check, PAP
-secret generation/installation, and PPPoE restart hygiene. See [`LAB.md`](LAB.md)
-for topology and evidence.
+- PPPoE CHAP negotiation: **PASS**;
+- PPPoE PAP negotiation: **PASS**;
+- private/CGNAT WAN address with safe router-local egress: **PASS after fix**;
+- reboot with PPPoE session recovery and correct dnsmasq/WireGuard ordering: **PASS**.
 
 ## Torture-lab evidence — 2026-08-08
 
-Scenarios 18–25 were run end to end in the isolated Proxmox lab:
+Scenarios 18–25 were run end to end:
 
 | Scenario | Result |
 |---|---|
-| 18/19 — WireGuard wg0/wg1 recovery after endpoint blackhole | **PASS** |
-| 20 — extraLAN isolation | **PASS** |
-| 21 — full reboot: LAN/DHCP/DNS/PPPoE/firewall recover, no hybrid runtime | **PASS** |
-| 22 — routerd+applyd crash: initd respawn, PPPoE session survives | **PASS** |
-| 23 — power loss at each transaction fault-hook phase | **PASS** |
-| 24 — signed update 9.9.8→9.9.9 with verification + rollback | **PASS** |
-| 25 — interrupted update mid-activate: cold boot to last-good, no brick | **PASS** |
+| 18/19 — WireGuard recovery after endpoint blackhole | **PASS** |
+| 20 — extra-LAN isolation | **PASS** |
+| 21 — full reboot: LAN/DHCP/DNS/PPPoE/firewall recover | **PASS** |
+| 22 — routerd+applyd crash: supervision/recovery | **PASS** |
+| 23 — transaction fault-hook power-loss phases | **PASS** |
+| 24 — signed update with verification + rollback | **PASS** |
+| 25 — interrupted update mid-activate: cold boot to last-good | **PASS** |
 
-The Squid LAN-reply firewall bug found during the next scenario set is fixed in
-`main` and regression-tested, but the real Proxmox Squid scenario still needs a
-fresh run before it is recorded as PASS.
+Later scenario fixes and definitions remain tracked in the lab/failure documents;
+a corrected test definition is not recorded as a real-lab PASS until rerun.
 
-## Final adversarial code audits — 2026-08-09
+## Automated validation outside the ISO path
 
-Focused hardening merged through PRs #58, #60, #63, #64 and #65 after required
-checks passed on branches current with `main`:
+Repository workflows cover, among other checks:
 
-- external child/provider diagnostics are control-character sanitized and
-  bounded before crossing privileged audit/log boundaries;
-- privileged child-process stdout/stderr capture is capped at 4 MiB and fails
-  closed on overflow in addition to the existing execution timeout;
-- `protocol: both` WireGuard tunnel port forwards are verified as the two real
-  TCP and UDP nftables rules, avoiding false rollback of valid configuration;
-- A/B slot staging is independent of a restrictive root umask: reviewed file
-  modes are restored explicitly and staged directories are normalized to 0755;
-- incoming signed appliance executables must be readable and executable by the
-  unprivileged runtime (minimum 0555), and signed `web/dist` assets must remain
-  readable (minimum 0444); unsafe pre-stage manifest paths are rejected;
-- runtime mode/compatibility invariants are enforced by firmware verification
-  itself and therefore rechecked on the copied temporary A/B slot before it can
-  become pending, closing the preflight/copy metadata race and direct-caller gap;
-- staging rejects a signed appliance whose binary architecture does not match
-  the running host, providing an early fail before the existing activation-time
-  exact runtime-layout gate;
-- the signed `compatibility.json` bootstrap ABI, config schema and runtime
-  protocol are validated explicitly in addition to the existing byte-for-byte
-  activation comparison with the installed stable bootstrap layout;
-- read-only privileged WireGuard telemetry is pinned at the IPC decode boundary
-  to canonical `wg0`/`wg1`, so a compromised `routerd` cannot widen root
-  `wg show` scope by fabricating interface names in its request config;
-- staged writable-file close failures are propagated rather than discarded;
-- stale root-level generated binaries/archives and the obsolete ad-hoc runtime
-  patch helper were removed from the public source tree and exact artifact names
-  are ignored to prevent accidental recommit;
-- public status text now matches the validation evidence: controlled Proxmox
-  pilot, not a supported unattended production firewall.
+- `go test -race`, `go vet`, vulnerability/security scans;
+- frontend lint/unit/build/Playwright E2E;
+- clean Alpine install and update/rollback lifecycle;
+- transaction crash/recovery regression tests;
+- CodeQL, secret scanning and shell/binary checks;
+- ARM64 QEMU smoke tests;
+- isolated WAN-router-LAN DHCP/DNS/NAT/firewall testing;
+- storage-pressure and appliance-health regression tests;
+- control-plane benchmarks.
 
-The activation path already provides an additional independent guard: before the
-active slot pointer moves it requires the candidate `compatibility.json`,
-`slot-exec`, init/sysctl/module/logrotate/PPP integration and architecture-specific
-bootstrap `router-update` / `router-recovery` binaries to match the installed
-stable runtime layout exactly in content and mode. Ordinary A/B activation is
-therefore refused when a release requires a bootstrap/integration-layer change;
-a full signed distribution install is required instead.
-
-PR #60 passed CI, Deep validation, CodeQL, Secret scan, Performance and Service
-supervision on its exact current branch state. PRs #63 and #64 subsequently
-passed their applicable CI/security/deep-validation gates on branches based on
-the resulting `main`. PR #65 was merged only after the current second-pass code,
-tests, repository-hygiene changes and documentation passed the protected branch
-checks; those automated results remain separate from the real-hardware evidence
-below.
-
-## Scenarios 26–40: implementation status vs evidence
-
-The scenario definitions for 26–30 have been corrected since the older lab
-report:
-
-- 26 now creates meaningful ENOSPC pressure dynamically;
-- 27 and 28 now expect the deliberate rejection of unsafe live LAN topology
-  changes instead of treating that safety policy as a product failure;
-- 29 targets the corrected Squid reply-direction firewall behavior;
-- 30 expects provider-aware DDNS verification failure and rollback when the
-  provider cannot be reached.
-
-Those corrections do **not** convert the old failed runs into PASS. They require
-fresh isolated-Proxmox execution. Scenarios 31–40 also do not yet have committed
-current result artifacts. The remaining real-lab/endurance evidence is tracked
-explicitly in [issue #61](https://github.com/vladimirperovic/minimalrouter/issues/61).
-
-## Automated validation
-
-Repository workflows cover:
-
-- `go test -race`, `go vet`, vulnerability and security scans
-- frontend lint/unit/build/Playwright E2E
-- clean Alpine install and update/rollback lifecycle
-- crash/recovery and transaction-state regression tests
-- fuzzing, CodeQL, secret scanning and binary/shell checks
-- ARM64 QEMU smoke tests
-- isolated WAN-router-LAN DHCP/DNS/NAT/firewall testing
-- storage-pressure and appliance-health regression tests
-- control-plane benchmarks
-
-These tests do not replace real ISP, NIC, thermal, power-loss or long-duration
+These tests do not replace real ISP, NIC, thermal, power-loss or endurance
 validation.
 
-## Remaining release gates
+## Remaining gates before unattended production use
 
-Before recommending unattended production use, record real evidence for:
-
-1. repaired scenarios 26–30 and scenarios 31–40;
-2. repeated Proxmox/guest cold boots with stable WAN/LAN identity and no stale
-   DHCP/networking delay;
+1. install the published v0.1.4 Golden ISO from blank disk on owner Proxmox and
+   repeat the real WAN cutover;
+2. repeat guest/host cold boots with stable WAN/LAN mapping;
 3. repeated real PPPoE disconnect/reconnect and reboot recovery;
-4. Minimal Router-managed No-IP update and later IP-change propagation;
+4. MinimalRouter-managed No-IP update and later public-IP change;
 5. WireGuard recovery after real PPPoE reconnect/reboot;
-6. sustained throughput, packet rate, latency/loss and thermal behavior;
+6. encrypted backup restore into a fresh VM;
 7. external IPv4/IPv6 scanning;
-8. encrypted backup restore into a fresh VM;
-9. at least seven days of stable unattended operation;
-10. signed install/recovery media and independent security review.
-
-The authoritative checklist for those remaining evidence gates is issue #61.
-Repository-launch/UI settings that cannot be proved from code alone are tracked
-separately in issue #11.
+8. destructive full-disk/inode/read-only-filesystem and abrupt-power tests;
+9. sustained throughput, packet rate, latency/loss and thermal measurements;
+10. installed-disk UEFI qualification if UEFI is to be supported;
+11. at least seven days of stable unattended operation;
+12. independent focused security review.
 
 ## Recommendation
 
-The current tree is suitable for a **controlled Proxmox pilot** with console
-access and pfSense/another known-good router ready for rollback. The code-side
-release blockers discovered in both 2026-08-09 adversarial passes are fixed and
-merged, but missing real-lab/endurance evidence means it is still premature to
-call the project a supported unattended replacement for pfSense or OpenWrt.
+v0.1.4 is suitable for a **controlled Proxmox pilot** with noVNC/serial recovery
+and a known-good router ready for rollback. The Golden ISO removes the previous
+live-install complexity and is now exercised as an appliance image end-to-end,
+but the real-WAN/endurance gates above still prevent an unattended-production
+claim.
 
-Detailed historical evidence:
-[`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md) and
-[`LAB.md`](LAB.md).
+Detailed evidence and procedures:
+
+- [`GOLDEN-IMAGE.md`](GOLDEN-IMAGE.md)
+- [`ISO_INSTALLATION.md`](ISO_INSTALLATION.md)
+- [`PROXMOX_TEST_REPORT_2026-08-01.md`](PROXMOX_TEST_REPORT_2026-08-01.md)
+- [`LAB.md`](LAB.md)
+- [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md)

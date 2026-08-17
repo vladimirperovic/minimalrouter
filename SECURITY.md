@@ -4,21 +4,24 @@ Minimal Router OS is a network security boundary. Security defects can affect
 every device behind the router, so the project treats secure defaults, least
 privilege, recovery, and honest limitation reporting as core requirements.
 
-The project is currently **early alpha**. No version is supported as an
-unattended production firewall unless a future release explicitly states that
-it has reached that level and publishes the corresponding validation evidence.
+The project is currently **Beta (v0.1.4)**. v0.1.4 is intended for controlled
+pilots with console access and a known-good rollback router. No version is
+supported as an unattended production firewall unless a future release
+explicitly states that it has reached that level and publishes the corresponding
+validation evidence.
 
 ## Supported versions
 
-There is no stable supported release yet.
+There is no stable/LTS supported release yet.
 
 | Version | Security support |
 |---|---|
-| `main` / early-alpha builds | Best-effort development fixes; no SLA |
+| `v0.1.4` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
+| `main` | Active development; may contain unreleased changes |
 | Unofficial forks or modified images | Not supported by this project |
 
-Security fixes may require incompatible configuration or installation changes
-while the project remains in alpha.
+Security fixes may require incompatible configuration, update, or installation
+changes while the project remains in Beta.
 
 ## Reporting a vulnerability
 
@@ -49,7 +52,7 @@ The project aims to:
 
 - deny unsolicited WAN traffic by default;
 - keep management unavailable directly from WAN;
-- require WireGuard before remote management;
+- require WireGuard before remote management outside trusted local networks;
 - keep packet forwarding in the Linux kernel rather than the web application;
 - separate the unprivileged management process from privileged network changes;
 - validate configuration at multiple trust boundaries;
@@ -60,15 +63,15 @@ The project aims to:
 - make ambiguous outcomes block later mutations instead of guessing commit or
   rollback;
 - snapshot and roll back disruptive changes;
-- avoid default credentials and require an administrator password during setup;
+- avoid default credentials and require administrator/recovery passwords during setup;
+- generate unique SSH host keys on first boot rather than cloning image-wide identity;
 - redact secrets from normal API responses, logs, diagnostics, audit events, and
   aggregate health telemetry;
 - keep optional network-facing features disabled until explicitly configured;
 - bound local logs and histories so appliance storage is treated as finite;
 - reject durable mutations when critical storage pressure means their evidence
   cannot be safely persisted;
-- fail closed when a feature, state record, or required runtime adapter is
-  unavailable.
+- fail closed when a feature, state record, or required runtime adapter is unavailable.
 
 These are design objectives and tested properties in specific environments, not
 a guarantee that the software contains no vulnerabilities.
@@ -77,7 +80,7 @@ a guarantee that the software contains no vulnerabilities.
 
 | Component or zone | Trust assumption | Security expectation |
 |---|---|---|
-| WAN | Untrusted | Default deny; no web management |
+| WAN | Untrusted | Default deny; no web or SSH management |
 | LAN clients | Partially trusted | Only required DHCP, DNS, ICMP, and authenticated management paths |
 | Admin browser | Authenticated but exposed to hostile web content | HTTPS, secure cookies, same-origin checks, CSRF protection, bounded sessions |
 | `routerd` | Network-facing and potentially compromisable | Runs unprivileged; no arbitrary command execution or direct service-file writes; blocks mutations after ambiguous privileged outcomes or critical storage pressure |
@@ -85,7 +88,7 @@ a guarantee that the software contains no vulnerabilities.
 | SQLite state | Sensitive canonical state | Restrictive ownership, transactions, bounded access, secret-aware exports, canonical source for reconciliation |
 | Helper journals | Sensitive recovery metadata | Restrictive ownership, structural validation, hashes, atomic replacement, never treated as authoritative over SQLite canonical state |
 | Health telemetry | Read-only operational metadata | Authenticated only; no credentials/private keys; unknown evidence is not promoted to healthy; no automatic remediation |
-| Build and release pipeline | High trust | Pinned dependencies, CI, static analysis, secret scanning, checksums, and future signed releases |
+| Build and release pipeline | High trust | Pinned dependencies, CI/security checks, SSH-signed tags, Ed25519 firmware manifests, tested Golden ISO, checksums and attestations |
 
 ## Secure defaults
 
@@ -94,13 +97,36 @@ The default and first-run configuration is intended to provide:
 - WAN input policy `drop`;
 - stateful firewalling and NAT only where generated policy permits it;
 - management HTTPS on the selected LAN address, not on WAN;
-- SSH, UPnP, plaintext management, Cloudflare integrations, Wi-Fi AP, Squid,
-  QoS, and WireGuard disabled until explicitly configured;
+- password-protected SSH recovery enabled only after firstboot and permitted by
+  generated policy from trusted management networks, never by a WAN accept rule;
+- UPnP, plaintext management, Cloudflare integrations, Wi-Fi AP, Squid, QoS, and
+  WireGuard disabled until explicitly configured;
 - IPv6 disabled and blocked until it has policy parity with IPv4;
 - no WAN port forwards in the current secure appliance profile;
 - DNS and DHCP bound to the selected LAN interface;
-- unique per-device TLS material rather than an image-wide private key;
-- no shipped administrator password.
+- unique per-device TLS/SSH material rather than image-wide private keys;
+- no shipped administrator or recovery password.
+
+## Golden ISO installation boundary
+
+The v0.1.4 Golden ISO is part of the security boundary.
+
+- The user VM is a flasher target, not a package/build host.
+- The live flasher verifies the embedded Golden image before writing it.
+- It may automatically erase only a single clearly virtual QEMU/Proxmox disk;
+  ambiguous layouts require exact target selection and `ERASE` confirmation.
+- Existing MinimalRouter markers stop reinstall before overwrite.
+- The live flasher does not run `apk`, `setup-disk`, `mkinitfs`, target chroots or
+  the MinimalRouter distribution installer.
+- Firstboot runs before networking, SSH or MinimalRouter services and creates the
+  unique router identity and credentials.
+- Release ISOs are built from the already signed AMD64 release distribution and
+  are required to contain `firmware-signing.pub`.
+- The release workflow performs a blank-disk QEMU flash/reboot/firstboot/serial/
+  SSH/runtime test before publishing the ISO.
+
+See [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) and
+[`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md).
 
 ## Authentication and browser security
 
@@ -203,8 +229,7 @@ normal application error.
 - Gateway sampling history is nonessential and is shed under Critical pressure;
   live probing and the in-memory gateway summary continue.
 - Configuration revisions, snapshots, audit events, gateway history, SQLite WAL
-  growth, and router service logs are bounded by explicit retention/rotation
-  policy.
+  growth, and router service logs are bounded by explicit retention/rotation policy.
 
 A full disk, inode exhaustion, or a read-only filesystem can still create failure
 modes beyond percentage-based pressure detection. Those remain destructive
@@ -279,17 +304,21 @@ become router administrator authority by default.
 
 ## Supply-chain security
 
-The public repository uses or plans to use:
+The public repository uses:
 
 - pinned Go modules and a committed `go.sum`;
 - a locked frontend dependency graph;
 - CI for tests, race detection, linting, production builds, repository hygiene,
-  and clean Alpine installation;
+  clean Alpine installation and Golden ISO E2E installation;
 - CodeQL analysis;
 - Dependabot update pull requests;
 - current-tree and full-history secret scanning;
-- checksums for distributed test artifacts;
-- signed release and recovery artifacts before stable production claims.
+- SSH-signed annotated release tags;
+- Ed25519-signed firmware/update manifests with a pinned appliance trust anchor;
+- SHA-256 release checksums;
+- SPDX SBOMs and GitHub attestations;
+- a release Golden ISO built from the already signed AMD64 payload and tested
+  from blank disk before publication.
 
 A CI pass does not replace code review, threat analysis, hardware testing, or
 external security assessment.
@@ -309,9 +338,10 @@ The current project does not claim complete protection against:
 - weak administrator operational practices;
 - undiscovered implementation defects.
 
-Disk encryption, Secure Boot enforcement, signed recovery media, production
-update rollback qualification, stronger `router-applyd` confinement, and
-independent penetration testing remain release work.
+Disk encryption, Secure Boot enforcement, owner-qualified recovery media,
+production update rollback qualification, stronger `router-applyd` confinement,
+full installed-disk UEFI qualification and independent penetration testing remain
+release work.
 
 ## Public repository release gates
 
@@ -326,8 +356,8 @@ Before a private development tree is published as a new public repository:
 - pass a current-tree and full-history secret scan;
 - pass repository-hygiene checks, Go race tests, vet, dashboard lint/build,
   CodeQL, and a clean Alpine installation test on the exact release commit;
-- review the rendered README, screenshot, license, support policy, contribution
-  guide, security policy, and comparison claims;
+- review the rendered README, license, support policy, contribution guide,
+  security policy, and comparison claims;
 - keep the new repository private until all checks pass and the owner explicitly
   approves the separate visibility change.
 
@@ -336,12 +366,12 @@ The maintainer procedure is documented in
 
 ## Production-readiness gates
 
-Public source availability does not make the router production-ready. Before a
-future release is recommended as a household production router, the project must
-also:
+Public source availability and a Beta release do not make the router
+production-ready. Before a future release is recommended as a household
+production router, the project must also:
 
 - verify PPPoE, DHCP, DNS, NAT, WireGuard, boot reconciliation, backup restore,
-  rollback, and recovery on supported physical hardware;
+  rollback, and recovery on supported physical/owner hardware;
 - perform independent external IPv4 and IPv6 scanning from an unrelated network;
 - run fault injection for full disk, inode exhaustion, read-only filesystem,
   service crash, helper-process crash, interrupted transaction, corrupted helper
@@ -350,7 +380,7 @@ also:
   at controlled power-loss boundaries;
 - publish measured sustained throughput, latency, memory, thermals, and failure
   behavior on reference hardware;
-- boot and verify signed recovery media;
+- boot and verify owner-qualified recovery media and all claimed firmware modes;
 - complete an independent focused penetration test;
 - document known limitations without comparison-based security claims.
 
