@@ -53,12 +53,22 @@ docker run --rm --platform linux/amd64 \
     cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
 
     apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
-      --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs \
+      --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs e2fsprogs-extra \
       grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq \
       iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
       wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
       chrony chrony-openrc logrotate
     cp /tmp/repos "$ROOT/etc/apk/repositories"
+
+    # First boot verifies the prebuilt ext4 filesystem with resize2fs before any
+    # router state is written. Alpine ships that binary in e2fsprogs-extra, not
+    # the base e2fsprogs package, so fail the image build here instead of leaving
+    # an unbootable appliance for the live flasher to discover later.
+    [ -x "$ROOT/usr/sbin/resize2fs" ] || {
+      echo "ERROR: installed rootfs is missing /usr/sbin/resize2fs" >&2
+      exit 1
+    }
+
     mkdir -p "$ROOT/root/minimalrouter-installer"
     cp -a /work/build/dist/minimalrouter-linux-amd64/. "$ROOT/root/minimalrouter-installer/"
 
@@ -104,6 +114,7 @@ ISSUE
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
+tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }
 
 # This text is part of the appliance UX, not optional documentation. Prove the
 # exact installed rootfs contains the address the user must open after reboot.
