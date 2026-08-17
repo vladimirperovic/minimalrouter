@@ -71,6 +71,15 @@ func runCommand(command string, args []string) {
 		fmt.Printf("WAN stored. Undo snapshot: %s. Restart router services to reconcile.\n", snap.ID)
 	case "snapshots":
 		listSnapshots()
+	case "support-bundle":
+		fs := flag.NewFlagSet("support-bundle", flag.ExitOnError)
+		output := fs.String("output", "", "output .tar.gz path (default: /tmp/minimalrouter-support-<timestamp>.tar.gz)")
+		_ = fs.Parse(args)
+		path, err := createSupportBundle(*output)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Println("Sanitized support bundle created:", path)
 	case "restore-snapshot":
 		fs := flag.NewFlagSet("restore-snapshot", flag.ExitOnError)
 		id := fs.String("id", "", "snapshot identifier")
@@ -119,7 +128,7 @@ func interactiveMenu() {
 	}
 
 	for {
-		fmt.Print("\nMinimal Router Recovery Console\n===============================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\n0) Shell\nq) Quit\n\nSelect: ")
+		fmt.Print("\nminimalrouter recovery\n======================\n1) Show interfaces / status\n2) Assign WAN interface\n3) Assign LAN interface + IP\n4) Restore last-known-good configuration\n5) List / restore snapshot\n6) Factory reset\n7) Reset admin password / TOTP\n8) Restart router services\n9) Reboot\ns) Create sanitized support bundle\n0) Shell\nq) Quit\n\nSelect: ")
 		choice, ok := readLine("")
 		if !ok {
 			return
@@ -190,6 +199,14 @@ func interactiveMenu() {
 		case "9":
 			if askConfirm("Reboot this router VM now?") {
 				run("reboot")
+			}
+		case "s", "S":
+			path, err := createSupportBundle("")
+			if err != nil {
+				fmt.Println("ERROR:", err)
+			} else {
+				fmt.Println("Sanitized support bundle created:", path)
+				fmt.Println("It excludes passwords, private keys, configuration DB, process environments and shell history.")
 			}
 		case "0":
 			fmt.Println("Type 'exit' to return to recovery console.")
@@ -329,6 +346,7 @@ Commands:
   set-wan --interface NAME
   set-lan --interface NAME --cidr ADDRESS/PREFIX
   snapshots
+  support-bundle [--output PATH]
   restore-last-good
   restore-snapshot --id SNAPSHOT --confirm RESTORE-SNAPSHOT
   factory-reset [--wan NAME --lan NAME] --password-stdin --confirm FACTORY-RESET
