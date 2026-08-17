@@ -33,15 +33,36 @@ root_disk() {
     esac
 }
 
+console_marker_from_disk() {
+    disk="$1"
+    [ -b "$disk" ] || return 1
+    value="$(dd if="$disk" bs=512 skip=64 count=1 2>/dev/null | tr -d '\000\r\n ' || true)"
+    case "$value" in
+        ttyS0) printf '%s\n' /dev/ttyS0 ;;
+        tty1)  printf '%s\n' /dev/tty1 ;;
+        *) return 1 ;;
+    esac
+}
+
 selected_console() {
+    # Prefer the disk backing /. Some Alpine initramfs paths expose that mount as
+    # /dev/root instead of /dev/vda1, so do not rely on this path exclusively.
     disk="$(root_disk 2>/dev/null || true)"
-    if [ -n "$disk" ] && [ -b "$disk" ]; then
-        value="$(dd if="$disk" bs=512 skip=64 count=1 2>/dev/null | tr -d '\000\r\n ' || true)"
-        case "$value" in
-            ttyS0) printf '%s\n' /dev/ttyS0; return 0 ;;
-            tty1)  printf '%s\n' /dev/tty1; return 0 ;;
-        esac
+    if [ -n "$disk" ]; then
+        console_marker_from_disk "$disk" 2>/dev/null && return 0
     fi
+
+    # The live flasher writes one exact tty1/ttyS0 marker in the safe post-MBR
+    # gap of the selected target disk. Scan local non-removable disks and accept
+    # only that exact marker; ordinary disks cannot accidentally match garbage.
+    for sys in /sys/block/*; do
+        [ -e "$sys" ] || continue
+        name="${sys##*/}"
+        case "$name" in loop*|ram*|sr*|fd*|dm-*|md*|zram*) continue ;; esac
+        [ "$(cat "$sys/removable" 2>/dev/null || printf 1)" = "0" ] || continue
+        console_marker_from_disk "/dev/$name" 2>/dev/null && return 0
+    done
+
     printf '%s\n' /dev/tty1
 }
 
