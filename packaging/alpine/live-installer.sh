@@ -130,7 +130,8 @@ prepare_packages() {
     # package bundle as a repository.
     base_repo="$(find "$MEDIA/apks" -type f -name APKINDEX.tar.gz -print 2>/dev/null | head -1 | xargs -r dirname)"
     [ -n "$base_repo" ] || fail "The Alpine base repository (APKINDEX.tar.gz) was not found on the boot media"
-    printf '%s\n' "$base_repo" > /etc/apk/repositories
+    ALPINE_MEDIA_REPO="$base_repo"
+    printf '%s\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
     if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
         cat /tmp/minimalrouter-apk-update.log >&2 || true
         fail "The Alpine base repository on the ISO could not be opened"
@@ -166,6 +167,16 @@ prepare_packages() {
     fi
     if ! find /lib/modules -name "pppoe.ko*" 2>/dev/null | grep -q .; then
         modprobe pppoe 2>/dev/null || fail "The bundled linux-lts kernel cannot load the PPPoE module"
+    fi
+}
+
+restore_alpine_media_repo() {
+    [ -n "${ALPINE_MEDIA_REPO:-}" ] || fail "The Alpine media repository path was lost before disk installation"
+    [ -r "$ALPINE_MEDIA_REPO/APKINDEX.tar.gz" ] || fail "The Alpine media APKINDEX is no longer available: $ALPINE_MEDIA_REPO"
+    printf '%s\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
+    if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
+        cat /tmp/minimalrouter-apk-update.log >&2 || true
+        fail "The Alpine media repository could not be restored for setup-disk"
     fi
 }
 
@@ -356,6 +367,10 @@ prepare_packages "$APK_DIR"
 # discovery, WAN/LAN confirmation, dashboard password and transactional network
 # verification. VERSION is copied beside it by the ISO builder.
 MINIMALROUTER_ISO_INSTALL=1 MINIMALROUTER_OFFLINE=1 sh "$DIST/install.sh" --offline || fail "MinimalRouter live configuration could not be prepared"
+# install-core must not touch the caller-owned repo in offline mode. Reassert it
+# here anyway so future installer changes cannot silently reintroduce a CDN
+# dependency before setup-disk.
+restore_alpine_media_repo
 
 printf '\nRecovery / SSH root password\n'
 printf '%s\n' '----------------------------'
@@ -408,6 +423,10 @@ swapoff -a 2>/dev/null || true
 for part in $(lsblk -nrpo NAME "$TARGET" 2>/dev/null | tail -n +2); do
     umount "$part" 2>/dev/null || true
 done
+
+# Reassert the local ISO repository at the last possible point. This is also
+# what makes the CI full-install test a genuine zero-Internet installation.
+restore_alpine_media_repo
 
 # The target has either passed the conservative virtual-disk guard or the
 # operator explicitly confirmed it. Capture Alpine's verbose installer output:

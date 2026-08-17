@@ -46,11 +46,6 @@ do
 done
 
 ALPINE_VERSION="v3.22"
-if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
-fi
-
 OFFLINE_MODE=0
 if [ "${1:-}" = "--offline" ]; then
     OFFLINE_MODE=1
@@ -61,6 +56,14 @@ fi
 
 if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
+fi
+
+# The all-in-one ISO supplies a caller-managed local Alpine repository. Never
+# replace it with CDN URLs in offline mode: setup-disk runs later in the same
+# live environment and must remain installable with zero WAN connectivity.
+if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi
 
 REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"

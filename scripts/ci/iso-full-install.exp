@@ -25,9 +25,9 @@ spawn qemu-system-x86_64 \
     -boot once=d \
     -cdrom $iso \
     -drive file=$disk,format=raw,if=virtio \
-    -netdev user,id=wan \
+    -netdev user,id=wan,restrict=on \
     -device virtio-net-pci,netdev=wan \
-    -netdev user,id=lan,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
+    -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
     -device virtio-net-pci,netdev=lan \
     -display none \
     -serial stdio \
