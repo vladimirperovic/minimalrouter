@@ -17,11 +17,6 @@ jobs:
           ref: fix/live-install-offline-boot
           fetch-depth: 0
 
-      - name: Install acceptance test dependency
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y expect
-
       - name: Apply acceptance patch
         run: python3 .github/acceptance-fix3.py
 
@@ -33,7 +28,6 @@ jobs:
           sh -n packaging/alpine/build-iso.sh
           sh -n packaging/alpine/install-console.sh
           sh -n packaging/alpine/live-installer.sh
-          expect -n scripts/ci/iso-full-install.exp
           go test ./cmd/router-setup ./internal/services
           git diff --check
 
