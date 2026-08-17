@@ -17,6 +17,11 @@ jobs:
           ref: fix/live-install-offline-boot
           fetch-depth: 0
 
+      - name: Install acceptance test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y expect
+
       - name: Apply acceptance patch
         run: python3 .github/acceptance-fix3.py
 
