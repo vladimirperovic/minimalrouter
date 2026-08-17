@@ -64,8 +64,8 @@ jobs:
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
           grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
           grep -F 'installed_by=golden-image' packaging/alpine/build-golden-image.sh
-          grep -F 'root=UUID=$ROOT_UUID rootfstype=ext4' packaging/alpine/build-golden-image.sh
-          grep -F 'UUID=$ROOT_UUID / ext4' packaging/alpine/build-golden-image.sh
+          grep -F "root=UUID=\$ROOT_UUID rootfstype=ext4" packaging/alpine/build-golden-image.sh
+          grep -F "UUID=\$ROOT_UUID / ext4" packaging/alpine/build-golden-image.sh
           grep -F 'before networking sshd router-applyd routerd' packaging/alpine/firstboot.initd
           grep -F 'router-setup collect' packaging/alpine/firstboot.sh
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
