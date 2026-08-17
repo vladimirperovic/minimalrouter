@@ -97,3 +97,36 @@ func TestConfirmInvalidAnswerReprompts(t *testing.T) {
 		t.Fatalf("got %v, %v; want true, nil", got, err)
 	}
 }
+
+func TestPPPoEBasedSuggestionRequiresExplicitConfirmation(t *testing.T) {
+	for _, reason := range []string{
+		"only this interface answered PPPoE discovery",
+		"PPPoE answered on multiple interfaces; manual confirmation is required",
+	} {
+		pppoeBased := reason == "only this interface answered PPPoE discovery" || strings.HasPrefix(reason, "PPPoE answered on multiple interfaces")
+		if !pppoeBased {
+			t.Fatalf("reason %q must be treated as requiring explicit confirmation", reason)
+		}
+		ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("\n"))}
+		got, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got {
+			t.Fatalf("Enter must not accept PPPoE-based suggestion for %q", reason)
+		}
+	}
+}
+
+func TestNonPPPoESuggestionStillAllowsSafeEnterDefault(t *testing.T) {
+	reason := "no PPPoE discovery response; falling back to link/default-route hardware scoring"
+	pppoeBased := reason == "only this interface answered PPPoE discovery" || strings.HasPrefix(reason, "PPPoE answered on multiple interfaces")
+	ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("\n"))}
+	got, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("Enter should accept a non-PPPoE suggestion when heuristic roles are otherwise valid")
+	}
+}

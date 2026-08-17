@@ -116,28 +116,13 @@ func collect(args []string) error {
 		fmt.Println()
 	}
 	fmt.Println("Setup asks only for what it needs:")
-	fmt.Println("  1. PPPoE — press Enter to skip it if you do not want to configure it now")
-	fmt.Println("  2. WAN/LAN — the installer suggests the likely ports; press Enter if correct")
+	fmt.Println("  1. WAN/LAN — the installer suggests likely ports and explains why")
+	fmt.Println("  2. PPPoE — optional; press Enter to skip it and configure it later")
 	fmt.Println("  3. Dashboard password — required, minimum 12 characters")
 	fmt.Println("  4. A final review before the configuration is saved")
 	fmt.Println()
 	fmt.Println("Tip: [Y/n] means Yes is the default; just press Enter to accept it.")
 	fmt.Println()
-
-	pppoeUser, err := ui.readLine("PPPoE username (leave empty for an isolated lab): ")
-	if err != nil {
-		return err
-	}
-	pppoePass := ""
-	if pppoeUser != "" {
-		pppoePass, err = ui.readSecret("PPPoE password: ")
-		if err != nil {
-			return err
-		}
-		if pppoePass == "" {
-			return errors.New("PPPoE password cannot be empty when a username is supplied")
-		}
-	}
 
 	recommendation, err := mrnetwork.Discover()
 	if err != nil {
@@ -177,8 +162,15 @@ func collect(args []string) error {
 	fmt.Printf("Suggested WAN: %s\n", wan)
 	fmt.Printf("Suggested LAN: %s\n", lan)
 	fmt.Printf("Reason: %s\n", reason)
+	pppoeBased := reason == "only this interface answered PPPoE discovery" || strings.HasPrefix(reason, "PPPoE answered on multiple interfaces")
+	if pppoeBased {
+		fmt.Println()
+		ui.warn("PPPoE discovery only detects that a service answered; it does not start a PPPoE session.")
+		ui.warn("An existing router or shared upstream can make PPPoE visible during migration.")
+		fmt.Println("Please explicitly confirm the WAN/LAN roles; pressing Enter alone will NOT accept this PPPoE-based suggestion.")
+	}
 
-	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", true)
+	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased)
 	if err != nil {
 		return err
 	}
@@ -204,6 +196,24 @@ func collect(args []string) error {
 	}
 	if wan == lan || wan == "" || lan == "" {
 		return errors.New("WAN and LAN must be two different interfaces")
+	}
+
+	fmt.Println()
+	fmt.Printf("WAN is %s; LAN is %s.\n", wan, lan)
+	fmt.Println("PPPoE credentials are optional during installation. Leave the username empty to configure them later in the Dashboard.")
+	pppoeUser, err := ui.readLine("PPPoE username [skip]: ")
+	if err != nil {
+		return err
+	}
+	pppoePass := ""
+	if pppoeUser != "" {
+		pppoePass, err = ui.readSecret("PPPoE password: ")
+		if err != nil {
+			return err
+		}
+		if pppoePass == "" {
+			return errors.New("PPPoE password cannot be empty when a username is supplied")
+		}
 	}
 
 	adminPass := ""

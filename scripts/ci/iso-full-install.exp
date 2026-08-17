@@ -69,10 +69,10 @@ proc verify_ssh {password marker} {
     exit 60
 }
 
-# The first visible application screen is the MinimalRouter ASCII welcome and
-# the first actual question is PPPoE. There is no extra Enter gate before setup.
-wait_and_send {PPPoE username} "\r"
+# The first visible application screen is the MinimalRouter ASCII welcome.
+# Network roles are understood before optional ISP credentials are requested.
 wait_and_send {Use these WAN/LAN roles} "\r"
+wait_and_send {PPPoE username.*skip} "\r"
 wait_and_send {administrator password.*12 characters} "$dashboard_password\r"
 wait_and_send {Confirm dashboard password} "$dashboard_password\r"
 wait_and_send {Install and apply this configuration} "\r"
