@@ -115,6 +115,14 @@ validate_target_disk() {
     fi
 }
 
+root_partition_for_disk() {
+    disk="$1"
+    case "$disk" in
+        /dev/nvme*|/dev/mmcblk*) printf '%sp1\n' "$disk" ;;
+        *) printf '%s1\n' "$disk" ;;
+    esac
+}
+
 partition_nodes() {
     disk="$1"
     name="$(disk_sys_name "$disk")"
@@ -158,6 +166,59 @@ verify_golden_image() {
     printf '\033[32m●\033[0m Golden image verified (SHA256 + gzip).\n'
 }
 
+refresh_partition_table() {
+    disk="$1"
+    # A raw image write changes the partition table underneath the live kernel.
+    # Ask the kernel to re-read it using whichever standard utility the Alpine
+    # live environment exposes. No partition is created or modified here.
+    if command -v blockdev >/dev/null 2>&1; then
+        blockdev --rereadpt "$disk" >/dev/null 2>&1 || true
+    fi
+    if command -v partx >/dev/null 2>&1; then
+        partx -u "$disk" >/dev/null 2>&1 || true
+    fi
+    if command -v mdev >/dev/null 2>&1; then
+        mdev -s >/dev/null 2>&1 || true
+    fi
+}
+
+patch_target_root_pointer() {
+    disk="$1"
+    rootpart="$(root_partition_for_disk "$disk")"
+    target_mnt=/tmp/minimalrouter-target
+
+    refresh_partition_table "$disk"
+    attempts=0
+    while [ "$attempts" -lt 20 ]; do
+        [ -b "$rootpart" ] && break
+        attempts=$((attempts + 1))
+        sleep 1
+        refresh_partition_table "$disk"
+    done
+    [ -b "$rootpart" ] || fail "Golden root partition did not appear after flashing: $rootpart"
+
+    mkdir -p "$target_mnt"
+    umount "$target_mnt" >/dev/null 2>&1 || true
+    mount "$rootpart" "$target_mnt" || fail "Could not mount the flashed appliance root partition"
+    cfg="$target_mnt/boot/extlinux/extlinux.conf"
+    if [ ! -f "$cfg" ]; then
+        umount "$target_mnt" >/dev/null 2>&1 || true
+        fail "The flashed appliance is missing extlinux.conf"
+    fi
+
+    # Alpine's mkinitfs emergency log shows that LABEL= was passed literally to
+    # mount on this boot path. Point initramfs at the actual device node chosen by
+    # the flasher instead. This is the only target-specific mutation after dd.
+    sed -i "s#root=LABEL=minimalrouter-root#root=$rootpart#g" "$cfg"
+    grep -Fq "root=$rootpart" "$cfg" || {
+        umount "$target_mnt" >/dev/null 2>&1 || true
+        fail "Could not set the installed root device in extlinux.conf"
+    }
+    sync
+    umount "$target_mnt" || fail "Could not unmount the flashed appliance cleanly"
+    printf '\033[32m●\033[0m Boot root pinned to %s.\n' "$rootpart"
+}
+
 write_golden_image() {
     disk="$1"
     printf '\nWriting the prebuilt MinimalRouter appliance to %s...\n' "$disk"
@@ -166,6 +227,8 @@ write_golden_image() {
         cat /tmp/minimalrouter-dd.log >&2 || true
         fail "Could not write the golden image to $disk"
     fi
+
+    patch_target_root_pointer "$disk"
 
     # Preserve which console launched the flasher in the unused post-MBR gap.
     # firstboot reads this one tiny marker and presents itself on the same console.
