@@ -15,6 +15,7 @@ set recovery_password "MRciRecovery-2026!"
 
 log_user 1
 log_file -noappend $logpath
+match_max 65536
 
 spawn qemu-system-x86_64 \
     -machine pc,accel=tcg \
@@ -46,35 +47,35 @@ proc wait_and_send {pattern text} {
     }
 }
 
-wait_and_send {Press Enter to continue, or Ctrl\+C to abort\.} "\r"
-wait_and_send {PPPoE username \(leave empty for an isolated lab\):} "\r"
-wait_and_send {Use these WAN/LAN roles\? \[Y/n\]:} "\r"
-wait_and_send {Dashboard administrator password \(minimum 12 characters\):} "$dashboard_password\r"
-wait_and_send {Confirm dashboard password:} "$dashboard_password\r"
-wait_and_send {Install and apply this configuration\? \[Y/n\]:} "\r"
+# Match stable semantic fragments rather than every punctuation character. A
+# real TTY may inject terminal-control bytes around a prompt even though the
+# visible text is unchanged.
+wait_and_send {Press Enter to continue} "\r"
+wait_and_send {PPPoE username} "\r"
+wait_and_send {Use these WAN/LAN roles} "\r"
+wait_and_send {administrator password.*12 characters} "$dashboard_password\r"
+wait_and_send {Confirm dashboard password} "$dashboard_password\r"
+wait_and_send {Install and apply this configuration} "\r"
 
 # BusyBox passwd wording differs slightly between Alpine point releases.
 expect {
-    -re {New password:} { send -- "$recovery_password\r" }
-    -re {New UNIX password:} { send -- "$recovery_password\r" }
+    -re {New.*password:} { send -- "$recovery_password\r" }
     timeout { puts stderr "timeout waiting for recovery password prompt"; exit 22 }
     eof { puts stderr "QEMU exited before recovery password prompt"; exit 23 }
 }
 expect {
-    -re {Retype password:} { send -- "$recovery_password\r" }
-    -re {Retype new password:} { send -- "$recovery_password\r" }
-    -re {Retype new UNIX password:} { send -- "$recovery_password\r" }
+    -re {Retype.*password:} { send -- "$recovery_password\r" }
     timeout { puts stderr "timeout waiting for recovery password confirmation"; exit 24 }
     eof { puts stderr "QEMU exited before recovery password confirmation"; exit 25 }
 }
 
-wait_and_send {Install Minimal Router OS v[^\r\n]* to disk \[/dev/vda\]:} "\r"
-wait_and_send {Type ERASE to continue:} "ERASE\r"
+wait_and_send {Install Minimal Router OS.*to disk.*vda} "\r"
+wait_and_send {Type ERASE to continue} "ERASE\r"
 
 # This marker is printed only after setup-disk, target APK installation,
 # install-core, SSH/serial target setup and configuration-state copy complete.
 expect {
-    -re {Minimal Router OS v[^\r\n]* installation completed successfully\.} {}
+    -re {Minimal Router OS.*installation completed successfully} {}
     -re {ERROR:} {
         puts stderr "installer reported an error"
         exit 30
