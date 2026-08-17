@@ -1,0 +1,42 @@
+name: Apply strict offline setup-disk fix
+
+on:
+  push:
+    branches: [fix/live-install-offline-boot]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/live-install-offline-boot
+          fetch-depth: 0
+
+      - name: Apply and validate offline fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/offline-repo-fix.py
+          sh -n packaging/alpine/install-dist.sh
+          sh -n packaging/alpine/live-installer.sh
+          expect -n scripts/ci/iso-full-install.exp
+          grep -F 'if [ "$OFFLINE_MODE" -eq 0 ]' packaging/alpine/install-dist.sh
+          grep -F 'restore_alpine_media_repo' packaging/alpine/live-installer.sh
+          grep -F 'restrict=on' scripts/ci/iso-full-install.exp
+          git diff --check
+
+      - name: Commit production fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packaging/alpine/install-dist.sh packaging/alpine/live-installer.sh scripts/ci/iso-full-install.exp
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: keep setup-disk strictly on ISO repository'
+          git push origin HEAD:fix/live-install-offline-boot
