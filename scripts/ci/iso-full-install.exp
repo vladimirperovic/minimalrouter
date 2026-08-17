@@ -132,12 +132,13 @@ expect {
     eof { puts stderr "QEMU exited before firstboot completion"; exit 38 }
 }
 
-# The real installed appliance must expose trusted-LAN SSH after router-applyd
-# reconciles the saved LAN configuration.
-verify_ssh $recovery_password INSTALLED_SSH_OK
-
-# Also prove serial recovery is not merely configured on disk: log in over the
-# actual ttyS0 used for the complete test.
+# "First boot configuration completed" intentionally means persistent router
+# state is committed; OpenRC still has to resume the blocked default runlevel and
+# start networking, router-applyd and sshd. On TCG this can take well over a
+# minute, so do not race the host-side SSH probe. Enter the real recovery console
+# first, then poll the installed appliance itself until LAN, SSH and the firewall
+# are all live. This makes the test state-driven rather than timing-driven.
+send -- "\r"
 expect {
     -re {login:} { send -- "root\r" }
     timeout { puts stderr "timeout waiting for installed-system serial login"; exit 40 }
@@ -152,6 +153,21 @@ expect {
     -re {~ #} {}
     timeout { puts stderr "timeout waiting for installed-system root shell"; exit 43 }
 }
+
+send -- "i=0; while \[ \"\$i\" -lt 240 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept'; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 240 \] || echo INSTALLED_SERVICES_TIMEOUT\r"
+expect {
+    -re {INSTALLED_SERVICES_READY} {}
+    -re {INSTALLED_SERVICES_TIMEOUT} {
+        puts stderr "installed appliance did not bring LAN/SSH/firewall online"
+        exit 44
+    }
+    timeout { puts stderr "timeout waiting for installed appliance services"; exit 45 }
+    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 46 }
+}
+
+# Now prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service
+# with the recovery password configured during firstboot.
+verify_ssh $recovery_password INSTALLED_SSH_OK
 
 set checks {
     {test -x /usr/bin/routerd && echo CHECK_ROUTERD_OK}
