@@ -6,7 +6,6 @@
 set -eu
 umask 077
 
-log() { printf '%s\n' "$*"; }
 fail() {
     printf '\nERROR: %s\n' "$*" >&2
     printf 'No further disk changes will be made.\n' >&2
@@ -115,14 +114,6 @@ validate_target_disk() {
     fi
 }
 
-root_partition_for_disk() {
-    disk="$1"
-    case "$disk" in
-        /dev/nvme*|/dev/mmcblk*) printf '%sp1\n' "$disk" ;;
-        *) printf '%s1\n' "$disk" ;;
-    esac
-}
-
 partition_nodes() {
     disk="$1"
     name="$(disk_sys_name "$disk")"
@@ -135,23 +126,39 @@ partition_nodes() {
     done
 }
 
+disk_console_marker() {
+    disk="$1"
+    [ -b "$disk" ] || return 1
+    dd if="$disk" bs=512 skip=64 count=1 2>/dev/null | tr -d '\000\r\n ' || true
+}
+
 guard_existing_install() {
-    check_dir=/tmp/minimalrouter-existing-check
-    mkdir -p "$check_dir"
+    # Golden installs carry an exact tty1/ttyS0 marker in the unused post-MBR
+    # gap. This check needs no filesystem driver and therefore works in the tiny
+    # live flasher even when ext4 is not loaded there.
     for disk in $CANDIDATES; do
-        for part in $(partition_nodes "$disk"); do
-            umount "$check_dir" >/dev/null 2>&1 || true
-            if mount -o ro "$part" "$check_dir" >/dev/null 2>&1; then
-                if [ -f "$check_dir/etc/minimalrouter/installed" ] || [ -f "$check_dir/etc/minimalrouter/VERSION" ]; then
-                    installed_version="$(cat "$check_dir/etc/minimalrouter/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
-                    umount "$check_dir" >/dev/null 2>&1 || true
-                    printf '\nminimalrouter is already installed%s on %s.\n' "${installed_version:+ v$installed_version}" "$disk"
+        marker="$(disk_console_marker "$disk")"
+        case "$marker" in
+            tty1|ttyS0)
+                printf '\nminimalrouter appears to be already installed on %s.\n' "$disk"
+                printf 'The ISO stopped before overwriting the appliance. Detach the ISO and reboot.\n\n'
+                exec /bin/sh
+                ;;
+        esac
+
+        # Also recognize older MinimalRouter images by their filesystem label
+        # when blkid is available. This is read-only metadata inspection; the
+        # target filesystem is never mounted by the flasher.
+        if command -v blkid >/dev/null 2>&1; then
+            for part in $(partition_nodes "$disk"); do
+                label="$(blkid -s LABEL -o value "$part" 2>/dev/null || true)"
+                if [ "$label" = "minimalrouter-root" ]; then
+                    printf '\nminimalrouter filesystem detected on %s.\n' "$disk"
                     printf 'The ISO stopped before overwriting the appliance. Detach the ISO and reboot.\n\n'
                     exec /bin/sh
                 fi
-                umount "$check_dir" >/dev/null 2>&1 || true
-            fi
-        done
+            done
+        fi
     done
 }
 
@@ -166,59 +173,6 @@ verify_golden_image() {
     printf '\033[32m●\033[0m Golden image verified (SHA256 + gzip).\n'
 }
 
-refresh_partition_table() {
-    disk="$1"
-    # A raw image write changes the partition table underneath the live kernel.
-    # Ask the kernel to re-read it using whichever standard utility the Alpine
-    # live environment exposes. No partition is created or modified here.
-    if command -v blockdev >/dev/null 2>&1; then
-        blockdev --rereadpt "$disk" >/dev/null 2>&1 || true
-    fi
-    if command -v partx >/dev/null 2>&1; then
-        partx -u "$disk" >/dev/null 2>&1 || true
-    fi
-    if command -v mdev >/dev/null 2>&1; then
-        mdev -s >/dev/null 2>&1 || true
-    fi
-}
-
-patch_target_root_pointer() {
-    disk="$1"
-    rootpart="$(root_partition_for_disk "$disk")"
-    target_mnt=/tmp/minimalrouter-target
-
-    refresh_partition_table "$disk"
-    attempts=0
-    while [ "$attempts" -lt 20 ]; do
-        [ -b "$rootpart" ] && break
-        attempts=$((attempts + 1))
-        sleep 1
-        refresh_partition_table "$disk"
-    done
-    [ -b "$rootpart" ] || fail "Golden root partition did not appear after flashing: $rootpart"
-
-    mkdir -p "$target_mnt"
-    umount "$target_mnt" >/dev/null 2>&1 || true
-    mount "$rootpart" "$target_mnt" || fail "Could not mount the flashed appliance root partition"
-    cfg="$target_mnt/boot/extlinux/extlinux.conf"
-    if [ ! -f "$cfg" ]; then
-        umount "$target_mnt" >/dev/null 2>&1 || true
-        fail "The flashed appliance is missing extlinux.conf"
-    fi
-
-    # Alpine's mkinitfs emergency log shows that LABEL= was passed literally to
-    # mount on this boot path. Point initramfs at the actual device node chosen by
-    # the flasher instead. This is the only target-specific mutation after dd.
-    sed -i "s#root=LABEL=minimalrouter-root#root=$rootpart#g" "$cfg"
-    grep -Fq "root=$rootpart" "$cfg" || {
-        umount "$target_mnt" >/dev/null 2>&1 || true
-        fail "Could not set the installed root device in extlinux.conf"
-    }
-    sync
-    umount "$target_mnt" || fail "Could not unmount the flashed appliance cleanly"
-    printf '\033[32m●\033[0m Boot root pinned to %s.\n' "$rootpart"
-}
-
 write_golden_image() {
     disk="$1"
     printf '\nWriting the prebuilt MinimalRouter appliance to %s...\n' "$disk"
@@ -228,10 +182,9 @@ write_golden_image() {
         fail "Could not write the golden image to $disk"
     fi
 
-    patch_target_root_pointer "$disk"
-
-    # Preserve which console launched the flasher in the unused post-MBR gap.
-    # firstboot reads this one tiny marker and presents itself on the same console.
+    # The filesystem UUID, ExtLinux config, kernel, initramfs and modules are all
+    # already final inside the golden image. Do not mount or mutate its filesystem.
+    # Only preserve which console launched the flasher in the unused post-MBR gap.
     console=tty1
     [ "${MINIMALROUTER_INSTALL_TTY:-/dev/tty1}" = "/dev/ttyS0" ] && console=ttyS0
     printf '%s' "$console" | dd of="$disk" bs=1 seek=32768 conv=notrunc >/dev/null 2>&1 || fail "Could not persist console selection"
