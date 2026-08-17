@@ -16,8 +16,9 @@ def replace_between(path, start, end, replacement):
 def replace_once(path, old, new):
     p = Path(path)
     s = p.read_text()
-    if s.count(old) != 1:
-        raise SystemExit(f"{path}: expected one match for {old!r}, got {s.count(old)}")
+    n = s.count(old)
+    if n != 1:
+        raise SystemExit(f"{path}: expected one match, got {n}: {old[:80]!r}")
     p.write_text(s.replace(old, new, 1))
 
 p = "packaging/alpine/install-console.sh"
@@ -54,31 +55,42 @@ EOF
 
 '''
 replace_between(p, 'show_welcome() {\n', '[ -x "$SETUP_BIN" ]', welcome)
-replace_between(p,
-'''    cat <<'ART'
-''',
-'''    printf '\033[32m●\033[0m Minimal Router OS v%s configuration saved.''',
-'''    cat <<'ART'
+
+old_art = r'''    cat <<'ART'
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+ART
+'''
+new_art = r'''    cat <<'ART'
 +----------------------------------------------------------+
 |                      minimalrouter                       |
 +----------------------------------------------------------+
 ART
-''')
+'''
+replace_once(p, old_art, new_art)
 replace_once(p,
 "    printf '\\033[32m●\\033[0m Minimal Router OS v%s configuration saved. The first disk boot will finalize the router.\\n' \"$MR_VERSION\"",
 "    printf '\\033[32m●\\033[0m minimalrouter v%s configuration saved. The first disk boot will finalize the router.\\n' \"$MR_VERSION\"")
 
 p = "packaging/alpine/live-installer.sh"
-replace_between(p,
-'''cat <<'ART'
-''',
-'''printf '\n\033[32m●\033[0m Minimal Router OS v%s installation completed successfully.''',
-'''cat <<'ART'
+old_art = r'''cat <<'ART'
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+ART
+'''
+new_art = r'''cat <<'ART'
 +----------------------------------------------------------+
 |                      minimalrouter                       |
 +----------------------------------------------------------+
 ART
-''')
+'''
+replace_once(p, old_art, new_art)
 replace_once(p,
 "printf '\\n\\033[32m●\\033[0m Minimal Router OS v%s installation completed successfully.\\n' \"$VERSION\"",
 "printf '\\n\\033[32m●\\033[0m minimalrouter v%s installation completed successfully.\\n' \"$VERSION\"")
