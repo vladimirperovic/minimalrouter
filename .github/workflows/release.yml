@@ -16,17 +16,17 @@ concurrency:
 
 jobs:
   release:
-    name: Build, sign, attest and publish
-    runs-on: ubuntu-latest
+    name: Build, validate, sign, attest and publish
+    runs-on: ubuntu-24.04
     environment: production-release
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - name: Check out signed tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - name: Validate SSH-signed release tag
+      - name: Validate SSH-signed release tag and VERSION
         env:
           RELEASE_ALLOWED_SIGNERS: ${{ secrets.MINIMALROUTER_RELEASE_ALLOWED_SIGNERS }}
         shell: bash
@@ -35,6 +35,10 @@ jobs:
           git tag --points-at "$GITHUB_SHA" | grep -qx "$GITHUB_REF_NAME"
           git cat-file -t "$GITHUB_REF_NAME" | grep -qx tag
           printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$'
+          test "v$(tr -d '\r\n' < VERSION)" = "$GITHUB_REF_NAME" || {
+            echo "VERSION does not match release tag" >&2
+            exit 1
+          }
           test -n "$RELEASE_ALLOWED_SIGNERS" || {
             echo "MINIMALROUTER_RELEASE_ALLOWED_SIGNERS is not configured" >&2
             exit 1
@@ -66,6 +70,13 @@ jobs:
 
       - name: Install dashboard dependencies
         run: pnpm --dir web install --frozen-lockfile
+
+      - name: Install Golden ISO and VM validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xorriso qemu-system-x86 qemu-utils expect sshpass \
+            extlinux syslinux-common e2fsprogs util-linux
 
       - name: Run release checks
         run: |
@@ -134,6 +145,78 @@ jobs:
           tar tzf build/minimalrouter-linux-amd64.tar.gz | grep -qx 'minimalrouter-linux-amd64/firmware-signing.pub'
           tar tzf build/minimalrouter-linux-arm64.tar.gz | grep -qx 'minimalrouter-linux-arm64/firmware-signing.pub'
 
+      - name: Build release Golden ISO from the signed AMD64 distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_date="$(git show -s --format=%cI "$GITHUB_SHA")"
+          MINIMALROUTER_USE_EXISTING_DIST=1 \
+          MINIMALROUTER_REQUIRE_SIGNED_DIST=1 \
+          BUILD_COMMIT="$GITHUB_SHA" \
+          BUILD_DATE="$build_date" \
+            sh packaging/alpine/build-iso.sh
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
+          cp "$iso" build/
+          (cd build && sha256sum "$(basename "$iso")" > "$(basename "$iso").sha256")
+
+      - name: Verify release ISO payload and production boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
+          sha256sum -c "$iso.sha256"
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F VERSION
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F BUILD-INFO
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz.sha256
+          xorriso -indev "$iso" -ls /boot/grub 2>/dev/null | grep -F grub.cfg
+          xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep -F 'El Torito boot img'
+
+          truncate -s 4G build/iso/release-boot-disk.raw
+          set +e
+          timeout 90 qemu-system-x86_64 \
+            -machine pc,accel=tcg \
+            -cpu max \
+            -smp 1 \
+            -m 1024 \
+            -boot d \
+            -cdrom "$iso" \
+            -drive file=build/iso/release-boot-disk.raw,format=raw,if=virtio \
+            -display none \
+            -serial stdio \
+            -no-reboot \
+            >build/iso/release-qemu-boot.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
+            cat build/iso/release-qemu-boot.log
+            exit "$rc"
+          fi
+          grep -F 'MinimalRouter installer service started; UI=tty1; serial=ttyS0@115200' build/iso/release-qemu-boot.log
+
+      - name: Flash release ISO and verify installed appliance end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
+          cp build/iso/syslinux.cfg build/iso/release-syslinux-serial.cfg
+          sed -i 's/^DEFAULT minimalrouter$/DEFAULT minimalrouter-serial/' build/iso/release-syslinux-serial.cfg
+          xorriso \
+            -indev "$iso" \
+            -outdev build/iso/minimalrouter-release-e2e.iso \
+            -boot_image any replay \
+            -map build/iso/release-syslinux-serial.cfg /boot/syslinux/syslinux.cfg \
+            -commit \
+            -end
+          truncate -s 8G build/iso/release-full-install-disk.raw
+          chmod +x scripts/ci/iso-full-install.exp
+          timeout 1500 scripts/ci/iso-full-install.exp \
+            build/iso/minimalrouter-release-e2e.iso \
+            build/iso/release-full-install-disk.raw \
+            build/iso/release-qemu-full-install.log
+          grep -F 'FULL_ISO_INSTALL_OK' build/iso/release-qemu-full-install.log
+          grep -F 'INSTALLED_SSH_OK' build/iso/release-qemu-full-install.log
+
       - name: Generate AMD64 SPDX SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
@@ -161,6 +244,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          iso="$(basename "$(ls minimalrouter-*-amd64.iso)")"
           sha256sum \
             minimalrouter-linux-amd64.tar.gz \
             minimalrouter-linux-arm64.tar.gz \
@@ -168,6 +252,7 @@ jobs:
             minimalrouter-linux-arm64.manifest.json \
             minimalrouter-linux-amd64.spdx.json \
             minimalrouter-linux-arm64.spdx.json \
+            "$iso" \
             > SHA256SUMS
 
       - name: Attest AMD64 artifact and SBOM
@@ -190,6 +275,11 @@ jobs:
             build/minimalrouter-linux-arm64.manifest.json
             build/SHA256SUMS
 
+      - name: Attest tested Golden ISO
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: build/minimalrouter-*-amd64.iso
+
       # Draft-first publication is compatible with GitHub immutable releases:
       # every asset is attached before the release becomes public/locked.
       - name: Publish signed beta GitHub release
@@ -198,12 +288,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          notes_file="docs/releases/${GITHUB_REF_NAME}.md"
+          notes_args=(--generate-notes)
+          if [ -f "$notes_file" ]; then
+            notes_args=(--notes-file "$notes_file")
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --prerelease \
             --verify-tag \
             --title "Minimal Router OS $GITHUB_REF_NAME (Beta)" \
-            --generate-notes \
+            "${notes_args[@]}" \
+            build/minimalrouter-*-amd64.iso \
+            build/minimalrouter-*-amd64.iso.sha256 \
             build/minimalrouter-linux-amd64.tar.gz \
             build/minimalrouter-linux-arm64.tar.gz \
             build/minimalrouter-linux-amd64.manifest.json \
