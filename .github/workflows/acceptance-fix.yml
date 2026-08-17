@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply acceptance patch
-        run: python3 .github/acceptance-fix3.py
+        run: python3 .github/acceptance-fix4.py
 
       - name: Validate patched tree
         shell: bash
