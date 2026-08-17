@@ -18,7 +18,14 @@ jobs:
           fetch-depth: 0
 
       - name: Apply patch
-        run: python3 .github/agent-iso-fix.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/agent-iso-fix.py
+          # GitHub's Actions token cannot update workflow files. Keep the tested
+          # iso.yml change out of this commit; it is applied separately through
+          # the GitHub connector after the production patch lands.
+          git checkout -- .github/workflows/iso.yml
 
       - name: Validate patched tree
         shell: bash
@@ -37,7 +44,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f .github/agent-iso-fix.py .github/workflows/agent-iso-fix.yml
+          rm -f .github/agent-iso-fix.py
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
