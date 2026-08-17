@@ -69,6 +69,26 @@ docker run --rm --platform linux/amd64 \
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
     printf "%s\n" "'$VERSION'" > "$ROOT/etc/minimalrouter/VERSION"
+
+    # Keep the management instructions visible after installation as well as on
+    # the final installer screen. Alpine getty displays /etc/issue before login,
+    # and /etc/motd repeats the same information after a console/SSH login.
+    cat > "$ROOT/etc/issue" <<"ISSUE"
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
+
+Router management after boot:
+  Web Dashboard: https://192.168.1.1:8443
+  SSH recovery:  ssh root@192.168.1.1
+  Serial:        ttyS0 @ 115200
+
+Connect your computer to the LAN interface, then open the Web Dashboard URL
+exactly as written above, including https:// and port :8443.
+
+ISSUE
+    cp "$ROOT/etc/issue" "$ROOT/etc/motd"
+
     tar -C "$ROOT" -czf /work/build/iso/minimalrouter-rootfs-'$VERSION'-amd64.tar.gz .
   '
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
