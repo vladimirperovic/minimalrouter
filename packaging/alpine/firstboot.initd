@@ -9,7 +9,10 @@ command_background="no"
 depend() {
     need localmount
     after bootmisc modules sysctl
-    before networking
+    # Nothing network-facing may start with the cloned image defaults. Firstboot
+    # must set WAN/LAN, dashboard credentials, recovery password and SSH identity
+    # before networking or any MinimalRouter service is allowed to continue.
+    before networking sshd router-applyd routerd
 }
 
 start_pre() {
