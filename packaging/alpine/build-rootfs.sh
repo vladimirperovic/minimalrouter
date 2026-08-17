@@ -61,16 +61,23 @@ docker run --rm --platform linux/amd64 \
     cp /tmp/repos "$ROOT/etc/apk/repositories"
     mkdir -p "$ROOT/root/minimalrouter-installer"
     cp -a /work/build/dist/minimalrouter-linux-amd64/. "$ROOT/root/minimalrouter-installer/"
-    # chroot gets a minimal pseudo-runtime sufficient for package/service registration.
-    mkdir -p "$ROOT/proc" "$ROOT/sys" "$ROOT/dev" "$ROOT/run"
-    mount -t proc proc "$ROOT/proc"
-    mount --rbind /dev "$ROOT/dev"
-    mount --rbind /sys "$ROOT/sys"
+
+    # Image-build mode in install.sh deliberately skips runtime kernel/module and
+    # sysctl checks, so a privileged container and bind-mounted /proc,/sys,/dev
+    # are unnecessary.  Give the chroot only the basic character devices shell
+    # tools and OpenRC use while registering users, files and default services.
+    mkdir -p "$ROOT/dev" "$ROOT/proc" "$ROOT/sys" "$ROOT/run"
+    mknod -m 666 "$ROOT/dev/null" c 1 3
+    mknod -m 666 "$ROOT/dev/zero" c 1 5
+    mknod -m 666 "$ROOT/dev/random" c 1 8
+    mknod -m 666 "$ROOT/dev/urandom" c 1 9
+
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
-    umount -R "$ROOT/sys" 2>/dev/null || true
-    umount -R "$ROOT/dev" 2>/dev/null || true
-    umount "$ROOT/proc" 2>/dev/null || true
+
+    # Device nodes were build-time scaffolding; the real target system gets its
+    # /dev from mdev/devtmpfs when the installed appliance boots.
+    rm -f "$ROOT/dev/null" "$ROOT/dev/zero" "$ROOT/dev/random" "$ROOT/dev/urandom"
     rm -rf "$ROOT/root/minimalrouter-installer" "$ROOT/var/cache/apk"/*
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
