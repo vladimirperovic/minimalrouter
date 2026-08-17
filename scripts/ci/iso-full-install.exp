@@ -1,6 +1,6 @@
 #!/usr/bin/expect -f
 
-set timeout 900
+set timeout 1200
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
 set logpath [lindex $argv 2]
@@ -33,22 +33,22 @@ spawn qemu-system-x86_64 \
     -serial stdio \
     -no-shutdown
 
-proc wait_and_send {pattern text} {
+proc wait_and_send {pattern text code} {
     expect {
         -re $pattern { send -- $text }
         timeout {
             puts stderr "timeout waiting for: $pattern"
-            exit 20
+            exit $code
         }
         eof {
             puts stderr "QEMU exited while waiting for: $pattern"
-            exit 21
+            exit [expr {$code + 1}]
         }
     }
 }
 
 proc verify_ssh {password marker} {
-    for {set i 0} {$i < 30} {incr i} {
+    for {set i 0} {$i < 60} {incr i} {
         if {![catch {
             exec sshpass -p $password ssh \
                 -o StrictHostKeyChecking=no \
@@ -69,59 +69,73 @@ proc verify_ssh {password marker} {
     exit 60
 }
 
-# The first visible application screen is the MinimalRouter ASCII welcome.
-# Network roles are understood before optional ISP credentials are requested.
-wait_and_send {Use these WAN/LAN roles} "y\r"
-wait_and_send {PPPoE username.*skip} "\r"
-wait_and_send {administrator password.*12 characters} "$dashboard_password\r"
-wait_and_send {Confirm dashboard password} "$dashboard_password\r"
-wait_and_send {Install and apply this configuration} "\r"
+# Stage 1: the ISO is only a verified image flasher. A normal one-disk QEMU VM
+# must require no package installation and no interactive disk confirmation.
+expect {
+    -re {Golden image verified} {}
+    timeout { puts stderr "timeout waiting for golden image verification"; exit 10 }
+    eof { puts stderr "QEMU exited before golden image verification"; exit 11 }
+}
+expect {
+    -re {Using the only attached installation disk automatically: /dev/vda} {}
+    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 12 }
+    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 13 }
+}
+expect {
+    -re {Golden image copied successfully} {}
+    -re {A recovery shell will open on this console} {
+        puts stderr "golden image flasher reported an error"
+        exit 14
+    }
+    timeout { puts stderr "timeout waiting for golden image copy"; exit 15 }
+    eof { puts stderr "QEMU exited before golden image copy completed"; exit 16 }
+}
+expect {
+    -re {Rebooting into the prebuilt appliance now} {}
+    timeout { puts stderr "timeout waiting for appliance reboot"; exit 17 }
+    eof { puts stderr "QEMU exited before appliance reboot"; exit 18 }
+}
+
+# Stage 2: -boot once=d makes the reboot use the installed golden disk. The
+# firstboot service owns the same serial console and asks only for router state.
+expect {
+    -re {minimalrouter v0\.1\.4.*first boot} {}
+    timeout { puts stderr "timeout waiting for golden-image first boot"; exit 20 }
+    eof { puts stderr "QEMU exited before golden-image first boot"; exit 21 }
+}
+wait_and_send {Use these WAN/LAN roles} "y\r" 22
+wait_and_send {PPPoE username.*skip} "\r" 24
+wait_and_send {administrator password.*12 characters} "$dashboard_password\r" 26
+wait_and_send {Confirm dashboard password} "$dashboard_password\r" 28
+wait_and_send {Install and apply this configuration} "\r" 30
 
 # BusyBox passwd wording differs slightly between Alpine point releases.
 expect {
     -re {New.*password:} { send -- "$recovery_password\r" }
-    timeout { puts stderr "timeout waiting for recovery password prompt"; exit 22 }
-    eof { puts stderr "QEMU exited before recovery password prompt"; exit 23 }
+    timeout { puts stderr "timeout waiting for recovery password prompt"; exit 32 }
+    eof { puts stderr "QEMU exited before recovery password prompt"; exit 33 }
 }
 expect {
     -re {Retype.*password:} { send -- "$recovery_password\r" }
-    timeout { puts stderr "timeout waiting for recovery password confirmation"; exit 24 }
-    eof { puts stderr "QEMU exited before recovery password confirmation"; exit 25 }
+    timeout { puts stderr "timeout waiting for recovery password confirmation"; exit 34 }
+    eof { puts stderr "QEMU exited before recovery password confirmation"; exit 35 }
 }
-
-# The live installer must expose a password-protected recovery SSH service on
-# the selected trusted LAN before any disk work starts. Verify a real login from
-# the CI host through QEMU's LAN-only forward.
 expect {
-    -re {Recovery access is active on the selected LAN} {}
-    timeout { puts stderr "timeout waiting for live recovery SSH"; exit 26 }
-    eof { puts stderr "QEMU exited before live recovery SSH"; exit 27 }
-}
-verify_ssh $recovery_password LIVE_SSH_OK
-
-expect {
-    -re {Using the only attached installation disk automatically: /dev/vda} {}
-    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 28 }
-    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 29 }
-}
-
-# This marker is printed only after setup-disk, target APK installation,
-# install-core, SSH/serial target setup and configuration-state copy complete.
-# On failure, do not exit on the first word "ERROR:"; wait until fail() announces
-# the recovery shell so the complete Alpine diagnostic log reaches CI output.
-expect {
-    -re {Minimal Router OS.*installation completed successfully} {}
-    -re {A recovery shell will open on this console} {
-        puts stderr "installer reported an error after complete diagnostics were emitted"
-        exit 30
+    -re {First boot configuration completed} {}
+    -re {A recovery shell is opening on this console} {
+        puts stderr "firstboot reported an error"
+        exit 36
     }
-    timeout { puts stderr "timeout waiting for completed disk installation"; exit 31 }
-    eof { puts stderr "QEMU exited before completed disk installation"; exit 32 }
+    timeout { puts stderr "timeout waiting for firstboot completion"; exit 37 }
+    eof { puts stderr "QEMU exited before firstboot completion"; exit 38 }
 }
 
-# The live system reboots. -boot once=d makes the next boot use the installed
-# VirtIO disk even though the ISO is still attached. Login over the real serial
-# console to prove ttyS0 recovery works after installation.
+# The real installed appliance must expose trusted-LAN SSH after router-applyd
+# reconciles the saved LAN configuration.
+verify_ssh $recovery_password INSTALLED_SSH_OK
+
+# Also prove serial recovery is not merely configured on disk: log in over the
+# actual ttyS0 used for the complete test.
 expect {
     -re {login:} { send -- "root\r" }
     timeout { puts stderr "timeout waiting for installed-system serial login"; exit 40 }
@@ -131,7 +145,6 @@ expect {
     -re {Password:} { send -- "$recovery_password\r" }
     timeout { puts stderr "timeout waiting for installed-system serial password"; exit 42 }
 }
-
 expect {
     -re {# $} {}
     -re {~ #} {}
@@ -141,10 +154,14 @@ expect {
 set checks {
     {test -x /usr/bin/routerd && echo CHECK_ROUTERD_OK}
     {test -x /usr/sbin/router-applyd && echo CHECK_APPLYD_OK}
+    {test -x /usr/sbin/router-setup && echo CHECK_SETUP_OK}
+    {grep -q '^installed_by=golden-image$' /etc/minimalrouter/installed && echo CHECK_GOLDEN_MARKER_OK}
+    {test -s /etc/minimalrouter/firstboot-complete && echo CHECK_FIRSTBOOT_OK}
+    {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
+    {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
     {rc-update show default | grep -q '[[:space:]]sshd' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
     {grep -q 'v3.22/main' /etc/apk/repositories && grep -q 'v3.22/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
-    {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
     {nft list ruleset | grep -q 'tcp dport 22 accept' && echo CHECK_NFT_SSH_OK}
     {ss -lnt | grep -q ':22 ' && echo CHECK_SSH_LISTEN_OK}
@@ -158,10 +175,14 @@ send -- "echo FULL_ISO_INSTALL_OK\r"
 foreach marker {
     CHECK_ROUTERD_OK
     CHECK_APPLYD_OK
+    CHECK_SETUP_OK
+    CHECK_GOLDEN_MARKER_OK
+    CHECK_FIRSTBOOT_OK
+    CHECK_STATE_DB_OK
+    CHECK_KERNEL_MODULE_MATCH_OK
     CHECK_SSHD_ENABLED
     CHECK_SERIAL_GETTY_OK
     CHECK_APK_REPOS_OK
-    CHECK_STATE_DB_OK
     CHECK_LAN_IP_OK
     CHECK_NFT_SSH_OK
     CHECK_SSH_LISTEN_OK
@@ -174,17 +195,9 @@ foreach marker {
     }
 }
 
-# Prove the installed appliance is reachable over actual SSH as well, not just
-# that sshd appears in the process/listener tables.
-verify_ssh $recovery_password INSTALLED_SSH_OK
-
 send -- "poweroff -f\r"
 expect {
     eof {}
-    timeout {
-        # QEMU -no-shutdown can keep the process alive after guest poweroff.
-        send -- "\003"
-    }
+    timeout { send -- "\003" }
 }
-
 exit 0
