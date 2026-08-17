@@ -39,6 +39,21 @@ type consoleUI struct {
 	color  bool
 }
 
+func printBanner() {
+	art := `
+           _       _                 _                 _
+ _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
+| '_ ` + "`" + ` _ \| | '_ \| | '_ ` + "`" + ` _ \ / _` + "`" + ` | | '__/ _ \| | | | __/ _ \ '__|
+| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
+|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
+`
+	for _, line := range strings.Split(strings.Trim(art, "\n"), "\n") {
+		fmt.Println(line)
+	}
+	fmt.Println("  first-run console setup")
+	fmt.Println("  -----------------------")
+}
+
 func main() {
 	if os.Geteuid() != 0 {
 		fatalf("router-setup must run as root")
@@ -96,25 +111,18 @@ func collect(args []string) error {
 
 	ui := &consoleUI{reader: bufio.NewReader(os.Stdin), color: terminalColor()}
 	fmt.Println()
-	fmt.Println("Minimal Router OS — first-run console setup")
-	fmt.Println("-------------------------------------------")
-	fmt.Println("Nothing is committed until you review and confirm the final summary.")
+	if os.Getenv("MINIMALROUTER_WELCOME_SHOWN") != "1" {
+		printBanner()
+		fmt.Println()
+	}
+	fmt.Println("Setup asks only for what it needs:")
+	fmt.Println("  1. WAN/LAN — the installer suggests likely ports and explains why")
+	fmt.Println("  2. PPPoE — optional; press Enter to skip it and configure it later")
+	fmt.Println("  3. Dashboard password — required, minimum 12 characters")
+	fmt.Println("  4. A final review before the configuration is saved")
 	fmt.Println()
-
-	pppoeUser, err := ui.readLine("PPPoE username (leave empty for an isolated lab): ")
-	if err != nil {
-		return err
-	}
-	pppoePass := ""
-	if pppoeUser != "" {
-		pppoePass, err = ui.readSecret("PPPoE password: ")
-		if err != nil {
-			return err
-		}
-		if pppoePass == "" {
-			return errors.New("PPPoE password cannot be empty when a username is supplied")
-		}
-	}
+	fmt.Println("Tip: [Y/n] means Yes is the default; just press Enter to accept it.")
+	fmt.Println()
 
 	recommendation, err := mrnetwork.Discover()
 	if err != nil {
@@ -150,12 +158,38 @@ func collect(args []string) error {
 	}
 
 	wan, lan, reason := recommendRoles(recommendation, probeResults)
+	wanMAC, lanMAC := "unknown", "unknown"
+	strongSignal := false
+	for _, item := range recommendation.Interfaces {
+		if item.Name == wan {
+			wanMAC = fallback(item.MACAddress, "unknown")
+			strongSignal = strongSignal || item.DefaultRoute || item.Carrier
+		}
+		if item.Name == lan {
+			lanMAC = fallback(item.MACAddress, "unknown")
+			strongSignal = strongSignal || item.Carrier
+		}
+	}
 	fmt.Println()
-	fmt.Printf("Suggested WAN: %s\n", wan)
-	fmt.Printf("Suggested LAN: %s\n", lan)
+	fmt.Printf("Suggested WAN: %s  (MAC %s)\n", wan, wanMAC)
+	fmt.Printf("Suggested LAN: %s  (MAC %s)\n", lan, lanMAC)
 	fmt.Printf("Reason: %s\n", reason)
+	pppoeBased := reason == "only this interface answered PPPoE discovery" || strings.HasPrefix(reason, "PPPoE answered on multiple interfaces")
+	lowConfidence := !pppoeBased && !strongSignal
+	if pppoeBased {
+		fmt.Println()
+		ui.warn("PPPoE discovery only detects that a service answered; it does not start a PPPoE session.")
+		ui.warn("An existing router or shared upstream can make PPPoE visible during migration.")
+		fmt.Println("Please explicitly confirm the WAN/LAN roles; pressing Enter alone will NOT accept this PPPoE-based suggestion.")
+	}
+	if lowConfidence {
+		fmt.Println()
+		ui.warn("The installer does not have enough link evidence to identify WAN/LAN with high confidence.")
+		ui.warn("Check the MAC addresses against the two Proxmox NICs before confirming.")
+		fmt.Println("Please explicitly confirm the roles; pressing Enter alone will NOT accept this low-confidence suggestion.")
+	}
 
-	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", true)
+	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased && !lowConfidence)
 	if err != nil {
 		return err
 	}
@@ -164,13 +198,41 @@ func collect(args []string) error {
 		if err != nil {
 			return err
 		}
-		lan, err = ui.selectInterface("Select LAN", candidates, wan)
-		if err != nil {
-			return err
+		if len(candidates) == 2 {
+			for _, candidate := range candidates {
+				if candidate.Name != wan {
+					lan = candidate.Name
+					break
+				}
+			}
+			fmt.Printf("LAN: %s (the only other interface)\n", lan)
+		} else {
+			lan, err = ui.selectInterface("Select LAN", candidates, wan)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if wan == lan || wan == "" || lan == "" {
 		return errors.New("WAN and LAN must be two different interfaces")
+	}
+
+	fmt.Println()
+	fmt.Printf("WAN is %s; LAN is %s.\n", wan, lan)
+	fmt.Println("PPPoE credentials are optional during installation. Leave the username empty to configure them later in the Dashboard.")
+	pppoeUser, err := ui.readLine("PPPoE username [skip]: ")
+	if err != nil {
+		return err
+	}
+	pppoePass := ""
+	if pppoeUser != "" {
+		pppoePass, err = ui.readSecret("PPPoE password: ")
+		if err != nil {
+			return err
+		}
+		if pppoePass == "" {
+			return errors.New("PPPoE password cannot be empty when a username is supplied")
+		}
 	}
 
 	adminPass := ""
@@ -236,6 +298,7 @@ func apply(args []string) error {
 	fs.SetOutput(io.Discard)
 	input := fs.String("input", "/run/minimalrouter-console-setup.json", "root-only provisioning file")
 	dataDir := fs.String("data-dir", "/var/lib/minimalrouter", "canonical routerd data directory")
+	offline := fs.Bool("offline", false, "write the configuration without applying the network; the first disk boot reconciles it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -290,6 +353,17 @@ func apply(args []string) error {
 	cfg.LAN.Interface = requested.LANInterface
 	if requested.LANIPAddress != "" && requested.LANIPAddress != cfg.LAN.IPAddress {
 		return fmt.Errorf("first-run LAN address must remain %s", cfg.LAN.IPAddress)
+	}
+
+	if *offline {
+		// Live installer path: persist the reviewed configuration directly so
+		// the first boot of the installed system reconciles it natively. The
+		// live environment never runs the production router stack.
+		cfg.Revision = initial.Revision + 1
+		if err := store.CommitInitialSetup(cfg, hashedPassword); err != nil {
+			return fmt.Errorf("store initial configuration for first boot: %w", err)
+		}
+		return nil
 	}
 
 	engine := mrapply.NewEngine(initial, store)

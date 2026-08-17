@@ -46,11 +46,7 @@ do
 done
 
 ALPINE_VERSION="v3.22"
-if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
-fi
-
+IMAGE_BUILD="${MINIMALROUTER_IMAGE_BUILD:-0}"
 OFFLINE_MODE=0
 if [ "${1:-}" = "--offline" ]; then
     OFFLINE_MODE=1
@@ -63,7 +59,15 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+# The all-in-one ISO supplies a caller-managed local Alpine repository. Never
+# replace it with CDN URLs in offline mode: setup-disk runs later in the same
+# live environment and must remain installable with zero WAN connectivity.
+if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
+fi
+
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
@@ -94,18 +98,19 @@ fi
 # support a required router feature. Loading an already-available module is
 # harmless and avoids a half-installed system whose A/B pointer still claims a
 # healthy release after a late module failure.
+if [ "$IMAGE_BUILD" != "1" ]; then
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
-    if ! modprobe "$module"; then
+    if ! modprobe "$module" 2>/dev/null && ! find /lib/modules -name "${module}.ko*" 2>/dev/null | grep -q .; then
         if [ "$module" = "pppoe" ]; then
             echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
-            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
         else
             echo "ERROR: required kernel module '$module' could not be loaded." >&2
         fi
         exit 1
     fi
 done < modules/minimalrouter.conf
+fi
 
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:
@@ -237,14 +242,18 @@ cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
-echo "[6/7] Loading router kernel modules and sysctls..."
+echo "[6/7] Preparing kernel/module configuration..."
+if [ "$IMAGE_BUILD" != "1" ]; then
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
     grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
     # Required modules were preflighted before root runtime replacement. Load
     # again here after persistence so the installed state and current kernel
     # are proven together.
-    modprobe "$module"
+    if ! modprobe "$module" 2>/dev/null && [ -z "$(find /lib/modules -name "${module}.ko*" 2>/dev/null | head -1)" ]; then
+        echo "ERROR: required kernel module '$module' could not be loaded or found in bundled modules" >&2
+        exit 1
+    fi
 done < modules/minimalrouter.conf
 
 sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
@@ -256,11 +265,16 @@ sysctl -p /etc/sysctl.d/99-minimalrouter.conf >/dev/null
     echo "ERROR: loose reverse-path filtering did not activate" >&2
     exit 1
 }
-[ "$(sysctl -n net.netfilter.nf_conntrack_max)" = "131072" ] || {
-    echo "ERROR: conntrack state ceiling did not activate" >&2
-    exit 1
-}
+if [ "$(sysctl -n net.netfilter.nf_conntrack_max)" != "131072" ]; then
+    # nf_conntrack se ucitava tek na ciljnom sistemu (live kernel nema module);
+    # provera da modul postoji u bundle-ovanim modulima umesto da se zahteva live.
+    if [ -z "$(find /lib/modules -name "nf_conntrack.ko*" 2>/dev/null | head -1)" ]; then
+        echo "ERROR: conntrack state ceiling did not activate and nf_conntrack is unavailable" >&2
+        exit 1
+    fi
+fi
 
+fi
 
 # MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
 # LAN address, pppd owns the WAN, and wg(8) owns the tunnels. A distribution
@@ -276,19 +290,18 @@ if [ -f /etc/network/interfaces ] && [ ! -f /etc/network/interfaces.minimalroute
 fi
 install -d -m 0755 -o root -g root /etc/network
 {
-    echo "# Managed by MinimalRouter. Interfaces are owned by router-applyd,"
-    echo "# pppd and wg(8); do not add addresses here."
+    echo "# Managed by minimalrouter. Physical/tunnel interfaces are configured by router-applyd/pppd/wg."
     echo "auto lo"
     echo "iface lo inet loopback"
-    echo ""
-    for managed_interface_path in /sys/class/net/*; do
-        [ -e "$managed_interface_path" ] || continue
-        managed_interface=${managed_interface_path##*/}
-        case "$managed_interface" in
-            lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;;
-        esac
-        echo "iface $managed_interface inet manual"
-    done
+    if [ "$IMAGE_BUILD" != "1" ]; then
+        echo ""
+        for managed_interface_path in /sys/class/net/*; do
+            [ -e "$managed_interface_path" ] || continue
+            managed_interface=${managed_interface_path##*/}
+            case "$managed_interface" in lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;; esac
+            echo "iface $managed_interface inet manual"
+        done
+    fi
 } > /etc/network/interfaces
 chmod 0644 /etc/network/interfaces
 
@@ -302,11 +315,12 @@ fi
 echo "[7/7] Enabling services..."
 # MinimalRouter owns every router interface. dhcpcd must not race
 # router-applyd/pppd for DHCP addresses or default routes at boot.
-for svc in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+for svc in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done
 rc-update add chronyd default
+rc-update add sshd default
 rc-update add router-applyd default
 rc-update add routerd default
 
@@ -361,7 +375,7 @@ mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
 sync
 
 echo "=== Installation complete ==="
-echo "Start now: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
+echo "Reboot now to complete the first-run setup: the installed system finalizes Minimal Router OS on boot."
 echo "Or reboot once; all three services are enabled for the default runlevel."
 LAN_IP="$(ip -4 addr show 2>/dev/null | grep -o 'inet [0-9.]*' | grep -v '127.0.0.1' | head -1 | cut -d' ' -f2)"
 [ -n "$LAN_IP" ] && echo "Current management candidate: https://${LAN_IP}:8443"

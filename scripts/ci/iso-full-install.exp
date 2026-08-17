@@ -1,0 +1,234 @@
+#!/usr/bin/expect -f
+
+# Slow TCG writes need several minutes, but a missing boot/prompt should not hold
+# the runner for twenty minutes. Seven minutes per awaited stage is ample for CI.
+set timeout 420
+set iso [lindex $argv 0]
+set disk [lindex $argv 1]
+set logpath [lindex $argv 2]
+
+if {$iso eq "" || $disk eq "" || $logpath eq ""} {
+    puts stderr "usage: iso-full-install.exp <iso> <disk> <log>"
+    exit 2
+}
+
+set dashboard_password "MinimalRouterCI-2026!"
+set recovery_password "MRciRecovery-2026!"
+
+log_user 1
+log_file -noappend $logpath
+match_max 65536
+
+spawn qemu-system-x86_64 \
+    -machine pc,accel=tcg \
+    -cpu max \
+    -smp 1 \
+    -m 1536 \
+    -boot once=d \
+    -cdrom $iso \
+    -drive file=$disk,format=raw,if=virtio \
+    -netdev user,id=wan,restrict=on \
+    -device virtio-net-pci,netdev=wan \
+    -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
+    -device virtio-net-pci,netdev=lan \
+    -display none \
+    -serial stdio \
+    -no-shutdown
+
+proc wait_and_send {pattern text code} {
+    expect {
+        -re $pattern { send -- $text }
+        timeout {
+            puts stderr "timeout waiting for: $pattern"
+            exit $code
+        }
+        eof {
+            puts stderr "QEMU exited while waiting for: $pattern"
+            exit [expr {$code + 1}]
+        }
+    }
+}
+
+proc verify_ssh {password marker} {
+    for {set i 0} {$i < 60} {incr i} {
+        if {![catch {
+            exec sshpass -p $password ssh \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                -o ConnectTimeout=2 \
+                -p 2222 \
+                root@127.0.0.1 "echo $marker"
+        } output]} {
+            if {[string first $marker $output] >= 0} {
+                puts "$marker (real SSH login succeeded)"
+                return
+            }
+        }
+        after 1000
+    }
+    puts stderr "SSH verification failed: $marker"
+    exit 60
+}
+
+# Stage 1: the ISO is only a verified image flasher. A normal one-disk QEMU VM
+# must require no package installation and no interactive disk confirmation.
+expect {
+    -re {Golden image verified} {}
+    timeout { puts stderr "timeout waiting for golden image verification"; exit 10 }
+    eof { puts stderr "QEMU exited before golden image verification"; exit 11 }
+}
+expect {
+    -re {Using the only attached installation disk automatically: /dev/vda} {}
+    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 12 }
+    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 13 }
+}
+expect {
+    -re {Golden image copied successfully} {}
+    -re {A recovery shell will open on this console} {
+        puts stderr "golden image flasher reported an error"
+        exit 14
+    }
+    timeout { puts stderr "timeout waiting for golden image copy"; exit 15 }
+    eof { puts stderr "QEMU exited before golden image copy completed"; exit 16 }
+}
+expect {
+    -re {Rebooting into the prebuilt appliance now} {}
+    timeout { puts stderr "timeout waiting for appliance reboot"; exit 17 }
+    eof { puts stderr "QEMU exited before appliance reboot"; exit 18 }
+}
+
+# Stage 2: -boot once=d makes the reboot use the installed golden disk. The
+# firstboot service owns the same serial console and asks only for router state.
+expect {
+    -re {minimalrouter v0\.1\.4.*first boot} {}
+    timeout { puts stderr "timeout waiting for golden-image first boot"; exit 20 }
+    eof { puts stderr "QEMU exited before golden-image first boot"; exit 21 }
+}
+wait_and_send {Use these WAN/LAN roles} "y\r" 22
+wait_and_send {PPPoE username.*skip} "\r" 24
+wait_and_send {administrator password.*12 characters} "$dashboard_password\r" 26
+wait_and_send {Confirm dashboard password} "$dashboard_password\r" 28
+wait_and_send {Install and apply this configuration} "\r" 30
+
+# BusyBox passwd wording differs slightly between Alpine point releases.
+expect {
+    -re {New.*password:} { send -- "$recovery_password\r" }
+    timeout { puts stderr "timeout waiting for recovery password prompt"; exit 32 }
+    eof { puts stderr "QEMU exited before recovery password prompt"; exit 33 }
+}
+expect {
+    -re {Retype.*password:} { send -- "$recovery_password\r" }
+    timeout { puts stderr "timeout waiting for recovery password confirmation"; exit 34 }
+    eof { puts stderr "QEMU exited before recovery password confirmation"; exit 35 }
+}
+expect {
+    -re {First boot configuration completed} {}
+    -re {A recovery shell is opening on this console} {
+        puts stderr "firstboot reported an error"
+        exit 36
+    }
+    timeout { puts stderr "timeout waiting for firstboot completion"; exit 37 }
+    eof { puts stderr "QEMU exited before firstboot completion"; exit 38 }
+}
+
+# "First boot configuration completed" intentionally means persistent router
+# state is committed; OpenRC still has to resume the blocked default runlevel.
+# Enter the installed recovery console and wait for the complete management
+# plane, not merely LAN+SSH. A Golden ISO is not healthy unless routerd has
+# published its readiness proof and the HTTPS dashboard is actually listening.
+send -- "\r"
+expect {
+    -re {login:} { send -- "root\r" }
+    timeout { puts stderr "timeout waiting for installed-system serial login"; exit 40 }
+    eof { puts stderr "QEMU exited before installed-system serial login"; exit 41 }
+}
+expect {
+    -re {Password:} { send -- "$recovery_password\r" }
+    timeout { puts stderr "timeout waiting for installed-system serial password"; exit 42 }
+}
+expect {
+    -re {# $} {}
+    -re {~ #} {}
+    timeout { puts stderr "timeout waiting for installed-system root shell"; exit 43 }
+}
+
+send -- "i=0; while \[ \"\$i\" -lt 360 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; if \[ \"\$i\" -ge 360 \]; then echo ROUTERD_DIAGNOSTICS_BEGIN; rc-service router-applyd status 2>&1 || true; rc-service routerd status 2>&1 || true; ls -l /run/minimalrouter 2>&1 || true; echo ROUTERD_LOG; tail -n 120 /var/log/routerd.log 2>&1 || true; echo ROUTERD_ERR; tail -n 120 /var/log/routerd.err 2>&1 || true; echo APPLYD_LOG; tail -n 80 /var/log/router-applyd.log 2>&1 || true; echo APPLYD_ERR; tail -n 80 /var/log/router-applyd.err 2>&1 || true; echo ROUTERD_DIAGNOSTICS_END; echo INSTALLED_SERVICES_TIMEOUT; fi\r"
+expect {
+    -re {INSTALLED_SERVICES_READY} {}
+    -re {INSTALLED_SERVICES_TIMEOUT} {
+        puts stderr "installed appliance did not bring LAN/SSH/firewall/dashboard online"
+        exit 44
+    }
+    timeout { puts stderr "timeout waiting for installed appliance services"; exit 45 }
+    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 46 }
+}
+
+# Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
+# Then echo the marker through the guest serial console as well, so the retained
+# qemu-full-install.log contains durable evidence for the workflow grep.
+verify_ssh $recovery_password INSTALLED_SSH_OK
+send -- "echo INSTALLED_SSH_OK\r"
+expect {
+    -re {INSTALLED_SSH_OK} {}
+    timeout { puts stderr "SSH evidence marker was not persisted to the serial log"; exit 47 }
+}
+
+set checks {
+    {test -x /usr/bin/routerd && echo CHECK_ROUTERD_OK}
+    {test -x /usr/sbin/router-applyd && echo CHECK_APPLYD_OK}
+    {test -x /usr/sbin/router-setup && echo CHECK_SETUP_OK}
+    {grep -q '^installed_by=golden-image$' /etc/minimalrouter/installed && echo CHECK_GOLDEN_MARKER_OK}
+    {test -s /etc/minimalrouter/firstboot-complete && echo CHECK_FIRSTBOOT_OK}
+    {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
+    {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
+    {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
+    {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
+    {grep -q 'v3.22/main' /etc/apk/repositories && grep -q 'v3.22/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
+    {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
+    {nft list ruleset | grep -q 'tcp dport 22 accept' && echo CHECK_NFT_SSH_OK}
+    {ss -lnt | grep -q ':22 ' && echo CHECK_SSH_LISTEN_OK}
+    {rc-service routerd status >/dev/null 2>&1 && echo CHECK_ROUTERD_SERVICE_OK}
+    {test -s /run/minimalrouter/routerd.ready && echo CHECK_ROUTERD_READY_OK}
+    {ss -lnt | grep -q ':8443 ' && echo CHECK_DASHBOARD_LISTEN_OK}
+}
+
+foreach command $checks {
+    send -- "$command\r"
+}
+send -- "echo FULL_ISO_INSTALL_OK\r"
+
+# INSTALLED_SSH_OK was already consumed above after proving a real SSH login.
+# Only wait here for markers emitted by the checks we just sent.
+foreach marker {
+    CHECK_ROUTERD_OK
+    CHECK_APPLYD_OK
+    CHECK_SETUP_OK
+    CHECK_GOLDEN_MARKER_OK
+    CHECK_FIRSTBOOT_OK
+    CHECK_STATE_DB_OK
+    CHECK_KERNEL_MODULE_MATCH_OK
+    CHECK_SSHD_ENABLED
+    CHECK_SERIAL_GETTY_OK
+    CHECK_APK_REPOS_OK
+    CHECK_LAN_IP_OK
+    CHECK_NFT_SSH_OK
+    CHECK_SSH_LISTEN_OK
+    CHECK_ROUTERD_SERVICE_OK
+    CHECK_ROUTERD_READY_OK
+    CHECK_DASHBOARD_LISTEN_OK
+    FULL_ISO_INSTALL_OK
+} {
+    expect {
+        -re $marker {}
+        timeout { puts stderr "missing installed-system marker: $marker"; exit 50 }
+        eof { puts stderr "QEMU exited before marker: $marker"; exit 51 }
+    }
+}
+
+send -- "poweroff -f\r"
+expect {
+    eof {}
+    timeout { send -- "\003" }
+}
+exit 0

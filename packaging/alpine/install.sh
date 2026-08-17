@@ -13,7 +13,7 @@ fi
 
 # 2. Install system dependencies from the pinned repository.
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates \
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates openssh-server \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc logrotate
 
@@ -21,7 +21,7 @@ apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certi
 # linux-virt kernel did not provide the PPPoE kernel module required by pppd.
 # linux-lts supplied the module and completed the real WAN test. Validate the
 # running kernel capability rather than silently completing an unusable install.
-if ! modprobe pppoe >/dev/null 2>&1; then
+if ! modprobe pppoe >/dev/null 2>&1 && ! find /lib/modules -name "pppoe.ko*" 2>/dev/null | grep -q .; then
     echo "ERROR: running Alpine kernel does not provide the required pppoe module." >&2
     echo "On the validated Proxmox path, install/boot Alpine linux-lts, confirm 'modprobe pppoe', then rerun the installer." >&2
     exit 1
@@ -156,13 +156,14 @@ fi
 # 6. Enable services in OpenRC default runlevel
 # MinimalRouter owns every router interface. dhcpcd must not race
 # router-applyd/pppd for DHCP addresses or default routes at boot.
-for unused_service in dhcpcd sshd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+for unused_service in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
 rc-update add chronyd default
+rc-update add sshd default
 rc-update add router-applyd default
 rc-update add routerd default
 
 echo "=== Installation complete on Alpine $ALPINE_VERSION ==="
-echo "Start services with: rc-service chronyd start && rc-service router-applyd start && rc-service routerd start"
+echo "Reboot now to complete the first-run setup: the installed system finalizes Minimal Router OS on boot."

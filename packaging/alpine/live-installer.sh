@@ -1,21 +1,22 @@
 #!/bin/sh
-# Minimal Router OS — live ISO installer.
-# Runs from the Alpine live environment, verifies the router configuration first,
-# then installs Alpine + the verified MinimalRouter state to the selected disk.
+# MinimalRouter live ISO flasher.
+# The live system does not install packages, resolve dependencies, build an
+# initramfs or run MinimalRouter installers. It verifies and writes one CI-built
+# bootable disk image, then reboots into that image's first-boot wizard.
 set -eu
 umask 077
 
-log() { printf '%s\n' "$*"; }
 fail() {
     printf '\nERROR: %s\n' "$*" >&2
-    printf 'A recovery shell will open on this console. Type exit to restart the installer.\n\n' >&2
-    /bin/sh || true
-    exit 1
+    printf 'No further disk changes will be made.\n' >&2
+    printf 'A recovery shell will open on this console. Type exit to stop.\n\n' >&2
+    exec /bin/sh
 }
 
 find_media() {
     for root in /media/* /mnt/* /run/media/*; do
         [ -d "$root/minimalrouter" ] || continue
+        [ -s "$root/minimalrouter/golden.img.gz" ] || continue
         printf '%s\n' "$root"
         return 0
     done
@@ -35,222 +36,217 @@ wait_for_media() {
     return 1
 }
 
-boot_disk_for_source() {
-    src="$1"
-    case "$src" in
-        /dev/*)
-            parent="$(lsblk -ndo PKNAME "$src" 2>/dev/null | head -n 1 || true)"
-            if [ -n "$parent" ]; then
-                printf '/dev/%s\n' "$parent"
-            else
-                printf '%s\n' "$src"
-            fi
-            ;;
-        *) printf '\n' ;;
-    esac
+is_qemu_vm() {
+    for f in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/board_vendor; do
+        [ -r "$f" ] || continue
+        grep -Eiq 'qemu|kvm|proxmox' "$f" 2>/dev/null && return 0
+    done
+    return 1
 }
 
 list_candidate_disks() {
-    boot_disk="$1"
-    lsblk -dpno NAME,TYPE 2>/dev/null | while read -r dev type; do
-        [ "$type" = "disk" ] || continue
-        case "$dev" in
-            /dev/loop*|/dev/ram*|/dev/fd*|/dev/sr*) continue ;;
+    for sys in /sys/block/*; do
+        [ -e "$sys" ] || continue
+        name="${sys##*/}"
+        case "$name" in
+            loop*|ram*|sr*|fd*|dm-*|md*|zram*) continue ;;
         esac
-        [ -n "$boot_disk" ] && [ "$dev" = "$boot_disk" ] && continue
-        printf '%s\n' "$dev"
+        [ -b "/dev/$name" ] || continue
+        [ "$(cat "$sys/removable" 2>/dev/null || printf 1)" = "0" ] || continue
+        printf '/dev/%s\n' "$name"
     done
 }
 
-show_disk_table() {
+disk_sys_name() {
+    printf '%s\n' "${1#/dev/}"
+}
+
+disk_size_bytes() {
+    name="$(disk_sys_name "$1")"
+    sectors="$(cat "/sys/block/$name/size" 2>/dev/null || true)"
+    [ -n "$sectors" ] || return 1
+    printf '%s\n' "$((sectors * 512))"
+}
+
+show_disks() {
     printf '\nAvailable installation disks\n'
     printf '%s\n' '----------------------------'
-    lsblk -dpno NAME,SIZE,MODEL,TYPE,TRAN 2>/dev/null | awk '$4 == "disk" {print}' || true
+    for disk in $CANDIDATES; do
+        name="$(disk_sys_name "$disk")"
+        bytes="$(disk_size_bytes "$disk" 2>/dev/null || printf 0)"
+        gib="$((bytes / 1024 / 1024 / 1024))"
+        model="$(tr -d '\000\r\n' < "/sys/block/$name/device/model" 2>/dev/null || true)"
+        printf '  %-14s %s GiB  %s\n' "$disk" "$gib" "$model"
+    done
     printf '\n'
 }
 
-mount_target_root() {
-    target="$1"
-    if mountpoint -q /mnt 2>/dev/null; then
-        return 0
+safe_auto_vm_disk() {
+    [ "$COUNT" -eq 1 ] || return 1
+    is_qemu_vm || return 1
+    disk="$(printf '%s\n' "$CANDIDATES" | awk 'NF {print; exit}')"
+    [ -b "$disk" ] || return 1
+    name="$(disk_sys_name "$disk")"
+    case "$disk" in
+        /dev/vd*) ;;
+        /dev/sd*|/dev/nvme*)
+            identity="$(cat "/sys/block/$name/device/vendor" "/sys/block/$name/device/model" 2>/dev/null || true)"
+            printf '%s\n' "$identity" | grep -Eiq 'qemu|virtio|virtual' || return 1
+            ;;
+        *) return 1 ;;
+    esac
+    printf '%s\n' "$disk"
+}
+
+preflight_host() {
+    mem_kib="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || true)"
+    [ -n "$mem_kib" ] || fail "Unable to determine VM memory"
+    [ "$mem_kib" -ge 900000 ] || fail "This system has less than 1 GiB RAM. Increase the VM memory to at least 1 GiB"
+}
+
+validate_target_disk() {
+    bytes="$(disk_size_bytes "$1" 2>/dev/null || true)"
+    [ -n "$bytes" ] || fail "Unable to determine installation disk size: $1"
+    min_bytes=8589934592
+    if [ "$bytes" -lt "$min_bytes" ]; then
+        gib="$((bytes / 1024 / 1024 / 1024))"
+        fail "Installation disk $1 is only ${gib} GiB. Use an 8 GiB or larger VM disk"
     fi
-
-    root_part="$(lsblk -nrpo NAME,FSTYPE "$target" 2>/dev/null | awk '$2 ~ /^(ext4|xfs|btrfs)$/ {candidate=$1} END {print candidate}')"
-    [ -n "$root_part" ] || return 1
-    mkdir -p /mnt
-    mount "$root_part" /mnt
 }
 
-bind_into_target() {
-    path="$1"
-    mkdir -p "/mnt$path"
-    mount --rbind "$path" "/mnt$path"
-    mount --make-rslave "/mnt$path" 2>/dev/null || true
-}
-
-cleanup_mounts() {
-    for path in /run /media /sys /proc /dev; do
-        umount -R "/mnt$path" 2>/dev/null || true
+partition_nodes() {
+    disk="$1"
+    name="$(disk_sys_name "$disk")"
+    sys="/sys/block/$name"
+    for part_sys in "$sys"/"$name"*; do
+        [ -e "$part_sys" ] || continue
+        part="${part_sys##*/}"
+        [ "$part" = "$name" ] && continue
+        [ -b "/dev/$part" ] && printf '/dev/%s\n' "$part"
     done
 }
 
-prepare_packages() {
-    apk_dir="$1"
-    [ -d "$apk_dir" ] || fail "ISO package bundle is missing: $apk_dir"
-
-    set -- "$apk_dir"/*.apk
-    [ -f "$1" ] || fail "ISO package bundle contains no APK files"
-
-    log "Preparing the offline installation environment..."
-    if ! apk add --no-network --no-cache "$apk_dir"/*.apk >/tmp/minimalrouter-apk-install.log 2>&1; then
-        cat /tmp/minimalrouter-apk-install.log >&2 || true
-        fail "Unable to install the bundled Alpine packages"
-    fi
-    command -v setup-disk >/dev/null 2>&1 || fail "setup-disk is unavailable after loading the package bundle"
-    command -v lsblk >/dev/null 2>&1 || fail "lsblk is unavailable after loading the package bundle"
-    modprobe pppoe >/dev/null 2>&1 || fail "The bundled linux-lts kernel cannot load the PPPoE module"
+disk_console_marker() {
+    disk="$1"
+    [ -b "$disk" ] || return 1
+    dd if="$disk" bs=512 skip=64 count=1 2>/dev/null | tr -d '\000\r\n ' || true
 }
 
-install_target_packages() {
-    apk_dir_inside="$1"
-    set -- "$apk_dir_inside"/*.apk
-    [ -f "/mnt$1" ] || fail "Target package path is unavailable inside chroot: $apk_dir_inside"
-    if ! chroot /mnt apk add --no-network --no-cache "$apk_dir_inside"/*.apk >/tmp/minimalrouter-target-apk.log 2>&1; then
-        cat /tmp/minimalrouter-target-apk.log >&2 || true
-        fail "Unable to install bundled packages into the target system"
-    fi
+guard_existing_install() {
+    # Golden installs carry an exact tty1/ttyS0 marker in the unused post-MBR
+    # gap. This check needs no filesystem driver and therefore works in the tiny
+    # live flasher even when ext4 is not loaded there.
+    for disk in $CANDIDATES; do
+        marker="$(disk_console_marker "$disk")"
+        case "$marker" in
+            tty1|ttyS0)
+                printf '\nminimalrouter appears to be already installed on %s.\n' "$disk"
+                printf 'The ISO stopped before overwriting the appliance. Detach the ISO and reboot.\n\n'
+                exec /bin/sh
+                ;;
+        esac
+
+        # Also recognize older MinimalRouter images by their filesystem label
+        # when blkid is available. This is read-only metadata inspection; the
+        # target filesystem is never mounted by the flasher.
+        if command -v blkid >/dev/null 2>&1; then
+            for part in $(partition_nodes "$disk"); do
+                label="$(blkid -s LABEL -o value "$part" 2>/dev/null || true)"
+                if [ "$label" = "minimalrouter-root" ]; then
+                    printf '\nminimalrouter filesystem detected on %s.\n' "$disk"
+                    printf 'The ISO stopped before overwriting the appliance. Detach the ISO and reboot.\n\n'
+                    exec /bin/sh
+                fi
+            done
+        fi
+    done
 }
 
-MEDIA="$(wait_for_media)" || fail "MinimalRouter payload was not found on the boot media"
+verify_golden_image() {
+    [ -s "$GOLDEN" ] || fail "Golden disk image is missing from the ISO"
+    [ -r "$GOLDEN_SHA" ] || fail "Golden disk image checksum is missing from the ISO"
+    if ! (cd "$ISO_ROOT" && sha256sum -c golden.img.gz.sha256) >/tmp/minimalrouter-golden-sha.log 2>&1; then
+        cat /tmp/minimalrouter-golden-sha.log >&2 || true
+        fail "Golden disk image checksum verification failed"
+    fi
+    gzip -t "$GOLDEN" >/dev/null 2>&1 || fail "Golden disk image is corrupt"
+    printf '\033[32m●\033[0m Golden image verified (SHA256 + gzip).\n'
+}
+
+write_golden_image() {
+    disk="$1"
+    printf '\nWriting the prebuilt MinimalRouter appliance to %s...\n' "$disk"
+    printf 'No packages are installed on this VM; this is a verified raw-image copy.\n\n'
+    if ! gzip -dc "$GOLDEN" | dd of="$disk" bs=4M 2>/tmp/minimalrouter-dd.log; then
+        cat /tmp/minimalrouter-dd.log >&2 || true
+        fail "Could not write the golden image to $disk"
+    fi
+
+    # The filesystem UUID, ExtLinux config, kernel, initramfs and modules are all
+    # already final inside the golden image. Do not mount or mutate its filesystem.
+    # Only preserve which console launched the flasher in the unused post-MBR gap.
+    console=tty1
+    [ "${MINIMALROUTER_INSTALL_TTY:-/dev/tty1}" = "/dev/ttyS0" ] && console=ttyS0
+    printf '%s' "$console" | dd of="$disk" bs=1 seek=32768 conv=notrunc >/dev/null 2>&1 || fail "Could not persist console selection"
+    sync
+    printf '\033[32m●\033[0m Golden image copied successfully.\n'
+}
+
+MEDIA="$(wait_for_media)" || fail "MinimalRouter golden image was not found on the boot media"
 ISO_ROOT="$MEDIA/minimalrouter"
-DIST="$ISO_ROOT/minimalrouter-linux-amd64"
-APK_DIR="$ISO_ROOT/apks"
+GOLDEN="$ISO_ROOT/golden.img.gz"
+GOLDEN_SHA="$ISO_ROOT/golden.img.gz.sha256"
 VERSION="dev"
 [ -r "$ISO_ROOT/VERSION" ] && VERSION="$(tr -d '\r\n' < "$ISO_ROOT/VERSION")"
 [ -n "$VERSION" ] || VERSION="dev"
 
-[ -d "$DIST" ] || fail "MinimalRouter distribution payload is missing"
-[ -x "$DIST/bin/router-setup-amd64" ] || fail "router-setup is missing from the ISO payload"
+cat <<'ART'
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
+ART
+printf '\nminimalrouter v%s appliance installer\n\n' "$VERSION"
+printf 'This ISO is a flasher: Alpine Linux and MinimalRouter are already built and tested in CI.\n'
+printf 'The VM will not run apk, setup-disk, mkinitfs or the application installer.\n\n'
 
-prepare_packages "$APK_DIR"
-
-# The normal installer owns the visible welcome/prerequisite screen, PPPoE
-# discovery, WAN/LAN confirmation, dashboard password and transactional network
-# verification. VERSION is copied beside it by the ISO builder.
-MINIMALROUTER_OFFLINE=1 sh "$DIST/install.sh" --offline || fail "MinimalRouter live configuration did not verify successfully"
-
-printf '\nRecovery console password\n'
-printf '%s\n' '-------------------------'
-printf 'Set the local Linux root password used only for console recovery.\n'
-printf 'It is separate from the Web Dashboard administrator password.\n\n'
-while ! passwd; do
-    printf 'The passwords did not match or were rejected. Try again.\n'
-done
-
-BOOT_SOURCE="$(findmnt -no SOURCE "$MEDIA" 2>/dev/null || true)"
-BOOT_DISK="$(boot_disk_for_source "$BOOT_SOURCE")"
-CANDIDATES="$(list_candidate_disks "$BOOT_DISK")"
+preflight_host
+verify_golden_image
+CANDIDATES="$(list_candidate_disks)"
 [ -n "$CANDIDATES" ] || fail "No writable installation disk was detected"
-
-show_disk_table
-DEFAULT_DISK=""
 COUNT="$(printf '%s\n' "$CANDIDATES" | awk 'NF {n++} END {print n+0}')"
-[ "$COUNT" -eq 1 ] && DEFAULT_DISK="$(printf '%s\n' "$CANDIDATES" | head -n 1)"
+guard_existing_install
 
-while :; do
-    if [ -n "$DEFAULT_DISK" ]; then
-        printf 'Install Minimal Router OS v%s to disk [%s]: ' "$VERSION" "$DEFAULT_DISK"
-    else
-        printf 'Install Minimal Router OS v%s to disk: ' "$VERSION"
-    fi
-    IFS= read -r TARGET
-    [ -n "$TARGET" ] || TARGET="$DEFAULT_DISK"
-    if printf '%s\n' "$CANDIDATES" | grep -qxF "$TARGET"; then
-        break
-    fi
-    printf 'Please choose one of the listed installation disks.\n'
-done
-
-printf '\nSelected disk: %s\n' "$TARGET"
-lsblk "$TARGET" 2>/dev/null || true
-printf '\nWARNING: every partition and all data on %s will be erased.\n' "$TARGET"
-printf 'Type ERASE to continue: '
-IFS= read -r CONFIRM
-[ "$CONFIRM" = "ERASE" ] || fail "Disk installation was cancelled"
-
-printf '\nInstalling Alpine Linux 3.22 + Minimal Router OS v%s to %s...\n' "$VERSION" "$TARGET"
-sync
-swapoff -a 2>/dev/null || true
-for part in $(lsblk -nrpo NAME "$TARGET" 2>/dev/null | tail -n +2); do
-    umount "$part" 2>/dev/null || true
-done
-
-# The operator has already explicitly typed ERASE for this exact device, so the
-# setup-disk confirmation can safely be suppressed here.
-if ! ERASE_DISKS="$TARGET" SWAP_SIZE=0 setup-disk -m sys -k lts -s 0 "$TARGET"; then
-    fail "Alpine system-disk installation failed"
+TARGET="$(safe_auto_vm_disk 2>/dev/null || true)"
+if [ -n "$TARGET" ]; then
+    printf '\nProxmox/QEMU VM detected.\n'
+    printf 'Using the only attached installation disk automatically: %s\n' "$TARGET"
+    printf 'Only a clearly virtual, non-removable disk is eligible for automatic erase.\n'
+else
+    show_disks
+    while :; do
+        printf 'Install minimalrouter v%s to disk: ' "$VERSION"
+        IFS= read -r TARGET
+        printf '%s\n' "$CANDIDATES" | grep -qxF "$TARGET" && break
+        printf 'Please enter one of the exact disk paths shown above.\n'
+    done
+    printf '\nEvery partition and all data on %s will be erased.\n' "$TARGET"
+    printf 'Type ERASE to continue: '
+    IFS= read -r CONFIRM
+    case "$CONFIRM" in ERASE) ;; *) fail "Disk installation was cancelled" ;; esac
 fi
 
-mount_target_root "$TARGET" || fail "The newly installed root filesystem could not be mounted"
+validate_target_disk "$TARGET"
+write_golden_image "$TARGET"
 
-# Make the boot media and kernel pseudo-filesystems visible inside the target so
-# APK verification and the hardened core installer work exactly as on a normal
-# Alpine installation.
-bind_into_target /dev
-bind_into_target /proc
-bind_into_target /sys
-bind_into_target /run
-bind_into_target /media
+cat <<'ART'
 
-TARGET_INSTALLER=/root/minimalrouter-installer
-rm -rf "/mnt$TARGET_INSTALLER"
-mkdir -p "/mnt$TARGET_INSTALLER"
-cp -a "$DIST"/. "/mnt$TARGET_INSTALLER/"
-cp "$ISO_ROOT/VERSION" "/mnt$TARGET_INSTALLER/VERSION" 2>/dev/null || true
-
-# setup-disk may install only the base world. Reinstalling the signed APK bundle
-# inside the target is deterministic, offline and guarantees every router
-# dependency is present before install-core.sh performs its checks.
-APK_DIR_INSIDE="$APK_DIR"
-install_target_packages "$APK_DIR_INSIDE"
-
-if ! chroot /mnt sh "$TARGET_INSTALLER/install-core.sh" --offline; then
-    cleanup_mounts
-    fail "MinimalRouter core installation into the target system failed"
-fi
-
-# Freeze the verified live configuration before copying SQLite/WAL and the
-# helper's last-good state. This avoids carrying a database that is changing
-# underneath cp(1), while preserving exactly the WAN/LAN/PPPoE/admin state that
-# already passed the production transaction path.
-rc-service routerd stop >/dev/null 2>&1 || true
-rc-service router-applyd stop >/dev/null 2>&1 || true
-sync
-
-# Replace the fresh default database with the exact configuration that was
-# already verified on the live system: WAN/LAN roles, PPPoE credentials and the
-# hashed dashboard administrator password. The privileged helper will reconcile
-# it again on the first disk boot.
-rm -rf /mnt/var/lib/minimalrouter /mnt/var/lib/minimalrouter-applyd
-cp -a /var/lib/minimalrouter /mnt/var/lib/minimalrouter
-cp -a /var/lib/minimalrouter-applyd /mnt/var/lib/minimalrouter-applyd
-chroot /mnt chown -R routerd:routerd /var/lib/minimalrouter
-chroot /mnt chmod 0700 /var/lib/minimalrouter
-find /mnt/var/lib/minimalrouter -maxdepth 1 -type f -name 'minimalrouter.db*' -exec chmod 0600 {} \;
-chroot /mnt chown -R root:root /var/lib/minimalrouter-applyd
-chroot /mnt chmod 0700 /var/lib/minimalrouter-applyd
-
-mkdir -p /mnt/etc/minimalrouter
-printf '%s\n' "$VERSION" > /mnt/etc/minimalrouter/VERSION
-chmod 0644 /mnt/etc/minimalrouter/VERSION
-rm -rf "/mnt$TARGET_INSTALLER"
-
-sync
-cleanup_mounts
-
-printf '\n\033[32m●\033[0m Minimal Router OS v%s installation completed successfully.\n' "$VERSION"
-printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were verified before the disk was written.\n'
-printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n\n'
-printf 'The machine will power off now. Detach the ISO, then start it from the installed disk.\n'
-sleep 5
-poweroff -f
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
+ART
+printf '\n\033[32m●\033[0m minimalrouter v%s is installed.\n' "$VERSION"
+printf '\033[32m●\033[0m Rebooting into the prebuilt appliance now.\n\n'
+printf 'On first boot you will set WAN/LAN, optional PPPoE, Dashboard admin password\n'
+printf 'and the separate recovery/SSH password. No operating-system installation remains.\n\n'
+sleep 2
+reboot -f

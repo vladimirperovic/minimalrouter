@@ -29,6 +29,7 @@ fi
 SETUP_BIN="$SCRIPT_DIR/bin/router-setup-${BIN_ARCH}"
 CORE_INSTALLER="$SCRIPT_DIR/install-core.sh"
 PROVISION_FILE=/run/minimalrouter-console-setup.json
+LIVE_LAN_FILE=/run/minimalrouter-live-lan
 INTERACTIVE_SETUP=0
 
 cleanup() {
@@ -42,45 +43,32 @@ trap 'cleanup; exit 143' TERM
 show_welcome() {
     command -v clear >/dev/null 2>&1 && clear || true
     cat <<'ASCII'
- __  __ _       _                 _ ____             _
-|  \/  (_)_ __ (_)_ __ ___   __ _| |  _ \ ___  _   _| |_ ___ _ __
-| |\/| | | '_ \| | '_ ` _ \ / _` | | |_) / _ \| | | | __/ _ \ '__|
-| |  | | | | | | | | | | | | (_| | |  _ < (_) | |_| | ||  __/ |
-|_|  |_|_|_| |_|_|_| |_| |_|\__,_|_|_| \_\___/ \__,_|\__\___|_|
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
 ASCII
-    printf '\nMinimal Router OS v%s\n' "$MR_VERSION"
-    printf 'Welcome to Minimal Router OS.\n\n'
+    printf '\nminimalrouter v%s\n' "$MR_VERSION"
+    printf 'first-run setup starts automatically\n\n'
     cat <<'EOF'
-Before you continue
--------------------
-If you are installing on Proxmox VE, you should already have:
-  - a QEMU/KVM virtual machine (not an LXC container);
-  - at least 1 vCPU, 1 GiB RAM and an 8 GiB virtual disk;
-  - CPU type "host" recommended for a fixed home/lab node;
-  - two network adapters (VirtIO is recommended);
-  - one adapter connected to the WAN bridge leading to the ISP modem/ONT;
-  - one adapter connected to an isolated LAN bridge for your clients;
-  - working Proxmox console access and a rollback/snapshot path.
+before we begin
+---------------
+[ ] Proxmox QEMU/KVM VM with at least 1 GiB RAM and an 8 GiB disk
+[ ] two network adapters: one toward the modem/ONT, one toward your LAN
+[ ] PPPoE username/password if your ISP uses PPPoE (optional during setup)
+[ ] your previous router kept available until this installation is tested
 
-Network preparation:
-  - the ISP modem/ONT must expose PPPoE to the WAN adapter using bridge or
-    pass-through mode;
-  - have the PPPoE username and password ready;
-  - keep your previous router available until this installation is verified;
-  - do not connect the new MinimalRouter LAN to the same broadcast domain as
-    another active DHCP server during the first installation.
+how this works
+--------------
+- the installer checks the VM, network adapters and installation disk
+- safe suggestions can be accepted with Enter
+- uncertain WAN/LAN choices require an explicit confirmation
+- passwords are required and never shown while you type
+- a normal one-disk Proxmox VM installs to its virtual disk automatically
+- multi-disk or unusual hardware keeps an extra safety confirmation
 
-This ISO already contains Alpine Linux, the linux-lts kernel, the required
-router packages, MinimalRouter and the Web Dashboard. You do not need to
-install Alpine separately.
-
-The installer will test the network adapters for PPPoE, propose WAN/LAN roles,
-and ask you to confirm or change them. PPPoE credentials and the dashboard
-administrator password are entered locally and are never echoed on screen.
+Alpine Linux and everything minimalrouter needs are already inside this ISO.
 EOF
-    printf '\nPress Enter to continue, or Ctrl+C to abort. '
-    IFS= read -r _mr_continue
-    printf '\n'
+    printf '\nstarting setup...\n\n'
 }
 
 [ -x "$SETUP_BIN" ] || { echo "ERROR: missing console setup helper: $SETUP_BIN" >&2; exit 1; }
@@ -116,25 +104,28 @@ if [ -t 0 ] && [ "${MINIMALROUTER_SKIP_CONSOLE_SETUP:-0}" != "1" ]; then
     fi
 
     rm -f "$PROVISION_FILE"
-    "$SETUP_BIN" collect --output "$PROVISION_FILE" --data-dir /var/lib/minimalrouter
+    MINIMALROUTER_WELCOME_SHOWN=1 "$SETUP_BIN" collect --output "$PROVISION_FILE" --data-dir /var/lib/minimalrouter
+    if [ "${MINIMALROUTER_ISO_INSTALL:-0}" = "1" ] && [ -s "$PROVISION_FILE" ]; then
+        live_lan="$(sed -n 's/.*"lan_interface":"\([^"]*\)".*/\1/p' "$PROVISION_FILE" | head -1)"
+        [ -n "$live_lan" ] || { echo "ERROR: selected LAN interface could not be recovered for ISO SSH" >&2; exit 1; }
+        printf '%s\n' "$live_lan" > "$LIVE_LAN_FILE"
+        chmod 0600 "$LIVE_LAN_FILE"
+    fi
 fi
 
 # Run the existing hardened installer unchanged. This keeps one source of truth
 # for package policy, kernel checks, A/B baseline creation and service layout.
 sh "$CORE_INSTALLER" "$@"
 
-# If this was a first interactive install, apply exactly the reviewed console
-# choices through the normal privileged transaction engine. The CLI commits the
-# setup only after a real PPP IPv4 session exists when PPPoE credentials were
-# supplied; a failed authentication therefore fails setup instead of leaving a
-# half-configured router behind.
+# If this was a first interactive install, persist exactly the reviewed console
+# choices for the first disk boot. On the live ISO the production router stack
+# is never started: the installed system reconciles the configuration natively
+# on its own kernel and modules (see router-setup apply --offline).
 if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     echo
-    echo "Applying and verifying first-run network configuration..."
-    rc-service router-applyd start
-
+    echo "Writing first-run configuration for the installed system..."
     SETUP_RC=0
-    "$SETUP_BIN" apply --input "$PROVISION_FILE" --data-dir /var/lib/minimalrouter || SETUP_RC=$?
+    "$SETUP_BIN" apply --offline --input "$PROVISION_FILE" --data-dir /var/lib/minimalrouter || SETUP_RC=$?
 
     # router-setup runs as root because it talks to the privileged helper. Give
     # canonical SQLite state back to routerd even on a failed setup/rollback.
@@ -143,13 +134,17 @@ if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     find /var/lib/minimalrouter -maxdepth 1 -type f -name 'minimalrouter.db*' -exec chmod 0600 {} \;
 
     if [ "$SETUP_RC" -ne 0 ]; then
-        echo "ERROR: first-run network verification failed; configuration was not finalized." >&2
+        echo "ERROR: first-run configuration could not be persisted." >&2
         exit "$SETUP_RC"
     fi
 
     rm -f "$PROVISION_FILE"
-    rc-service chronyd start
-    rc-service routerd start
     echo
-    printf '\033[32m●\033[0m Minimal Router OS v%s is ready. Dashboard: https://192.168.1.1:8443\n' "$MR_VERSION"
+    cat <<'ART'
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
+ART
+    printf '\033[32m●\033[0m minimalrouter v%s configuration saved. The first disk boot will finalize the router.\n' "$MR_VERSION"
+    printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
 fi

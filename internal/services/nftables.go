@@ -456,6 +456,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString("    # Authenticated tunnel services\n")
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", cfg.WireGuard.Interface, wgNetwork.String()))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport %d accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
+		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 22 accept\n", cfg.WireGuard.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" udp dport 53 accept\n", cfg.WireGuard.Interface))
 		buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 53 accept\n\n", cfg.WireGuard.Interface))
 	}
@@ -478,6 +479,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		if cfg.System.ManagementAccess != "wireguard_only" {
 			buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport %d ct state new limit rate over 30/second burst 60 packets drop\n", cfg.LAN.Interface, cfg.System.HTTPSPort))
 			buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport %d accept\n", cfg.LAN.Interface, cfg.System.HTTPSPort))
+			buf.WriteString(fmt.Sprintf("    iifname \"%s\" tcp dport 22 accept\n", cfg.LAN.Interface))
 		} else {
 			buf.WriteString("    # Management HTTPS is intentionally unavailable on LAN; use WireGuard\n")
 		}
