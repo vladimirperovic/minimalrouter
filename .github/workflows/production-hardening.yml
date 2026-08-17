@@ -1,4 +1,4 @@
-name: Apply installer production hardening
+name: Apply lowercase installer branding
 
 on:
   push:
@@ -17,28 +17,26 @@ jobs:
           ref: fix/live-install-offline-boot
           fetch-depth: 0
 
-      - name: Apply production hardening
-        run: python3 .github/production-hardening2.py
+      - name: Apply branding
+        run: python3 .github/lowercase-branding.py
 
-      - name: Validate production changes
+      - name: Validate branding
         shell: bash
         run: |
           set -euo pipefail
-          gofmt -w cmd/router-setup/main.go
-          go test ./cmd/router-setup ./internal/network ./internal/services
+          sh -n packaging/alpine/install-console.sh
           sh -n packaging/alpine/live-installer.sh
-          grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
-          grep -F 'validate_target_disk' packaging/alpine/live-installer.sh
-          grep -F 'Suggested WAN:' cmd/router-setup/main.go | grep -F 'MAC'
+          grep -F '|                      minimalrouter                       |' packaging/alpine/install-console.sh
+          grep -F '|                      minimalrouter                       |' packaging/alpine/live-installer.sh
           git diff --check
 
-      - name: Commit production changes
+      - name: Commit branding
         shell: bash
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add packaging/alpine/live-installer.sh cmd/router-setup/main.go scripts/ci/iso-full-install.exp
+          git add packaging/alpine/install-console.sh packaging/alpine/live-installer.sh
           git diff --cached --quiet && exit 0
-          git commit -m 'fix: add repeat-install guard and installer preflight'
+          git commit -m 'style: standardize lowercase minimalrouter installer branding'
           git push origin HEAD:fix/live-install-offline-boot
