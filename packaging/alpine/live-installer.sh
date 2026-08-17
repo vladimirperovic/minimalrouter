@@ -125,17 +125,15 @@ prepare_packages() {
     cp "$world_backup" /etc/apk/world
     chmod 0644 /etc/apk/world
 
-    # setup-disk requires a real APKINDEX. Discover the repository on the actual
-    # mounted Alpine ISO instead of assuming /media/cdrom or treating our flat
-    # package bundle as a repository.
-    base_repo="$(find "$MEDIA/apks" -type f -name APKINDEX.tar.gz -print 2>/dev/null | head -1 | xargs -r dirname)"
-    [ -n "$base_repo" ] || fail "The Alpine base repository (APKINDEX.tar.gz) was not found on the boot media"
-    ALPINE_MEDIA_REPO="$base_repo"
-    printf '%s\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
-    if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
-        cat /tmp/minimalrouter-apk-update.log >&2 || true
-        fail "The Alpine base repository on the ISO could not be opened"
-    fi
+    # setup-disk performs a normal apk transaction into /mnt. Use the signed
+    # local repositories assembled into this ISO by build-iso.sh.
+    repo_main="$MEDIA/minimalrouter/repo/main"
+    repo_community="$MEDIA/minimalrouter/repo/community"
+    for repo in "$repo_main" "$repo_community"; do
+        [ -f "$repo/x86_64/APKINDEX.tar.gz" ] || fail "Signed offline Alpine repository index is missing: $repo"
+    done
+    ALPINE_MEDIA_REPOS="$repo_main $repo_community"
+    restore_alpine_media_repo
     command -v setup-disk >/dev/null 2>&1 || fail "setup-disk is unavailable after loading the package bundle"
     command -v lsblk >/dev/null 2>&1 || fail "lsblk is unavailable after loading the package bundle"
     # Moduli LIVE kernela (base ISO verzija) — modloop sa medije. Initramfs
@@ -171,13 +169,19 @@ prepare_packages() {
 }
 
 restore_alpine_media_repo() {
-    [ -n "${ALPINE_MEDIA_REPO:-}" ] || fail "The Alpine media repository path was lost before disk installation"
-    [ -r "$ALPINE_MEDIA_REPO/APKINDEX.tar.gz" ] || fail "The Alpine media APKINDEX is no longer available: $ALPINE_MEDIA_REPO"
-    printf '%s\n' "$ALPINE_MEDIA_REPO" > /etc/apk/repositories
+    [ -n "${ALPINE_MEDIA_REPOS:-}" ] || fail "The signed Alpine media repository paths were lost before disk installation"
+    : > /etc/apk/repositories
+    for repo in $ALPINE_MEDIA_REPOS; do
+        [ -r "$repo/x86_64/APKINDEX.tar.gz" ] || fail "The signed Alpine APKINDEX is no longer available: $repo"
+        printf '%s\n' "$repo" >> /etc/apk/repositories
+    done
     if ! apk update --no-network >/tmp/minimalrouter-apk-update.log 2>&1; then
         cat /tmp/minimalrouter-apk-update.log >&2 || true
-        fail "The Alpine media repository could not be restored for setup-disk"
+        fail "The signed Alpine media repositories could not be restored for setup-disk"
     fi
+    for pkg in alpine-base e2fsprogs linux-lts openssl syslinux; do
+        apk search --no-network -x "$pkg" 2>/dev/null | grep -q . || fail "Offline repository cannot resolve required target package: $pkg"
+    done
 }
 
 install_target_packages() {

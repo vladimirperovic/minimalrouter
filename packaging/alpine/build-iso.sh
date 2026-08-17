@@ -20,6 +20,7 @@ VOLUME_VERSION="$(printf '%s' "$VERSION" | tr -cd '0-9A-Za-z' | cut -c1-12)"
 BUILD_DIR="build/iso"
 CACHE_DIR="$BUILD_DIR/cache"
 APK_DIR="$BUILD_DIR/apks"
+APK_REPO_DIR="$BUILD_DIR/apk-repo"
 INJECT_DIR="$BUILD_DIR/inject"
 OVERLAY_DIR="$BUILD_DIR/apkovl-root"
 BASE_ISO="$CACHE_DIR/$ALPINE_ISO_NAME"
@@ -93,6 +94,42 @@ fetch_apks() {
     set -- "$APK_DIR"/*.apk
     [ -f "$1" ] || { echo "ERROR: no APKs were fetched" >&2; exit 1; }
     (cd "$APK_DIR" && sha256sum ./*.apk | sort) > "$APK_MANIFEST"
+}
+
+build_offline_repos() {
+    # setup-disk performs a normal apk transaction into --root /mnt. Provide
+    # normal signed Alpine repositories instead of a flat directory of APKs.
+    rm -rf "$APK_REPO_DIR"
+    mkdir -p         "$APK_REPO_DIR/main/$ALPINE_ARCH"         "$APK_REPO_DIR/community/$ALPINE_ARCH"
+
+    fetch_file         "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main/${ALPINE_ARCH}/APKINDEX.tar.gz"         "$APK_REPO_DIR/main/$ALPINE_ARCH/APKINDEX.tar.gz"
+    fetch_file         "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community/${ALPINE_ARCH}/APKINDEX.tar.gz"         "$APK_REPO_DIR/community/$ALPINE_ARCH/APKINDEX.tar.gz"
+
+    # Keep one physical APK copy. Both repository trees point at the verified
+    # bundle; apk simply ignores packages not present in a given signed index.
+    for repo in main community; do
+        for apk in "$APK_DIR"/*.apk; do
+            name="$(basename "$apk")"
+            ln -s "../../../apks/$name" "$APK_REPO_DIR/$repo/$ALPINE_ARCH/$name"
+        done
+    done
+
+    # Prove the exact local repository tree is usable before remastering.
+    if command -v docker >/dev/null 2>&1; then
+        repo_root="$(pwd)"
+        docker run --rm --platform linux/amd64             -v "$repo_root:/work:ro"             "alpine:${ALPINE_BRANCH#v}"             /bin/sh -ec '''
+                printf "%s\n"                   "/work/build/iso/apk-repo/main"                   "/work/build/iso/apk-repo/community"                   > /etc/apk/repositories
+                apk update --no-network >/dev/null
+                mkdir -p /tmp/mr-fetch
+                apk fetch --no-network --recursive --output /tmp/mr-fetch                   alpine-base e2fsprogs linux-lts openssl syslinux >/dev/null
+                for pkg in alpine-base e2fsprogs linux-lts openssl syslinux; do
+                    ls /tmp/mr-fetch/${pkg}-*.apk >/dev/null 2>&1 || {
+                        echo "offline repository validation did not fetch $pkg" >&2
+                        exit 1
+                    }
+                done
+            '''
+    fi
 }
 
 build_apkovl() {
@@ -248,6 +285,7 @@ fetch_file "$ALPINE_SHA_URL" "$BASE_SHA"
 
 echo "[3/7] Fetching the complete offline Alpine package bundle..."
 fetch_apks
+build_offline_repos
 
 echo "[4/7] Building MinimalRouter boot overlay..."
 build_apkovl
@@ -259,6 +297,7 @@ rm -rf "$INJECT_DIR"
 mkdir -p "$INJECT_DIR/minimalrouter"
 cp -a "$DIST_DIR" "$INJECT_DIR/minimalrouter/minimalrouter-linux-amd64"
 cp -a "$APK_DIR" "$INJECT_DIR/minimalrouter/apks"
+cp -a "$APK_REPO_DIR" "$INJECT_DIR/minimalrouter/repo"
 cp VERSION "$INJECT_DIR/minimalrouter/VERSION"
 cp "$APK_MANIFEST" "$INJECT_DIR/minimalrouter/APK-SHA256SUMS"
 printf '%s\n' "$ALPINE_VERSION" > "$INJECT_DIR/minimalrouter/ALPINE_VERSION"
@@ -295,6 +334,8 @@ iso_ls_has /minimalrouter minimalrouter-linux-amd64 || { echo "ERROR: final ISO 
 iso_ls_has /minimalrouter/minimalrouter-linux-amd64 install.sh || { echo "ERROR: final ISO is missing install.sh" >&2; exit 1; }
 iso_ls_has /minimalrouter/minimalrouter-linux-amd64 install-core.sh || { echo "ERROR: final ISO is missing install-core.sh" >&2; exit 1; }
 iso_ls_has /minimalrouter/minimalrouter-linux-amd64/bin router-setup-amd64 || { echo "ERROR: final ISO is missing router-setup-amd64" >&2; exit 1; }
+iso_ls_has /minimalrouter/repo/main/x86_64 APKINDEX.tar.gz || { echo "ERROR: final ISO is missing the signed Alpine main index" >&2; exit 1; }
+iso_ls_has /minimalrouter/repo/community/x86_64 APKINDEX.tar.gz || { echo "ERROR: final ISO is missing the signed Alpine community index" >&2; exit 1; }
 iso_ls_has / minimalrouter.apkovl.tar.gz || { echo "ERROR: final ISO is missing the boot overlay" >&2; exit 1; }
 iso_ls_has /boot vmlinuz-lts || { echo "ERROR: final ISO is missing vmlinuz-lts" >&2; exit 1; }
 iso_ls_has /boot initramfs-lts || { echo "ERROR: final ISO is missing initramfs-lts" >&2; exit 1; }
