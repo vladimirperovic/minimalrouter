@@ -60,7 +60,7 @@ jobs:
           grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh
           grep -F 'build-golden-image.sh' packaging/alpine/build-iso.sh
           grep -F 'golden.img.gz' packaging/alpine/build-iso.sh
-          grep -F 'gzip -dc "$GOLDEN" | dd' packaging/alpine/live-installer.sh
+          grep -F "gzip -dc \"\$GOLDEN\" | dd" packaging/alpine/live-installer.sh
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
           grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
           grep -F 'installed_by=golden-image' packaging/alpine/build-golden-image.sh
@@ -70,11 +70,26 @@ jobs:
           grep -F 'CHECK_KERNEL_MODULE_MATCH_OK' scripts/ci/iso-full-install.exp
 
           # The user's VM is a flasher target, never an Alpine build host.
-          ! grep -E '^[[:space:]]*apk[[:space:]]+(add|update|fix)' packaging/alpine/live-installer.sh
-          ! grep -E '^[[:space:]]*(chroot|mkinitfs|setup-disk|sfdisk)[[:space:]]' packaging/alpine/live-installer.sh
-          ! grep -E '^[[:space:]]*mkfs\.' packaging/alpine/live-installer.sh
-          ! grep -F 'install-core.sh' packaging/alpine/live-installer.sh
-          ! grep -F 'rootfs.tar.gz' packaging/alpine/live-installer.sh
+          if grep -E '^[[:space:]]*apk[[:space:]]+(add|update|fix)' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer must not run apk package transactions' >&2
+            exit 1
+          fi
+          if grep -E '^[[:space:]]*(chroot|mkinitfs|setup-disk|sfdisk)[[:space:]]' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer contains a forbidden target build/install command' >&2
+            exit 1
+          fi
+          if grep -E '^[[:space:]]*mkfs\.' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer must not build filesystems' >&2
+            exit 1
+          fi
+          if grep -F 'install-core.sh' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer must not rerun MinimalRouter installation' >&2
+            exit 1
+          fi
+          if grep -F 'rootfs.tar.gz' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer must flash the golden disk, not unpack rootfs' >&2
+            exit 1
+          fi
 
       - name: Build golden appliance ISO
         run: sh packaging/alpine/build-iso.sh
@@ -102,8 +117,9 @@ jobs:
         run: |
           set -eu
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
-          # Deliberately undersized: this smoke test proves automatic startup and
-          # preflight without spending time writing the golden image twice.
+          # Production deliberately owns tty1/VGA so Proxmox noVNC sees the UI.
+          # Serial only receives the service marker. The next end-to-end step
+          # remasters only the boot-menu default and exercises the full flasher.
           truncate -s 4G build/iso/test-disk.raw
           set +e
           timeout 90 qemu-system-x86_64 \
@@ -126,8 +142,10 @@ jobs:
           fi
           cat build/iso/qemu-boot.log
           grep -F 'MinimalRouter installer service started; UI=tty1; serial=ttyS0@115200' build/iso/qemu-boot.log
-          grep -F 'Golden image verified' build/iso/qemu-boot.log
-          grep -F 'Use an 8 GiB or larger VM disk' build/iso/qemu-boot.log
+          if grep -F 'minimalrouter-installer: crashed' build/iso/qemu-boot.log; then
+            echo 'ERROR: production flasher service crashed' >&2
+            exit 1
+          fi
 
       - name: Flash ISO, complete firstboot and verify installed appliance
         run: |
