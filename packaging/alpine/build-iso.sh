@@ -100,10 +100,10 @@ build_offline_repos() {
     # setup-disk performs a normal apk transaction into --root /mnt. Provide
     # normal signed Alpine repositories instead of a flat directory of APKs.
     rm -rf "$APK_REPO_DIR"
-    mkdir -p         "$APK_REPO_DIR/main/$ALPINE_ARCH"         "$APK_REPO_DIR/community/$ALPINE_ARCH"
+    mkdir -p "$APK_REPO_DIR/main/$ALPINE_ARCH" "$APK_REPO_DIR/community/$ALPINE_ARCH"
 
-    fetch_file         "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main/${ALPINE_ARCH}/APKINDEX.tar.gz"         "$APK_REPO_DIR/main/$ALPINE_ARCH/APKINDEX.tar.gz"
-    fetch_file         "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community/${ALPINE_ARCH}/APKINDEX.tar.gz"         "$APK_REPO_DIR/community/$ALPINE_ARCH/APKINDEX.tar.gz"
+    fetch_file "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/main/${ALPINE_ARCH}/APKINDEX.tar.gz" "$APK_REPO_DIR/main/$ALPINE_ARCH/APKINDEX.tar.gz"
+    fetch_file "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/community/${ALPINE_ARCH}/APKINDEX.tar.gz" "$APK_REPO_DIR/community/$ALPINE_ARCH/APKINDEX.tar.gz"
 
     # Keep one physical APK copy. Both repository trees point at the verified
     # bundle; apk simply ignores packages not present in a given signed index.
@@ -117,18 +117,25 @@ build_offline_repos() {
     # Prove the exact local repository tree is usable before remastering.
     if command -v docker >/dev/null 2>&1; then
         repo_root="$(pwd)"
-        docker run --rm --platform linux/amd64             -v "$repo_root:/work:ro"             "alpine:${ALPINE_BRANCH#v}"             /bin/sh -ec '''
-                printf "%s\n"                   "/work/build/iso/apk-repo/main"                   "/work/build/iso/apk-repo/community"                   > /etc/apk/repositories
+        docker run --rm --platform linux/amd64 \
+            -v "$repo_root:/work:ro" \
+            "alpine:${ALPINE_BRANCH#v}" \
+            /bin/sh -ec '
+                printf "%s\n" \
+                  "/work/build/iso/apk-repo/main" \
+                  "/work/build/iso/apk-repo/community" \
+                  > /etc/apk/repositories
                 apk update --no-network >/dev/null
                 mkdir -p /tmp/mr-fetch
-                apk fetch --no-network --recursive --output /tmp/mr-fetch                   alpine-base e2fsprogs linux-firmware-none linux-lts openssl syslinux >/dev/null
+                apk fetch --no-network --recursive --output /tmp/mr-fetch \
+                  alpine-base e2fsprogs linux-firmware-none linux-lts openssl syslinux >/dev/null
                 for pkg in alpine-base e2fsprogs linux-firmware-none linux-lts openssl syslinux; do
                     ls /tmp/mr-fetch/${pkg}-*.apk >/dev/null 2>&1 || {
                         echo "offline repository validation did not fetch $pkg" >&2
                         exit 1
                     }
                 done
-            '''
+            '
     fi
 }
 
@@ -138,7 +145,23 @@ build_apkovl() {
         "$OVERLAY_DIR/etc/minimalrouter" \
         "$OVERLAY_DIR/etc/init.d" \
         "$OVERLAY_DIR/etc/runlevels/default"
-    install -m 0755 packaging/alpine/live-installer.sh "$OVERLAY_DIR/etc/minimalrouter/live-installer.sh"
+
+    installer_copy="$OVERLAY_DIR/etc/minimalrouter/live-installer.sh"
+    install -m 0755 packaging/alpine/live-installer.sh "$installer_copy"
+
+    # util-linux 2.41 rejects the legacy sfdisk tuple used by older installer
+    # revisions (",;,83,*"). Normalize the exact copy shipped on the ISO to the
+    # named-field form: 1 MiB aligned start, Linux partition type, bootable flag,
+    # and omitted size so the partition consumes the remaining disk.
+    sed -i 's/,;,83,\*/start=1MiB, type=83, bootable/' "$installer_copy"
+    grep -F 'start=1MiB, type=83, bootable' "$installer_copy" >/dev/null || {
+        echo "ERROR: failed to apply supported sfdisk partition syntax to the ISO installer" >&2
+        exit 1
+    }
+    if grep -F ',;,83,*' "$installer_copy" >/dev/null; then
+        echo "ERROR: legacy unsupported sfdisk syntax is still present in the ISO installer" >&2
+        exit 1
+    fi
 
     # Alpine installs its stock /etc/inittab after apkovl processing, so using a
     # custom tty1 entry there is not reliable. A dedicated OpenRC default service
