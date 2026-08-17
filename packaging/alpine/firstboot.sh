@@ -48,8 +48,8 @@ selected_console() {
 enable_recovery_gettys() {
     if [ -f /etc/inittab ]; then
         sed -i \
-            -e 's#^# MR-FIRSTBOOT tty1::respawn:#tty1::respawn:#' \
-            -e 's#^# MR-FIRSTBOOT ttyS0::respawn:#ttyS0::respawn:#' \
+            -e 's|^# MR-FIRSTBOOT tty1::respawn:|tty1::respawn:|' \
+            -e 's|^# MR-FIRSTBOOT ttyS0::respawn:|ttyS0::respawn:|' \
             /etc/inittab
         if ! grep -q '^ttyS0::respawn:' /etc/inittab; then
             printf '%s\n' 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /etc/inittab
@@ -62,12 +62,12 @@ enable_recovery_gettys() {
 resize_root_filesystem() {
     part="$(root_partition)"
     [ -b "$part" ] || return 0
-    printf 'Expanding the appliance filesystem to the VM disk...\n'
+    printf 'Checking the appliance filesystem size...\n'
     if resize2fs "$part" >/tmp/minimalrouter-resize2fs.log 2>&1; then
         printf '  [OK] filesystem ready\n'
     else
         cat /tmp/minimalrouter-resize2fs.log >&2 || true
-        fail "Could not expand the root filesystem"
+        fail "Could not verify/expand the root filesystem"
     fi
 }
 
