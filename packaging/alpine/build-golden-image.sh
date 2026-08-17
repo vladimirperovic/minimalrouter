@@ -108,7 +108,7 @@ SERIAL 0 115200
 LABEL minimalrouter
   LINUX /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND root=LABEL=minimalrouter-root modules=sd-mod,virtio_blk,virtio_pci,ext4 quiet console=tty0 console=ttyS0,115200
+  APPEND root=LABEL=minimalrouter-root rootfstype=ext4 modules=sd-mod,virtio_blk,virtio_pci,ext4 quiet console=tty0 console=ttyS0,115200
 EOF
 $SUDO install -m 0644 "$BUILD_DIR/golden-extlinux.conf" "$MNT/boot/extlinux/extlinux.conf"
 $SUDO extlinux --install "$MNT/boot/extlinux" >/tmp/minimalrouter-golden-extlinux.log 2>&1 || {
