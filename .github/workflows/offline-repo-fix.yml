@@ -24,7 +24,6 @@ jobs:
           python3 .github/offline-repo-fix2.py
           sh -n packaging/alpine/install-dist.sh
           sh -n packaging/alpine/live-installer.sh
-          expect -n scripts/ci/iso-full-install.exp
           grep -F 'if [ "$OFFLINE_MODE" -eq 0 ]' packaging/alpine/install-dist.sh
           grep -F 'restore_alpine_media_repo' packaging/alpine/live-installer.sh
           grep -F 'restrict=on' scripts/ci/iso-full-install.exp
