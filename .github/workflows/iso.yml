@@ -12,9 +12,9 @@ permissions:
 
 jobs:
   build-and-boot:
-    name: Build and boot MinimalRouter ISO
+    name: Build, install and boot MinimalRouter ISO
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
       - name: Install ISO and VM test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso qemu-system-x86 qemu-utils
+          sudo apt-get install -y xorriso qemu-system-x86 qemu-utils expect
 
       - name: Validate installer shell syntax and recovery wiring
         run: |
@@ -60,7 +60,9 @@ jobs:
           grep -F 'openssh-server' packaging/alpine/build-iso.sh
           grep -F 'configure_live_ssh' packaging/alpine/live-installer.sh
           grep -F 'configure_target_recovery' packaging/alpine/live-installer.sh
+          grep -F 'chroot /mnt /bin/sh -c' packaging/alpine/live-installer.sh
           grep -F 'minimalrouter.console=ttyS0' packaging/alpine/build-iso.sh
+          test -f scripts/ci/iso-full-install.exp
 
       - name: Build all-in-one ISO
         run: sh packaging/alpine/build-iso.sh
@@ -103,7 +105,7 @@ jobs:
             >build/iso/qemu-boot.log 2>&1
           rc=$?
           set -e
-          # timeout is expected: the installer is interactive and this smoke test does not answer prompts.
+          # timeout is expected: the default installer UI is VGA/noVNC.
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
             cat build/iso/qemu-boot.log
             exit "$rc"
@@ -112,6 +114,32 @@ jobs:
           grep -F 'MinimalRouter installer service started; UI=' build/iso/qemu-boot.log
           grep -F 'serial=ttyS0@115200' build/iso/qemu-boot.log
           ! grep -F 'minimalrouter-installer: crashed' build/iso/qemu-boot.log
+
+      - name: Install ISO to disk and boot installed appliance
+        run: |
+          set -eux
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
+
+          # The production ISO defaults to VGA/noVNC. For CI only, remaster a
+          # byte-for-byte-equivalent payload whose BIOS default selects the
+          # existing serial installer entry so Expect can drive the real wizard.
+          cp build/iso/syslinux.cfg build/iso/syslinux-full-install.cfg
+          sed -i 's/^DEFAULT minimalrouter$/DEFAULT minimalrouter-serial/' build/iso/syslinux-full-install.cfg
+          xorriso \
+            -indev "$iso" \
+            -outdev build/iso/minimalrouter-full-install-test.iso \
+            -boot_image any replay \
+            -map build/iso/syslinux-full-install.cfg /boot/syslinux/syslinux.cfg \
+            -commit \
+            -end
+
+          truncate -s 8G build/iso/full-install-disk.raw
+          chmod +x scripts/ci/iso-full-install.exp
+          timeout 1200 scripts/ci/iso-full-install.exp \
+            build/iso/minimalrouter-full-install-test.iso \
+            build/iso/full-install-disk.raw \
+            build/iso/qemu-full-install.log
+          grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-full-install.log
 
       - name: Upload bootable ISO
         if: always()
@@ -123,6 +151,7 @@ jobs:
             build/iso/minimalrouter-*-amd64.iso.sha256
             build/iso/APK-SHA256SUMS
             build/iso/qemu-boot.log
+            build/iso/qemu-full-install.log
           if-no-files-found: warn
           compression-level: 0
           retention-days: 14
