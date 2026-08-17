@@ -6,8 +6,6 @@ description="MinimalRouter golden-image first-boot configuration"
 command="/usr/libexec/minimalrouter/firstboot"
 command_background="no"
 
-# This service is installed in the boot runlevel. OpenRC does not enter the
-# default runlevel (where router-applyd/routerd live) until this returns.
 depend() {
     need localmount
     after bootmisc modules sysctl
@@ -15,13 +13,7 @@ depend() {
 }
 
 start_pre() {
-    if [ -f /etc/minimalrouter/firstboot-complete ]; then
-        return 1
-    fi
-
-    # The wizard owns one console during first boot. Disable login gettys on
-    # tty1/ttyS0 temporarily so they cannot consume the same keystrokes. The
-    # firstboot program restores both before it returns.
+    [ -f /etc/minimalrouter/firstboot-complete ] && return 0
     if [ -f /etc/inittab ]; then
         sed -i \
             -e 's#^tty1::respawn:#\# MR-FIRSTBOOT tty1::respawn:#' \
@@ -29,7 +21,6 @@ start_pre() {
             /etc/inittab
         kill -HUP 1 2>/dev/null || true
     fi
-
     return 0
 }
 
@@ -39,7 +30,6 @@ start() {
         eend 0
         return 0
     fi
-
     ebegin "Running MinimalRouter first-boot configuration"
     "$command"
     rc=$?
