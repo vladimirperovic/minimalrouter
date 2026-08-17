@@ -1,0 +1,41 @@
+name: Apply safer setup flow
+
+on:
+  push:
+    branches: [fix/live-install-offline-boot]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/live-install-offline-boot
+          fetch-depth: 0
+
+      - name: Apply safer setup flow
+        run: python3 .github/safe-setup-flow.py
+
+      - name: Validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gofmt -w cmd/router-setup/main.go cmd/router-setup/main_test.go
+          go test ./cmd/router-setup
+          expect -n scripts/ci/iso-full-install.exp
+          git diff --check
+
+      - name: Commit production changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add cmd/router-setup/main.go cmd/router-setup/main_test.go scripts/ci/iso-full-install.exp
+          git diff --cached --quiet && exit 0
+          git commit -m 'fix: require explicit confirmation for PPPoE-based WAN suggestions'
+          git push origin HEAD:fix/live-install-offline-boot
