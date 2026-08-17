@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply acceptance patch
-        run: python3 .github/acceptance-fix.py
+        run: python3 .github/acceptance-fix2.py
 
       - name: Validate patched tree
         shell: bash
@@ -36,7 +36,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git checkout -- .github/workflows/iso.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add packaging/alpine/build-iso.sh packaging/alpine/install-console.sh packaging/alpine/live-installer.sh cmd/router-setup/main.go cmd/router-setup/main_test.go scripts/ci/iso-full-install.exp
