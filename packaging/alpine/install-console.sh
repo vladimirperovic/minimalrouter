@@ -43,31 +43,32 @@ trap 'cleanup; exit 143' TERM
 show_welcome() {
     command -v clear >/dev/null 2>&1 && clear || true
     cat <<'ASCII'
- __  __ _       _                 _ ____             _
-|  \/  (_)_ __ (_)_ __ ___   __ _| |  _ \ ___  _   _| |_ ___ _ __
-| |\/| | | '_ \| | '_ ` _ \ / _` | | |_) / _ \| | | | __/ _ \ '__|
-| |  | | | | | | | | | | | | (_| | |  _ < (_) | |_| | ||  __/ |
-|_|  |_|_|_| |_|_|_| |_| |_|\__,_|_|_| \_\___/ \__,_|\__\___|_|
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
 ASCII
-    printf '\nMinimal Router OS v%s\n' "$MR_VERSION"
-    printf 'First-run setup starts automatically.\n\n'
+    printf '\nminimalrouter v%s\n' "$MR_VERSION"
+    printf 'first-run setup starts automatically\n\n'
     cat <<'EOF'
-You should already have:
-  - a Proxmox QEMU/KVM VM with two network adapters and an 8 GiB+ disk;
-  - WAN connected toward the modem/ONT and LAN connected to your private bridge;
-  - your PPPoE username/password if your ISP uses PPPoE (you may skip it);
-  - your old router available until this new installation is tested.
+before we begin
+---------------
+[ ] Proxmox QEMU/KVM VM with at least 1 GiB RAM and an 8 GiB disk
+[ ] two network adapters: one toward the modem/ONT, one toward your LAN
+[ ] PPPoE username/password if your ISP uses PPPoE (optional during setup)
+[ ] your previous router kept available until this installation is tested
 
-How to answer:
-  - when a suggested choice is correct, press Enter to accept it;
-  - if WAN/LAN detection is uncertain, the installer explains what to choose;
-  - passwords are required and are never shown while you type;
-  - on a normal one-disk Proxmox VM, the attached VM disk installs automatically;
-  - unusual hardware or multi-disk systems keep an explicit safety confirmation.
+how this works
+--------------
+- the installer checks the VM, network adapters and installation disk
+- safe suggestions can be accepted with Enter
+- uncertain WAN/LAN choices require an explicit confirmation
+- passwords are required and never shown while you type
+- a normal one-disk Proxmox VM installs to its virtual disk automatically
+- multi-disk or unusual hardware keeps an extra safety confirmation
 
-This ISO already includes Alpine Linux and everything MinimalRouter needs.
+Alpine Linux and everything minimalrouter needs are already inside this ISO.
 EOF
-    printf '\nStarting setup...\n\n'
+    printf '\nstarting setup...\n\n'
 }
 
 [ -x "$SETUP_BIN" ] || { echo "ERROR: missing console setup helper: $SETUP_BIN" >&2; exit 1; }
@@ -140,12 +141,10 @@ if [ "$INTERACTIVE_SETUP" -eq 1 ] && [ -f "$PROVISION_FILE" ]; then
     rm -f "$PROVISION_FILE"
     echo
     cat <<'ART'
-           _       _                 _                 _
- _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
-| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
-| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
-|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
 ART
-    printf '\033[32m●\033[0m Minimal Router OS v%s configuration saved. The first disk boot will finalize the router.\n' "$MR_VERSION"
+    printf '\033[32m●\033[0m minimalrouter v%s configuration saved. The first disk boot will finalize the router.\n' "$MR_VERSION"
     printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
 fi

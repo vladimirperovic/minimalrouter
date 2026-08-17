@@ -567,13 +567,11 @@ sync
 cleanup_mounts
 
 cat <<'ART'
-           _       _                 _                 _
- _ __ ___ (_)_ __ (_)_ __ ___   __ _| |_ __ ___  _   _| |_ ___ _ __
-| '_ ` _ \| | '_ \| | '_ ` _ \ / _` | | '__/ _ \| | | | __/ _ \ '__|
-| | | | | | | | | | | | | | | | (_| | | | | (_) | |_| | ||  __/ |
-|_| |_| |_|_|_| |_|_|_| |_| |_|\__,_|_|_|  \___/ \__,_|\__\___|_|
++----------------------------------------------------------+
+|                      minimalrouter                       |
++----------------------------------------------------------+
 ART
-printf '\n\033[32m●\033[0m Minimal Router OS v%s installation completed successfully.\n' "$VERSION"
+printf '\n\033[32m●\033[0m minimalrouter v%s installation completed successfully.\n' "$VERSION"
 printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were saved before the disk was written.\n'
 printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
 printf '\033[32m●\033[0m SSH after boot: ssh root@192.168.1.1 (LAN/WireGuard only)\n'
