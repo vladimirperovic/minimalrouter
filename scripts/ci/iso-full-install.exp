@@ -50,7 +50,6 @@ proc wait_and_send {pattern text} {
 # Match stable semantic fragments rather than every punctuation character. A
 # real TTY may inject terminal-control bytes around a prompt even though the
 # visible text is unchanged.
-wait_and_send {Press Enter to continue} "\r"
 wait_and_send {PPPoE username} "\r"
 wait_and_send {Use these WAN/LAN roles} "\r"
 wait_and_send {administrator password.*12 characters} "$dashboard_password\r"
@@ -69,8 +68,11 @@ expect {
     eof { puts stderr "QEMU exited before recovery password confirmation"; exit 25 }
 }
 
-wait_and_send {Install Minimal Router OS.*to disk.*vda} "\r"
-wait_and_send {Type ERASE to continue} "ERASE\r"
+expect {
+    -re {Using the only attached installation disk automatically: /dev/vda} {}
+    timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 26 }
+    eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 27 }
+}
 
 # This marker is printed only after setup-disk, target APK installation,
 # install-core, SSH/serial target setup and configuration-state copy complete.

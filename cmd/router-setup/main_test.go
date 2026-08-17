@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mrnetwork "github.com/vladimirperovic/minimalrouter/internal/network"
@@ -61,5 +63,37 @@ func TestWriteProvisionIsRootOnly(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("provision mode = %o, want 600", got)
+	}
+}
+
+func TestConfirmEnterAcceptsDefaultYes(t *testing.T) {
+	ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("\n"))}
+	got, err := ui.confirm("Continue?", true)
+	if err != nil || !got {
+		t.Fatalf("got %v, %v; want true, nil", got, err)
+	}
+}
+
+func TestConfirmEnterAcceptsDefaultNo(t *testing.T) {
+	ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("\n"))}
+	got, err := ui.confirm("Continue?", false)
+	if err != nil || got {
+		t.Fatalf("got %v, %v; want false, nil", got, err)
+	}
+}
+
+func TestConfirmExplicitNoOverridesDefaultYes(t *testing.T) {
+	ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("n\n"))}
+	got, err := ui.confirm("Continue?", true)
+	if err != nil || got {
+		t.Fatalf("got %v, %v; want false, nil", got, err)
+	}
+}
+
+func TestConfirmInvalidAnswerReprompts(t *testing.T) {
+	ui := &consoleUI{reader: bufio.NewReader(strings.NewReader("maybe\n\n"))}
+	got, err := ui.confirm("Continue?", true)
+	if err != nil || !got {
+		t.Fatalf("got %v, %v; want true, nil", got, err)
 	}
 }

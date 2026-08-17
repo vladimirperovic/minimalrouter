@@ -1,6 +1,6 @@
 #!/bin/sh
 # Minimal Router OS — bootable all-in-one ISO builder.
-# Remasters the verified Alpine 3.22 standard ISO, adds a signed Alpine package
+# Remasters the verified Alpine 3.22 Extended ISO, adds a signed Alpine package
 # bundle, the MinimalRouter distribution and an apkovl that starts the installer.
 set -eu
 
@@ -8,7 +8,7 @@ ALPINE_VERSION="${ALPINE_VERSION:-3.22.5}"
 ALPINE_BRANCH="v3.22"
 ALPINE_ARCH="x86_64"
 ALPINE_BASE_URL="https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}"
-ALPINE_ISO_NAME="alpine-standard-${ALPINE_VERSION}-${ALPINE_ARCH}.iso"
+ALPINE_ISO_NAME="alpine-extended-${ALPINE_VERSION}-${ALPINE_ARCH}.iso"
 ALPINE_ISO_URL="${ALPINE_BASE_URL}/${ALPINE_ISO_NAME}"
 ALPINE_SHA_URL="${ALPINE_ISO_URL}.sha256"
 
@@ -128,6 +128,9 @@ start() {
     esac
     ebegin "Launching Minimal Router OS installer on ${INSTALL_TTY#/dev/}"
 
+    # Keep prompts readable; diagnostics remain available through dmesg.
+    dmesg -n 1 >/dev/null 2>&1 || true
+
     # The installer owns only its selected TTY. The other console remains a
     # recovery path instead of being killed unconditionally.
     if [ -f /etc/inittab ]; then
@@ -145,6 +148,7 @@ start() {
     fi
 
     (
+        export MINIMALROUTER_INSTALL_TTY="$INSTALL_TTY"
         exec <"$INSTALL_TTY" >"$INSTALL_TTY" 2>&1
         exec /etc/minimalrouter/live-installer.sh
     ) &
@@ -183,13 +187,13 @@ LABEL minimalrouter
   MENU LABEL Minimal Router OS Installer (VGA/noVNC)
   KERNEL /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts console=tty0 console=ttyS0,115200
+  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts quiet loglevel=1 console=tty0
 
 LABEL minimalrouter-serial
   MENU LABEL Minimal Router OS Installer (serial ttyS0 115200)
   KERNEL /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts minimalrouter.console=ttyS0 console=tty0 console=ttyS0,115200
+  APPEND modules=loop,squashfs,sd-mod,usb-storage modloop=/boot/modloop-lts quiet loglevel=1 minimalrouter.console=ttyS0 console=ttyS0,115200
 EOF
 }
 
@@ -203,12 +207,12 @@ terminal_input console serial
 terminal_output console serial
 
 menuentry "Minimal Router OS Installer (VGA/noVNC)" {
-linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage console=tty0 console=ttyS0,115200
+linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage quiet loglevel=1 console=tty0
 initrd	/boot/initramfs-lts
 }
 
 menuentry "Minimal Router OS Installer (serial ttyS0 115200)" {
-linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage minimalrouter.console=ttyS0 console=tty0 console=ttyS0,115200
+linux	/boot/vmlinuz-lts modules=loop,squashfs,sd-mod,usb-storage quiet loglevel=1 minimalrouter.console=ttyS0 console=ttyS0,115200
 initrd	/boot/initramfs-lts
 }
 EOF
@@ -234,7 +238,7 @@ DIST_DIR="build/dist/minimalrouter-linux-amd64"
 [ -d "$DIST_DIR" ] || { echo "ERROR: distribution directory is missing" >&2; exit 1; }
 cp VERSION "$DIST_DIR/VERSION"
 
-echo "[2/7] Downloading Alpine Linux ${ALPINE_VERSION} standard ISO..."
+echo "[2/7] Downloading Alpine Linux ${ALPINE_VERSION} Extended ISO..."
 fetch_file "$ALPINE_ISO_URL" "$BASE_ISO"
 fetch_file "$ALPINE_SHA_URL" "$BASE_SHA"
 (

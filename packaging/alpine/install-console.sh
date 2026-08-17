@@ -50,38 +50,24 @@ show_welcome() {
 |_|  |_|_|_| |_|_|_| |_| |_|\__,_|_|_| \_\___/ \__,_|\__\___|_|
 ASCII
     printf '\nMinimal Router OS v%s\n' "$MR_VERSION"
-    printf 'Welcome to Minimal Router OS.\n\n'
+    printf 'First-run setup starts automatically.\n\n'
     cat <<'EOF'
-Before you continue
--------------------
-If you are installing on Proxmox VE, you should already have:
-  - a QEMU/KVM virtual machine (not an LXC container);
-  - at least 1 vCPU, 1 GiB RAM and an 8 GiB virtual disk;
-  - CPU type "host" recommended for a fixed home/lab node;
-  - two network adapters (VirtIO is recommended);
-  - one adapter connected to the WAN bridge leading to the ISP modem/ONT;
-  - one adapter connected to an isolated LAN bridge for your clients;
-  - working Proxmox console access and a rollback/snapshot path.
+You should already have:
+  - a Proxmox QEMU/KVM VM with two network adapters and an 8 GiB+ disk;
+  - WAN connected toward the modem/ONT and LAN connected to your private bridge;
+  - your PPPoE username/password if your ISP uses PPPoE (you may skip it);
+  - your old router available until this new installation is tested.
 
-Network preparation:
-  - the ISP modem/ONT must expose PPPoE to the WAN adapter using bridge or
-    pass-through mode;
-  - have the PPPoE username and password ready;
-  - keep your previous router available until this installation is verified;
-  - do not connect the new MinimalRouter LAN to the same broadcast domain as
-    another active DHCP server during the first installation.
+How to answer:
+  - when a suggested choice is correct, press Enter to accept it;
+  - if WAN/LAN detection is uncertain, the installer explains what to choose;
+  - passwords are required and are never shown while you type;
+  - on a normal one-disk Proxmox VM, the attached VM disk installs automatically;
+  - unusual hardware or multi-disk systems keep an explicit safety confirmation.
 
-This ISO already contains Alpine Linux, the linux-lts kernel, the required
-router packages, MinimalRouter and the Web Dashboard. You do not need to
-install Alpine separately.
-
-The installer will test the network adapters for PPPoE, propose WAN/LAN roles,
-and ask you to confirm or change them. PPPoE credentials and the dashboard
-administrator password are entered locally and are never echoed on screen.
+This ISO already includes Alpine Linux and everything MinimalRouter needs.
 EOF
-    printf '\nPress Enter to continue, or Ctrl+C to abort. '
-    IFS= read -r _mr_continue
-    printf '\n'
+    printf '\nStarting setup...\n\n'
 }
 
 [ -x "$SETUP_BIN" ] || { echo "ERROR: missing console setup helper: $SETUP_BIN" >&2; exit 1; }
@@ -117,7 +103,7 @@ if [ -t 0 ] && [ "${MINIMALROUTER_SKIP_CONSOLE_SETUP:-0}" != "1" ]; then
     fi
 
     rm -f "$PROVISION_FILE"
-    "$SETUP_BIN" collect --output "$PROVISION_FILE" --data-dir /var/lib/minimalrouter
+    MINIMALROUTER_WELCOME_SHOWN=1 "$SETUP_BIN" collect --output "$PROVISION_FILE" --data-dir /var/lib/minimalrouter
     if [ "${MINIMALROUTER_ISO_INSTALL:-0}" = "1" ] && [ -s "$PROVISION_FILE" ]; then
         live_lan="$(sed -n 's/.*"lan_interface":"\([^"]*\)".*/\1/p' "$PROVISION_FILE" | head -1)"
         [ -n "$live_lan" ] || { echo "ERROR: selected LAN interface could not be recovered for ISO SSH" >&2; exit 1; }

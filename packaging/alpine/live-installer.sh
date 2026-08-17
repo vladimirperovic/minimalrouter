@@ -172,6 +172,23 @@ install_target_packages() {
     fi
 }
 
+is_qemu_vm() {
+    for f in /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name /sys/class/dmi/id/board_vendor; do
+        [ -r "$f" ] || continue
+        grep -Eiq 'qemu|kvm|proxmox' "$f" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+safe_auto_vm_disk() {
+    [ "$COUNT" -eq 1 ] || return 1
+    is_qemu_vm || return 1
+    candidate="$(printf '%s\n' "$CANDIDATES" | awk 'NF {print; exit}')"
+    [ -b "$candidate" ] || return 1
+    case "$candidate" in /dev/vd*|/dev/sd*|/dev/nvme*) ;; *) return 1 ;; esac
+    printf '%s\n' "$candidate"
+}
+
 configure_live_ssh() {
     live_lan_file=/run/minimalrouter-live-lan
     [ -r "$live_lan_file" ] || fail "Selected LAN interface is unavailable for recovery SSH"
@@ -200,9 +217,15 @@ Subsystem sftp internal-sftp
 SSHD
     rc-service sshd restart >/dev/null 2>&1 || rc-service sshd start >/dev/null 2>&1 || fail "Recovery SSH could not be started"
 
-    if [ -c /dev/ttyS0 ] && ! grep -q '^ttyS0::respawn:' /etc/inittab 2>/dev/null; then
-        printf '%s\n' 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /etc/inittab
-        grep -qxF ttyS0 /etc/securetty 2>/dev/null || printf '%s\n' ttyS0 >> /etc/securetty
+    # On VGA/noVNC ttyS0 can be an independent recovery login. When the wizard
+    # itself owns ttyS0, getty must not compete for the same keystrokes.
+    if [ "${MINIMALROUTER_INSTALL_TTY:-/dev/tty1}" != "/dev/ttyS0" ] \
+       && [ -c /dev/ttyS0 ] \
+       && ! grep -q '^ttyS0::respawn:' /etc/inittab 2>/dev/null; then
+        printf '%s
+' 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /etc/inittab
+        grep -qxF ttyS0 /etc/securetty 2>/dev/null || printf '%s
+' ttyS0 >> /etc/securetty
         kill -HUP 1 2>/dev/null || true
     fi
 
@@ -298,10 +321,10 @@ prepare_packages "$APK_DIR"
 # verification. VERSION is copied beside it by the ISO builder.
 MINIMALROUTER_ISO_INSTALL=1 MINIMALROUTER_OFFLINE=1 sh "$DIST/install.sh" --offline || fail "MinimalRouter live configuration could not be prepared"
 
-printf '\nRecovery console password\n'
-printf '%s\n' '-------------------------'
-printf 'Set the local Linux root password used only for console recovery.\n'
-printf 'It is separate from the Web Dashboard administrator password.\n\n'
+printf '\nRecovery / SSH root password\n'
+printf '%s\n' '----------------------------'
+printf 'Set the Linux root password used for emergency console and trusted-LAN SSH recovery.\n'
+printf 'It is separate from the Web Dashboard administrator password and is never exposed on WAN.\n\n'
 while ! passwd; do
     printf 'The passwords did not match or were rejected. Try again.\n'
 done
@@ -317,29 +340,31 @@ DEFAULT_DISK=""
 COUNT="$(printf '%s\n' "$CANDIDATES" | awk 'NF {n++} END {print n+0}')"
 [ "$COUNT" -eq 1 ] && DEFAULT_DISK="$(printf '%s\n' "$CANDIDATES" | head -n 1)"
 
-while :; do
-    if [ -n "$DEFAULT_DISK" ]; then
-        printf 'Install Minimal Router OS v%s to disk [%s]: ' "$VERSION" "$DEFAULT_DISK"
-    else
-        printf 'Install Minimal Router OS v%s to disk: ' "$VERSION"
-    fi
-    IFS= read -r TARGET
-    [ -n "$TARGET" ] || TARGET="$DEFAULT_DISK"
-    if printf '%s\n' "$CANDIDATES" | grep -qxF "$TARGET"; then
-        break
-    fi
-    printf 'Please choose one of the listed installation disks.\n'
-done
-
-printf '\nSelected disk: %s\n' "$TARGET"
-lsblk "$TARGET" 2>/dev/null || true
-printf '\nWARNING: every partition and all data on %s will be erased.\n' "$TARGET"
-printf 'Type ERASE to continue: '
-IFS= read -r CONFIRM
-case "$CONFIRM" in
-    [Ee][Rr][Aa][Ss][Ee]) ;;
-    *) fail "Disk installation was cancelled" ;;
-esac
+TARGET="$(safe_auto_vm_disk 2>/dev/null || true)"
+if [ -n "$TARGET" ]; then
+    printf '\nProxmox/QEMU VM detected.\n'
+    printf 'Using the only attached installation disk automatically: %s\n' "$TARGET"
+    printf 'Only disks visible inside this VM are considered.\n'
+else
+    while :; do
+        if [ -n "$DEFAULT_DISK" ]; then
+            printf 'Install Minimal Router OS v%s to disk [%s]: ' "$VERSION" "$DEFAULT_DISK"
+        else
+            printf 'Install Minimal Router OS v%s to disk: ' "$VERSION"
+        fi
+        IFS= read -r TARGET
+        [ -n "$TARGET" ] || TARGET="$DEFAULT_DISK"
+        printf '%s\n' "$CANDIDATES" | grep -qxF "$TARGET" && break
+        printf 'Please choose one of the listed installation disks.\n'
+    done
+    printf '\nSelected disk: %s\n' "$TARGET"
+    lsblk "$TARGET" 2>/dev/null || true
+    printf '\nThis layout needs one extra safety check.\n'
+    printf 'Every partition and all data on %s will be erased.\n' "$TARGET"
+    printf 'Type ERASE to continue: '
+    IFS= read -r CONFIRM
+    case "$CONFIRM" in [Ee][Rr][Aa][Ss][Ee]) ;; *) fail "Disk installation was cancelled" ;; esac
+fi
 
 printf '\nInstalling Alpine Linux 3.22 + Minimal Router OS v%s to %s...\n' "$VERSION" "$TARGET"
 sync

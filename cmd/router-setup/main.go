@@ -111,16 +111,17 @@ func collect(args []string) error {
 
 	ui := &consoleUI{reader: bufio.NewReader(os.Stdin), color: terminalColor()}
 	fmt.Println()
-	printBanner()
+	if os.Getenv("MINIMALROUTER_WELCOME_SHOWN") != "1" {
+		printBanner()
+		fmt.Println()
+	}
+	fmt.Println("Setup asks only for what it needs:")
+	fmt.Println("  1. PPPoE — press Enter to skip it if you do not want to configure it now")
+	fmt.Println("  2. WAN/LAN — the installer suggests the likely ports; press Enter if correct")
+	fmt.Println("  3. Dashboard password — required, minimum 12 characters")
+	fmt.Println("  4. A final review before the configuration is saved")
 	fmt.Println()
-	fmt.Println("What happens now:")
-	fmt.Println("  1. PPPoE credentials — leave empty to configure them later in the Web Dashboard")
-	fmt.Println("  2. WAN/LAN roles — WAN faces the ISP, LAN faces your clients (auto-assigned with two adapters)")
-	fmt.Println("  3. Dashboard administrator password (minimum 12 characters)")
-	fmt.Println("  4. Recovery console password — used only for local console recovery")
-	fmt.Println("  5. A final summary — nothing is applied before you confirm it")
-	fmt.Println()
-	fmt.Println("Nothing is committed until you review and confirm the final summary.")
+	fmt.Println("Tip: [Y/n] means Yes is the default; just press Enter to accept it.")
 	fmt.Println()
 
 	pppoeUser, err := ui.readLine("PPPoE username (leave empty for an isolated lab): ")
