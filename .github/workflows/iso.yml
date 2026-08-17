@@ -64,6 +64,8 @@ jobs:
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
           grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
           grep -F 'installed_by=golden-image' packaging/alpine/build-golden-image.sh
+          grep -F 'root=UUID=$ROOT_UUID rootfstype=ext4' packaging/alpine/build-golden-image.sh
+          grep -F 'UUID=$ROOT_UUID / ext4' packaging/alpine/build-golden-image.sh
           grep -F 'before networking sshd router-applyd routerd' packaging/alpine/firstboot.initd
           grep -F 'router-setup collect' packaging/alpine/firstboot.sh
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
@@ -88,6 +90,14 @@ jobs:
           fi
           if grep -F 'rootfs.tar.gz' packaging/alpine/live-installer.sh; then
             echo 'ERROR: live installer must flash the golden disk, not unpack rootfs' >&2
+            exit 1
+          fi
+          if grep -F 'minimalrouter-target' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer must not mount or patch the flashed target filesystem' >&2
+            exit 1
+          fi
+          if grep -E 'mount[[:space:]].*(rootpart|TARGET|target)' packaging/alpine/live-installer.sh; then
+            echo 'ERROR: live installer contains a target-filesystem mount' >&2
             exit 1
           fi
 
