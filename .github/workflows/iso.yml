@@ -12,9 +12,9 @@ permissions:
 
 jobs:
   build-and-boot:
-    name: Build, install and boot minimalrouter ISO
+    name: Build, flash and boot minimalrouter golden ISO
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 90
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -41,62 +41,70 @@ jobs:
       - name: Install dashboard dependencies
         run: pnpm --dir web install --frozen-lockfile
 
-      - name: Install ISO and VM test tools
+      - name: Install ISO, golden-image and VM test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso qemu-system-x86 qemu-utils expect sshpass
+          sudo apt-get install -y \
+            xorriso qemu-system-x86 qemu-utils expect sshpass \
+            extlinux syslinux-common e2fsprogs util-linux
 
-      - name: Validate installer shell syntax and recovery wiring
+      - name: Validate golden-image architecture
         run: |
           sh -n packaging/alpine/build-iso.sh
+          sh -n packaging/alpine/build-rootfs.sh
+          sh -n packaging/alpine/build-golden-image.sh
           sh -n packaging/alpine/live-installer.sh
-          sh -n packaging/alpine/install-console.sh
-          sh -n packaging/alpine/install-dist.sh
-          grep -F '|                      minimalrouter                       |' packaging/alpine/install-console.sh
-          grep -F 'first-run setup starts automatically' packaging/alpine/install-console.sh
-          ! grep -F 'Press Enter to continue' packaging/alpine/install-console.sh
-          grep -F 'safe suggestions can be accepted with Enter' packaging/alpine/install-console.sh
-          grep -F 'alpine-extended-${ALPINE_VERSION}-${ALPINE_ARCH}.iso' packaging/alpine/build-iso.sh
-          grep -F 'dmesg -n 1' packaging/alpine/build-iso.sh
-          grep -F 'openssh-server' packaging/alpine/build-iso.sh
-          grep -F 'configure_live_ssh' packaging/alpine/live-installer.sh
-          grep -F 'configure_target_recovery' packaging/alpine/live-installer.sh
+          sh -n packaging/alpine/firstboot.sh
+          sh -n packaging/alpine/firstboot.initd
+
+          grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh
+          grep -F 'build-golden-image.sh' packaging/alpine/build-iso.sh
+          grep -F 'golden.img.gz' packaging/alpine/build-iso.sh
+          grep -F 'gzip -dc "$GOLDEN" | dd' packaging/alpine/live-installer.sh
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
           grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
-          grep -F 'validate_target_disk' packaging/alpine/live-installer.sh
-          grep -F 'less than 1 GiB RAM' packaging/alpine/live-installer.sh
-          grep -F '/etc/minimalrouter/installed' packaging/alpine/live-installer.sh
-          grep -F 'raw physical disk passed through to QEMU' packaging/alpine/live-installer.sh
-          grep -F 'chroot /mnt /bin/sh -c' packaging/alpine/live-installer.sh
-          grep -F 'minimalrouter.console=ttyS0' packaging/alpine/build-iso.sh
-          grep -F 'Suggested WAN:' cmd/router-setup/main.go | grep -F 'MAC'
-          grep -F 'low-confidence suggestion' cmd/router-setup/main.go
-          grep -F 'LIVE_SSH_OK' scripts/ci/iso-full-install.exp
+          grep -F 'installed_by=golden-image' packaging/alpine/build-golden-image.sh
+          grep -F 'before networking sshd router-applyd routerd' packaging/alpine/firstboot.initd
+          grep -F 'router-setup collect' packaging/alpine/firstboot.sh
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
-          test -f scripts/ci/iso-full-install.exp
+          grep -F 'CHECK_KERNEL_MODULE_MATCH_OK' scripts/ci/iso-full-install.exp
 
-      - name: Build all-in-one ISO
+          # The user's VM is a flasher target, never an Alpine build host.
+          ! grep -E '^[[:space:]]*apk[[:space:]]+(add|update|fix)' packaging/alpine/live-installer.sh
+          ! grep -E '^[[:space:]]*(chroot|mkinitfs|setup-disk|sfdisk)[[:space:]]' packaging/alpine/live-installer.sh
+          ! grep -E '^[[:space:]]*mkfs\.' packaging/alpine/live-installer.sh
+          ! grep -F 'install-core.sh' packaging/alpine/live-installer.sh
+          ! grep -F 'rootfs.tar.gz' packaging/alpine/live-installer.sh
+
+      - name: Build golden appliance ISO
         run: sh packaging/alpine/build-iso.sh
 
-      - name: Verify ISO checksum and payload
+      - name: Verify ISO checksum and golden payload
         run: |
           sha256sum -c build/iso/minimalrouter-*-amd64.iso.sha256
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F VERSION
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F BUILD-INFO
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz.sha256
           xorriso -indev "$iso" -ls / 2>/dev/null | grep -F minimalrouter.apkovl.tar.gz
           xorriso -indev "$iso" -ls /boot/grub 2>/dev/null | grep -F grub.cfg
           xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep -F 'El Torito boot img'
-          ls build/iso/apks/openssh-server-*.apk
+
+          gzip -t build/iso/minimalrouter-golden-*-amd64.img.gz
+          test -s build/iso/minimalrouter-golden-*-amd64.img.gz.sha256
           mkdir -p build/iso/apkovl-check
           tar -xzf build/iso/minimalrouter.apkovl.tar.gz -C build/iso/apkovl-check
           test -x build/iso/apkovl-check/etc/init.d/minimalrouter-installer
           test -L build/iso/apkovl-check/etc/runlevels/default/minimalrouter-installer
 
-      - name: Boot production ISO and verify installer starts automatically
+      - name: Boot production ISO and verify flasher starts automatically
         run: |
           set -eu
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
-          truncate -s 8G build/iso/test-disk.raw
+          # Deliberately undersized: this smoke test proves automatic startup and
+          # preflight without spending time writing the golden image twice.
+          truncate -s 4G build/iso/test-disk.raw
           set +e
           timeout 90 qemu-system-x86_64 \
             -machine pc,accel=tcg \
@@ -106,33 +114,28 @@ jobs:
             -boot d \
             -cdrom "$iso" \
             -drive file=build/iso/test-disk.raw,format=raw,if=virtio \
-            -netdev user,id=wan \
-            -device virtio-net-pci,netdev=wan \
-            -netdev user,id=lan \
-            -device virtio-net-pci,netdev=lan \
             -display none \
             -serial stdio \
             -no-reboot \
             >build/iso/qemu-boot.log 2>&1
           rc=$?
           set -e
-          # timeout is expected: the production installer UI is on VGA/noVNC.
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then
             cat build/iso/qemu-boot.log
             exit "$rc"
           fi
           cat build/iso/qemu-boot.log
           grep -F 'MinimalRouter installer service started; UI=tty1; serial=ttyS0@115200' build/iso/qemu-boot.log
-          ! grep -F 'minimalrouter-installer: crashed' build/iso/qemu-boot.log
+          grep -F 'Golden image verified' build/iso/qemu-boot.log
+          grep -F 'Use an 8 GiB or larger VM disk' build/iso/qemu-boot.log
 
-      - name: Install ISO to disk, verify SSH/serial, and boot installed appliance
+      - name: Flash ISO, complete firstboot and verify installed appliance
         run: |
           set -eux
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
 
-          # Production defaults to VGA/noVNC. CI remasters only the boot-menu
-          # default to the already-shipped serial entry so Expect can drive the
-          # exact same installer code and prompts from end to end.
+          # Production defaults to VGA/noVNC. CI changes only the boot-menu
+          # default so Expect can drive the same flasher and firstboot over ttyS0.
           cp build/iso/syslinux.cfg build/iso/syslinux-full-install.cfg
           sed -i 's/^DEFAULT minimalrouter$/DEFAULT minimalrouter-serial/' build/iso/syslinux-full-install.cfg
           xorriso \
@@ -145,11 +148,12 @@ jobs:
 
           truncate -s 8G build/iso/full-install-disk.raw
           chmod +x scripts/ci/iso-full-install.exp
-          timeout 1200 scripts/ci/iso-full-install.exp \
+          timeout 1500 scripts/ci/iso-full-install.exp \
             build/iso/minimalrouter-full-install-test.iso \
             build/iso/full-install-disk.raw \
             build/iso/qemu-full-install.log
           grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-full-install.log
+          grep -F 'INSTALLED_SSH_OK' build/iso/qemu-full-install.log
 
       - name: Upload tested bootable ISO
         if: always()
@@ -159,7 +163,6 @@ jobs:
           path: |
             build/iso/minimalrouter-*-amd64.iso
             build/iso/minimalrouter-*-amd64.iso.sha256
-            build/iso/APK-SHA256SUMS
             build/iso/qemu-boot.log
             build/iso/qemu-full-install.log
           if-no-files-found: warn
