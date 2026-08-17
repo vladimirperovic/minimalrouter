@@ -29,6 +29,7 @@ jobs:
           grep -F 'build_offline_repos' packaging/alpine/build-iso.sh
           grep -F 'repo_main="$MEDIA/minimalrouter/repo/main"' packaging/alpine/live-installer.sh
           grep -F 'repo_community="$MEDIA/minimalrouter/repo/community"' packaging/alpine/live-installer.sh
+          grep -F 'ALPINE_MEDIA_REPOS=' packaging/alpine/live-installer.sh
           grep -F 'apk search --no-network -x' packaging/alpine/live-installer.sh
           git diff --check
 
