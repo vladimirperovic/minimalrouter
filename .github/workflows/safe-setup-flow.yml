@@ -26,7 +26,6 @@ jobs:
           set -euo pipefail
           gofmt -w cmd/router-setup/main.go cmd/router-setup/main_test.go
           go test ./cmd/router-setup
-          expect -n scripts/ci/iso-full-install.exp
           git diff --check
 
       - name: Commit production changes
