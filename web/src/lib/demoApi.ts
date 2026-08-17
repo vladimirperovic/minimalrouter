@@ -73,12 +73,12 @@ const leases = [
 
 const health = {
   state: "warning",
-  headline: "2 of 12 checks need attention.",
+  headline: "1 of 12 checks needs attention.",
   generated_at: new Date(startedAt).toISOString(),
   checks: [
     { id: "wan", label: "WAN", state: "healthy", summary: "PPPoE session is connected" },
     { id: "dns_dhcp", label: "DNS and DHCP", state: "healthy", summary: "Local services are responding" },
-    { id: "updates", label: "Updates", state: "warning", summary: "Firmware verification trust anchor is not configured" },
+    { id: "updates", label: "Updates", state: "healthy", summary: "Firmware verification trust anchor is configured" },
     { id: "backup", label: "Encrypted backup", state: "warning", summary: "Last encrypted backup export was 11 days ago" },
     { id: "firewall", label: "Firewall", state: "healthy", summary: "Default-deny policy is enforced" },
     { id: "wireguard", label: "WireGuard", state: "healthy", summary: "2 remote devices connected" },
@@ -116,7 +116,7 @@ function liveSystem() {
   trafficTick += 1;
   return {
     status: "Connected",
-    version: "v0.1.2-demo",
+    version: "v0.1.4-demo",
     revision: config.revision,
     update_trust_configured: true,
     recovery_required: false,
