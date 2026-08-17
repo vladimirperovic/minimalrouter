@@ -158,19 +158,38 @@ func collect(args []string) error {
 	}
 
 	wan, lan, reason := recommendRoles(recommendation, probeResults)
+	wanMAC, lanMAC := "unknown", "unknown"
+	strongSignal := false
+	for _, item := range recommendation.Interfaces {
+		if item.Name == wan {
+			wanMAC = fallback(item.MACAddress, "unknown")
+			strongSignal = strongSignal || item.DefaultRoute || item.Carrier
+		}
+		if item.Name == lan {
+			lanMAC = fallback(item.MACAddress, "unknown")
+			strongSignal = strongSignal || item.Carrier
+		}
+	}
 	fmt.Println()
-	fmt.Printf("Suggested WAN: %s\n", wan)
-	fmt.Printf("Suggested LAN: %s\n", lan)
+	fmt.Printf("Suggested WAN: %s  (MAC %s)\n", wan, wanMAC)
+	fmt.Printf("Suggested LAN: %s  (MAC %s)\n", lan, lanMAC)
 	fmt.Printf("Reason: %s\n", reason)
 	pppoeBased := reason == "only this interface answered PPPoE discovery" || strings.HasPrefix(reason, "PPPoE answered on multiple interfaces")
+	lowConfidence := !pppoeBased && !strongSignal
 	if pppoeBased {
 		fmt.Println()
 		ui.warn("PPPoE discovery only detects that a service answered; it does not start a PPPoE session.")
 		ui.warn("An existing router or shared upstream can make PPPoE visible during migration.")
 		fmt.Println("Please explicitly confirm the WAN/LAN roles; pressing Enter alone will NOT accept this PPPoE-based suggestion.")
 	}
+	if lowConfidence {
+		fmt.Println()
+		ui.warn("The installer does not have enough link evidence to identify WAN/LAN with high confidence.")
+		ui.warn("Check the MAC addresses against the two Proxmox NICs before confirming.")
+		fmt.Println("Please explicitly confirm the roles; pressing Enter alone will NOT accept this low-confidence suggestion.")
+	}
 
-	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased)
+	useSuggested, err := ui.confirm("Use these WAN/LAN roles?", !pppoeBased && !lowConfidence)
 	if err != nil {
 		return err
 	}

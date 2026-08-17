@@ -236,6 +236,50 @@ safe_auto_vm_disk() {
 ' "$candidate"
 }
 
+preflight_host() {
+    mem_kib="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || true)"
+    [ -n "$mem_kib" ] || fail "Unable to determine system memory"
+    if [ "$mem_kib" -lt 900000 ]; then
+        fail "This system has less than 1 GiB RAM. Increase the VM memory to at least 1 GiB and boot the ISO again"
+    fi
+}
+
+validate_target_disk() {
+    disk="$1"
+    bytes="$(blockdev --getsize64 "$disk" 2>/dev/null || true)"
+    [ -n "$bytes" ] || fail "Unable to determine installation disk size: $disk"
+    min_bytes=8589934592
+    if [ "$bytes" -lt "$min_bytes" ]; then
+        gib="$((bytes / 1024 / 1024 / 1024))"
+        fail "Installation disk $disk is only ${gib} GiB. Use an 8 GiB or larger VM disk"
+    fi
+}
+
+guard_existing_install() {
+    boot_source="$(findmnt -no SOURCE "$MEDIA" 2>/dev/null || true)"
+    boot_disk="$(boot_disk_for_source "$boot_source")"
+    check_dir=/tmp/minimalrouter-existing-check
+    mkdir -p "$check_dir"
+
+    for disk in $(list_candidate_disks "$boot_disk"); do
+        for part in $(lsblk -nrpo NAME,FSTYPE "$disk" 2>/dev/null | awk '$2 ~ /^(ext4|xfs|btrfs)$/ {print $1}'); do
+            umount "$check_dir" 2>/dev/null || true
+            if mount -o ro "$part" "$check_dir" 2>/dev/null; then
+                if [ -f "$check_dir/etc/minimalrouter/installed" ] || [ -f "$check_dir/etc/minimalrouter/VERSION" ]; then
+                    installed_version="$(cat "$check_dir/etc/minimalrouter/VERSION" 2>/dev/null | tr -d '\r\n' || true)"
+                    umount "$check_dir" 2>/dev/null || true
+                    printf '\nminimalrouter is already installed%s on %s.\n' "${installed_version:+ v$installed_version}" "$disk"
+                    printf 'The installer stopped before making disk or network changes.\n\n'
+                    printf 'Detach the ISO in Proxmox, then type: reboot\n'
+                    printf 'This shell remains available for recovery diagnostics.\n\n'
+                    exec /bin/sh
+                fi
+                umount "$check_dir" 2>/dev/null || true
+            fi
+        done
+    done
+}
+
 configure_live_ssh() {
     live_lan_file=/run/minimalrouter-live-lan
     [ -r "$live_lan_file" ] || fail "Selected LAN interface is unavailable for recovery SSH"
@@ -362,6 +406,8 @@ VERSION="dev"
 
 verify_bundle
 prepare_packages "$APK_DIR"
+preflight_host
+guard_existing_install
 
 # The normal installer owns the visible welcome/prerequisite screen, PPPoE
 # discovery, WAN/LAN confirmation, dashboard password and transactional network
@@ -417,7 +463,8 @@ else
     case "$CONFIRM" in [Ee][Rr][Aa][Ss][Ee]) ;; *) fail "Disk installation was cancelled" ;; esac
 fi
 
-printf '\nInstalling Alpine Linux 3.22 + Minimal Router OS v%s to %s...\n' "$VERSION" "$TARGET"
+validate_target_disk "$TARGET"
+printf '\nInstalling Alpine Linux 3.22 + minimalrouter v%s to %s...\n' "$VERSION" "$TARGET"
 sync
 swapoff -a 2>/dev/null || true
 for part in $(lsblk -nrpo NAME "$TARGET" 2>/dev/null | tail -n +2); do
@@ -509,7 +556,11 @@ chroot /mnt chmod 0700 /var/lib/minimalrouter-applyd
 
 mkdir -p /mnt/etc/minimalrouter
 printf '%s\n' "$VERSION" > /mnt/etc/minimalrouter/VERSION
-chmod 0644 /mnt/etc/minimalrouter/VERSION
+cat > /mnt/etc/minimalrouter/installed <<EOF
+version=$VERSION
+installed_by=all-in-one-iso
+EOF
+chmod 0644 /mnt/etc/minimalrouter/VERSION /mnt/etc/minimalrouter/installed
 rm -rf "/mnt$TARGET_INSTALLER"
 
 sync
@@ -527,7 +578,7 @@ printf '\033[32m●\033[0m PPPoE and WAN/LAN configuration were saved before the
 printf '\033[32m●\033[0m Dashboard after boot: https://192.168.1.1:8443\n'
 printf '\033[32m●\033[0m SSH after boot: ssh root@192.168.1.1 (LAN/WireGuard only)\n'
 printf '\033[32m●\033[0m Serial recovery: ttyS0 @ 115200\n\n'
-printf 'The machine will reboot now. The first boot finalizes Minimal Router OS.\n'
+printf 'The machine will reboot now. The first boot finalizes minimalrouter.\n'
 eject /dev/sr0 2>/dev/null || true
 sleep 5
 reboot -f
