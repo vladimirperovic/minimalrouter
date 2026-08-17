@@ -18,7 +18,7 @@ IMAGE_BYTES="${MINIMALROUTER_GOLDEN_BYTES:-8589934592}"
 [ -s "$ROOTFS" ] || { echo "ERROR: build the appliance rootfs first: $ROOTFS" >&2; exit 1; }
 [ "$IMAGE_BYTES" -ge 8589934592 ] || { echo "ERROR: golden image must be at least 8 GiB" >&2; exit 1; }
 
-for cmd in losetup sfdisk mkfs.ext4 mount umount extlinux gzip sha256sum tar; do
+for cmd in losetup sfdisk mkfs.ext4 blkid mount umount extlinux gzip sha256sum tar; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: required golden-image build tool is missing: $cmd" >&2; exit 1; }
 done
 
@@ -68,6 +68,9 @@ $SUDO mkfs.ext4 -F -L minimalrouter-root "$ROOTPART" >/tmp/minimalrouter-golden-
     echo "ERROR: could not create golden ext4 filesystem" >&2
     exit 1
 }
+ROOT_UUID="$($SUDO blkid -s UUID -o value "$ROOTPART" 2>/dev/null || true)"
+[ -n "$ROOT_UUID" ] || { echo "ERROR: golden root filesystem UUID could not be read" >&2; exit 1; }
+
 $SUDO mount "$ROOTPART" "$MNT"
 $SUDO tar --numeric-owner -xzf "$ROOTFS" -C "$MNT"
 
@@ -79,8 +82,8 @@ $SUDO ln -sf /etc/init.d/minimalrouter-firstboot "$MNT/etc/runlevels/default/min
 $SUDO install -m 0755 "build/dist/minimalrouter-linux-amd64/bin/router-setup-amd64" "$MNT/usr/sbin/router-setup"
 $SUDO rm -f "$MNT/etc/minimalrouter/firstboot-complete"
 
-cat > "$BUILD_DIR/golden-fstab" <<'EOF'
-LABEL=minimalrouter-root / ext4 defaults,noatime 0 1
+cat > "$BUILD_DIR/golden-fstab" <<EOF
+UUID=$ROOT_UUID / ext4 defaults,noatime 0 1
 EOF
 $SUDO install -m 0644 "$BUILD_DIR/golden-fstab" "$MNT/etc/fstab"
 
@@ -88,6 +91,7 @@ cat > "$BUILD_DIR/golden-installed" <<EOF
 version=$VERSION
 installed_by=golden-image
 image_layout=mbr-ext4
+root_uuid=$ROOT_UUID
 EOF
 $SUDO install -m 0644 "$BUILD_DIR/golden-installed" "$MNT/etc/minimalrouter/installed"
 
@@ -98,8 +102,12 @@ $SUDO install -m 0644 "$BUILD_DIR/golden-installed" "$MNT/etc/minimalrouter/inst
 KERNEL_RELEASE="$(basename "$(find "$MNT/lib/modules" -mindepth 1 -maxdepth 1 -type d | head -1)")"
 [ -n "$KERNEL_RELEASE" ] || { echo "ERROR: golden image is missing kernel modules" >&2; exit 1; }
 
+# Alpine's ExtLinux/initramfs path supports root=UUID=<filesystem UUID>. Baking
+# the UUID into the image makes the raw appliance independent of whether Proxmox
+# exposes the copied disk as /dev/vda, /dev/sda or NVMe. The live flasher never
+# needs to mount or modify the target filesystem after dd.
 $SUDO mkdir -p "$MNT/boot/extlinux"
-cat > "$BUILD_DIR/golden-extlinux.conf" <<'EOF'
+cat > "$BUILD_DIR/golden-extlinux.conf" <<EOF
 DEFAULT minimalrouter
 PROMPT 0
 TIMEOUT 10
@@ -108,9 +116,13 @@ SERIAL 0 115200
 LABEL minimalrouter
   LINUX /boot/vmlinuz-lts
   INITRD /boot/initramfs-lts
-  APPEND root=LABEL=minimalrouter-root rootfstype=ext4 modules=sd-mod,virtio_blk,virtio_pci,ext4 quiet console=tty0 console=ttyS0,115200
+  APPEND root=UUID=$ROOT_UUID rootfstype=ext4 modules=sd-mod,virtio_blk,virtio_pci,ext4 quiet console=tty0 console=ttyS0,115200
 EOF
 $SUDO install -m 0644 "$BUILD_DIR/golden-extlinux.conf" "$MNT/boot/extlinux/extlinux.conf"
+grep -Fq "root=UUID=$ROOT_UUID rootfstype=ext4" "$MNT/boot/extlinux/extlinux.conf" || {
+    echo "ERROR: golden ExtLinux config does not contain the root filesystem UUID" >&2
+    exit 1
+}
 $SUDO extlinux --install "$MNT/boot/extlinux" >/tmp/minimalrouter-golden-extlinux.log 2>&1 || {
     cat /tmp/minimalrouter-golden-extlinux.log >&2 || true
     echo "ERROR: could not install extlinux into golden image" >&2
@@ -139,4 +151,5 @@ printf '%s  golden.img.gz\n' "$GOLDEN_SHA" > "$OUT_SHA"
 
 printf 'Built golden image: %s\n' "$OUT"
 printf 'Kernel/modules: %s\n' "$KERNEL_RELEASE"
+printf 'Root UUID: %s\n' "$ROOT_UUID"
 ls -lh "$OUT" "$OUT_SHA"
