@@ -274,6 +274,8 @@ make dist-amd64
 DIST_DIR="build/dist/minimalrouter-linux-amd64"
 [ -d "$DIST_DIR" ] || { echo "ERROR: distribution directory is missing" >&2; exit 1; }
 cp VERSION "$DIST_DIR/VERSION"
+sh packaging/alpine/build-rootfs.sh
+ROOTFS_ARCHIVE="$BUILD_DIR/minimalrouter-rootfs-${VERSION}-amd64.tar.gz"
 
 echo "[2/7] Downloading Alpine Linux ${ALPINE_VERSION} Extended ISO..."
 fetch_file "$ALPINE_ISO_URL" "$BASE_ISO"
@@ -299,6 +301,8 @@ cp -a "$DIST_DIR" "$INJECT_DIR/minimalrouter/minimalrouter-linux-amd64"
 cp -a "$APK_DIR" "$INJECT_DIR/minimalrouter/apks"
 cp -a "$APK_REPO_DIR" "$INJECT_DIR/minimalrouter/repo"
 cp VERSION "$INJECT_DIR/minimalrouter/VERSION"
+cp "$ROOTFS_ARCHIVE" "$INJECT_DIR/minimalrouter/rootfs.tar.gz"
+cp "$ROOTFS_ARCHIVE.sha256" "$INJECT_DIR/minimalrouter/rootfs.tar.gz.sha256"
 cp "$APK_MANIFEST" "$INJECT_DIR/minimalrouter/APK-SHA256SUMS"
 printf '%s\n' "$ALPINE_VERSION" > "$INJECT_DIR/minimalrouter/ALPINE_VERSION"
 printf '%s\n' "${GITHUB_SHA:-unknown}" > "$INJECT_DIR/minimalrouter/BUILD_COMMIT"

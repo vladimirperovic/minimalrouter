@@ -339,6 +339,64 @@ verify_bundle() {
     fi
 }
 
+
+install_appliance_rootfs() {
+    disk="$1"
+    rootfs="$ISO_ROOT/rootfs.tar.gz"
+    rootfs_sha="$ISO_ROOT/rootfs.tar.gz.sha256"
+    [ -s "$rootfs" ] || fail "Appliance rootfs is missing from the ISO"
+    [ -r "$rootfs_sha" ] || fail "Appliance rootfs checksum is missing"
+    (cd "$ISO_ROOT" && sha256sum -c rootfs.tar.gz.sha256) >/tmp/minimalrouter-rootfs-sha.log 2>&1 || {
+        cat /tmp/minimalrouter-rootfs-sha.log >&2 || true
+        fail "Appliance rootfs checksum verification failed"
+    }
+
+    printf '\nPreparing installation disk...\n'
+    wipefs -a "$disk" >/dev/null 2>&1 || true
+    # Single ext4 system partition is intentionally simple and robust for the
+    # Proxmox/SeaBIOS appliance path. The ISO remains UEFI bootable for recovery;
+    # UEFI target-disk installation is added after this path is proven in CI.
+    printf 'label: dos\n,;,83,*\n' | sfdisk "$disk" >/tmp/minimalrouter-sfdisk.log 2>&1 || {
+        cat /tmp/minimalrouter-sfdisk.log >&2 || true; fail "Could not partition installation disk"; }
+    partprobe "$disk" 2>/dev/null || true
+    sleep 1
+    case "$disk" in /dev/nvme*) rootpart="${disk}p1" ;; *) rootpart="${disk}1" ;; esac
+    [ -b "$rootpart" ] || fail "Root partition did not appear: $rootpart"
+    mkfs.ext4 -F -L minimalrouter-root "$rootpart" >/tmp/minimalrouter-mkfs.log 2>&1 || {
+        cat /tmp/minimalrouter-mkfs.log >&2 || true; fail "Could not create root filesystem"; }
+    mkdir -p /mnt
+    mount "$rootpart" /mnt || fail "Could not mount target root filesystem"
+    tar -xzf "$rootfs" -C /mnt || fail "Could not extract appliance rootfs"
+
+    mkdir -p /mnt/dev /mnt/proc /mnt/sys /mnt/run
+    mount --rbind /dev /mnt/dev
+    mount --rbind /proc /mnt/proc
+    mount --rbind /sys /mnt/sys
+    mount --rbind /run /mnt/run
+    printf '%s / ext4 defaults,noatime 0 1\n' "$(blkid -s UUID -o value "$rootpart")" > /mnt/etc/fstab
+    chroot /mnt ssh-keygen -A >/dev/null 2>&1 || fail "Could not generate SSH host keys"
+    chroot /mnt mkinitfs >/tmp/minimalrouter-mkinitfs.log 2>&1 || {
+        cat /tmp/minimalrouter-mkinitfs.log >&2 || true; fail "Could not generate initramfs"; }
+
+    mkdir -p /mnt/boot/extlinux
+    extlinux --install /mnt/boot/extlinux >/tmp/minimalrouter-extlinux.log 2>&1 || {
+        cat /tmp/minimalrouter-extlinux.log >&2 || true; fail "Could not install extlinux"; }
+    mbr="$(find /usr/share/syslinux -name mbr.bin 2>/dev/null | head -1)"
+    [ -n "$mbr" ] || fail "Syslinux MBR bootstrap is missing"
+    dd if="$mbr" of="$disk" bs=440 count=1 conv=notrunc status=none || fail "Could not install boot MBR"
+    cat > /mnt/boot/extlinux/extlinux.conf <<'EOF'
+DEFAULT minimalrouter
+PROMPT 0
+TIMEOUT 10
+SERIAL 0 115200
+LABEL minimalrouter
+  LINUX /boot/vmlinuz-lts
+  INITRD /boot/initramfs-lts
+  APPEND root=LABEL=minimalrouter-root modules=sd-mod,virtio_blk,virtio_pci,ext4 quiet console=tty0 console=ttyS0,115200
+EOF
+    sync
+}
+
 configure_target_recovery() {
     root_shadow="$(grep '^root:' /etc/shadow | head -1)"
     [ -n "$root_shadow" ] || fail "Live recovery password hash is unavailable"
@@ -475,33 +533,10 @@ for part in $(lsblk -nrpo NAME "$TARGET" 2>/dev/null | tail -n +2); do
     umount "$part" 2>/dev/null || true
 done
 
-# Reassert the local ISO repository at the last possible point. This is also
-# what makes the CI full-install test a genuine zero-Internet installation.
-restore_alpine_media_repo
-
-# The target has either passed the conservative virtual-disk guard or the
-# operator explicitly confirmed it. Capture Alpine's verbose installer output:
-# if setup-disk ever fails, the ISO/CI log must contain the actual reason rather
-# than only a generic MinimalRouter error.
-SETUP_DISK_LOG=/tmp/minimalrouter-setup-disk.log
-rm -f "$SETUP_DISK_LOG"
-if ! ERASE_DISKS="$TARGET" SWAP_SIZE=0 setup-disk -v -m sys -k lts -s 0 "$TARGET" >"$SETUP_DISK_LOG" 2>&1; then
-    printf '\n--- Alpine setup-disk diagnostic log ---\n' >&2
-    cat "$SETUP_DISK_LOG" >&2 || true
-    printf '%s\n' '--- installer environment ---' >&2
-    printf 'kernel: %s\n' "$(uname -r)" >&2
-    printf 'target: %s\n' "$TARGET" >&2
-    printf 'repositories:\n' >&2
-    cat /etc/apk/repositories >&2 2>/dev/null || true
-    printf 'target disk:\n' >&2
-    lsblk -f "$TARGET" >&2 2>/dev/null || true
-    printf 'required tools:\n' >&2
-    for tool in setup-disk sfdisk mkfs.ext4 extlinux grub-install; do
-        command -v "$tool" >&2 2>/dev/null || printf 'missing: %s\n' "$tool" >&2
-    done
-    printf '%s\n' '--- end setup-disk diagnostics ---' >&2
-    fail "Alpine system-disk installation failed"
-fi
+# Install the prebuilt appliance filesystem. No package resolution or setup-disk
+# occurs on the user machine. The exact filesystem installed here was assembled
+# and validated once by CI.
+install_appliance_rootfs "$TARGET"
 
 mount_target_root "$TARGET" || fail "The newly installed root filesystem could not be mounted"
 

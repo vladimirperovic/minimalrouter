@@ -46,6 +46,7 @@ do
 done
 
 ALPINE_VERSION="v3.22"
+IMAGE_BUILD="${MINIMALROUTER_IMAGE_BUILD:-0}"
 OFFLINE_MODE=0
 if [ "${1:-}" = "--offline" ]; then
     OFFLINE_MODE=1
@@ -97,18 +98,19 @@ fi
 # support a required router feature. Loading an already-available module is
 # harmless and avoids a half-installed system whose A/B pointer still claims a
 # healthy release after a late module failure.
+if [ "$IMAGE_BUILD" != "1" ]; then
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
     if ! modprobe "$module" 2>/dev/null && ! find /lib/modules -name "${module}.ko*" 2>/dev/null | grep -q .; then
         if [ "$module" = "pppoe" ]; then
             echo "ERROR: the running Alpine kernel does not provide the required PPPoE module." >&2
-            echo "The 2026-08-01 Proxmox pilot required linux-lts; boot linux-lts, confirm 'modprobe pppoe', then rerun this installer." >&2
         else
             echo "ERROR: required kernel module '$module' could not be loaded." >&2
         fi
         exit 1
     fi
 done < modules/minimalrouter.conf
+fi
 
 # Router authentication, TLS, schedules, audit ordering, and signed-update
 # verification all depend on a trustworthy clock. Run chronyd as a client only:
@@ -240,7 +242,8 @@ cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
-echo "[6/7] Loading router kernel modules and sysctls..."
+echo "[6/7] Preparing kernel/module configuration..."
+if [ "$IMAGE_BUILD" != "1" ]; then
 while IFS= read -r module; do
     case "$module" in ""|\#*) continue ;; esac
     grep -qxF "$module" /etc/modules 2>/dev/null || printf '%s\n' "$module" >> /etc/modules
@@ -271,6 +274,7 @@ if [ "$(sysctl -n net.netfilter.nf_conntrack_max)" != "131072" ]; then
     fi
 fi
 
+fi
 
 # MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
 # LAN address, pppd owns the WAN, and wg(8) owns the tunnels. A distribution
@@ -286,19 +290,18 @@ if [ -f /etc/network/interfaces ] && [ ! -f /etc/network/interfaces.minimalroute
 fi
 install -d -m 0755 -o root -g root /etc/network
 {
-    echo "# Managed by MinimalRouter. Interfaces are owned by router-applyd,"
-    echo "# pppd and wg(8); do not add addresses here."
+    echo "# Managed by minimalrouter. Physical/tunnel interfaces are configured by router-applyd/pppd/wg."
     echo "auto lo"
     echo "iface lo inet loopback"
-    echo ""
-    for managed_interface_path in /sys/class/net/*; do
-        [ -e "$managed_interface_path" ] || continue
-        managed_interface=${managed_interface_path##*/}
-        case "$managed_interface" in
-            lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;;
-        esac
-        echo "iface $managed_interface inet manual"
-    done
+    if [ "$IMAGE_BUILD" != "1" ]; then
+        echo ""
+        for managed_interface_path in /sys/class/net/*; do
+            [ -e "$managed_interface_path" ] || continue
+            managed_interface=${managed_interface_path##*/}
+            case "$managed_interface" in lo|ppp*|wg*|ifb*|veth*|docker*|br-*) continue ;; esac
+            echo "iface $managed_interface inet manual"
+        done
+    fi
 } > /etc/network/interfaces
 chmod 0644 /etc/network/interfaces
 
