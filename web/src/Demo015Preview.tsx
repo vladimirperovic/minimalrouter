@@ -1,0 +1,167 @@
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import type { RouterConfig } from "./api-types";
+import RecoveryToolsPanel from "./components/RecoveryToolsPanel";
+import { apiFetch } from "./lib/api";
+import { isDemoMode } from "./lib/demoApi";
+
+const DEMO_WAN_ESTIMATE = { download_mbps: 600, upload_mbps: 400, measured_at: Date.now() };
+const DEMO_QR = "data:image/png;base64,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";
+
+if (isDemoMode && typeof window !== "undefined") {
+  try {
+    window.localStorage.setItem("minimalrouter:wan-speed-estimate", JSON.stringify(DEMO_WAN_ESTIMATE));
+  } catch {
+    // Demo preview still works when localStorage is disabled.
+  }
+}
+
+function addSaveButton(fieldset: HTMLFieldSetElement, label: string, marker: string) {
+  if (fieldset.querySelector(`.${marker}`)) return;
+  const actions = document.createElement("div");
+  actions.className = `form-actions demo-015-fieldset-actions ${marker}`;
+  const button = document.createElement("button");
+  button.className = "button primary";
+  button.type = "submit";
+  button.textContent = label;
+  actions.appendChild(button);
+  fieldset.appendChild(actions);
+}
+
+function patchNetworkPage() {
+  const network = document.getElementById("network");
+  const form = network?.querySelector<HTMLFormElement>("form.settings-form");
+  if (!network || !form) return;
+
+  const fieldsets = Array.from(form.children).filter((child): child is HTMLFieldSetElement => child instanceof HTMLFieldSetElement);
+  const wan = fieldsets.find((fieldset) => fieldset.querySelector("legend")?.textContent?.includes("WAN / PPPoE"));
+  const lan = fieldsets.find((fieldset) => fieldset.querySelector("legend")?.textContent?.includes("LAN and DHCP"));
+
+  if (wan) {
+    const wanToggle = wan.querySelector<HTMLInputElement>('input[type="checkbox"]')?.closest("label");
+    wanToggle?.classList.add("demo-015-hidden-wan-toggle");
+    const password = wan.querySelector<HTMLInputElement>('input[name="pppoe_password"]');
+    if (password && password.placeholder !== "Enter a new PPPoE password (optional)") {
+      password.placeholder = "Enter a new PPPoE password (optional)";
+    }
+    addSaveButton(wan, "Save WAN", "demo-015-save-wan");
+  }
+
+  if (lan) addSaveButton(lan, "Save LAN & DHCP", "demo-015-save-lan");
+
+  const directActions = Array.from(form.children).filter((child) => child.classList.contains("form-actions"));
+  directActions.at(-1)?.classList.add("demo-015-original-network-save");
+}
+
+function patchOverview() {
+  const session = Array.from(document.querySelectorAll<HTMLElement>(".overview-wan-main > div")).find((element) =>
+    element.querySelector("strong")?.textContent?.trim() === "PPPoE",
+  );
+  if (!session) return;
+  let estimate = session.querySelector<HTMLElement>(".demo-015-session-estimate");
+  if (!estimate) {
+    estimate = document.createElement("small");
+    estimate.className = "demo-015-session-estimate";
+    session.appendChild(estimate);
+  }
+  if (estimate.textContent !== "~600 ↓ / 400 ↑ Mbps") estimate.textContent = "~600 ↓ / 400 ↑ Mbps";
+}
+
+function patchWireGuardSuccess() {
+  const callout = document.querySelector<HTMLElement>(".wg-callout");
+  if (!callout || callout.querySelector(".wg-qr")) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "wg-qr demo-015-qr";
+  const image = document.createElement("img");
+  image.src = DEMO_QR;
+  image.alt = "Demo WireGuard QR code";
+  wrapper.appendChild(image);
+  callout.insertBefore(wrapper, callout.firstChild);
+}
+
+function patchRecoveryCopy() {
+  const recovery = document.getElementById("recovery");
+  if (recovery) {
+    const title = recovery.querySelector<HTMLElement>(".dashboard-section-heading h2");
+    if (title && title.textContent !== "Recovery, backup and migration") title.textContent = "Recovery, backup and migration";
+    const copy = recovery.querySelector<HTMLElement>(".dashboard-section-heading .section-copy");
+    const recoveryCopy = "Snapshots, encrypted backups, diagnostics and pfSense migration in one recovery workspace.";
+    if (copy && copy.textContent !== recoveryCopy) copy.textContent = recoveryCopy;
+  }
+
+  const toolsCopy = "Export/import encrypted .mrbak backups, migrate a pfSense config.xml, and download redacted diagnostics.";
+  document.querySelectorAll<HTMLElement>(".security-recovery-card").forEach((card) => {
+    const paragraph = card.querySelector<HTMLElement>(".card-title-row p");
+    if (paragraph && paragraph.textContent !== toolsCopy) paragraph.textContent = toolsCopy;
+    const summary = card.querySelector<HTMLElement>("details summary");
+    if (summary && summary.textContent === "Encrypted backup export") summary.textContent = "Encrypted Minimal Router backup (.mrbak)";
+  });
+}
+
+function patchPreviewBadge() {
+  const brand = document.querySelector<HTMLElement>(".dashboard-brand");
+  if (!brand || brand.querySelector(".demo-015-beta-badge")) return;
+  const badge = document.createElement("span");
+  badge.className = "demo-015-beta-badge";
+  badge.textContent = "v0.1.5 beta preview";
+  brand.appendChild(badge);
+}
+
+export default function Demo015Preview() {
+  const [recoveryTarget, setRecoveryTarget] = useState<HTMLElement | null>(null);
+  const [config, setConfig] = useState<RouterConfig | null>(null);
+  const [recoveryError, setRecoveryError] = useState("");
+
+  useEffect(() => {
+    if (!isDemoMode) return;
+    document.documentElement.classList.add("demo-015-preview");
+
+    const sync = () => {
+      patchNetworkPage();
+      patchOverview();
+      patchWireGuardSuccess();
+      patchRecoveryCopy();
+      patchPreviewBadge();
+
+      const recovery = document.getElementById("recovery");
+      let slot = recovery?.querySelector<HTMLElement>(".demo-015-recovery-slot") ?? null;
+      if (recovery && !slot) {
+        slot = document.createElement("div");
+        slot.className = "demo-015-recovery-slot";
+        recovery.appendChild(slot);
+      }
+      setRecoveryTarget(slot);
+    };
+
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("minimalrouter:wan-speed-estimate", sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("minimalrouter:wan-speed-estimate", sync);
+      document.documentElement.classList.remove("demo-015-preview");
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isDemoMode || !recoveryTarget) return;
+    let cancelled = false;
+    void apiFetch("/api/v1/config")
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Configuration unavailable")))
+      .then((body: RouterConfig) => { if (!cancelled) setConfig(body); })
+      .catch((error) => { if (!cancelled) setRecoveryError(error instanceof Error ? error.message : "Recovery tools unavailable"); });
+    return () => { cancelled = true; };
+  }, [recoveryTarget]);
+
+  if (!isDemoMode || !recoveryTarget || !config) return null;
+  return createPortal(
+    <div className="demo-015-recovery-moved">
+      {recoveryError && <div className="dashboard-alert is-error" role="alert">{recoveryError}</div>}
+      <RecoveryToolsPanel config={config} onError={setRecoveryError} />
+    </div>,
+    recoveryTarget,
+  );
+}
