@@ -16,9 +16,11 @@ function CanonicalRevisionBoundary() {
   return <DashboardApp key={generation} />;
 }
 
+const enableDemo015Preview = import.meta.env.VITE_DEMO_015_PREVIEW === "true";
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <CanonicalRevisionBoundary />
-    <Demo015Preview />
+    {enableDemo015Preview ? <Demo015Preview /> : null}
   </StrictMode>,
 );
