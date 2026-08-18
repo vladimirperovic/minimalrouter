@@ -1,0 +1,185 @@
+/* Restored demo-only v0.1.5 beta preview styling from before visual pass 2. */
+
+html.demo-015-preview .classic-help-button,
+html.demo-015-preview .classic-account-button {
+  box-sizing: border-box;
+  height: 48px;
+  min-height: 48px;
+}
+
+html.demo-015-preview .classic-help-button {
+  width: auto;
+  min-width: 112px;
+  gap: 9px;
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+html.demo-015-preview .classic-help-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+html.demo-015-preview .demo-015-beta-badge {
+  display: inline-flex;
+  width: max-content;
+  min-height: 23px;
+  align-items: center;
+  margin: 10px 10px 0;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 24%, var(--classic-border));
+  border-radius: 999px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--classic-blue) 8%, var(--classic-panel));
+  color: var(--classic-blue);
+  font-size: 9px;
+  font-weight: 760;
+  letter-spacing: .02em;
+}
+
+html.demo-015-preview .overview-wan-main > div {
+  display: grid;
+  align-content: end;
+}
+
+html.demo-015-preview .overview-wan-main small {
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+html.demo-015-preview .overview-wan-main .demo-015-session-estimate {
+  margin-top: 5px;
+  color: #a9bfd8;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .005em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+html.demo-015-preview .overview-wan-quality small { font-size: 9px; }
+html.demo-015-preview .overview-wan-quality strong { font-size: 12px; }
+
+html.demo-015-preview #network .demo-015-hidden-wan-toggle { display: none !important; }
+html.demo-015-preview #network .settings-form > fieldset { position: relative; }
+html.demo-015-preview #network .demo-015-fieldset-actions {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--classic-border);
+}
+html.demo-015-preview #network .demo-015-fieldset-actions .button { min-width: 126px; }
+html.demo-015-preview #network .demo-015-original-network-save { display: none !important; }
+
+html.demo-015-preview #network .static-leases {
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: 16px;
+  padding: 0;
+  background: var(--classic-panel);
+  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
+}
+html.demo-015-preview #network .static-leases .card-title-row {
+  margin: 0;
+  padding: 23px 24px 17px;
+  border-bottom: 0;
+}
+html.demo-015-preview #network .static-leases .card-title-row h3 {
+  margin: 0 0 5px;
+  font-size: 18px;
+  font-weight: 720;
+  letter-spacing: -.025em;
+}
+html.demo-015-preview #network .static-leases .card-title-row p { font-size: 11px; line-height: 1.45; }
+html.demo-015-preview #network .static-leases .quiet-meta { font-size: 10px; font-weight: 700; }
+html.demo-015-preview #network .static-lease-search {
+  width: min(360px, calc(100% - 48px));
+  margin: 0 24px 17px;
+}
+html.demo-015-preview #network .static-leases .table-scroll {
+  margin: 0;
+  border-top: 1px solid var(--classic-border);
+  border-bottom: 1px solid var(--classic-border);
+  border-radius: 0;
+}
+html.demo-015-preview #network .static-leases table { width: 100%; border-collapse: collapse; table-layout: fixed; text-align: left; }
+html.demo-015-preview #network .static-leases th {
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--classic-border);
+  color: var(--classic-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+html.demo-015-preview #network .static-leases td {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--classic-border);
+  font-size: 14px;
+  line-height: 1.25;
+  vertical-align: middle;
+}
+html.demo-015-preview #network .static-leases tbody tr { transition: background-color .15s ease; }
+html.demo-015-preview #network .static-leases tbody tr:hover { background: var(--classic-soft); }
+html.demo-015-preview #network .static-leases tbody tr:last-child td { border-bottom: 0; }
+html.demo-015-preview #network .static-leases td:first-child { font-size: 15px; font-weight: 700; letter-spacing: -.012em; }
+html.demo-015-preview #network .static-leases td code { padding: 0; background: transparent; font-size: 13px; font-weight: 570; }
+html.demo-015-preview #network .static-leases .static-actions { display: flex; justify-content: flex-start; gap: 7px; }
+html.demo-015-preview #network .static-leases .static-actions .button { min-height: 36px; border-radius: 10px; padding-inline: 13px; font-size: 11px; }
+html.demo-015-preview #network .static-lease-form {
+  margin: 0;
+  padding: 23px 24px 24px;
+  background: color-mix(in srgb, var(--classic-soft) 46%, var(--classic-panel));
+}
+html.demo-015-preview #network .static-lease-form .field > span { font-size: 11px; }
+
+html.demo-015-preview #firewall .firewall-rules {
+  overflow: hidden;
+  border-radius: 16px;
+  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
+}
+html.demo-015-preview #firewall .firewall-rules .card-title-row { padding: 23px 24px 18px; }
+html.demo-015-preview #firewall .firewall-rules .card-title-row h3 { font-size: 19px; font-weight: 730; letter-spacing: -.025em; }
+html.demo-015-preview #firewall .firewall-rules .card-title-row p { font-size: 11.5px; }
+html.demo-015-preview #firewall .firewall-rules .table-scroll {
+  margin-inline: 0;
+  border-top: 1px solid var(--classic-border);
+  border-bottom: 1px solid var(--classic-border);
+  border-radius: 0;
+}
+html.demo-015-preview #firewall .firewall-rules table { width: 100%; border-collapse: collapse; }
+html.demo-015-preview #firewall .firewall-rules th {
+  padding: 14px 16px;
+  color: var(--classic-muted);
+  font-size: 11px;
+  font-weight: 680;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+html.demo-015-preview #firewall .firewall-rules td { padding: 17px 16px; font-size: 13.5px; line-height: 1.35; vertical-align: middle; }
+html.demo-015-preview #firewall .firewall-rules tbody tr:hover { background: var(--classic-soft); }
+html.demo-015-preview #firewall .firewall-rules td:first-child { font-size: 14px; font-weight: 700; }
+html.demo-015-preview #firewall .firewall-rules td.is-good,
+html.demo-015-preview #firewall .firewall-rules td.is-bad { font-weight: 760; text-transform: capitalize; }
+html.demo-015-preview #firewall .firewall-rules td code { padding: 0; background: transparent; font-size: 12.5px; white-space: nowrap; }
+html.demo-015-preview #firewall .firewall-rules .settings-form { padding: 25px 24px 24px; }
+html.demo-015-preview #firewall .firewall-rules .field > span { font-size: 11px; font-weight: 680; }
+html.demo-015-preview #firewall .firewall-rules .form-note { font-size: 11.5px; line-height: 1.55; }
+
+html.demo-015-preview .classic-security-page .security-recovery-card { display: none !important; }
+html.demo-015-preview .demo-015-recovery-slot { margin-top: 22px; }
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card {
+  margin: 0;
+  border-radius: 16px;
+  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
+}
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row h3 { font-size: 18px; letter-spacing: -.02em; }
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row p { font-size: 11.5px; line-height: 1.5; }
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary { font-size: 12.5px; font-weight: 720; }
+
+@media (max-width: 900px) {
+  html.demo-015-preview .classic-help-button { min-width: 48px; padding: 0 13px; }
+  html.demo-015-preview .classic-help-button span { display: none; }
+  html.demo-015-preview #network .static-leases th,
+  html.demo-015-preview #network .static-leases td { padding-inline: 15px; }
+}
