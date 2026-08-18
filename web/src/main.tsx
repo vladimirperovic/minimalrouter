@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import DashboardApp from "./DashboardApp";
 import Demo015Preview from "./Demo015Preview";
+import "./demoMutationObserverGuard";
 import "./index.css";
 import "./UXCleanup.css";
 import "./Demo015Preview.css";
