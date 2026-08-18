@@ -60,21 +60,23 @@ function patchOverview() {
     estimate.className = "demo-015-session-estimate";
     session.appendChild(estimate);
   }
-  estimate.textContent = "~600 ↓ / 400 ↑ Mbps";
+  if (estimate.textContent !== "~600 ↓ / 400 ↑ Mbps") estimate.textContent = "~600 ↓ / 400 ↑ Mbps";
 }
 
 function patchRecoveryCopy() {
   const recovery = document.getElementById("recovery");
   if (recovery) {
     const title = recovery.querySelector<HTMLElement>(".dashboard-section-heading h2");
-    if (title) title.textContent = "Recovery, backup and migration";
+    if (title && title.textContent !== "Recovery, backup and migration") title.textContent = "Recovery, backup and migration";
     const copy = recovery.querySelector<HTMLElement>(".dashboard-section-heading .section-copy");
-    if (copy) copy.textContent = "Snapshots, encrypted backups, diagnostics and pfSense migration in one recovery workspace.";
+    const recoveryCopy = "Snapshots, encrypted backups, diagnostics and pfSense migration in one recovery workspace.";
+    if (copy && copy.textContent !== recoveryCopy) copy.textContent = recoveryCopy;
   }
 
   document.querySelectorAll<HTMLElement>(".security-recovery-card").forEach((card) => {
     const paragraph = card.querySelector<HTMLElement>(".card-title-row p");
-    if (paragraph) paragraph.textContent = "Export/import encrypted .mrbak backups, migrate a pfSense config.xml, and download redacted diagnostics.";
+    const toolsCopy = "Export/import encrypted .mrbak backups, migrate a pfSense config.xml, and download redacted diagnostics.";
+    if (paragraph && paragraph.textContent !== toolsCopy) paragraph.textContent = toolsCopy;
     const summary = card.querySelector<HTMLElement>("details summary");
     if (summary && summary.textContent === "Encrypted backup export") summary.textContent = "Encrypted Minimal Router backup (.mrbak)";
   });
@@ -111,7 +113,7 @@ export default function Demo015Restore() {
         slot.className = "demo-015-recovery-slot";
         recovery.appendChild(slot);
       }
-      setRecoveryTarget(slot);
+      setRecoveryTarget((current) => current === slot ? current : slot);
     };
 
     sync();
