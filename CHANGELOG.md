@@ -8,10 +8,30 @@ compatibility may still change between releases.
 
 Next development version: **v0.1.5**.
 
-## [v0.1.4] — 2026-08-16
+## [v0.1.4] — 2026-08-18
 
 ### Highlights
 
+- **Golden Appliance ISO for AMD64/Proxmox.** Alpine 3.22, the matching
+  `linux-lts` kernel/modules/initramfs, MinimalRouter, Dashboard and runtime
+  dependencies are assembled in CI into a bootable 8 GiB Golden disk image.
+  The user VM only verifies and raw-copies that image, then reboots into a
+  one-shot firstboot wizard.
+- **Offline installation by construction.** The live flasher no longer runs
+  `apk`, `setup-disk`, `mkinitfs`, target chroots or the MinimalRouter installer.
+  This removes the repository-path/package-resolution and live-kernel/target-
+  kernel mismatch failure classes found in earlier ISO work.
+- **End-to-end appliance validation.** CI flashes a blank VirtIO disk, reboots,
+  completes firstboot over `ttyS0`, proves an installed serial root login and a
+  real password-authenticated SSH login, then verifies LAN, nftables, kernel/
+  modules, canonical state, routerd readiness and Dashboard `:8443`.
+- **Release ISO carries update trust.** The signed release workflow builds the
+  Golden ISO from the already signed AMD64 payload, requires
+  `firmware-signing.pub`, repeats the full QEMU install test, and publishes the
+  ISO with SHA-256 verification and GitHub attestation.
+- **Serial recovery is first-class.** A dedicated `ttyS0 @ 115200` installer
+  entry is available, firstboot follows the selected console, and the installed
+  appliance restores a password-protected serial recovery getty.
 - Startup diagnostics are anchored to the actual Linux boot ID, retain only the
   last five boots, stop network probes after each milestone succeeds, and become
   completely read-only after the boot capture is complete.
@@ -47,9 +67,14 @@ Next development version: **v0.1.5**.
 - Normal A/B staging is forward-only. Returning to an older verified slot remains
   available through the explicit rollback command rather than signed-release
   replay through the ordinary stage path.
-- Future GitHub releases are published as Beta pre-releases using a draft-first
-  flow, with release build metadata embedded in the Go binaries. The workflow
-  reports when repository-level release immutability is not enabled.
+- GitHub Beta releases use a draft-first flow, with release build metadata
+  embedded in the Go binaries. The workflow reports when repository-level
+  release immutability is not enabled.
+- Golden ISO build metadata now carries the real version, source commit and build
+  date instead of producing `unknown` commit/date values in appliance binaries.
+- The final ISO CI harness no longer falsely fails when Alpine prints `sshd` at
+  the start of an `rc-update` line or when the real `INSTALLED_SSH_OK` marker has
+  already been consumed by the authenticated SSH verification step.
 
 ## [v0.1.2] — 2026-08-15
 
@@ -360,7 +385,7 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
   ordinary apply and confirmation operations remain blocked.
 - Runtime data, credentials, private keys, backups, packet captures, databases,
   VM images, and private network inventory are rejected by repository hygiene.
-- Recovery has no network endpoint and credential changes revoke sessions.
+- Recovery has no WAN endpoint and credential changes revoke sessions.
 - Device-profile rules are evaluated before established-connection acceptance so
   expired policy flows are not grandfathered.
 - QoS activation is non-fatal everywhere: a missing or inactive qdisc no longer
@@ -373,10 +398,12 @@ Proxmox VM 108. See the GitHub release on `minimalrouterhome`.
 ### Known limitations
 
 - Beta; not yet supported as an unattended production firewall.
-- No stable signed ISO or owner-qualified recovery media.
-- Real target Proxmox, NIC, PPPoE, external scan, long-duration, full-disk,
-  inode-exhaustion, read-only-filesystem, process-kill, and destructive power-loss
-  evidence is still required in the public evidence set.
+- v0.1.4 now has a tested, checksummed and attested AMD64 Golden release ISO, but
+  the fully qualified installed-disk target is still SeaBIOS/MBR; UEFI target
+  qualification and owner-qualified recovery media remain open gates.
+- Real owner-Proxmox Golden-ISO cutover, repeated PPPoE/reboot testing, external
+  scans, long-duration, full-disk, inode-exhaustion, read-only-filesystem,
+  process-kill, and destructive power-loss evidence is still required.
 - IPv6 parity, VLAN workflows, multi-WAN, HA, IDS/IPS, and a broad package
   ecosystem are not current stable features.
 - Same-kernel namespace throughput is not a physical or VirtIO performance claim.

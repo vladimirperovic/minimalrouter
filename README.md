@@ -8,22 +8,18 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.2"><img alt="Beta release: v0.1.2" src="https://img.shields.io/badge/beta-v0.1.2-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.4"><img alt="Beta release: v0.1.4" src="https://img.shields.io/badge/beta-v0.1.4-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
 <p align="center">
-  <a href="docs/INSTALLATION.md">Install</a> ·
+  <a href="docs/ISO_INSTALLATION.md">Golden ISO install</a> ·
   <a href="docs/PROXMOX.md">Proxmox</a> ·
+  <a href="docs/GOLDEN-IMAGE.md">Golden image design</a> ·
   <a href="docs/CURRENT_VALIDATION.md">Validation</a> ·
   <a href="https://vladimirperovic.github.io/minimalrouter/">Live dashboard demo</a> ·
   <a href="docs/README.md">Docs</a> ·
-  <a href="SECURITY.md">Security</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
-</p>
-
-<p align="center">
-  <a href="https://vladimirperovic.github.io/minimalrouter/"><img src="docs/screenshots/minimalrouter.png" alt="Minimal Router dashboard overview" /></a>
+  <a href="SECURITY.md">Security</a>
 </p>
 
 <p align="center">
@@ -31,80 +27,83 @@
   Browser-only demo with synthetic data; no sign-in or router connection required.
 </p>
 
-> The public demo runs entirely in the browser with synthetic documentation
-> data. It does not connect to a router, expose a management API or contain real
-> credentials, addresses or device information.
+> The public demo runs entirely in the browser with synthetic documentation data.
+> It does not connect to a router, expose a management API, or contain real
+> credentials, addresses, or device information.
 
 ## A home router you can actually change
 
-Most router platforms are built to cover every case anyone might ever have. That
-makes them powerful, and it makes them large. Once you want something they do not
-already do, you are reading through a system far too big to hold in your head.
+Minimal Router is a focused Alpine Linux router appliance with a small Go control
+plane and React dashboard. It drives standard Linux networking components directly:
+`nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn`.
 
-Minimal Router starts from the other end. It does the handful of things a home
-connection actually needs, and it stops there. There is no plugin catalogue, no
-package manager, no third configuration language. The whole control plane is
-about thirty thousand lines of Go, one React dashboard, and a set of plain Linux
-services underneath.
-
-That size is the point. It is small enough that you — with an AI coding agent
-sitting beside you — can read all of it, understand why it behaves the way it
-does, and change it to fit your house exactly. Not by finding the right checkbox.
-By changing the code and shipping your own build.
-
-If you have ever wanted a router that works the way *you* want rather than the
-way a settings page allows, that is what this is for.
+The project intentionally avoids a plugin ecosystem and a second configuration
+language. The goal is a router small enough to understand, test and safely adapt —
+including with an AI coding agent — while keeping privileged operations typed,
+recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **Beta.** `v0.1.2` is the first repository-native signed beta release, with
-> AMD64/ARM64 artifacts, signed firmware manifests, checksums, SPDX SBOMs and
-> GitHub attestations. The core is carrying real PPPoE traffic in a validated
-> Proxmox deployment: DHCP/DNS, NAT, WireGuard, Dynamic DNS, gateway monitoring,
-> snapshots and recovery work end to end. Development continues toward `v0.1.3`;
-> the remaining promotion gates are real-lab/endurance evidence and independent
-> validation rather than missing core router features. Local-console recovery
-> remains the deliberate safety path. See
-> [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) for exactly what is
-> proven publicly today and what is not.
+> **Beta — v0.1.4.** The preferred AMD64/Proxmox installation path is now the
+> **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
+> modules, MinimalRouter, Dashboard and runtime packages are built in CI before
+> the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
+> then runs a short first-boot router configuration. CI performs a full blank-disk
+> QEMU install through serial console and verifies the installed LAN, SSH,
+> nftables, router services and Dashboard. This is still a controlled-pilot Beta,
+> not an unattended pfSense/OpenWrt replacement. See
+> [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## Why it is easy to adapt
+## v0.1.4 quick start — Proxmox
 
-**One place per decision.** Firewall rules come from one generator. Everything
-the appliance applies comes from one config struct, through one transaction. When
-you want to change behaviour, there is usually a single function to read.
+Download these assets from the **v0.1.4 GitHub release**:
 
-**The rules are written down as tests, not as folklore.** Things like "routing is
-never switched on before the firewall is loaded" or "port forwards are never
-reachable from the WAN" are enforced by tests that fail loudly if a change breaks
-them. An agent editing this code gets told immediately when it has crossed a line
-that matters — which is exactly what makes it safe to let one work here.
+```text
+minimalrouter-0.1.4-amd64.iso
+minimalrouter-0.1.4-amd64.iso.sha256
+```
 
-**Nothing hidden behind a vendor abstraction.** Packet forwarding is Linux.
-The project drives `nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn` directly.
-If you know Linux networking, you already know most of this system.
+Verify before attaching the ISO:
 
-**Honest reporting.** The dashboard never shows green for something it did not
-measure. If a check could not be read, it says so. That habit makes the appliance
-far easier to reason about when you are changing it.
+```sh
+sha256sum -c minimalrouter-0.1.4-amd64.iso.sha256
+```
 
-### Working with an AI agent
+Create a QEMU/KVM VM with the currently proven target profile:
 
-Clone the repository, open it with your agent of choice, and describe what you
-want in plain language: *"add a schedule that blocks the kids' tablet during
-school hours"*, *"send me an alert when the WAN drops"*, *"cap the guest network
-to 20 Mbps"*.
+- SeaBIOS;
+- x86-64 / AMD64;
+- 1 vCPU or more;
+- 1 GiB RAM or more;
+- one VirtIO disk of at least 8 GiB;
+- two VirtIO NICs: WAN and isolated LAN;
+- local noVNC console, with optional `ttyS0` serial recovery.
 
-Useful things to point an agent at first:
+Attach the ISO and boot. The default path uses VGA/noVNC. A separate
+**MinimalRouter Installer (serial ttyS0 115200)** entry drives the complete
+installer over serial.
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — how the pieces fit together
-- [`DESIGN.md`](DESIGN.md) — the rules the project holds itself to
-- [`SECURITY.md`](SECURITY.md) — read before touching anything privileged
-- `internal/config/validation.go` — what a valid configuration is
-- `internal/services/nftables.go` — every firewall rule the router ever loads
+The install has two stages:
 
-Then run the tests. If they pass, your change kept the safety properties. If they
-fail, the message tells you which one you broke and why it exists.
+1. the live ISO verifies `golden.img.gz`, safely selects the target VM disk,
+   copies the already-built appliance byte-for-byte and reboots;
+2. the installed appliance asks for WAN/LAN roles, optional PPPoE, Dashboard
+   password and a separate recovery/SSH root password.
+
+After first boot:
+
+```text
+Dashboard: https://192.168.1.1:8443
+SSH:       root@192.168.1.1
+Serial:    ttyS0 @ 115200
+```
+
+Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
+[`docs/PROXMOX.md`](docs/PROXMOX.md).
+
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.1.4
+> **installed Golden target** that is fully exercised end-to-end is the
+> SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
 ## What it does
 
@@ -114,59 +113,45 @@ fail, the message tells you which one you broke and why it exists.
 - gateway latency, loss and reconnect monitoring with live bandwidth
 - connected-device list, DHCP reservations and Wake-on-LAN
 - per-device monthly traffic accounting
-- DNS filtering with per-device schedules, and a non-caching Squid proxy
+- DNS filtering with per-device schedules
+- optional non-caching Squid proxy
 - QoS/SQM shaping with CAKE or fq_codel
 - optional Wi-Fi access point on supported hardware
 - transactional configuration with confirmation, rollback and recovery
 - encrypted backups, snapshots and crash-safe A/B updates
+- local console, trusted-LAN SSH and serial recovery paths
 
 Deliberately **not** included: multi-WAN, BGP/OSPF, IDS/IPS, captive portals,
-HA failover, a plugin system. If you need those, use a platform built for them.
+HA failover or a general plugin system.
 
-## Small enough to run anywhere
+## Manual/archive installation
 
-The validated appliance runs the full core stack on **2 vCPUs and 512 MiB RAM**.
-1 GiB is comfortable once you enable more optional services.
+The signed AMD64 and ARM64 distribution archives remain available for advanced
+operators who deliberately install onto an existing Alpine 3.22 system. That is
+no longer the preferred Proxmox first-install path.
 
-## Quick start
+See [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
-Build an installable archive:
+## Working with an AI agent
 
-```sh
-git clone https://github.com/vladimirperovic/minimalrouter.git
-cd minimalrouter
-pnpm --dir web install --frozen-lockfile
-make dist-amd64
-cd build
-sha256sum -c minimalrouter-linux-amd64.tar.gz.sha256
-```
+Before changing privileged networking or installer code, point the agent at:
 
-Install on a clean Alpine 3.22 VM. Check PPPoE kernel support first — the
-`linux-virt` kernel does not ship the module, `linux-lts` does:
+- [`AGENTS.md`](AGENTS.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`DESIGN.md`](DESIGN.md)
+- [`SECURITY.md`](SECURITY.md)
+- [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — mandatory before changing ISO/installer code
+- `internal/config/validation.go`
+- `internal/services/nftables.go`
 
-```sh
-modprobe pppoe
-```
-
-```sh
-tar xzf minimalrouter-linux-amd64.tar.gz
-cd minimalrouter-linux-amd64
-sudo sh install.sh
-```
-
-For an air-gapped VM with dependencies already present, `sudo sh install.sh
---offline` verifies packages with `apk info -e` instead of installing them, and
-aborts if anything is missing.
-
-Then open the address the installer prints and the setup wizard walks you through
-WAN/LAN roles, PPPoE and the administrator password.
-
-Full instructions: [`docs/INSTALLATION.md`](docs/INSTALLATION.md) and
-[`docs/PROXMOX.md`](docs/PROXMOX.md).
+The Golden ISO rule is intentionally strict: **the user VM is a flasher target,
+not an Alpine build host**. Do not reintroduce live `apk`, `setup-disk`, `mkinitfs`,
+target chroots or application installation into the live flasher just to make a
+single environment work.
 
 ## Development
 
-Requirements: Go (version pinned in `go.mod`), Node.js 22 and pnpm.
+Requirements: Go from `go.mod`, Node.js 22 and pnpm.
 
 ```sh
 go test -race ./...
@@ -178,20 +163,27 @@ pnpm --dir web build
 pnpm --dir web test:e2e
 ```
 
-CI additionally covers a clean Alpine install, update and rollback, fuzzing,
-CodeQL, secret scanning, ARM64 under QEMU, network-namespace routing labs and
-performance checks.
+Build the Golden ISO on a trusted Linux builder with Docker and the documented ISO
+tools:
+
+```sh
+make iso
+```
+
+The `Appliance ISO` workflow additionally boots the production ISO, flashes a
+blank 8 GiB QEMU disk, completes firstboot over `ttyS0`, performs a real SSH
+login and verifies the installed appliance.
 
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is proven now
-- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) — install and offline install
-- [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and safe pilot procedure
-- [`docs/DYNAMIC_DNS.md`](docs/DYNAMIC_DNS.md) — No-IP and Cloudflare
+- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.1.4 ISO install
+- [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — exact ISO architecture and rebuild rules
+- [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and pilot procedure
+- [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is actually proven
+- [`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md) — signed release and verification model
 - [`docs/RECOVERY.md`](docs/RECOVERY.md) — recovery and rollback
-- [`docs/TESTING.md`](docs/TESTING.md) — test strategy and manual gates
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — architecture details
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — application architecture
 
 ## Security and privacy
 
@@ -199,8 +191,8 @@ A router is a security boundary. Read [`SECURITY.md`](SECURITY.md) before changi
 privileged code, and report vulnerabilities privately.
 
 Never commit real credentials, private keys, backups, databases, packet captures,
-public addresses, private hostnames, MAC addresses or a household device
-inventory. See [`PRIVACY.md`](PRIVACY.md).
+public addresses, private hostnames, MAC addresses or a household device inventory.
+See [`PRIVACY.md`](PRIVACY.md).
 
 ## License
 

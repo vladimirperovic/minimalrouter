@@ -1,75 +1,142 @@
 # Release security, verification, update and rollback
 
-Minimal Router OS uses separate controls for distribution integrity and local
-appliance activation. No single GitHub checksum, workflow result, or downloaded
-manifest is sufficient on its own.
+Minimal Router OS uses separate controls for source/tag authenticity,
+distribution integrity, Golden ISO integrity and local appliance update
+activation. No single checksum or workflow result is sufficient on its own.
 
-## Release artifacts
+## Release trigger
 
-A version tag matching `vMAJOR.MINOR.PATCH` starts the release workflow.
+A tag matching `vMAJOR.MINOR.PATCH` starts the signed release workflow.
+
 The workflow refuses lightweight or unverifiable tags. Maintainers must create
-an SSH-signed annotated tag whose signer appears in the protected
-`MINIMALROUTER_RELEASE_ALLOWED_SIGNERS` secret.
+an **SSH-signed annotated tag** whose signer appears in the protected
+`MINIMALROUTER_RELEASE_ALLOWED_SIGNERS` secret. The tag version must exactly match
+`VERSION` before any release artifact is built.
 
-For AMD64 and ARM64, a release publishes:
+## v0.1.4 release artifacts
 
-- a self-contained Alpine distribution archive;
-- an Ed25519-signed manifest covering every regular file in the extracted
-  update payload;
-- an SPDX JSON software bill of materials;
-- one `SHA256SUMS` file covering archives, manifests, and SBOMs;
-- GitHub artifact attestations binding each archive and SBOM to the workflow,
-  repository, commit, and tag that produced it.
+The Beta release publishes:
+
+### Golden installer
+
+- `minimalrouter-0.1.4-amd64.iso`
+- `minimalrouter-0.1.4-amd64.iso.sha256`
+
+### Signed update/install distributions
+
+For AMD64 and ARM64:
+
+- self-contained Alpine distribution archive;
+- Ed25519-signed manifest covering every regular file in the extracted payload;
+- SPDX JSON SBOM.
+
+### Shared verification material
+
+- `SHA256SUMS` covering both archives, both manifests, both SBOMs and the Golden ISO;
+- GitHub artifact attestations for release archives/SBOMs, signed manifests,
+  checksums and the tested Golden ISO.
+
+## Golden ISO release rule
+
+The release ISO is not rebuilt from an unsigned development distribution.
+
+The workflow order is:
+
+1. build AMD64 and ARM64 release distributions with tag/commit/build metadata;
+2. sign the extracted distributions with the protected Ed25519 firmware key;
+3. embed `firmware-signing.pub` into the signed distributions;
+4. repack the signed tarballs;
+5. build the Golden ISO from the **already signed AMD64 distribution** using:
+
+```text
+MINIMALROUTER_USE_EXISTING_DIST=1
+MINIMALROUTER_REQUIRE_SIGNED_DIST=1
+```
+
+6. fail if `firmware-signing.pub` is absent;
+7. boot and fully install that release ISO in QEMU;
+8. publish only after the installed appliance passes the full E2E markers.
+
+This ensures a fresh ISO installation has the same pinned firmware verification
+trust anchor required for later `router-update` staging.
+
+## Release ISO E2E gate
+
+Before publication, the workflow proves the release ISO can:
+
+- boot the production live flasher;
+- verify and copy its Golden image to a blank 8 GiB VirtIO disk;
+- reboot into the installed `linux-lts` appliance;
+- complete firstboot over serial;
+- accept a root login on the installed `ttyS0` getty;
+- accept a real password-authenticated trusted-LAN SSH login;
+- apply `192.168.1.1/24`;
+- expose the expected SSH nftables rule and listener;
+- create canonical MinimalRouter state;
+- match running kernel to `/lib/modules`;
+- start router services and readiness state;
+- listen on Dashboard TCP/8443.
+
+A failed release E2E prevents publication.
+
+## Firmware signing key
 
 The current release workflow uses a GitHub Actions protected Ed25519 signing
 secret. It is decoded into a mode `0600` temporary file, used only to sign
-canonical manifests, and removed before publication. This is **not an offline
-key**: the protected `production-release` environment, required reviewer
-approval, immutable Action pins, and SSH-signed tag verification reduce risk,
-but a future trust-model migration should move signing to an isolated machine,
-hardware-backed key, or a reviewed keyless design.
+canonical manifests, and removed before publication.
 
-## Trust anchors
+This is **not an offline key**. The protected `production-release` environment,
+required reviewer approval, pinned Actions and SSH-signed tag verification reduce
+risk, but a future trust-model migration should consider isolated/hardware-backed
+signing or a reviewed keyless design.
 
-The appliance verifies updates with a 32-byte Ed25519 public key installed at:
+## Local trust anchor
+
+The appliance verifies A/B update payloads with the 32-byte Ed25519 public key at:
 
 ```text
 /etc/minimalrouter/firmware-signing.pub
 ```
 
-This root-controlled file is the local update trust anchor. A public key carried
-inside a downloaded manifest is informational and is never accepted as a new
-trust root.
+This root-controlled file is the local update trust anchor. A key carried inside
+a downloaded manifest is informational and is never accepted as a new trust root.
 
-The signing private key must be generated and stored outside the repository.
-Keep an offline backup and a documented revocation/replacement procedure. Never
-store it in source, release assets, issue attachments, workflow logs, router
-backups, or ordinary administrator workstations.
+The v0.1.4 release Golden ISO is required to install this trust anchor from the
+signed release payload.
 
-## Online verification before installation
+## Verify a downloaded release
 
-From a trusted workstation:
+At minimum, verify the checksum before attaching the ISO:
+
+```sh
+sha256sum -c minimalrouter-0.1.4-amd64.iso.sha256
+```
+
+For the complete downloaded release set:
 
 ```sh
 sha256sum -c SHA256SUMS
-gh attestation verify minimalrouter-linux-amd64.tar.gz \
-  -R vladimirperovic/minimalrouter
-gh attestation verify minimalrouter-linux-amd64.tar.gz \
-  -R vladimirperovic/minimalrouter \
-  --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-Repeat for the selected architecture. Confirm the release tag, source commit,
-workflow identity, and expected repository before transferring files to the
-router.
+With GitHub CLI, verify provenance/attestation for the selected artifact, for
+example:
 
-GitHub attestations supplement the appliance signature. They do not replace the
-pinned Ed25519 verification performed locally by `router-update`.
+```sh
+gh attestation verify minimalrouter-0.1.4-amd64.iso \
+  -R vladimirperovic/minimalrouter
 
-## Staging on the router
+gh attestation verify minimalrouter-linux-amd64.tar.gz \
+  -R vladimirperovic/minimalrouter
+```
 
-Extract the archive into a private local directory, transfer the matching signed
-manifest, and stage it:
+For archive updates, the appliance's pinned Ed25519 verification remains the
+final local authorization boundary. GitHub attestations supplement it; they do
+not replace it.
+
+## Staging an archive update
+
+Extract the matching release archive into a private local directory and stage it
+with its signed manifest:
 
 ```sh
 router-update stage \
@@ -77,63 +144,51 @@ router-update stage \
   --manifest /root/minimalrouter-linux-amd64.manifest.json
 ```
 
-Staging performs all of these checks before committing an inactive slot:
+Staging:
 
-1. verify the manifest against the pinned Ed25519 public key;
-2. reject unsafe paths, symlinks, and non-regular files;
-3. verify every SHA-256 hash in constant time;
-4. copy only manifest-covered files into a private temporary slot;
-5. atomically rename the completed slot and mark it pending.
+1. verifies the manifest against the pinned Ed25519 key;
+2. rejects unsafe paths, symlinks and non-regular files;
+3. verifies every SHA-256 hash;
+4. copies only manifest-covered files to a private temporary slot;
+5. re-verifies the copied payload;
+6. atomically marks the completed slot pending.
 
 Release-provided shell scripts are never executed by the update manager.
 
-## Activation and health confirmation
+## Activation
 
-Staging does not change the active version. Review status and activate explicitly:
+Staging does not change the active version. Review and activate explicitly:
 
 ```sh
 router-update status
-router-update activate \
-  --version 1.2.3 \
-  --confirm ACTIVATE-UPDATE
+router-update activate --version 0.1.4 --confirm ACTIVATE-UPDATE
 ```
 
-The current slot pointer is replaced atomically. The previous verified slot is
-retained. Reboot or restart according to the release notes, then verify:
-
-- routerd and router-applyd start cleanly;
-- LAN management remains reachable;
-- WAN, DHCP, DNS, firewall, WireGuard, and device-profile policy behave as
-  expected;
-- the audit log contains the expected update events;
-- no unexpected listener or outbound connection appears.
-
-Do not delete the previous slot until this validation is complete.
+After activation, verify router services, LAN management, WAN, DHCP/DNS,
+firewall, WireGuard and audit state before deleting the previous slot.
 
 ## Rollback
 
-From the local console:
+From local recovery:
 
 ```sh
 router-update rollback --confirm ROLLBACK-UPDATE
 ```
 
-Rollback atomically restores the previous verified slot pointer. It does not
-restore configuration snapshots; use `router-recovery snapshots` and
-`router-recovery restore-snapshot` when the problem is configuration rather than
-software payload.
+Rollback restores the previous verified slot pointer. Configuration rollback is a
+separate snapshot/recovery operation.
 
 ## Key compromise
 
-If the release private key may have been exposed:
+If the firmware release private key may have been exposed:
 
-1. stop publishing releases immediately;
+1. stop publishing releases;
 2. remove the repository secret;
-3. publish a security advisory identifying affected versions and key fingerprint;
-4. generate a new offline key pair;
+3. publish a security advisory identifying affected versions/fingerprint;
+4. generate a new key pair in a safer environment;
 5. distribute the replacement public key through a separately authenticated
-   recovery procedure, not through a manifest signed by the compromised key;
-6. revoke or withdraw affected releases where practical;
+   recovery procedure, never through a manifest signed only by the compromised key;
+6. withdraw affected releases where practical;
 7. preserve logs and attestations for investigation.
 
 A normal online update must never silently rotate its own root of trust.

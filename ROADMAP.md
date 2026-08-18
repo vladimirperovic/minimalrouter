@@ -1,7 +1,7 @@
 # Roadmap
 
-Minimal Router OS is early alpha. The roadmap is organized around evidence and
-release gates rather than dates.
+Minimal Router OS is currently **Beta (v0.1.4)**. The roadmap is organized around
+evidence and release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
@@ -19,6 +19,13 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 - [x] bounded storage/logging and aggregate appliance health
 - [x] gateway monitoring, live bandwidth and connected-device dashboard
 - [x] Go/frontend/security/Alpine/QEMU/network-lab CI
+- [x] AMD64 Golden Appliance ISO: CI-built Alpine + `linux-lts` + MinimalRouter
+- [x] safe raw-image flasher with checksum verification and reinstall guard
+- [x] VGA/noVNC install path plus persistent `ttyS0` 115200 recovery
+- [x] blank-disk QEMU E2E: flash, reboot, firstboot, serial, SSH, firewall,
+      router services and Dashboard verification
+- [x] release pipeline capable of publishing the tested Golden ISO from the
+      signed AMD64 release payload with checksum and GitHub attestation
 
 ## Proven on the first real Proxmox pilot
 
@@ -32,21 +39,27 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
 ## Next pilot gates
 
+- [ ] repeat the v0.1.4 Golden ISO on owner Proxmox from blank disk through real WAN cutover
+- [ ] five repeated guest/host cold boots with stable WAN/LAN identity
+- [ ] repeated real PPPoE disconnect/reconnect and reboot recovery
 - [ ] MinimalRouter-managed No-IP update and later public-IP change
-- [ ] five repeated guest/host reboot cycles with stable WAN/LAN identity
-- [ ] repeated PPPoE reconnect and reboot recovery
-- [ ] WireGuard recovery after PPPoE reconnect/reboot
+- [ ] WireGuard recovery after real PPPoE reconnect/reboot
 - [ ] encrypted backup restore into a fresh VM
 - [ ] external IPv4/IPv6 scan
 - [ ] sustained throughput, packet rate, latency/loss and thermal measurements
 - [ ] full-disk, inode, read-only-filesystem and abrupt-power tests
 - [ ] seven-day continuous pilot with bounded resource growth
 
+## Platform / media gates
+
+- [ ] full installed-disk UEFI qualification; v0.1.4 E2E target is SeaBIOS/MBR
+- [ ] owner-qualified recovery-media procedure
+- [ ] supported Proxmox/NIC matrix
+- [ ] ARM64 appliance-image/installer path if it becomes a supported target
+
 ## Production gates
 
-- [ ] owner-qualified signed install/recovery media
 - [ ] independent focused security review
-- [ ] supported Proxmox/NIC matrix
 - [ ] stable migration/update policy
 - [ ] security-update/support policy
 - [ ] no unresolved critical/high-severity findings

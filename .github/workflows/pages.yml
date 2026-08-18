@@ -29,6 +29,34 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - run: pnpm --dir web install --frozen-lockfile
+      - name: Prepare demo release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          test -n "$version"
+          VERSION="$version" node <<'NODE'
+          const fs = require("fs");
+          const path = "web/src/lib/demoApi.ts";
+          let source = fs.readFileSync(path, "utf8");
+          const demoVersion = `v${process.env.VERSION}-demo`;
+          source = source.replace(/version: "v[0-9]+\.[0-9]+\.[0-9]+-demo"/, `version: "${demoVersion}"`);
+          source = source.replace(
+            'headline: "2 of 12 checks need attention."',
+            'headline: "1 of 12 checks needs attention."',
+          );
+          source = source.replace(
+            '{ id: "updates", label: "Updates", state: "warning", summary: "Firmware verification trust anchor is not configured" },',
+            '{ id: "updates", label: "Updates", state: "healthy", summary: "Firmware verification trust anchor is configured" },',
+          );
+          if (!source.includes(`version: "${demoVersion}"`)) {
+            throw new Error(`demo version injection failed for ${demoVersion}`);
+          }
+          if (!source.includes('label: "Updates", state: "healthy", summary: "Firmware verification trust anchor is configured"')) {
+            throw new Error("demo release trust state injection failed");
+          }
+          fs.writeFileSync(path, source);
+          NODE
       - run: pnpm --dir web build
         env:
           VITE_DEMO_MODE: "true"

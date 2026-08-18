@@ -18,6 +18,8 @@ VERSION_SAFE="$(printf '%s' "$VERSION" | tr -cd '0-9A-Za-z._-')"
 VOLUME_VERSION="$(printf '%s' "$VERSION" | tr -cd '0-9A-Za-z' | cut -c1-12)"
 BUILD_COMMIT="${BUILD_COMMIT:-${GITHUB_SHA:-unknown}}"
 BUILD_DATE="${BUILD_DATE:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
+USE_EXISTING_DIST="${MINIMALROUTER_USE_EXISTING_DIST:-0}"
+REQUIRE_SIGNED_DIST="${MINIMALROUTER_REQUIRE_SIGNED_DIST:-0}"
 
 BUILD_DIR="build/iso"
 CACHE_DIR="$BUILD_DIR/cache"
@@ -29,6 +31,7 @@ OUT_ISO="$BUILD_DIR/minimalrouter-${VERSION_SAFE}-amd64.iso"
 OUT_SHA="$OUT_ISO.sha256"
 GOLDEN_IMAGE="$BUILD_DIR/minimalrouter-golden-${VERSION}-amd64.img.gz"
 GOLDEN_SHA="$GOLDEN_IMAGE.sha256"
+DIST_DIR="build/dist/minimalrouter-linux-amd64"
 
 need() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -176,10 +179,25 @@ need docker
 mkdir -p "$BUILD_DIR" "$CACHE_DIR"
 
 echo "=== MinimalRouter v$VERSION Golden Appliance ISO Builder ==="
-echo "[1/6] Building MinimalRouter distribution and installed rootfs..."
-make dist-amd64
-DIST_DIR="build/dist/minimalrouter-linux-amd64"
+echo "[1/6] Preparing MinimalRouter distribution and installed rootfs..."
+if [ "$USE_EXISTING_DIST" = "1" ]; then
+    echo "Using existing distribution: $DIST_DIR"
+else
+    make \
+        BUILD_VERSION="$VERSION" \
+        BUILD_COMMIT="$BUILD_COMMIT" \
+        BUILD_DATE="$BUILD_DATE" \
+        dist-amd64
+fi
 [ -d "$DIST_DIR" ] || { echo "ERROR: distribution directory is missing" >&2; exit 1; }
+[ -x "$DIST_DIR/bin/routerd-amd64" ] || { echo "ERROR: distribution is missing routerd-amd64" >&2; exit 1; }
+[ -x "$DIST_DIR/bin/router-applyd-amd64" ] || { echo "ERROR: distribution is missing router-applyd-amd64" >&2; exit 1; }
+if [ "$REQUIRE_SIGNED_DIST" = "1" ]; then
+    [ -s "$DIST_DIR/firmware-signing.pub" ] || {
+        echo "ERROR: release ISO requires a signed distribution with firmware-signing.pub" >&2
+        exit 1
+    }
+fi
 printf '%s\n' "$VERSION" > "$DIST_DIR/VERSION"
 sh packaging/alpine/build-rootfs.sh
 
