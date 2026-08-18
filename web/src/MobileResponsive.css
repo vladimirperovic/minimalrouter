@@ -1,0 +1,920 @@
+/*
+ * MobileResponsive.css
+ *
+ * Final responsive layer for the production dashboard. Keep this imported
+ * after the other dashboard styles: the classic skin intentionally contains
+ * several historical breakpoint passes and this file is the single mobile
+ * source of truth that wins their cascade without changing desktop geometry.
+ */
+
+@media (max-width: 900px) {
+  html,
+  body,
+  #root,
+  .dashboard-app {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  html,
+  body {
+    overflow-x: clip;
+  }
+
+  .dashboard-app {
+    min-height: 100dvh;
+    overflow-x: clip;
+  }
+
+  .dashboard-main {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 0 !important;
+    padding-right: max(18px, env(safe-area-inset-right));
+    padding-left: max(18px, env(safe-area-inset-left));
+    box-sizing: border-box;
+  }
+
+  .dashboard-main > *,
+  .dashboard-section,
+  .dashboard-main > .dashboard-section:not(#overview),
+  .dashboard-main > .dns-filter,
+  .classic-dashboard-overview,
+  .classic-dashboard-overview[aria-label="Security"],
+  .wireguard-workspace,
+  .gateway-quality,
+  .dns-filter {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Full-viewport navigation on phones/tablets. */
+  .dashboard-sidebar {
+    inset: 0 !important;
+    z-index: 55;
+    width: 100vw !important;
+    max-width: none !important;
+    height: 100dvh !important;
+    min-height: 100dvh;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding:
+      calc(82px + env(safe-area-inset-top))
+      max(18px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      max(18px, env(safe-area-inset-left));
+    background: color-mix(in srgb, var(--classic-bg) 86%, var(--classic-panel)) !important;
+    box-shadow: none !important;
+    box-sizing: border-box;
+    transform: translate3d(-100%, 0, 0);
+    transition: transform 220ms cubic-bezier(.22, 1, .36, 1);
+    overscroll-behavior: contain;
+  }
+
+  .dashboard-sidebar.is-open {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .dashboard-sidebar .dashboard-brand,
+  :root[data-theme="dark"] .dashboard-sidebar .dashboard-brand {
+    flex: 0 0 auto;
+    min-height: 0;
+    margin: 0 0 18px;
+    padding: 0 4px 18px;
+    border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 82%, transparent);
+  }
+
+  .dashboard-sidebar .dashboard-brand .dashboard-brand-title strong {
+    font-size: 24px;
+    letter-spacing: -.05em;
+  }
+
+  .dashboard-sidebar nav.dashboard-navigation {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 2px 12px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group {
+    padding: 0;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group + .dashboard-nav-group {
+    margin-top: 18px;
+    padding-top: 18px;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group h2 {
+    margin: 0 0 8px;
+    padding: 0 4px;
+    font-size: 10px;
+    letter-spacing: .14em;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dashboard-sidebar nav a {
+    min-width: 0;
+    min-height: 50px;
+    justify-content: flex-start;
+    border: 1px solid color-mix(in srgb, var(--classic-border) 82%, transparent);
+    border-radius: 13px;
+    padding: 0 14px;
+    background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
+    font-size: 14px;
+    line-height: 1.15;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .dashboard-sidebar nav a:hover {
+    transform: none;
+  }
+
+  .dashboard-sidebar nav a.is-active {
+    border-color: color-mix(in srgb, var(--classic-blue) 28%, var(--classic-border));
+    background: color-mix(in srgb, var(--classic-blue) 10%, var(--classic-panel));
+    color: var(--classic-blue);
+  }
+
+  .dashboard-sidebar-footer {
+    flex: 0 0 auto;
+    padding-top: 10px;
+  }
+
+  .dashboard-sidebar .dashboard-brand-revision {
+    min-height: 38px;
+    padding-inline: 12px;
+  }
+
+  /* Keep the existing hamburger above the full-screen rail and turn it into
+     a clear close control while the rail is open. */
+  .dashboard-topbar.classic-topbar {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 70;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    min-height: 68px;
+    margin-top: 0 !important;
+    box-sizing: border-box;
+  }
+
+  .dashboard-menu {
+    display: inline-grid !important;
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    place-items: center;
+    border-radius: 13px;
+    padding: 0;
+    font-size: 20px;
+    line-height: 1;
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-topbar.classic-topbar {
+    position: fixed !important;
+    top: env(safe-area-inset-top) !important;
+    right: 0;
+    left: 0;
+    min-height: 68px;
+    margin: 0 !important;
+    padding-right: max(18px, env(safe-area-inset-right));
+    padding-left: max(18px, env(safe-area-inset-left));
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .classic-page-heading,
+  .dashboard-app:has(.dashboard-sidebar.is-open) .classic-topbar-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-menu {
+    border-color: color-mix(in srgb, var(--classic-border) 78%, transparent);
+    background: color-mix(in srgb, var(--classic-panel) 88%, transparent);
+    color: var(--classic-text);
+    font-size: 0;
+    box-shadow: 0 8px 24px rgba(28, 43, 62, .12);
+    backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-menu::before {
+    content: "×";
+    font-size: 29px;
+    font-weight: 350;
+    line-height: 1;
+  }
+
+  body:has(.dashboard-sidebar.is-open) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  /* All workspaces may shrink; no desktop min-width is allowed to push the
+     page sideways. Horizontal data stays scrollable inside its own card. */
+  .dashboard-app .card,
+  .dashboard-app .settings-form,
+  .dashboard-app .status-list,
+  .dashboard-app .status-list article,
+  .dashboard-app .metric-grid,
+  .dashboard-app .metric-grid article,
+  .dashboard-app .dashboard-callout,
+  .dashboard-app .speedtest-block,
+  .dashboard-app .wg-status-card,
+  .dashboard-app .wg-page-hero,
+  .dashboard-app .wg-peer-panel,
+  .dashboard-app .wg-provision-card,
+  .dashboard-app .wg-client-card,
+  .dashboard-app .ddns-status,
+  .dashboard-app .ddns-form,
+  .dashboard-app .service-config-card,
+  .dashboard-app .service-inline-control,
+  .dashboard-app .classic-security-card,
+  .dashboard-app .classic-security-feed,
+  .dashboard-app .security-control-card,
+  .dashboard-app .table-card,
+  .dashboard-app .elegant-table-container {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .table-scroll,
+  .audit-table-scroll,
+  .classic-security-table-wrap,
+  .elegant-table-container,
+  .wg-table,
+  .static-leases,
+  .port-forward-rules {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-inline: contain;
+  }
+
+  .dashboard-app pre,
+  .dashboard-app code,
+  .dashboard-app dd,
+  .dashboard-app td,
+  .dashboard-app p,
+  .dashboard-app strong {
+    max-width: 100%;
+  }
+
+  .dashboard-app pre {
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .dashboard-app code,
+  .dashboard-app dd {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 760px) {
+  .dashboard-main {
+    padding: 0 max(14px, env(safe-area-inset-right)) calc(44px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)) !important;
+  }
+
+  .dashboard-topbar.classic-topbar {
+    min-height: 64px;
+    gap: 8px;
+    margin: 0 -14px 18px !important;
+    padding: 0 max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)) !important;
+  }
+
+  .classic-page-heading {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .classic-page-heading h1 {
+    overflow: hidden;
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .classic-topbar-actions {
+    flex: 0 0 auto;
+    gap: 6px;
+  }
+
+  .classic-topbar-button,
+  .classic-help-button,
+  .classic-account-button {
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    height: 44px;
+    border-radius: 13px;
+    padding: 0;
+  }
+
+  .classic-account-button {
+    justify-content: center;
+  }
+
+  .classic-account-monogram {
+    width: 36px;
+    height: 36px;
+  }
+
+  .dashboard-menu {
+    width: 44px;
+    height: 44px;
+    flex-basis: 44px;
+  }
+
+  /* Overview */
+  .overview-service-ribbon {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .overview-service-chip {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: flex-start;
+    padding: 8px 11px;
+    line-height: 1.2;
+    white-space: normal;
+  }
+
+  .overview-status-hero,
+  .wg-page-hero,
+  .classic-security-command,
+  .dashboard-section-heading,
+  .dns-filter-heading {
+    width: 100%;
+    min-width: 0;
+    border-radius: 15px;
+    box-sizing: border-box;
+  }
+
+  .overview-status-hero {
+    padding: 20px 16px;
+  }
+
+  .overview-hero-command {
+    gap: 16px;
+  }
+
+  .overview-hero-summary h1 {
+    max-width: 100%;
+    margin-top: 10px;
+    font-size: clamp(29px, 8.4vw, 34px);
+    line-height: 1.02;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+
+  .overview-hero-summary > p {
+    max-width: 100%;
+    font-size: 12px;
+  }
+
+  .overview-summary-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 10px;
+    width: 100%;
+    margin-top: 20px;
+  }
+
+  .overview-summary-meta > span {
+    min-width: 0;
+  }
+
+  .overview-wan-card {
+    padding: 16px;
+  }
+
+  .overview-wan-main {
+    margin: 15px 0;
+  }
+
+  .overview-wan-main strong {
+    font-size: clamp(29px, 9vw, 38px);
+  }
+
+  .overview-wan-quality {
+    gap: 7px;
+  }
+
+  .overview-wan-quality span {
+    padding: 9px 8px;
+  }
+
+  .overview-technical-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    padding: 13px;
+  }
+
+  .overview-technical-facts strong,
+  .overview-technical-facts span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .overview-diagnostic-strip {
+    margin-block: 14px;
+  }
+
+  .overview-diagnostic-strip > div {
+    padding: 14px 16px;
+  }
+
+  .overview-panel {
+    min-width: 0;
+    padding: 18px 16px;
+  }
+
+  .overview-panel-header {
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .overview-bandwidth-now {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .overview-bandwidth-now strong {
+    font-size: 21px;
+  }
+
+  .overview-chart-wrap,
+  .overview-chart-wrap.is-quality {
+    width: 100%;
+    min-width: 0;
+    height: 155px;
+  }
+
+  .overview-chart-wrap svg {
+    max-width: 100%;
+  }
+
+  /* Common subpages */
+  .dashboard-main > .dashboard-section:not(#overview),
+  .dashboard-main > .dns-filter {
+    gap: 14px;
+  }
+
+  .dashboard-section-heading,
+  .dns-filter-heading,
+  .dashboard-section-heading.has-facts,
+  .dns-filter-heading.has-facts {
+    gap: 18px;
+    min-height: 0;
+    padding: 20px 17px !important;
+  }
+
+  .subpage-hero-head {
+    width: 100%;
+    min-width: 0;
+    gap: 16px;
+  }
+
+  .dashboard-section-heading h2,
+  .dns-filter-heading h2,
+  .wg-hero-copy h2 {
+    max-width: 100%;
+    font-size: clamp(25px, 7.4vw, 31px);
+    line-height: 1.04;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+
+  .dashboard-section-heading .section-copy,
+  .dashboard-section-heading .dns-filter-intro,
+  .dashboard-section-heading .ddns-lead,
+  .dns-filter-heading .dns-filter-intro {
+    max-width: 100%;
+    font-size: 11px;
+  }
+
+  .subpage-hero-head > .toolbar,
+  .subpage-hero-head > .dns-filter-actions,
+  .dns-filter-actions,
+  .toolbar,
+  .filter-buttons {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .subpage-hero-head > .toolbar,
+  .subpage-hero-head > .dns-filter-actions {
+    align-items: stretch;
+  }
+
+  .subpage-hero-facts,
+  .subpage-hero-facts.six,
+  .classic-security-command-facts,
+  .wg-hero-metrics {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .subpage-hero-facts > div,
+  .classic-security-command-facts > div,
+  .wg-hero-metrics > div {
+    min-width: 0;
+    padding: 13px;
+  }
+
+  .subpage-hero-facts dt,
+  .subpage-hero-facts dd,
+  .subpage-hero-facts small,
+  .classic-security-command-facts dt,
+  .classic-security-command-facts dd,
+  .classic-security-command-facts small,
+  .wg-hero-metrics dt,
+  .wg-hero-metrics dd,
+  .wg-hero-metrics small {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .metric-grid,
+  .metric-grid.compact,
+  .gateway-quality > .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 9px;
+  }
+
+  .metric-grid article {
+    min-height: 104px;
+    padding: 15px;
+  }
+
+  .metric-grid article strong {
+    font-size: clamp(18px, 5.6vw, 23px);
+  }
+
+  .card-title-row,
+  .service-config-header,
+  .security-control-card > .card-title-row,
+  .wg-peer-panel-head,
+  .classic-security-feed-heading {
+    min-width: 0;
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .card-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    min-height: 0;
+    gap: 10px;
+  }
+
+  .settings-form,
+  .service-config-card > .settings-form,
+  .security-control-card > .settings-form,
+  .security-control-card > details > .settings-form {
+    width: 100%;
+    gap: 16px;
+    padding: 17px !important;
+    box-sizing: border-box;
+  }
+
+  .settings-form fieldset,
+  .dns-records-fieldset {
+    width: 100%;
+    min-width: 0;
+    padding: 15px;
+    box-sizing: border-box;
+  }
+
+  .form-grid,
+  .form-grid.two,
+  .classic-security-card > .form-grid,
+  .classic-trusted-networks > .form-grid,
+  .port-forward-fields {
+    grid-template-columns: 1fr !important;
+  }
+
+  .form-span,
+  .classic-security-card > .form-grid .modal-actions,
+  .classic-port-forwards > .form-grid .modal-actions {
+    grid-column: auto !important;
+  }
+
+  .form-actions,
+  .modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .form-actions .button,
+  .modal-actions .button,
+  .modal-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .dashboard-section .checkbox-row,
+  .dns-filter .checkbox-row,
+  .classic-security-card .checkbox-row {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .status-list {
+    grid-template-columns: 1fr;
+  }
+
+  .status-list article {
+    align-items: flex-start;
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .dashboard-alert {
+    width: 100%;
+    padding: 13px 14px;
+    box-sizing: border-box;
+  }
+
+  .classic-alert-recover {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* WireGuard and remote-connect pages */
+  .wg-page-hero {
+    padding: 20px 16px;
+  }
+
+  .wg-hero-copy {
+    gap: 12px;
+  }
+
+  .wg-hero-icon,
+  .service-config-icon,
+  .classic-security-hero-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .wg-status-card {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .wg-status-metrics {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .wg-status-metrics div {
+    min-width: 0;
+    text-align: left;
+  }
+
+  .wg-callout {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wg-qr {
+    align-self: center;
+  }
+
+  .wg-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wg-actions .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .wg-peer-row,
+  .wg-peer-details {
+    min-width: 0;
+  }
+
+  .wg-peer-actions {
+    width: 100%;
+  }
+
+  .wg-peer-toggle {
+    flex: 1 1 auto;
+  }
+
+  /* DDNS, gateway, filters, recovery and logging controls. */
+  .ddns-status-main,
+  .service-config-header,
+  .service-inline-control,
+  .port-forward-heading,
+  .port-forward-submit {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ddns-status-main {
+    padding: 17px;
+  }
+
+  .ddns-provider {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    box-sizing: border-box;
+  }
+
+  .ddns-provider button {
+    min-width: 0;
+    padding-inline: 10px;
+  }
+
+  .gateway-window-tabs {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  .qos-speedtest-head,
+  .speedtest-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .qos-speedtest-result > *,
+  .qos-speedtest-result .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .modern-section-heading,
+  .modern-device-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modern-search-wrapper,
+  .static-lease-search {
+    width: 100%;
+    max-width: none;
+  }
+
+  .port-forward-composer {
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .profile-menu-pop {
+    position: fixed;
+    top: calc(70px + env(safe-area-inset-top));
+    right: max(14px, env(safe-area-inset-right));
+    left: max(14px, env(safe-area-inset-left));
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 430px) {
+  .dashboard-main {
+    padding-right: max(12px, env(safe-area-inset-right)) !important;
+    padding-left: max(12px, env(safe-area-inset-left)) !important;
+  }
+
+  .dashboard-topbar.classic-topbar {
+    margin-right: -12px !important;
+    margin-left: -12px !important;
+    padding-right: max(12px, env(safe-area-inset-right)) !important;
+    padding-left: max(12px, env(safe-area-inset-left)) !important;
+  }
+
+  .classic-topbar-actions {
+    gap: 5px;
+  }
+
+  .classic-topbar-button,
+  .classic-help-button,
+  .classic-account-button,
+  .dashboard-menu {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .dashboard-menu {
+    flex-basis: 42px;
+  }
+
+  .classic-page-heading h1 {
+    font-size: 18px;
+  }
+
+  .overview-service-ribbon {
+    gap: 7px;
+  }
+
+  .overview-service-chip {
+    min-height: 42px;
+    padding: 7px 9px;
+    font-size: 10.5px;
+  }
+
+  .overview-summary-meta,
+  .overview-bandwidth-now,
+  .metric-grid,
+  .metric-grid.compact,
+  .gateway-quality > .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .subpage-hero-facts > div,
+  .classic-security-command-facts > div,
+  .wg-hero-metrics > div {
+    padding: 12px 10px;
+  }
+
+  .subpage-hero-facts dd,
+  .classic-security-command-facts dd,
+  .wg-hero-metrics dd {
+    font-size: 15px;
+  }
+
+  .dashboard-section-heading,
+  .dns-filter-heading,
+  .dashboard-section-heading.has-facts,
+  .dns-filter-heading.has-facts,
+  .overview-status-hero,
+  .wg-page-hero {
+    border-radius: 14px;
+  }
+}
+
+@media (max-width: 360px) {
+  .dashboard-sidebar .dashboard-nav-group > div {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-service-ribbon,
+  .overview-summary-meta,
+  .overview-bandwidth-now,
+  .metric-grid,
+  .metric-grid.compact,
+  .gateway-quality > .metric-grid,
+  .subpage-hero-facts,
+  .subpage-hero-facts.six,
+  .classic-security-command-facts,
+  .wg-hero-metrics,
+  .wg-status-metrics,
+  .ddns-provider {
+    grid-template-columns: 1fr !important;
+  }
+
+  .classic-help-button {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-sidebar {
+    transition: none !important;
+  }
+}

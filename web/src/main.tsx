@@ -5,6 +5,7 @@ import Demo015Preview from "./Demo015Preview";
 import "./index.css";
 import "./UXCleanup.css";
 import "./Demo015Preview.css";
+import "./MobileResponsive.css";
 
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);
