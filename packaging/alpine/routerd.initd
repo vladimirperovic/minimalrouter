@@ -25,6 +25,11 @@ depend() {
 
 start_pre() {
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
+    # supervise-daemon opens the log files as the unprivileged child after
+    # setuid. /var/log is root-owned, so pre-create them routerd-writable or
+    # the supervised child dies before exec and the service drops to stopped
+    # after the respawn burst.
+    checkpath --file --owner routerd:routerd --mode 0640 /var/log/routerd.log /var/log/routerd.err
     # DHCP leases live in a dedicated dnsmasq-owned 0750 directory. Give the
     # management daemon only the supplementary group needed to read that live
     # status; canonical config/auth storage stays private to routerd.

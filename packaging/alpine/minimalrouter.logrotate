@@ -6,5 +6,5 @@
     missingok
     notifempty
     copytruncate
-    create 0600 root root
+    create 0640 routerd routerd
 }
