@@ -9,7 +9,13 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  // Keep GitHub annotations for the normal Actions UI, but also write a small
+  // machine-readable report so failed CI runs retain the exact test/assertion
+  // even when the hosted runner is gone. The workflow uploads this together
+  // with Playwright traces only on failure.
+  reporter: process.env.CI
+    ? [["github"], ["json", { outputFile: "test-results/results.json" }]]
+    : "list",
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "on-first-retry",
