@@ -1,5 +1,12 @@
 /* Demo-only v0.1.5 beta preview. The production dashboard is intentionally unchanged. */
 
+html.demo-015-preview {
+  --demo-card-radius: 18px;
+  --demo-control-radius: 11px;
+  --demo-shadow: 0 14px 38px rgba(20, 34, 51, .055);
+  --demo-soft-border: color-mix(in srgb, var(--classic-border) 86%, transparent);
+}
+
 html.demo-015-preview .classic-help-button,
 html.demo-015-preview .classic-account-button {
   box-sizing: border-box;
@@ -38,36 +45,369 @@ html.demo-015-preview .demo-015-beta-badge {
   letter-spacing: .02em;
 }
 
-/* WAN overview: show the first-boot estimate where the operator expects it. */
+/* Shared page heading system. */
+html.demo-015-preview .demo-page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding: 4px 2px 18px;
+  border-bottom: 1px solid var(--demo-soft-border);
+}
+
+html.demo-015-preview .demo-page-heading h2 {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: 780;
+  line-height: 1.08;
+  letter-spacing: -.035em;
+}
+
+html.demo-015-preview .demo-page-heading .section-copy,
+html.demo-015-preview .demo-page-heading p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--classic-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* WAN overview. */
 html.demo-015-preview .overview-wan-main > div {
   display: grid;
   align-content: end;
 }
 
 html.demo-015-preview .overview-wan-main small {
-  font-size: 9.5px;
-  line-height: 1.25;
+  font-size: 10.5px;
+  line-height: 1.3;
 }
 
 html.demo-015-preview .overview-wan-main .demo-015-session-estimate {
-  margin-top: 5px;
-  color: #a9bfd8;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .005em;
+  margin-top: 6px;
+  color: #abc0d9;
+  font-size: 12px;
+  font-weight: 660;
+  letter-spacing: .004em;
   text-transform: none;
   white-space: nowrap;
 }
 
+html.demo-015-preview .overview-wan-quality {
+  gap: 12px;
+}
+
 html.demo-015-preview .overview-wan-quality small {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 html.demo-015-preview .overview-wan-quality strong {
-  font-size: 12px;
+  font-size: 13px;
 }
 
-/* WAN/LAN editor: the uplink itself is mandatory, DHCP remains a real toggle. */
+html.demo-015-preview .demo-015-quick-status-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 22px;
+}
+
+html.demo-015-preview .demo-015-quick-card {
+  min-width: 0;
+  border: 1px solid var(--classic-border);
+  border-radius: 15px;
+  padding: 15px 16px 14px;
+  background: var(--classic-panel);
+  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
+}
+
+html.demo-015-preview .demo-015-quick-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+  color: var(--classic-muted);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+html.demo-015-preview .demo-015-quick-card-top i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 999px;
+  background: #31b66a;
+  box-shadow: 0 0 0 4px rgba(49, 182, 106, .10);
+}
+
+html.demo-015-preview .demo-015-quick-card strong {
+  display: block;
+  overflow: hidden;
+  color: var(--classic-text);
+  font-size: 15px;
+  font-weight: 760;
+  letter-spacing: -.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html.demo-015-preview .demo-015-quick-card small {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Unified cards, tables and forms. */
+html.demo-015-preview .demo-unified-table-card,
+html.demo-015-preview #network .static-leases,
+html.demo-015-preview #firewall .firewall-rules {
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: var(--demo-card-radius);
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow);
+}
+
+html.demo-015-preview .demo-unified-table-card .card-title-row,
+html.demo-015-preview #network .static-leases .card-title-row,
+html.demo-015-preview #firewall .firewall-rules .card-title-row {
+  margin: 0;
+  padding: 22px 24px 18px;
+  border-bottom: 0;
+}
+
+html.demo-015-preview .demo-unified-table-card .card-title-row h3,
+html.demo-015-preview #network .static-leases .card-title-row h3,
+html.demo-015-preview #firewall .firewall-rules .card-title-row h3 {
+  margin: 0 0 5px;
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: -.025em;
+}
+
+html.demo-015-preview .demo-unified-table-card .card-title-row p,
+html.demo-015-preview #network .static-leases .card-title-row p,
+html.demo-015-preview #firewall .firewall-rules .card-title-row p {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+html.demo-015-preview .quiet-meta {
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  font-weight: 720;
+}
+
+html.demo-015-preview .table-scroll,
+html.demo-015-preview #network .static-leases .table-scroll,
+html.demo-015-preview #firewall .firewall-rules .table-scroll {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 1px 0 var(--classic-border);
+}
+
+html.demo-015-preview .table-scroll table,
+html.demo-015-preview #network .static-leases table,
+html.demo-015-preview #firewall .firewall-rules table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  text-align: left;
+}
+
+html.demo-015-preview .table-scroll th,
+html.demo-015-preview #network .static-leases th,
+html.demo-015-preview #firewall .firewall-rules th {
+  padding: 13px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 52%, var(--classic-panel));
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  font-weight: 740;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+html.demo-015-preview .table-scroll td,
+html.demo-015-preview #network .static-leases td,
+html.demo-015-preview #firewall .firewall-rules td {
+  padding: 17px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  color: var(--classic-text);
+  font-size: 13.5px;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+
+html.demo-015-preview .table-scroll tbody tr:last-child td,
+html.demo-015-preview #network .static-leases tbody tr:last-child td,
+html.demo-015-preview #firewall .firewall-rules tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+html.demo-015-preview .table-scroll tbody tr,
+html.demo-015-preview #network .static-leases tbody tr,
+html.demo-015-preview #firewall .firewall-rules tbody tr {
+  transition: background-color .15s ease;
+}
+
+html.demo-015-preview .table-scroll tbody tr:hover,
+html.demo-015-preview #network .static-leases tbody tr:hover,
+html.demo-015-preview #firewall .firewall-rules tbody tr:hover {
+  background: color-mix(in srgb, var(--classic-soft) 72%, transparent);
+}
+
+html.demo-015-preview .table-scroll code,
+html.demo-015-preview #network .static-leases td code,
+html.demo-015-preview #firewall .firewall-rules td code {
+  padding: 0;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 570;
+  white-space: nowrap;
+}
+
+/* Connected devices gets the same table rhythm without destroying its richer cells. */
+html.demo-015-preview .modern-device-section {
+  border: 1px solid var(--classic-border);
+  border-radius: var(--demo-card-radius);
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow);
+}
+
+html.demo-015-preview .modern-device-section .modern-section-heading {
+  padding: 22px 24px 18px;
+}
+
+html.demo-015-preview .modern-device-section .elegant-table-container {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 var(--classic-border);
+}
+
+html.demo-015-preview .modern-device-section .elegant-device-table th {
+  background: color-mix(in srgb, var(--classic-soft) 52%, var(--classic-panel));
+}
+
+/* DHCP reservations: search on the right and continuous separators. */
+html.demo-015-preview #network .static-lease-search {
+  width: min(360px, calc(100% - 48px));
+  margin: 0 24px 18px auto !important;
+}
+
+html.demo-015-preview #network .static-leases td:first-child {
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -.012em;
+}
+
+html.demo-015-preview #network .static-leases .static-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 7px;
+}
+
+html.demo-015-preview #network .static-lease-form {
+  margin: 0;
+  padding: 22px 24px 24px;
+  border-top: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 42%, var(--classic-panel));
+}
+
+/* Firewall: strong hierarchy and one clean boundary between rules and editor. */
+html.demo-015-preview #firewall .firewall-rules td:first-child {
+  font-size: 14.5px;
+  font-weight: 720;
+}
+
+html.demo-015-preview #firewall .firewall-rules td.is-good,
+html.demo-015-preview #firewall .firewall-rules td.is-bad {
+  font-weight: 760;
+  text-transform: capitalize;
+}
+
+html.demo-015-preview #firewall .firewall-rules .settings-form {
+  margin: 0;
+  padding: 24px;
+  border-top: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 30%, var(--classic-panel));
+}
+
+/* Form system: fewer arbitrary rules, stronger sections, consistent controls. */
+html.demo-015-preview .demo-unified-form .field > span,
+html.demo-015-preview .settings-form .field > span {
+  margin-bottom: 7px;
+  font-size: 11.5px;
+  font-weight: 690;
+  line-height: 1.35;
+}
+
+html.demo-015-preview .settings-form input,
+html.demo-015-preview .settings-form select,
+html.demo-015-preview .settings-form textarea {
+  min-height: 44px;
+  border-radius: var(--demo-control-radius);
+  font-size: 13.5px;
+}
+
+html.demo-015-preview .settings-form .form-note {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+html.demo-015-preview .settings-form .form-actions {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0 !important;
+}
+
+html.demo-015-preview #network .settings-form > fieldset,
+html.demo-015-preview #qos .settings-form > fieldset,
+html.demo-015-preview #wireguard .settings-form > fieldset,
+html.demo-015-preview #cloudflare .settings-form > fieldset,
+html.demo-015-preview #squid .settings-form > fieldset,
+html.demo-015-preview #wifi .settings-form > fieldset,
+html.demo-015-preview #security .settings-form > fieldset {
+  margin: 0 0 18px;
+  border: 1px solid var(--classic-border);
+  border-radius: 16px;
+  padding: 22px 24px 24px;
+  background: var(--classic-panel);
+  box-shadow: 0 8px 26px rgba(20, 34, 51, .03);
+}
+
+html.demo-015-preview #network .settings-form > fieldset legend,
+html.demo-015-preview #qos .settings-form > fieldset legend,
+html.demo-015-preview #wireguard .settings-form > fieldset legend,
+html.demo-015-preview #cloudflare .settings-form > fieldset legend,
+html.demo-015-preview #squid .settings-form > fieldset legend,
+html.demo-015-preview #wifi .settings-form > fieldset legend,
+html.demo-015-preview #security .settings-form > fieldset legend {
+  padding: 0 8px;
+  color: var(--classic-text);
+  font-size: 14px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+/* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
 html.demo-015-preview #network .demo-015-hidden-wan-toggle {
   display: none !important;
 }
@@ -78,8 +418,8 @@ html.demo-015-preview #network .settings-form > fieldset {
 
 html.demo-015-preview #network .demo-015-fieldset-actions {
   margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--classic-border);
+  padding-top: 0;
+  border-top: 0;
 }
 
 html.demo-015-preview #network .demo-015-fieldset-actions .button {
@@ -90,240 +430,300 @@ html.demo-015-preview #network .demo-015-original-network-save {
   display: none !important;
 }
 
-/* DHCP reservations now use the same visual grammar as Connected devices. */
-html.demo-015-preview #network .static-leases {
-  overflow: hidden;
-  border: 1px solid var(--classic-border);
-  border-radius: 16px;
-  padding: 0;
-  background: var(--classic-panel);
-  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
-}
-
-html.demo-015-preview #network .static-leases .card-title-row {
-  margin: 0;
-  padding: 23px 24px 17px;
-  border-bottom: 0;
-}
-
-html.demo-015-preview #network .static-leases .card-title-row h3 {
-  margin: 0 0 5px;
-  font-size: 18px;
-  font-weight: 720;
-  letter-spacing: -.025em;
-}
-
-html.demo-015-preview #network .static-leases .card-title-row p {
-  font-size: 11px;
-  line-height: 1.45;
-}
-
-html.demo-015-preview #network .static-leases .quiet-meta {
-  font-size: 10px;
-  font-weight: 700;
-}
-
-html.demo-015-preview #network .static-lease-search {
-  width: min(360px, calc(100% - 48px));
-  margin: 0 24px 17px;
-}
-
-html.demo-015-preview #network .static-leases .table-scroll {
-  margin: 0;
-  border-top: 1px solid var(--classic-border);
-  border-bottom: 1px solid var(--classic-border);
-  border-radius: 0;
-}
-
-html.demo-015-preview #network .static-leases table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  text-align: left;
-}
-
-html.demo-015-preview #network .static-leases th {
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--classic-border);
-  color: var(--classic-muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-
-html.demo-015-preview #network .static-leases td {
-  padding: 18px 24px;
-  border-bottom: 1px solid var(--classic-border);
-  font-size: 14px;
-  line-height: 1.25;
-  vertical-align: middle;
-}
-
-html.demo-015-preview #network .static-leases tbody tr {
-  transition: background-color .15s ease;
-}
-
-html.demo-015-preview #network .static-leases tbody tr:hover {
-  background: var(--classic-soft);
-}
-
-html.demo-015-preview #network .static-leases tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-html.demo-015-preview #network .static-leases td:first-child {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -.012em;
-}
-
-html.demo-015-preview #network .static-leases td code {
-  padding: 0;
-  background: transparent;
-  font-size: 13px;
-  font-weight: 570;
-}
-
-html.demo-015-preview #network .static-leases .static-actions {
-  display: flex;
-  justify-content: flex-start;
-  gap: 7px;
-}
-
-html.demo-015-preview #network .static-leases .static-actions .button {
-  min-height: 36px;
+/* Button system. */
+html.demo-015-preview .button,
+html.demo-015-preview button.secondary,
+html.demo-015-preview button.primary {
+  box-sizing: border-box;
+  min-height: 40px;
   border-radius: 10px;
-  padding-inline: 13px;
-  font-size: 11px;
-}
-
-html.demo-015-preview #network .static-lease-form {
-  margin: 0;
-  padding: 23px 24px 24px;
-  background: color-mix(in srgb, var(--classic-soft) 46%, var(--classic-panel));
-}
-
-html.demo-015-preview #network .static-lease-form .field > span {
-  font-size: 11px;
-}
-
-/* Firewall: improve hierarchy and readability without changing rule semantics. */
-html.demo-015-preview #firewall .firewall-rules {
-  overflow: hidden;
-  border-radius: 16px;
-  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
-}
-
-html.demo-015-preview #firewall .firewall-rules .card-title-row {
-  padding: 23px 24px 18px;
-}
-
-html.demo-015-preview #firewall .firewall-rules .card-title-row h3 {
-  font-size: 19px;
-  font-weight: 730;
-  letter-spacing: -.025em;
-}
-
-html.demo-015-preview #firewall .firewall-rules .card-title-row p {
+  padding: 0 15px;
   font-size: 11.5px;
+  font-weight: 720;
+  line-height: 1;
 }
 
-html.demo-015-preview #firewall .firewall-rules .table-scroll {
-  margin-inline: 0;
-  border-top: 1px solid var(--classic-border);
-  border-bottom: 1px solid var(--classic-border);
-  border-radius: 0;
+html.demo-015-preview .button.primary {
+  min-height: 42px;
+  padding-inline: 17px;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--classic-blue) 20%, transparent);
 }
 
-html.demo-015-preview #firewall .firewall-rules table {
-  width: 100%;
-  border-collapse: collapse;
+html.demo-015-preview .button.small {
+  min-height: 36px;
+  padding-inline: 12px;
+  font-size: 10.5px;
 }
 
-html.demo-015-preview #firewall .firewall-rules th {
-  padding: 14px 16px;
-  color: var(--classic-muted);
-  font-size: 11px;
-  font-weight: 680;
-  letter-spacing: .055em;
-  text-transform: uppercase;
+html.demo-015-preview .demo-icon-button::before {
+  content: attr(data-demo-icon);
+  display: inline-grid;
+  min-width: 14px;
+  margin-right: 7px;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
 }
 
-html.demo-015-preview #firewall .firewall-rules td {
-  padding: 17px 16px;
-  font-size: 13.5px;
-  line-height: 1.35;
-  vertical-align: middle;
+html.demo-015-preview .demo-destructive-action:not(.primary) {
+  color: #c83f46;
 }
 
-html.demo-015-preview #firewall .firewall-rules tbody tr:hover {
-  background: var(--classic-soft);
+html.demo-015-preview .demo-destructive-action:not(.primary):hover {
+  border-color: color-mix(in srgb, #c83f46 36%, var(--classic-border));
+  background: color-mix(in srgb, #c83f46 7%, var(--classic-panel));
 }
 
-html.demo-015-preview #firewall .firewall-rules td:first-child {
-  font-size: 14px;
-  font-weight: 700;
-}
-
-html.demo-015-preview #firewall .firewall-rules td.is-good,
-html.demo-015-preview #firewall .firewall-rules td.is-bad {
+/* Consistent status badges. */
+html.demo-015-preview .demo-status-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 10.5px;
   font-weight: 760;
-  text-transform: capitalize;
-}
-
-html.demo-015-preview #firewall .firewall-rules td code {
-  padding: 0;
-  background: transparent;
-  font-size: 12.5px;
+  line-height: 1;
   white-space: nowrap;
 }
 
-html.demo-015-preview #firewall .firewall-rules .settings-form {
-  padding: 25px 24px 24px;
+html.demo-015-preview .demo-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
-html.demo-015-preview #firewall .firewall-rules .field > span {
-  font-size: 11px;
-  font-weight: 680;
+html.demo-015-preview .demo-status-badge.is-good {
+  border-color: rgba(36, 164, 91, .18);
+  background: rgba(36, 164, 91, .08);
+  color: #19884a;
 }
 
-html.demo-015-preview #firewall .firewall-rules .form-note {
-  font-size: 11.5px;
-  line-height: 1.55;
+html.demo-015-preview .demo-status-badge.is-warning {
+  border-color: rgba(205, 132, 22, .18);
+  background: rgba(205, 132, 22, .08);
+  color: #a96508;
 }
 
-/* Recovery tools live on Recovery in this preview, not Security. */
+html.demo-015-preview .demo-status-badge.is-bad {
+  border-color: rgba(202, 57, 66, .18);
+  background: rgba(202, 57, 66, .08);
+  color: #c22f39;
+}
+
+html.demo-015-preview .demo-status-badge.is-muted {
+  border-color: var(--classic-border);
+  background: var(--classic-soft);
+  color: var(--classic-muted);
+}
+
+/* Empty-state system. */
+html.demo-015-preview .demo-empty-state {
+  min-height: 110px;
+  padding: 26px !important;
+  color: var(--classic-muted) !important;
+  text-align: center;
+}
+
+html.demo-015-preview td.demo-empty-state::before {
+  content: "+";
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  margin: 0 auto 9px;
+  border: 1px solid var(--classic-border);
+  border-radius: 10px;
+  background: var(--classic-soft);
+  color: var(--classic-blue);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+/* Recovery gets the visual language used in the approved mock. */
 html.demo-015-preview .classic-security-page .security-recovery-card {
   display: none !important;
 }
 
 html.demo-015-preview .demo-015-recovery-slot {
-  margin-top: 22px;
+  margin-top: 4px;
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card {
   margin: 0;
-  border-radius: 16px;
-  box-shadow: 0 12px 34px rgba(20, 34, 51, .045);
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card > .card-title-row {
+  margin: 0 0 14px;
+  border: 1px solid var(--classic-border);
+  border-radius: 15px;
+  padding: 17px 18px;
+  background: var(--classic-panel);
+  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row h3 {
-  font-size: 18px;
+  margin-bottom: 4px;
+  font-size: 16px;
+  font-weight: 760;
   letter-spacing: -.02em;
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row p {
+  max-width: 760px;
   font-size: 11.5px;
-  line-height: 1.5;
+  line-height: 1.45;
+}
+
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details {
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: 15px;
+  background: var(--classic-panel);
+  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary {
-  font-size: 12.5px;
-  font-weight: 720;
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 740;
 }
 
-/* Demo WireGuard provisioning should visibly provide the one-time QR path. */
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary::-webkit-details-marker {
+  display: none;
+}
+
+html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details[open] > summary {
+  border-bottom: 1px solid var(--classic-border);
+}
+
+html.demo-015-preview .demo-recovery-index {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+}
+
+html.demo-015-preview .demo-recovery-index.is-1 { background: #1479f7; }
+html.demo-015-preview .demo-recovery-index.is-2 { background: #18a861; }
+html.demo-015-preview .demo-recovery-index.is-3 { background: #6258e8; }
+
+html.demo-015-preview .demo-recovery-label {
+  color: var(--classic-text);
+  font-size: 13.5px;
+  font-weight: 760;
+  letter-spacing: -.012em;
+}
+
+html.demo-015-preview .demo-recovery-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 9.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+html.demo-015-preview .demo-recovery-badge.is-recommended {
+  background: rgba(20, 121, 247, .09);
+  color: #1479f7;
+}
+
+html.demo-015-preview .demo-recovery-badge.is-migration {
+  background: rgba(98, 88, 232, .09);
+  color: #6258e8;
+}
+
+html.demo-015-preview .demo-recovery-chevron {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  place-items: center;
+  border: 1px solid var(--classic-border);
+  border-radius: 9px;
+  color: var(--classic-muted);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform .16s ease;
+}
+
+html.demo-015-preview .demo-015-recovery-moved details[open] .demo-recovery-chevron {
+  transform: rotate(-90deg);
+}
+
+html.demo-015-preview .demo-015-recovery-moved details .settings-form {
+  margin: 0;
+  padding: 20px 22px 22px;
+}
+
+html.demo-015-preview .demo-015-recovery-moved details .form-note {
+  width: fit-content;
+  max-width: 720px;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 18%, var(--classic-border));
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--classic-blue) 4%, var(--classic-panel));
+}
+
+html.demo-015-preview .demo-recovery-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 16%, var(--classic-border));
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: color-mix(in srgb, var(--classic-blue) 3%, var(--classic-panel));
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+html.demo-015-preview .demo-recovery-legend > span {
+  color: var(--classic-blue);
+  font-size: 15px;
+}
+
+html.demo-015-preview .demo-recovery-legend p {
+  margin: 0;
+}
+
+html.demo-015-preview .demo-recovery-legend i {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--classic-border);
+}
+
+/* Demo WireGuard provisioning visibly provides the one-time QR path. */
 html.demo-015-preview .demo-015-qr {
   display: grid;
   width: 190px;
@@ -342,6 +742,12 @@ html.demo-015-preview .demo-015-qr img {
   image-rendering: pixelated;
 }
 
+@media (max-width: 1180px) {
+  html.demo-015-preview .demo-015-quick-status-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
   html.demo-015-preview .classic-help-button {
     min-width: 48px;
@@ -352,13 +758,42 @@ html.demo-015-preview .demo-015-qr img {
     display: none;
   }
 
+  html.demo-015-preview .demo-page-heading {
+    display: block;
+  }
+
+  html.demo-015-preview .demo-015-quick-status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   html.demo-015-preview #network .static-leases th,
-  html.demo-015-preview #network .static-leases td {
+  html.demo-015-preview #network .static-leases td,
+  html.demo-015-preview #firewall .firewall-rules th,
+  html.demo-015-preview #firewall .firewall-rules td {
     padding-inline: 15px;
   }
 
   html.demo-015-preview .demo-015-qr {
     width: 160px;
     min-width: 160px;
+  }
+
+  html.demo-015-preview .demo-recovery-legend {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  html.demo-015-preview .demo-recovery-legend i {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  html.demo-015-preview .demo-015-quick-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  html.demo-015-preview .demo-recovery-badge {
+    display: none;
   }
 }
