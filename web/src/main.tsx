@@ -4,6 +4,7 @@ import DashboardApp from "./DashboardApp";
 import Demo015Preview from "./Demo015Preview";
 import "./index.css";
 import "./UXCleanup.css";
+import "./DashboardDesign.css";
 import "./Demo015Preview.css";
 
 function CanonicalRevisionBoundary() {
