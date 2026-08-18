@@ -931,6 +931,52 @@ html.demo-015-preview .dashboard-main > .dashboard-topbar {
   margin-inline: auto;
 }
 
+/* The topbar's top margin was collapsing up out of `.dashboard-app`, so the
+   painted surface started 14px down the page and a strip of flat body colour
+   showed above its gradient — a hard horizontal line across the top. The block
+   formatting context has to be on `.dashboard-app` itself: that keeps the
+   margin inside the element that carries the background, so the gradient starts
+   at the viewport edge and the header still sits 22px in. */
+html.demo-015-preview .dashboard-app {
+  display: flow-root;
+  /* Same four-layer construction as the stock surface, stepped down roughly 6%
+     in lightness. The white cards and the navy hero both gain edge definition
+     against it; the top-right highlight is kept so the page still has a light
+     source rather than reading as flat grey. */
+  background:
+    radial-gradient(72% 48% at 78% -8%, rgba(255, 255, 255, .88) 0%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(50% 44% at 8% 34%, rgba(168, 181, 201, .38) 0%, rgba(168, 181, 201, 0) 72%),
+    radial-gradient(42% 36% at 96% 78%, rgba(178, 189, 206, .3) 0%, rgba(178, 189, 206, 0) 75%),
+    linear-gradient(118deg, #dde1e9 0%, #eceef3 46%, #d9dde6 100%);
+}
+
+/* Keep the page behind the app the same tone, so overscroll does not flash a
+   lighter band. */
+html.demo-015-preview,
+html.demo-015-preview body {
+  background-color: #dde1e9;
+}
+
+/* Roomier frame: the rail and the header sat 14px off the edges, which read as
+   cramped once the cards inside gained padding. */
+html.demo-015-preview .dashboard-sidebar {
+  inset-block: 22px;
+  inset-inline-start: 22px;
+}
+
+html.demo-015-preview .dashboard-main > .dashboard-topbar {
+  margin-top: 22px;
+  padding-inline: 30px;
+}
+
+/* --- Technical facts strip -------------------------------------------------
+   Uptime and MTU are retired from this row rather than deleted: the strip is
+   React-rendered, so the values stay in the DOM and MTU is mirrored into the
+   WAN metrics from there. */
+html.demo-015-preview .overview-technical-facts > .demo-015-fact-retired {
+  display: none;
+}
+
 /* --- Metric tooltips -------------------------------------------------------
    The bubble has to be taken out of flow and heavily reset: as a direct child
    it would otherwise be caught by `.overview-wan-quality span` (which makes it
@@ -944,9 +990,12 @@ html.demo-015-preview .demo-has-tip {
 
 html.demo-015-preview .overview-wan-quality .demo-metric-tip,
 html.demo-015-preview .overview-assurance .demo-metric-tip {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 8px);
+  /* Fixed, not absolute: the bubble follows the pointer, and fixed positioning
+     is not clipped by the hero's `overflow: hidden` the way an absolutely
+     positioned child would be. */
+  position: fixed;
+  z-index: 60;
+  top: 0;
   left: 0;
   display: block;
   width: max-content;
@@ -980,6 +1029,11 @@ html.demo-015-preview .demo-has-tip:focus-visible > .demo-metric-tip {
   transform: translateY(0);
 }
 
+/* The rail sits further in than the header so the two do not read as one edge. */
+html.demo-015-preview .dashboard-sidebar {
+  inset-inline-start: 37px;
+}
+
 html.demo-015-preview .demo-has-tip {
   cursor: help;
 }
@@ -1006,13 +1060,117 @@ html.demo-015-preview #overview > .overview-service-ribbon { order: 1; }
 html.demo-015-preview #overview > .overview-status-hero { order: 2; }
 html.demo-015-preview #overview > .demo-015-quick-status-grid { order: 3; }
 html.demo-015-preview #overview > .health-banner { order: 4; }
-html.demo-015-preview #overview > .boot-activity-host { order: 5; }
-html.demo-015-preview #overview > .overview-diagnostic-strip { order: 6; }
-html.demo-015-preview #overview > .overview-content-grid { order: 7; }
+html.demo-015-preview #overview > .health-checks-section { order: 5; }
+html.demo-015-preview #overview > .boot-activity-host { order: 6; }
+html.demo-015-preview #overview > .overview-diagnostic-strip { order: 7; }
+html.demo-015-preview #overview > .overview-content-grid { order: 8; }
 
-/* Flex does not collapse margins, so the gaps are set explicitly. */
+/* Needs attention is tucked under the hero: narrower on both sides and pulled
+   up behind it, so it reads as a second card in a stack rather than a separate
+   banner. The hero keeps its own stacking context above it, and the overlap is
+   added back as top padding so nothing is hidden under the hero's edge. */
+html.demo-015-preview #overview > .overview-status-hero {
+  position: relative;
+  z-index: 2;
+}
+
 html.demo-015-preview #overview > .health-banner {
-  margin: 0 0 18px;
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 44px);
+  margin: -26px auto 18px;
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+}
+
+html.demo-015-preview #overview > .health-banner .health-banner-main {
+  padding-top: 34px;
+}
+
+/* "Review checks" renders the checks list as its own section at the very end of
+   the page and scrolls to it, which reads as the panel jumping out. Ordered
+   directly under the banner and joined to it, the same click reads as the card
+   opening: same width and inset as the tucked card, square shared edge, and no
+   gap between the two. */
+html.demo-015-preview #overview > .health-banner:has(+ .health-checks-section),
+html.demo-015-preview #overview > .health-banner {
+  transition: border-radius .18s ease;
+}
+
+html.demo-015-preview #overview > .health-checks-section {
+  position: relative;
+  z-index: 1;
+  /* One step narrower again than the banner above it, so the stack reads
+     hero → needs attention → checks and no layer is ever wider than the one
+     it sits under. */
+  width: calc(100% - 68px);
+  margin: -18px auto 18px;
+  border: 1px solid var(--separator);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  padding-top: 6px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+  animation: demo-checks-open .2s var(--ease, ease);
+}
+
+/* With the list open the banner is the top half of one card, so it loses its
+   own bottom rounding and shadow. */
+html.demo-015-preview #overview > .health-banner:has(+ .health-checks-section) {
+  margin-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Collapse control closing the checks list, mirroring the chevron language used
+   on the Recovery steps. */
+html.demo-015-preview .demo-checks-collapse {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  padding: 13px 0 15px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: var(--demo-weight-medium);
+}
+
+html.demo-015-preview .demo-checks-collapse:hover {
+  background: color-mix(in srgb, var(--classic-blue) 5%, transparent);
+  color: var(--classic-blue);
+}
+
+html.demo-015-preview .demo-checks-collapse:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: -2px;
+}
+
+html.demo-015-preview .demo-checks-chevron {
+  font-size: 15px;
+  line-height: 1;
+  transform: translateY(2px);
+}
+
+html.demo-015-preview .health-checks-section.demo-checks-collapsed {
+  display: none;
+}
+
+/* With the list hidden the banner is a standalone tucked card again. */
+html.demo-015-preview #overview > .health-banner:has(+ .health-checks-section.demo-checks-collapsed) {
+  margin-bottom: 18px;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+}
+
+@keyframes demo-checks-open {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 html.demo-015-preview #overview > .boot-activity-host {

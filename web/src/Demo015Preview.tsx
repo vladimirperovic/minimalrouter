@@ -87,24 +87,6 @@ function patchNetworkPage() {
   directActions.at(-1)?.classList.add("demo-015-original-network-save");
 }
 
-function makeQuickStatusCard(label: string, value: string, meta: string, tone: string) {
-  const card = document.createElement("article");
-  card.className = `demo-015-quick-card is-${tone}`;
-  const top = document.createElement("div");
-  top.className = "demo-015-quick-card-top";
-  const title = document.createElement("span");
-  title.textContent = label;
-  const dot = document.createElement("i");
-  dot.setAttribute("aria-hidden", "true");
-  top.append(title, dot);
-  const strong = document.createElement("strong");
-  strong.textContent = value;
-  const small = document.createElement("small");
-  small.textContent = meta;
-  card.append(top, strong, small);
-  return card;
-}
-
 function patchOverview() {
   // The "~ 600 Mb / 400 Mb" line pass 2 wrote under the PPPoE session is gone:
   // the Line estimate tile in the same card already carries that number, and
@@ -114,27 +96,14 @@ function patchOverview() {
   // sits inside `.overview-hero-command`, which is itself a fixed-track CSS
   // grid, so inserting after it made the strip occupy one ~400px track and
   // squeezed six cards into ~39px each while displacing `.overview-assurance`.
-  const hero = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-status-hero");
-  if (!hero) return;
-
-  const existing = document.querySelector<HTMLElement>(".demo-015-quick-status-grid");
-  if (existing) {
-    // Re-seat a strip left in the hero grid by an earlier pass.
-    if (existing.previousElementSibling !== hero) hero.insertAdjacentElement("afterend", existing);
-    return;
-  }
-
-  const grid = document.createElement("div");
-  grid.className = "demo-015-quick-status-grid";
-  [
-    ["Internet", "Online", "PPPoE uplink", "good"],
-    ["LAN clients", "4 active", "Current leases", "good"],
-    ["WireGuard", "2 peers", "Remote access ready", "good"],
-    ["DNS", "Protected", "Filtering active", "good"],
-    ["Firewall", "Default deny", "Stateful policy", "good"],
-    ["System", "Healthy", "No recovery needed", "good"],
-  ].forEach(([label, value, meta, tone]) => grid.appendChild(makeQuickStatusCard(label, value, meta, tone)));
-  hero.insertAdjacentElement("afterend", grid);
+  // The six white status cards are gone. Every one of them restated something
+  // the page already said: Internet/Online and System/Healthy repeat the hero
+  // headline, DNS, Firewall and WireGuard each repeat their own pill in the
+  // service ribbon directly above, and LAN clients has moved into the technical
+  // facts strip next to the LAN MAC it belongs with.
+  //
+  const stale = document.querySelector<HTMLElement>(".demo-015-quick-status-grid");
+  stale?.remove();
 }
 
 function trimmed(node: Element | null | undefined) {
@@ -149,6 +118,7 @@ const METRIC_TIPS: Record<string, string> = {
   "Line estimate": "Throughput measured by the last speed test — not the rate your ISP advertises.",
   "Probe targets": "How many external hosts are pinged to judge link quality. More targets make the verdict less dependent on any one host.",
   "Conntrack": "Connections the firewall is currently tracking, against the kernel's table limit. Nearing the limit drops new connections.",
+  "MTU": "Largest packet the WAN link will carry. PPPoE overhead is why 1492 rather than 1500 is normal; set it too high and large packets are dropped without warning.",
   "Update trust": "Whether package signatures are checked before an update is allowed to install.",
   "Last admin access": "The most recent sign-in to this dashboard, with the address it came from. An address you do not recognise is worth investigating.",
   "Time synchronization": "Clock sync state. Certificate validation and log timestamps are only trustworthy while the clock is accurate.",
@@ -170,6 +140,154 @@ function attachMetricTip(host: HTMLElement, label: string) {
     if (!host.hasAttribute("tabindex")) host.setAttribute("tabindex", "0");
   }
   if (bubble.textContent !== tip) bubble.textContent = tip;
+}
+
+// Interface names are not rendered anywhere on Overview, so they are read from
+// the config the preview already fetches and held here for the patch pass.
+let interfaceNames: { wan: string; lan: string } | null = null;
+
+// A MAC address on its own does not say which NIC it belongs to. Appending the
+// interface answers that without adding a row.
+function macLabel(base: string, iface: string | undefined) {
+  return iface ? `${base} · ${iface}` : base;
+}
+
+// The technical-facts strip carried two values that belong elsewhere: uptime is
+// already stated in the WAN card header, and MTU is a PPPoE tuning value that
+// reads as one of the link metrics rather than as an identifier alongside the
+// MAC addresses. Lease count takes their place, next to the LAN MAC it relates
+// to, counted from the Connected devices table so it tracks the real data.
+const FACT_KEYS: Record<string, string> = {
+  "Uptime": "uptime",
+  "MTU": "mtu",
+  "WAN MAC": "wan-mac",
+  "LAN MAC": "lan-mac",
+};
+
+function patchOverviewFacts() {
+  const facts = document.querySelector<HTMLElement>(".overview-technical-facts");
+  if (!facts) return;
+
+  // Tag each source row once, then look rows up by tag. The MAC labels are
+  // rewritten below, so matching on visible text would stop working after the
+  // first pass.
+  Array.from(facts.children).forEach((child) => {
+    if (!(child instanceof HTMLElement) || child.dataset.demoFact) return;
+    const key = FACT_KEYS[trimmed(child.querySelector("span"))];
+    if (key) child.dataset.demoFact = key;
+  });
+
+  const row = (key: string) => facts.querySelector<HTMLElement>(`:scope > [data-demo-fact="${key}"]`);
+
+  row("uptime")?.classList.add("demo-015-fact-retired");
+
+  const setLabel = (key: string, base: string, iface: string | undefined) => {
+    const label = row(key)?.querySelector("span");
+    if (!label) return;
+    const text = macLabel(base, iface);
+    if (label.textContent !== text) label.textContent = text;
+  };
+  if (interfaceNames) {
+    setLabel("wan-mac", "WAN MAC", interfaceNames.wan);
+    setLabel("lan-mac", "LAN MAC", interfaceNames.lan);
+  }
+
+  const mtu = row("mtu");
+  const quality = document.querySelector<HTMLElement>(".overview-wan-quality");
+  if (mtu && quality) {
+    mtu.classList.add("demo-015-fact-retired");
+    let tile = quality.querySelector<HTMLElement>(".demo-015-mtu-tile");
+    if (!tile) {
+      tile = document.createElement("span");
+      tile.className = "demo-015-mtu-tile";
+      tile.append(document.createElement("small"), document.createElement("strong"));
+      quality.appendChild(tile);
+    }
+    const label = tile.querySelector("small")!;
+    const value = tile.querySelector("strong")!;
+    if (label.textContent !== "MTU") label.textContent = "MTU";
+    const mtuValue = trimmed(mtu.querySelector("strong"));
+    if (value.textContent !== mtuValue) value.textContent = mtuValue;
+  }
+
+  const lanMac = row("lan-mac");
+  const leases = document.querySelectorAll("#overview-devices tbody tr").length;
+  if (lanMac && leases > 0) {
+    let clients = facts.querySelector<HTMLElement>(".demo-015-fact-clients");
+    if (!clients) {
+      clients = document.createElement("div");
+      clients.className = "demo-015-fact-clients";
+      clients.dataset.demoFact = "lan-clients";
+      clients.append(document.createElement("span"), document.createElement("strong"));
+    }
+    if (clients.previousElementSibling !== lanMac) lanMac.insertAdjacentElement("afterend", clients);
+    const label = clients.querySelector("span")!;
+    const value = clients.querySelector("strong")!;
+    if (label.textContent !== "LAN clients") label.textContent = "LAN clients";
+    const text = `${leases} active`;
+    if (value.textContent !== text) value.textContent = text;
+  }
+}
+
+// Places the bubble above and to the right of the pointer, flipping when it
+// would leave the viewport. Called from a delegated mousemove so the bubble
+// tracks the cursor rather than sitting at a fixed corner of its tile.
+function positionTip(bubble: HTMLElement, x: number, y: number) {
+  const gap = 16;
+  const width = bubble.offsetWidth;
+  const height = bubble.offsetHeight;
+  let left = x + gap;
+  if (left + width > window.innerWidth - 8) left = x - gap - width;
+  let top = y - gap - height;
+  if (top < 8) top = y + gap;
+  bubble.style.left = `${Math.max(8, left)}px`;
+  bubble.style.top = `${top}px`;
+}
+
+// Keyboard users get no pointer, so anchor to the host's own top-right corner.
+function anchorTipToHost(host: HTMLElement, bubble: HTMLElement) {
+  const rect = host.getBoundingClientRect();
+  positionTip(bubble, rect.right - 12, rect.top + 4);
+}
+
+let checksCollapsed = false;
+
+// "Review checks" only ever sets its React state to true, so the list has no
+// way back. The collapse control is owned here: it hides the section and
+// remembers that choice across re-renders, and the original button clears the
+// flag again on the way in.
+function patchHealthChecks() {
+  const toggle = document.querySelector<HTMLElement>(".health-banner-toggle");
+  if (toggle && !toggle.dataset.demoChecksBound) {
+    toggle.dataset.demoChecksBound = "true";
+    toggle.addEventListener("click", () => {
+      checksCollapsed = false;
+    });
+  }
+
+  const section = document.querySelector<HTMLElement>("#overview > .health-checks-section");
+  if (!section) return;
+  section.classList.toggle("demo-checks-collapsed", checksCollapsed);
+
+  let collapse = section.querySelector<HTMLButtonElement>(".demo-checks-collapse");
+  if (!collapse) {
+    collapse = document.createElement("button");
+    collapse.className = "demo-checks-collapse";
+    collapse.type = "button";
+    const chevron = document.createElement("span");
+    chevron.className = "demo-checks-chevron";
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = "⌃";
+    const label = document.createElement("span");
+    label.textContent = "Hide checks";
+    collapse.append(chevron, label);
+    collapse.addEventListener("click", () => {
+      checksCollapsed = true;
+      section.classList.add("demo-checks-collapsed");
+      document.querySelector("#overview > .health-banner")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    section.appendChild(collapse);
+  }
 }
 
 function patchMetricTips() {
@@ -318,16 +436,11 @@ function patchRecoveryCopy() {
   });
 }
 
+// The preview badge under the wordmark is retired — the design is no longer a
+// pass being reviewed. Existing badges are cleared so a page left open from an
+// earlier build does not keep one.
 function patchPreviewBadge() {
-  const brand = document.querySelector<HTMLElement>(".dashboard-brand");
-  if (!brand) return;
-  let badge = brand.querySelector<HTMLElement>(".demo-015-beta-badge");
-  if (!badge) {
-    badge = document.createElement("span");
-    badge.className = "demo-015-beta-badge";
-    brand.appendChild(badge);
-  }
-  badge.textContent = "v0.1.5 beta · final dashboard design";
+  document.querySelector(".dashboard-brand .demo-015-beta-badge")?.remove();
 }
 
 function decorateButtons() {
@@ -390,7 +503,9 @@ export default function Demo015Preview() {
       patchNetworkPage();
       patchOverview();
       patchOverviewDiagnostics();
+      patchOverviewFacts();
       patchMetricTips();
+      patchHealthChecks();
       patchWireGuardSuccess();
       patchRecoveryCopy();
       patchPreviewBadge();
@@ -437,9 +552,41 @@ export default function Demo015Preview() {
 
     sync();
     observe();
+
+    // Interface names are only in the config, and the Overview never renders
+    // them. Fetch once on mount so the MAC labels can be annotated there rather
+    // than only after the operator has visited Recovery.
+    let cancelled = false;
+    void apiFetch("/api/v1/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: RouterConfig | null) => {
+        if (cancelled || !body) return;
+        interfaceNames = { wan: body.wan?.interface ?? "", lan: body.lan?.interface ?? "" };
+        schedule();
+      })
+      .catch(() => undefined);
+
+    const trackPointer = (event: MouseEvent) => {
+      const host = (event.target as HTMLElement | null)?.closest<HTMLElement>(".demo-has-tip");
+      if (!host) return;
+      const bubble = host.querySelector<HTMLElement>(":scope > .demo-metric-tip");
+      if (bubble) positionTip(bubble, event.clientX, event.clientY);
+    };
+    const anchorOnFocus = (event: FocusEvent) => {
+      const host = (event.target as HTMLElement | null)?.closest<HTMLElement>(".demo-has-tip");
+      if (!host) return;
+      const bubble = host.querySelector<HTMLElement>(":scope > .demo-metric-tip");
+      if (bubble) anchorTipToHost(host, bubble);
+    };
+    document.addEventListener("mousemove", trackPointer, { passive: true });
+    document.addEventListener("focusin", anchorOnFocus);
+
     window.addEventListener("hashchange", schedule);
     window.addEventListener("minimalrouter:wan-speed-estimate", schedule);
     return () => {
+      cancelled = true;
+      document.removeEventListener("mousemove", trackPointer);
+      document.removeEventListener("focusin", anchorOnFocus);
       observer.disconnect();
       window.clearTimeout(scheduled);
       window.removeEventListener("hashchange", schedule);
