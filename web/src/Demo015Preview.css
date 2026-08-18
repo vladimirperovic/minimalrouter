@@ -1,10 +1,112 @@
 /* Demo-only v0.1.5 beta preview. The production dashboard is intentionally unchanged. */
 
+/* Inter, self-hosted.
+
+   The stock stack is "SF Pro Display", "Segoe UI", ui-sans-serif, …, so the
+   product renders in a different typeface on every operating system — SF Pro on
+   macOS, Segoe UI on Windows, whatever DejaVu-alike a Linux box has. Inter is
+   OFL-licensed and drawn for UI at small sizes, so it holds the 8–12px labels
+   this dashboard leans on.
+
+   The files are bundled rather than loaded from a CDN: the appliance serves
+   web/dist/ with no internet access, so a webfont request would simply fail,
+   and an admin interface should not be phoning out to a third party either.
+   Both subsets are the variable font — latin-ext is included because the UI
+   already carries Serbian copy and needs č/ć/š/ž/đ. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+html.demo-015-preview body,
+html.demo-015-preview .dashboard-app {
+  font-family: "Inter Variable", "SF Pro Display", "Segoe UI", ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Inter ships the tabular figures and contextual alternates this UI wants for
+   addresses, ports and counters. */
+html.demo-015-preview .dashboard-app {
+  font-feature-settings: "cv05" 1, "cv08" 1, "ss03" 1;
+}
+
 html.demo-015-preview {
   --demo-card-radius: 18px;
   --demo-control-radius: 11px;
   --demo-shadow: 0 14px 38px rgba(20, 34, 51, .055);
+  --demo-shadow-soft: 0 8px 24px rgba(20, 34, 51, .035);
   --demo-soft-border: color-mix(in srgb, var(--classic-border) 86%, transparent);
+
+  /* One type scale for the whole pass. Every size below is a step on this
+     ladder rather than a per-component literal, so a page reads as one
+     document instead of a stack of separately tuned cards. */
+  --demo-text-3xl: clamp(24px, 2.2vw, 31px);
+  --demo-text-2xl: clamp(22px, 2vw, 28px);
+  --demo-text-xl: 18px;
+  --demo-text-lg: 15px;
+  --demo-text-md: 13.5px;
+  --demo-text-sm: 12px;
+  --demo-text-xs: 11.5px;
+  --demo-text-2xs: 10.5px;
+
+  --demo-weight-title: 780;
+  --demo-weight-strong: 760;
+  --demo-weight-medium: 720;
+  --demo-weight-label: 690;
+
+  --demo-track-tight: -.035em;
+  --demo-track-snug: -.02em;
+  --demo-track-caps: .055em;
+
+  /* Status ink is theme-owned. The light values below are the approved pass-2
+     colors; the dark block re-lights them so small badge text keeps AA
+     contrast on the dark panel instead of sinking into it. */
+  --demo-good-ink: #19884a;
+  --demo-good-edge: rgba(36, 164, 91, .18);
+  --demo-good-wash: rgba(36, 164, 91, .08);
+  --demo-warn-ink: #a96508;
+  --demo-warn-edge: rgba(205, 132, 22, .18);
+  --demo-warn-wash: rgba(205, 132, 22, .08);
+  --demo-bad-ink: #c22f39;
+  --demo-bad-edge: rgba(202, 57, 66, .18);
+  --demo-bad-wash: rgba(202, 57, 66, .08);
+  --demo-destructive-ink: #c83f46;
+
+  --demo-accent-ink: #1479f7;
+  --demo-migration-ink: #6258e8;
+  --demo-hero-ink: #f4f8ff;
+  --demo-hero-ink-muted: #abc0d9;
+}
+
+html.demo-015-preview:root[data-theme="dark"] {
+  --demo-shadow: 0 14px 38px rgba(0, 0, 0, .34);
+  --demo-shadow-soft: 0 8px 24px rgba(0, 0, 0, .24);
+
+  --demo-good-ink: #56d68b;
+  --demo-good-edge: rgba(86, 214, 139, .26);
+  --demo-good-wash: rgba(86, 214, 139, .12);
+  --demo-warn-ink: #f0b64b;
+  --demo-warn-edge: rgba(240, 182, 75, .26);
+  --demo-warn-wash: rgba(240, 182, 75, .12);
+  --demo-bad-ink: #ff7b84;
+  --demo-bad-edge: rgba(255, 123, 132, .26);
+  --demo-bad-wash: rgba(255, 123, 132, .12);
+  --demo-destructive-ink: #ff8a90;
+
+  --demo-accent-ink: #64a9ff;
+  --demo-migration-ink: #a89bff;
 }
 
 html.demo-015-preview .classic-help-button,
@@ -29,11 +131,20 @@ html.demo-015-preview .classic-help-button svg {
   height: 20px;
 }
 
+/* `.dashboard-brand` is a nowrap flex row sized for the wordmark alone, so the
+   badge was squeezed to ~44px and broke into a six-line stack. Let the row wrap
+   and keep the badge itself on one line. */
+html.demo-015-preview .dashboard-brand {
+  flex-wrap: wrap;
+}
+
 html.demo-015-preview .demo-015-beta-badge {
   display: inline-flex;
   width: max-content;
+  flex: 0 0 auto;
   min-height: 23px;
   align-items: center;
+  white-space: nowrap;
   margin: 10px 10px 0;
   border: 1px solid color-mix(in srgb, var(--classic-blue) 24%, var(--classic-border));
   border-radius: 999px;
@@ -45,32 +156,42 @@ html.demo-015-preview .demo-015-beta-badge {
   letter-spacing: .02em;
 }
 
-/* Shared page heading system. */
+/* Shared page heading system.
+
+   No padding or bottom border here. `.dashboard-section-heading` is not a bare
+   text heading — the base stylesheet paints it as the navy hero card and gives
+   it `padding: 28px 30px`. Pass 2 overrode that with `4px 2px 18px`, which left
+   the eyebrow, title and facts strip sitting 3px from the panel edge on every
+   page that uses the hero, and drew a light 1px rule across a dark card. */
 html.demo-015-preview .demo-page-heading {
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+/* Only the plain headings become a flex row. A `.has-facts` heading is a
+   single-column grid whose head and facts rows both span `grid-column: 1 / -1`;
+   forcing flex on it dropped that placement and pushed the facts strip outside
+   the 1480px panel, which is what turned every hero into an empty slab. */
+html.demo-015-preview .demo-page-heading:not(.has-facts) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 20px;
-  padding: 4px 2px 18px;
-  border-bottom: 1px solid var(--demo-soft-border);
 }
 
 html.demo-015-preview .demo-page-heading h2 {
   margin: 0 0 6px;
-  font-size: clamp(22px, 2vw, 28px);
-  font-weight: 780;
+  font-size: var(--demo-text-2xl);
+  font-weight: var(--demo-weight-title);
   line-height: 1.08;
-  letter-spacing: -.035em;
+  letter-spacing: var(--demo-track-tight);
 }
 
+/* Colour and size live with the other hero copy rules further down, so there is
+   one source of truth for what text on the navy panel looks like. */
 html.demo-015-preview .demo-page-heading .section-copy,
 html.demo-015-preview .demo-page-heading p {
   max-width: 760px;
   margin: 0;
-  color: var(--classic-muted);
-  font-size: 12.5px;
-  line-height: 1.55;
 }
 
 /* WAN overview. */
@@ -82,16 +203,6 @@ html.demo-015-preview .overview-wan-main > div {
 html.demo-015-preview .overview-wan-main small {
   font-size: 10.5px;
   line-height: 1.3;
-}
-
-html.demo-015-preview .overview-wan-main .demo-015-session-estimate {
-  margin-top: 6px;
-  color: #abc0d9;
-  font-size: 12px;
-  font-weight: 660;
-  letter-spacing: .004em;
-  text-transform: none;
-  white-space: nowrap;
 }
 
 html.demo-015-preview .overview-wan-quality {
@@ -119,7 +230,7 @@ html.demo-015-preview .demo-015-quick-card {
   border-radius: 15px;
   padding: 15px 16px 14px;
   background: var(--classic-panel);
-  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
+  box-shadow: var(--demo-shadow-soft);
 }
 
 html.demo-015-preview .demo-015-quick-card-top {
@@ -390,7 +501,7 @@ html.demo-015-preview #security .settings-form > fieldset {
   border-radius: 16px;
   padding: 22px 24px 24px;
   background: var(--classic-panel);
-  box-shadow: 0 8px 26px rgba(20, 34, 51, .03);
+  box-shadow: var(--demo-shadow-soft);
 }
 
 html.demo-015-preview #network .settings-form > fieldset legend,
@@ -467,12 +578,12 @@ html.demo-015-preview .demo-icon-button::before {
 }
 
 html.demo-015-preview .demo-destructive-action:not(.primary) {
-  color: #c83f46;
+  color: var(--demo-destructive-ink);
 }
 
 html.demo-015-preview .demo-destructive-action:not(.primary):hover {
-  border-color: color-mix(in srgb, #c83f46 36%, var(--classic-border));
-  background: color-mix(in srgb, #c83f46 7%, var(--classic-panel));
+  border-color: color-mix(in srgb, var(--demo-destructive-ink) 36%, var(--classic-border));
+  background: color-mix(in srgb, var(--demo-destructive-ink) 7%, var(--classic-panel));
 }
 
 /* Consistent status badges. */
@@ -499,21 +610,21 @@ html.demo-015-preview .demo-status-badge::before {
 }
 
 html.demo-015-preview .demo-status-badge.is-good {
-  border-color: rgba(36, 164, 91, .18);
-  background: rgba(36, 164, 91, .08);
-  color: #19884a;
+  border-color: var(--demo-good-edge);
+  background: var(--demo-good-wash);
+  color: var(--demo-good-ink);
 }
 
 html.demo-015-preview .demo-status-badge.is-warning {
-  border-color: rgba(205, 132, 22, .18);
-  background: rgba(205, 132, 22, .08);
-  color: #a96508;
+  border-color: var(--demo-warn-edge);
+  background: var(--demo-warn-wash);
+  color: var(--demo-warn-ink);
 }
 
 html.demo-015-preview .demo-status-badge.is-bad {
-  border-color: rgba(202, 57, 66, .18);
-  background: rgba(202, 57, 66, .08);
-  color: #c22f39;
+  border-color: var(--demo-bad-edge);
+  background: var(--demo-bad-wash);
+  color: var(--demo-bad-ink);
 }
 
 html.demo-015-preview .demo-status-badge.is-muted {
@@ -569,7 +680,7 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card > .card-t
   border-radius: 15px;
   padding: 17px 18px;
   background: var(--classic-panel);
-  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
+  box-shadow: var(--demo-shadow-soft);
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row h3 {
@@ -591,7 +702,7 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details {
   border: 1px solid var(--classic-border);
   border-radius: 15px;
   background: var(--classic-panel);
-  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
+  box-shadow: var(--demo-shadow-soft);
 }
 
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary {
@@ -650,13 +761,13 @@ html.demo-015-preview .demo-recovery-badge {
 }
 
 html.demo-015-preview .demo-recovery-badge.is-recommended {
-  background: rgba(20, 121, 247, .09);
-  color: #1479f7;
+  background: color-mix(in srgb, var(--demo-accent-ink) 12%, transparent);
+  color: var(--demo-accent-ink);
 }
 
 html.demo-015-preview .demo-recovery-badge.is-migration {
-  background: rgba(98, 88, 232, .09);
-  color: #6258e8;
+  background: color-mix(in srgb, var(--demo-migration-ink) 12%, transparent);
+  color: var(--demo-migration-ink);
 }
 
 html.demo-015-preview .demo-recovery-chevron {
@@ -796,4 +907,374 @@ html.demo-015-preview .demo-015-qr img {
   html.demo-015-preview .demo-recovery-badge {
     display: none;
   }
+}
+
+/* ==========================================================================
+   Visual pass 3 — harmonization
+
+   Pass 2 built the card, table, button and badge systems but only reached the
+   pages that already used `.dashboard-section-heading`. The four pages that
+   open with a dark hero panel (Overview, Security, DNS Filter, WireGuard) kept
+   their own type scale, so page titles ranged from 25.6px to 38px across the
+   product. This pass puts every page on one ladder, gives the system a dark
+   theme, and replaces selectors that never matched anything.
+   ========================================================================== */
+
+/* --- Page frame ------------------------------------------------------------
+   Every page body is capped at 1480px and centred, but the sticky topbar was
+   left uncapped, so above ~1530px of main width the header overhung the content
+   by ~50px on each side on all fourteen pages. Put the header on the same
+   measure so the page has one left and one right edge. */
+html.demo-015-preview .dashboard-main > .dashboard-topbar {
+  width: min(100%, 1480px);
+  max-width: 1480px;
+  margin-inline: auto;
+}
+
+/* --- Metric tooltips -------------------------------------------------------
+   The bubble has to be taken out of flow and heavily reset: as a direct child
+   it would otherwise be caught by `.overview-wan-quality span` (which makes it
+   a tile) or `.overview-assurance > div > span` (which makes it a 36px icon
+   box). It opens downward because `.overview-status-hero` is `overflow:
+   hidden`, and the cards nearest the hero's top edge would have an upward
+   bubble clipped off. */
+html.demo-015-preview .demo-has-tip {
+  position: relative;
+}
+
+html.demo-015-preview .overview-wan-quality .demo-metric-tip,
+html.demo-015-preview .overview-assurance .demo-metric-tip {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  display: block;
+  width: max-content;
+  max-width: 264px;
+  height: auto;
+  min-height: 0;
+  border: 1px solid rgba(186, 214, 247, .2);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: #0a1a2c;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .42);
+  color: #d7e5f6;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(3px);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s;
+  pointer-events: none;
+}
+
+html.demo-015-preview .demo-has-tip:hover > .demo-metric-tip,
+html.demo-015-preview .demo-has-tip:focus-visible > .demo-metric-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+html.demo-015-preview .demo-has-tip {
+  cursor: help;
+}
+
+html.demo-015-preview .demo-has-tip:focus-visible {
+  outline: 2px solid #cfe3ff;
+  outline-offset: 2px;
+}
+
+/* --- Overview stacking order -----------------------------------------------
+   An alert the operator has to act on should come before the boot log they
+   read afterwards, and the two were also touching with no separation. Ordering
+   is done with flex rather than by moving nodes: these are React-rendered
+   siblings, and reordering the live DOM would be undone on the next render.
+
+   Every child gets an explicit order — default `order: 0` would otherwise
+   float the untouched blocks above the two being placed. */
+html.demo-015-preview #overview.classic-dashboard-overview {
+  display: flex;
+  flex-direction: column;
+}
+
+html.demo-015-preview #overview > .overview-service-ribbon { order: 1; }
+html.demo-015-preview #overview > .overview-status-hero { order: 2; }
+html.demo-015-preview #overview > .demo-015-quick-status-grid { order: 3; }
+html.demo-015-preview #overview > .health-banner { order: 4; }
+html.demo-015-preview #overview > .boot-activity-host { order: 5; }
+html.demo-015-preview #overview > .overview-diagnostic-strip { order: 6; }
+html.demo-015-preview #overview > .overview-content-grid { order: 7; }
+
+/* Flex does not collapse margins, so the gaps are set explicitly. */
+html.demo-015-preview #overview > .health-banner {
+  margin: 0 0 18px;
+}
+
+html.demo-015-preview #overview > .boot-activity-host {
+  margin: 0 0 18px;
+}
+
+/* --- Overview diagnostics --------------------------------------------------
+   Time sync and conntrack now live inside the hero (see
+   patchOverviewDiagnostics), so the standalone strip below it would repeat
+   them. The strip stays in the DOM as the source of the live values. */
+html.demo-015-preview .overview-diagnostic-strip {
+  display: none;
+}
+
+/* --- Hero decoration -------------------------------------------------------
+   The base stylesheet already retires the decorative ring on every hero
+   (`display: none; content: none`), but the Security page draws its own from
+   `.classic-hero-heading::after` and was missed, so one page still carried a
+   large faint "O" behind the status chip. Retire that one too. */
+html.demo-015-preview .classic-hero-heading::after {
+  display: none;
+  content: none;
+}
+
+/* --- Hero controls ---------------------------------------------------------
+   The navy hero is one component reused on every page, so the control in its
+   top-right corner should read as one thing too. Eight pages put a
+   `.classic-status-chip` there (38px, radius 10, translucent on navy) but
+   Recovery kept a bright blue `.button.primary`, Logs three white
+   `.button.secondary`, and DNS Filter one of each — the base CSS only lit up
+   buttons nested in `.toolbar` or `.dns-filter-actions`, never a direct child.
+   Put every hero control on the chip's geometry and palette. */
+html.demo-015-preview .subpage-hero-head .button,
+html.demo-015-preview .subpage-hero-head .button.primary,
+html.demo-015-preview .subpage-hero-head .button.secondary {
+  min-height: 38px;
+  border: 1px solid rgba(161, 193, 230, .22);
+  border-radius: 10px;
+  background: rgba(198, 223, 252, .1);
+  color: #e7f1ff;
+  box-shadow: none;
+}
+
+/* The page's own primary action keeps a little more weight than a secondary
+   one, but expressed inside the hero palette rather than as a blue slab. */
+html.demo-015-preview .subpage-hero-head .button.primary {
+  border-color: rgba(186, 214, 247, .38);
+  background: rgba(198, 223, 252, .19);
+  color: #ffffff;
+}
+
+html.demo-015-preview .subpage-hero-head .button:hover,
+html.demo-015-preview .subpage-hero-head .button.primary:hover,
+html.demo-015-preview .subpage-hero-head .button.secondary:hover {
+  border-color: rgba(186, 214, 247, .46);
+  background: rgba(198, 223, 252, .28);
+  color: #ffffff;
+}
+
+html.demo-015-preview .subpage-hero-head .button:focus-visible {
+  outline: 2px solid #cfe3ff;
+  outline-offset: 2px;
+}
+
+/* The icon glyph pass-2 prepends was sized for light buttons. */
+html.demo-015-preview .subpage-hero-head .demo-icon-button::before {
+  opacity: .75;
+}
+
+/* --- Page titles -----------------------------------------------------------
+   Two steps, and the split is by page type, not by markup accident. Every
+   subpage hero — whether the markup calls it `.dashboard-section-heading` or
+   `.dns-filter-heading` — is the same component and sits at --demo-text-2xl.
+   Only the three landing-style panels (Overview, Security, WireGuard) take the
+   step up. DNS Filter was previously grouped with the landing panels purely
+   because of its class name, which made its title 31px against 28px on the
+   twelve pages either side of it. */
+html.demo-015-preview .dns-filter-heading h2 {
+  font-size: var(--demo-text-2xl);
+}
+
+html.demo-015-preview .wg-page-hero h2,
+html.demo-015-preview .classic-security-page > .classic-hero-card h1,
+html.demo-015-preview .overview-status-hero h1,
+html.demo-015-preview .overview-status-hero h2 {
+  font-size: var(--demo-text-3xl);
+}
+
+html.demo-015-preview .dns-filter-heading h2,
+html.demo-015-preview .wg-page-hero h2,
+html.demo-015-preview .classic-security-page > .classic-hero-card h1,
+html.demo-015-preview .overview-status-hero h1,
+html.demo-015-preview .overview-status-hero h2 {
+  font-weight: var(--demo-weight-title);
+  line-height: 1.08;
+  letter-spacing: var(--demo-track-tight);
+}
+
+/* The eyebrow above a hero title is the same label part on every page. The two
+   heading classes had drifted to different sizes, weights and tracking. */
+html.demo-015-preview .demo-page-heading .eyebrow,
+html.demo-015-preview .dns-filter-heading .eyebrow,
+html.demo-015-preview .wg-page-hero .eyebrow,
+html.demo-015-preview .classic-security-page .eyebrow,
+html.demo-015-preview .overview-status-hero .eyebrow {
+  color: var(--demo-hero-ink-muted);
+  font-size: var(--demo-text-2xs);
+  font-weight: var(--demo-weight-medium);
+  letter-spacing: var(--demo-track-caps);
+  text-transform: uppercase;
+}
+
+/* Hero body copy shares one measure, rhythm and colour so the panels read as
+   siblings. `--classic-muted` is the grey for light surfaces; pass 2 applied it
+   to `.demo-page-heading` copy, which put a 4.2:1 light-theme grey on the navy
+   panel across twelve pages while DNS Filter kept the properly tuned on-navy
+   tone. Standardise on the on-navy tone. */
+html.demo-015-preview .demo-page-heading .section-copy,
+html.demo-015-preview .demo-page-heading > .subpage-hero-head p:not(.eyebrow),
+html.demo-015-preview .dns-filter-heading .dns-filter-intro,
+html.demo-015-preview .wg-page-hero p:not(.eyebrow),
+html.demo-015-preview .overview-status-hero p:not(.eyebrow) {
+  max-width: 760px;
+  color: var(--demo-hero-ink-muted);
+  font-size: var(--demo-text-sm);
+  line-height: 1.55;
+}
+
+/* --- Card titles -----------------------------------------------------------
+   Table cards were unified in pass 2; extend the same heading treatment to the
+   plain cards on Gateway, QoS and WireGuard so a card title is one thing. */
+html.demo-015-preview .dashboard-section .card > .card-title-row h3 {
+  margin: 0 0 5px;
+  font-size: var(--demo-text-xl);
+  font-weight: var(--demo-weight-strong);
+  letter-spacing: -.025em;
+}
+
+/* --- Quick status cards ----------------------------------------------------
+   makeQuickStatusCard() has always written an is-good/is-warning/is-bad class,
+   but the dot was hard-coded green, so a degraded card still looked healthy. */
+html.demo-015-preview .demo-015-quick-card-top i {
+  background: var(--demo-good-ink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--demo-good-ink) 16%, transparent);
+}
+
+html.demo-015-preview .demo-015-quick-card.is-warning .demo-015-quick-card-top i {
+  background: var(--demo-warn-ink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--demo-warn-ink) 16%, transparent);
+}
+
+html.demo-015-preview .demo-015-quick-card.is-bad .demo-015-quick-card-top i {
+  background: var(--demo-bad-ink);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--demo-bad-ink) 16%, transparent);
+}
+
+html.demo-015-preview .demo-015-quick-card.is-muted .demo-015-quick-card-top i {
+  background: var(--classic-muted);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-muted) 16%, transparent);
+}
+
+/* A quick card is a status surface, so give it the same hover affordance the
+   unified tables already have rather than leaving it inert. */
+html.demo-015-preview .demo-015-quick-card {
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+html.demo-015-preview .demo-015-quick-card:hover {
+  border-color: color-mix(in srgb, var(--classic-blue) 26%, var(--classic-border));
+  box-shadow: var(--demo-shadow);
+  transform: translateY(-1px);
+}
+
+html.demo-015-preview .demo-015-quick-card strong {
+  font-size: var(--demo-text-lg);
+  font-weight: var(--demo-weight-strong);
+  letter-spacing: var(--demo-track-snug);
+}
+
+/* --- Grouped form sections -------------------------------------------------
+   Pass 2 listed section ids by hand and two of them never matched: the Security
+   page renders without an id, and DNS Filter's element is `#adguard`, not
+   `#dns-filter`. markVisualSystem() already tags every settings form with
+   `.demo-unified-form`, so drive the system from that class instead. It also
+   picks up Gateway, which the hand-written list omitted. */
+html.demo-015-preview .demo-unified-form > fieldset {
+  margin: 0 0 18px;
+  border: 1px solid var(--classic-border);
+  border-radius: 16px;
+  padding: 22px 24px 24px;
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow-soft);
+}
+
+html.demo-015-preview .demo-unified-form > fieldset legend {
+  padding: 0 8px;
+  color: var(--classic-text);
+  font-size: 14px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+html.demo-015-preview .demo-unified-form > fieldset:last-of-type {
+  margin-bottom: 0;
+}
+
+/* --- Dark theme parity -----------------------------------------------------
+   The pass-2 surfaces were tuned against a white panel. On the dark theme the
+   same washes collapse into near-invisible grey, so re-seat the ones that
+   carry meaning. */
+html.demo-015-preview:root[data-theme="dark"] .table-scroll th,
+html.demo-015-preview:root[data-theme="dark"] #network .static-leases th,
+html.demo-015-preview:root[data-theme="dark"] #firewall .firewall-rules th,
+html.demo-015-preview:root[data-theme="dark"] .modern-device-section .elegant-device-table th {
+  background: color-mix(in srgb, var(--classic-soft) 78%, var(--classic-panel));
+}
+
+html.demo-015-preview:root[data-theme="dark"] .table-scroll tbody tr:hover,
+html.demo-015-preview:root[data-theme="dark"] #network .static-leases tbody tr:hover,
+html.demo-015-preview:root[data-theme="dark"] #firewall .firewall-rules tbody tr:hover {
+  background: color-mix(in srgb, var(--classic-soft) 60%, transparent);
+}
+
+html.demo-015-preview:root[data-theme="dark"] .demo-recovery-legend,
+html.demo-015-preview:root[data-theme="dark"] .demo-015-recovery-moved details .form-note {
+  border-color: color-mix(in srgb, var(--demo-accent-ink) 26%, var(--classic-border));
+  background: color-mix(in srgb, var(--demo-accent-ink) 9%, var(--classic-panel));
+}
+
+html.demo-015-preview:root[data-theme="dark"] .demo-recovery-legend > span {
+  color: var(--demo-accent-ink);
+}
+
+html.demo-015-preview:root[data-theme="dark"] .demo-015-beta-badge {
+  border-color: color-mix(in srgb, var(--classic-blue) 34%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 14%, var(--classic-panel));
+}
+
+/* The QR stays on white in both themes: an inverted QR does not scan reliably
+   on every phone camera. Give it a visible edge instead. */
+html.demo-015-preview:root[data-theme="dark"] .demo-015-qr {
+  border-color: rgba(255, 255, 255, .18);
+}
+
+/* --- Empty states ----------------------------------------------------------
+   The tile read as a disabled control. Tie it to the accent so it reads as the
+   invitation it is. */
+html.demo-015-preview td.demo-empty-state::before {
+  border-color: color-mix(in srgb, var(--classic-blue) 22%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 6%, var(--classic-panel));
+}
+
+/* --- Focus -----------------------------------------------------------------
+   This pass restyles buttons and takes over <summary>, which is the only way
+   to reach the recovery steps from the keyboard. Keep the ring on both. */
+html.demo-015-preview .demo-015-recovery-moved summary:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: -2px;
+  border-radius: 15px;
+}
+
+html.demo-015-preview .demo-icon-button:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 2px;
 }
