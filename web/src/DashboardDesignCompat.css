@@ -1,0 +1,9 @@
+/* The production design layer is the CSS half of the v0.1.5 port. The preview
+   hid Security's recovery card because its script rendered a replacement on
+   the Recovery page. Production has not moved that component yet, so hiding it
+   here would make diagnostics, encrypted backup and pfSense migration
+   unreachable. Keep it visible until the component-port PR relocates the
+   actual RecoveryToolsPanel. */
+.classic-security-page .security-recovery-card {
+  display: block !important;
+}
