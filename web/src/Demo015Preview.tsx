@@ -106,21 +106,24 @@ function makeQuickStatusCard(label: string, value: string, meta: string, tone: s
 }
 
 function patchOverview() {
-  const session = Array.from(document.querySelectorAll<HTMLElement>(".overview-wan-main > div")).find((element) =>
-    element.querySelector("strong")?.textContent?.trim() === "PPPoE",
-  );
-  if (session) {
-    let estimate = session.querySelector<HTMLElement>(".demo-015-session-estimate");
-    if (!estimate) {
-      estimate = document.createElement("small");
-      estimate.className = "demo-015-session-estimate";
-      session.appendChild(estimate);
-    }
-    if (estimate.textContent !== "~ 600 Mb / 400 Mb") estimate.textContent = "~ 600 Mb / 400 Mb";
+  // The "~ 600 Mb / 400 Mb" line pass 2 wrote under the PPPoE session is gone:
+  // the Line estimate tile in the same card already carries that number, and
+  // the seeded DEMO_WAN_ESTIMATE still feeds it.
+
+  // Anchor the strip to the hero as a whole, not to the WAN card. The WAN card
+  // sits inside `.overview-hero-command`, which is itself a fixed-track CSS
+  // grid, so inserting after it made the strip occupy one ~400px track and
+  // squeezed six cards into ~39px each while displacing `.overview-assurance`.
+  const hero = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-status-hero");
+  if (!hero) return;
+
+  const existing = document.querySelector<HTMLElement>(".demo-015-quick-status-grid");
+  if (existing) {
+    // Re-seat a strip left in the hero grid by an earlier pass.
+    if (existing.previousElementSibling !== hero) hero.insertAdjacentElement("afterend", existing);
+    return;
   }
 
-  const wan = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-wan-card");
-  if (!wan || document.querySelector(".demo-015-quick-status-grid")) return;
   const grid = document.createElement("div");
   grid.className = "demo-015-quick-status-grid";
   [
@@ -131,7 +134,120 @@ function patchOverview() {
     ["Firewall", "Default deny", "Stateful policy", "good"],
     ["System", "Healthy", "No recovery needed", "good"],
   ].forEach(([label, value, meta, tone]) => grid.appendChild(makeQuickStatusCard(label, value, meta, tone)));
-  wan.insertAdjacentElement("afterend", grid);
+  hero.insertAdjacentElement("afterend", grid);
+}
+
+function trimmed(node: Element | null | undefined) {
+  return node?.textContent?.trim() ?? "";
+}
+
+// Every number on the Overview hero is jargon to someone. Keyed by the tile's
+// own label so the map stays readable next to the UI it annotates.
+const METRIC_TIPS: Record<string, string> = {
+  "Latency": "Round-trip time to the probe targets. Under about 30 ms feels instant; sustained spikes point at a congested or failing line.",
+  "Jitter": "How much the latency varies between samples. Calls and games suffer more from high jitter than from steady high latency.",
+  "Line estimate": "Throughput measured by the last speed test — not the rate your ISP advertises.",
+  "Probe targets": "How many external hosts are pinged to judge link quality. More targets make the verdict less dependent on any one host.",
+  "Conntrack": "Connections the firewall is currently tracking, against the kernel's table limit. Nearing the limit drops new connections.",
+  "Update trust": "Whether package signatures are checked before an update is allowed to install.",
+  "Last admin access": "The most recent sign-in to this dashboard, with the address it came from. An address you do not recognise is worth investigating.",
+  "Time synchronization": "Clock sync state. Certificate validation and log timestamps are only trustworthy while the clock is accurate.",
+};
+
+// Tooltips are real elements rather than a CSS `::after`, so assistive
+// technology can reach the text, and they reveal on focus as well as hover so
+// the explanation is not mouse-only.
+function attachMetricTip(host: HTMLElement, label: string) {
+  const tip = METRIC_TIPS[label];
+  if (!tip) return;
+  let bubble = host.querySelector<HTMLElement>(":scope > .demo-metric-tip");
+  if (!bubble) {
+    bubble = document.createElement("span");
+    bubble.className = "demo-metric-tip";
+    bubble.setAttribute("role", "note");
+    host.appendChild(bubble);
+    host.classList.add("demo-has-tip");
+    if (!host.hasAttribute("tabindex")) host.setAttribute("tabindex", "0");
+  }
+  if (bubble.textContent !== tip) bubble.textContent = tip;
+}
+
+function patchMetricTips() {
+  document.querySelectorAll<HTMLElement>(".overview-wan-quality > span").forEach((tile) => {
+    attachMetricTip(tile, trimmed(tile.querySelector("small")));
+  });
+  document.querySelectorAll<HTMLElement>(".overview-assurance > div").forEach((card) => {
+    attachMetricTip(card, trimmed(card.querySelector("small")));
+  });
+}
+
+// Splits `<strong>Synchronized<em>02:49 PM</em></strong>` into its headline and
+// its trailing meta line.
+function readDiagnostic(item: Element | null) {
+  const strong = item?.querySelector("strong");
+  const meta = trimmed(strong?.querySelector("em"));
+  const value = strong ? trimmed(strong).slice(0, trimmed(strong).length - meta.length).trim() : "";
+  return { value, meta, positive: strong?.classList.contains("is-positive") ?? false };
+}
+
+// Both diagnostics read better inside the hero than in a separate strip below
+// it: time sync is an assurance statement like the two cards above it, and
+// conntrack is a link-quality number like the ones already in the WAN card.
+//
+// These are React-rendered nodes carrying live values, so they are mirrored
+// into demo-owned elements on every pass rather than reparented — moving a node
+// out from under React risks it removing a child it no longer owns. The markup
+// deliberately matches each destination, whose CSS selects on structure
+// (`.overview-assurance > div`, `.overview-wan-quality span`), so the copies
+// inherit the surrounding style with no extra rules.
+function patchOverviewDiagnostics() {
+  const strip = document.querySelector<HTMLElement>(".overview-diagnostic-strip");
+  if (!strip) return;
+
+  const source = (label: string) =>
+    Array.from(strip.children).find((child) => trimmed(child.querySelector("small")) === label) ?? null;
+
+  const assurance = document.querySelector<HTMLElement>(".overview-assurance");
+  const timeSource = source("Time synchronization");
+  if (assurance && timeSource) {
+    let card = assurance.querySelector<HTMLElement>(".demo-015-timesync-card");
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "demo-015-timesync-card";
+      const icon = document.createElement("span");
+      const glyph = timeSource.querySelector("svg");
+      if (glyph) icon.appendChild(glyph.cloneNode(true));
+      const body = document.createElement("p");
+      body.append(document.createElement("small"), document.createElement("strong"), document.createElement("em"));
+      card.append(icon, body);
+      assurance.appendChild(card);
+    }
+    const { value, meta, positive } = readDiagnostic(timeSource);
+    const label = card.querySelector("small")!;
+    const headline = card.querySelector("strong")!;
+    const detail = card.querySelector("em")!;
+    if (label.textContent !== "Time synchronization") label.textContent = "Time synchronization";
+    if (headline.textContent !== value) headline.textContent = value;
+    if (detail.textContent !== meta) detail.textContent = meta;
+    headline.classList.toggle("is-positive", positive);
+  }
+
+  const quality = document.querySelector<HTMLElement>(".overview-wan-quality");
+  const conntrackSource = source("Conntrack");
+  if (quality && conntrackSource) {
+    let tile = quality.querySelector<HTMLElement>(".demo-015-conntrack-tile");
+    if (!tile) {
+      tile = document.createElement("span");
+      tile.className = "demo-015-conntrack-tile";
+      tile.append(document.createElement("small"), document.createElement("strong"));
+      quality.appendChild(tile);
+    }
+    const { value } = readDiagnostic(conntrackSource);
+    const label = tile.querySelector("small")!;
+    const headline = tile.querySelector("strong")!;
+    if (label.textContent !== "Conntrack") label.textContent = "Conntrack";
+    if (headline.textContent !== value) headline.textContent = value;
+  }
 }
 
 function patchWireGuardSuccess() {
@@ -211,7 +327,7 @@ function patchPreviewBadge() {
     badge.className = "demo-015-beta-badge";
     brand.appendChild(badge);
   }
-  badge.textContent = "v0.1.5 beta · visual pass 2";
+  badge.textContent = "v0.1.5 beta · final dashboard design";
 }
 
 function decorateButtons() {
@@ -231,6 +347,11 @@ function decorateButtons() {
 function decorateStatuses() {
   const selector = "td, .wg-client-toggle span, .dashboard-callout strong, .overview-wan-card header b";
   document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
+    // The badge this function injects is itself a <span>, so a descendant
+    // selector such as `.wg-client-toggle span` matches it on the next observer
+    // pass. Without this guard the badge is re-wrapped forever and the
+    // MutationObserver never settles.
+    if (element.closest(".demo-status-badge")) return;
     if (element.dataset.demoStatusWrapped === "true" || element.children.length > 0) return;
     const text = element.textContent?.trim() || "";
     const variant = STATUS_VARIANTS[text];
@@ -268,6 +389,8 @@ export default function Demo015Preview() {
     const sync = () => {
       patchNetworkPage();
       patchOverview();
+      patchOverviewDiagnostics();
+      patchMetricTips();
       patchWireGuardSuccess();
       patchRecoveryCopy();
       patchPreviewBadge();
@@ -286,15 +409,41 @@ export default function Demo015Preview() {
       setRecoveryTarget(slot);
     };
 
+    const root = document.getElementById("root") ?? document.body;
+    const observer = new MutationObserver(() => schedule());
+    const observe = () => observer.observe(root, { childList: true, subtree: true });
+
+    // This overlay reacts to DOM changes by making DOM changes. Running the
+    // patches straight from the observer callback feeds every edit back in as a
+    // fresh record, so a single non-idempotent patch locks the main thread.
+    // Detaching around the patch pass, and coalescing bursts into one frame,
+    // keeps the overlay bounded by React's render rate instead.
+    // A timer rather than requestAnimationFrame: rAF is suspended in a hidden
+    // tab, which would leave the overlay unapplied until the tab is focused.
+    let scheduled = 0;
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = window.setTimeout(() => {
+        scheduled = 0;
+        observer.disconnect();
+        try {
+          sync();
+        } finally {
+          observer.takeRecords();
+          observe();
+        }
+      }, 0);
+    };
+
     sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.getElementById("root") ?? document.body, { childList: true, subtree: true });
-    window.addEventListener("hashchange", sync);
-    window.addEventListener("minimalrouter:wan-speed-estimate", sync);
+    observe();
+    window.addEventListener("hashchange", schedule);
+    window.addEventListener("minimalrouter:wan-speed-estimate", schedule);
     return () => {
       observer.disconnect();
-      window.removeEventListener("hashchange", sync);
-      window.removeEventListener("minimalrouter:wan-speed-estimate", sync);
+      window.clearTimeout(scheduled);
+      window.removeEventListener("hashchange", schedule);
+      window.removeEventListener("minimalrouter:wan-speed-estimate", schedule);
       document.documentElement.classList.remove("demo-015-preview");
     };
   }, []);
