@@ -101,7 +101,11 @@ expect {
 # Stage 2: -boot once=d makes the reboot use the installed golden disk. The
 # firstboot service owns the same serial console and asks only for router state.
 expect {
-    -re {minimalrouter v0\.1\.4.*first boot} {}
+    # Match any version. Pinning the banner to a literal release meant the
+    # 0.1.5 bump made this expect block wait for a string the appliance no
+    # longer prints, and the stage timed out instead of reporting a real
+    # first-boot problem.
+    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+.*first boot} {}
     timeout { puts stderr "timeout waiting for golden-image first boot"; exit 20 }
     eof { puts stderr "QEMU exited before golden-image first boot"; exit 21 }
 }
