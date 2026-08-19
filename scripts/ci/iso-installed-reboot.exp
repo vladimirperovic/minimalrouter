@@ -104,9 +104,10 @@ login_root $recovery_password "cold boot"
 wait_services INSTALLED_COLD_BOOT_OK
 verify_ssh $recovery_password INSTALLED_COLD_BOOT_SSH_OK
 
-# Kill only the routerd child. supervise-daemon must replace it and restore the
-# ready proof + HTTPS listener without rebooting the appliance.
-send -- "old=\$(busybox pidof routerd | awk '{print \$1}'); test -n \"\$old\" || { echo ROUTERD_PID_MISSING; exit 1; }; kill -9 \"\$old\"; i=0; while \[ \"\$i\" -lt 60 \]; do new=\$(busybox pidof routerd | awk '{print \$1}'); if \[ -n \"\$new\" \] && \[ \"\$new\" != \"\$old\" \] && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo ROUTERD_CRASH_RECOVERY_OK; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 60 \] || echo ROUTERD_CRASH_RECOVERY_TIMEOUT\r"
+# /usr/bin/routerd is a slot-exec dispatcher; after exec the actual supervised
+# child is named routerd-amd64 in this x86_64 appliance test. Kill that child so
+# supervise-daemon must replace it and restore the HTTPS listener without reboot.
+send -- "old=\$(busybox pidof routerd-amd64 | awk '{print \$1}'); test -n \"\$old\" || { echo ROUTERD_PID_MISSING; exit 1; }; kill -9 \"\$old\"; i=0; while \[ \"\$i\" -lt 60 \]; do new=\$(busybox pidof routerd-amd64 | awk '{print \$1}'); if \[ -n \"\$new\" \] && \[ \"\$new\" != \"\$old\" \] && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo ROUTERD_CRASH_RECOVERY_OK; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 60 \] || echo ROUTERD_CRASH_RECOVERY_TIMEOUT\r"
 expect {
     -re {ROUTERD_PID_MISSING} { puts stderr "routerd process was missing before crash test"; exit 31 }
     -re {ROUTERD_CRASH_RECOVERY_TIMEOUT} { puts stderr "routerd did not recover after SIGKILL"; exit 32 }
