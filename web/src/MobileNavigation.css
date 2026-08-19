@@ -302,3 +302,34 @@
     margin-right: 52px;
   }
 }
+
+/* Centre the drawer contents on a phone.
+
+   The rail is laid out for a desktop sidebar, where left alignment reads
+   naturally against the page beside it. Opened as a full-height drawer the same
+   alignment leaves every label hugging the panel's left edge with a wide empty
+   gutter to its right, so the column is centred instead. Desktop is untouched:
+   these rules only apply where the drawer exists. */
+@media (max-width: 900px) {
+  .dashboard-sidebar .dashboard-navigation a {
+    justify-content: center;
+    padding-inline: 14px;
+    text-align: center;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group h2 {
+    text-align: center;
+  }
+
+  .dashboard-sidebar .dashboard-brand,
+  .dashboard-sidebar .dashboard-brand-title {
+    justify-content: center;
+    text-align: center;
+  }
+
+  .dashboard-sidebar .dashboard-sidebar-footer,
+  .dashboard-sidebar .dashboard-brand-revision {
+    justify-content: center;
+    text-align: center;
+  }
+}

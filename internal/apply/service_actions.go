@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -115,26 +116,58 @@ func (e *Engine) RunServiceAction(ctx context.Context, action string) error {
 	return runServiceActionIPC(ctx, action)
 }
 
+// validateDeviceIP rejects a device address before it ever reaches the
+// privileged socket. router-applyd validates again from its own last-good
+// configuration and remains the authority; this is the caller-side half of that
+// check, so a malformed address is refused at the API boundary with a useful
+// message instead of travelling further into the privileged path.
+func (e *Engine) validateDeviceIP(value string) (string, error) {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if ip == nil || ip.To4() == nil {
+		return "", fmt.Errorf("device address must be IPv4")
+	}
+	cfg := e.GetCurrentConfig()
+	_, lan, err := net.ParseCIDR(strings.TrimSpace(cfg.LAN.CIDR))
+	if err != nil || lan == nil {
+		return "", fmt.Errorf("trusted LAN range is unavailable")
+	}
+	if !lan.Contains(ip.To4()) {
+		return "", fmt.Errorf("device address is outside the trusted LAN")
+	}
+	if ip.Equal(net.ParseIP(strings.TrimSpace(cfg.LAN.IPAddress))) {
+		return "", fmt.Errorf("router LAN address cannot be paused")
+	}
+	return ip.To4().String(), nil
+}
+
 func (e *Engine) PauseDeviceInternet(ctx context.Context, ip string, seconds int) ([]DevicePause, error) {
 	if seconds != 0 && seconds != 15*60 && seconds != 60*60 {
 		return nil, fmt.Errorf("pause duration must be 15 minutes, 1 hour, or until resumed")
+	}
+	address, err := e.validateDeviceIP(ip)
+	if err != nil {
+		return nil, err
 	}
 	e.operationMu.Lock()
 	defer e.operationMu.Unlock()
 	if !e.actionAllowed() {
 		return nil, fmt.Errorf("device pause is unavailable while configuration recovery or confirmation is active")
 	}
-	response, err := callActionSocket(ctx, serviceActionRequest{Action: DeviceActionPause, IP: ip, Seconds: seconds})
+	response, err := callActionSocket(ctx, serviceActionRequest{Action: DeviceActionPause, IP: address, Seconds: seconds})
 	return response.Pauses, err
 }
 
 func (e *Engine) ResumeDeviceInternet(ctx context.Context, ip string) ([]DevicePause, error) {
+	address, err := e.validateDeviceIP(ip)
+	if err != nil {
+		return nil, err
+	}
 	e.operationMu.Lock()
 	defer e.operationMu.Unlock()
 	if !e.actionAllowed() {
 		return nil, fmt.Errorf("device resume is unavailable while configuration recovery or confirmation is active")
 	}
-	response, err := callActionSocket(ctx, serviceActionRequest{Action: DeviceActionResume, IP: ip})
+	response, err := callActionSocket(ctx, serviceActionRequest{Action: DeviceActionResume, IP: address})
 	return response.Pauses, err
 }
 
