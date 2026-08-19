@@ -3,6 +3,10 @@
 # Exercises destructive-install safety paths using the serial-default CI ISO.
 # mode=existing: an already-installed MinimalRouter disk must never be reflashed.
 # mode=small: a virtual disk smaller than 8 GiB must be rejected before writes.
+#
+# TCG is deliberately slow. Keep boot and golden-image verification as separate
+# wait stages so time spent booting the Alpine ISO does not consume the checksum
+# verification budget and make the guard test flaky on hosted runners.
 set timeout 180
 set mode [lindex $argv 0]
 set iso [lindex $argv 1]
@@ -34,11 +38,21 @@ spawn qemu-system-x86_64 \
     -serial stdio \
     -no-shutdown
 
+# First prove the flasher itself has reached userspace. This resets Expect's
+# timer before the intentionally expensive SHA256 + gzip verification step.
+expect {
+    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+ appliance installer} {}
+    timeout { puts stderr "timeout waiting for appliance installer"; exit 8 }
+    eof { puts stderr "QEMU exited before appliance installer"; exit 9 }
+}
+
+set timeout 240
 expect {
     -re {Golden image verified} {}
     timeout { puts stderr "timeout waiting for golden image verification"; exit 10 }
     eof { puts stderr "QEMU exited before golden image verification"; exit 11 }
 }
+set timeout 180
 
 if {$mode eq "existing"} {
     expect {
