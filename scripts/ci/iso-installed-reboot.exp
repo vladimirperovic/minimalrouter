@@ -61,13 +61,25 @@ proc login_root {password stage} {
         timeout { puts stderr "timeout waiting for root shell during $stage"; exit 15 }
         eof { puts stderr "QEMU exited before root shell during $stage"; exit 16 }
     }
+
+    # The serial tty normally echoes every command. That made Expect able to
+    # match success tokens inside the command text before the command had
+    # actually succeeded. Disable input echo for the test shell so every marker
+    # matched below must come from command output, not from the tty echo path.
+    send -- "stty -echo\r"
+    expect {
+        -re {# $} {}
+        -re {~ #} {}
+        timeout { puts stderr "timeout disabling tty echo during $stage"; exit 17 }
+        eof { puts stderr "QEMU exited while disabling tty echo during $stage"; exit 18 }
+    }
 }
 
 proc wait_services {marker} {
     send -- "i=0; while \[ \"\$i\" -lt 180 \]; do if test -s /etc/minimalrouter/firstboot-complete && ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo $marker; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 180 \] || echo ${marker}_TIMEOUT\r"
     expect {
         -re "${marker}_TIMEOUT" { puts stderr "services did not recover for $marker"; exit 20 }
-        -re $marker {}
+        -re "^${marker}\r?$" {}
         timeout { puts stderr "timeout waiting for $marker"; exit 21 }
         eof { puts stderr "QEMU exited before $marker"; exit 22 }
     }
@@ -101,12 +113,14 @@ wait_services INSTALLED_COLD_BOOT_OK
 verify_ssh $recovery_password INSTALLED_COLD_BOOT_SSH_OK
 
 # Kill only the routerd child. supervise-daemon must replace it and restore the
-# ready proof + HTTPS listener without rebooting the appliance.
-send -- "old=\$(pidof routerd | awk '{print \$1}'); test -n \"\$old\" || { echo ROUTERD_PID_MISSING; exit 1; }; kill -9 \"\$old\"; i=0; while \[ \"\$i\" -lt 60 \]; do new=\$(pidof routerd | awk '{print \$1}'); if \[ -n \"\$new\" \] && \[ \"\$new\" != \"\$old\" \] && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo ROUTERD_CRASH_RECOVERY_OK; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 60 \] || echo ROUTERD_CRASH_RECOVERY_TIMEOUT\r"
+# ready proof + HTTPS listener without rebooting the appliance. Call BusyBox's
+# pidof applet explicitly: the installed image does not need a standalone
+# /sbin/pidof link for this test to identify the daemon process.
+send -- "old=\$(busybox pidof routerd | awk '{print \$1}'); test -n \"\$old\" || { echo ROUTERD_PID_MISSING; exit 1; }; kill -9 \"\$old\"; i=0; while \[ \"\$i\" -lt 60 \]; do new=\$(busybox pidof routerd | awk '{print \$1}'); if \[ -n \"\$new\" \] && \[ \"\$new\" != \"\$old\" \] && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo ROUTERD_CRASH_RECOVERY_OK; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 60 \] || echo ROUTERD_CRASH_RECOVERY_TIMEOUT\r"
 expect {
-    -re {ROUTERD_PID_MISSING} { puts stderr "routerd process was missing before crash test"; exit 31 }
-    -re {ROUTERD_CRASH_RECOVERY_TIMEOUT} { puts stderr "routerd did not recover after SIGKILL"; exit 32 }
-    -re {ROUTERD_CRASH_RECOVERY_OK} {}
+    -re {^ROUTERD_PID_MISSING\r?$} { puts stderr "routerd process was missing before crash test"; exit 31 }
+    -re {^ROUTERD_CRASH_RECOVERY_TIMEOUT\r?$} { puts stderr "routerd did not recover after SIGKILL"; exit 32 }
+    -re {^ROUTERD_CRASH_RECOVERY_OK\r?$} {}
     timeout { puts stderr "timeout waiting for routerd crash recovery"; exit 33 }
 }
 verify_ssh $recovery_password ROUTERD_RECOVERY_SSH_OK
@@ -120,7 +134,7 @@ verify_ssh $recovery_password INSTALLED_WARM_REBOOT_SSH_OK
 
 send -- "echo INSTALLED_REBOOT_MATRIX_OK; poweroff -f\r"
 expect {
-    -re {INSTALLED_REBOOT_MATRIX_OK} {}
+    -re {^INSTALLED_REBOOT_MATRIX_OK\r?$} {}
     timeout { puts stderr "missing installed reboot matrix marker"; exit 40 }
 }
 expect {
