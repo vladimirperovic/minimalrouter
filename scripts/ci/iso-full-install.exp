@@ -1,7 +1,8 @@
 #!/usr/bin/expect -f
 
-# Slow TCG writes need several minutes, but a missing boot/prompt should not hold
-# the runner for twenty minutes. Seven minutes per awaited stage is ample for CI.
+# Slow TCG stages need several minutes, but a missing boot/prompt should not hold
+# the runner indefinitely. Most awaited stages use seven minutes; the raw golden
+# disk copy gets ten because hosted-runner TCG throughput varies substantially.
 set timeout 420
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
@@ -82,6 +83,12 @@ expect {
     timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 12 }
     eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 13 }
 }
+
+# Raw image decompression + copy is the one stage whose wall time varies heavily
+# under GitHub-hosted TCG. A healthy observed run exceeded the generic 420s stage
+# budget, so give only this operation a 600s allowance. The outer 1500s workflow
+# limit and every functional assertion remain unchanged.
+set timeout 600
 expect {
     -re {Golden image copied successfully} {}
     -re {A recovery shell will open on this console} {
@@ -91,6 +98,8 @@ expect {
     timeout { puts stderr "timeout waiting for golden image copy"; exit 15 }
     eof { puts stderr "QEMU exited before golden image copy completed"; exit 16 }
 }
+set timeout 420
+
 expect {
     -re {Rebooting into the prebuilt appliance now} {}
     timeout { puts stderr "timeout waiting for appliance reboot"; exit 17 }
