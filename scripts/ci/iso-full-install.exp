@@ -105,7 +105,7 @@ expect {
     # 0.1.5 bump made this expect block wait for a string the appliance no
     # longer prints, and the stage timed out instead of reporting a real
     # first-boot problem.
-    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+.*first boot} {}
+    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+[^\n]*first boot} {}
     timeout { puts stderr "timeout waiting for golden-image first boot"; exit 20 }
     eof { puts stderr "QEMU exited before golden-image first boot"; exit 21 }
 }

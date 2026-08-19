@@ -37,7 +37,13 @@ spawn qemu-system-x86_64 \
 proc login_root {password stage} {
     expect {
         -re {login:} { send -- "root\r" }
-        -re {minimalrouter.*first boot} {
+        # Anchored to the wizard banner, which is one line and carries the
+        # version. The previous pattern was `minimalrouter.*first boot`, and in
+        # Tcl `.` also matches newlines, so it joined the `minimalrouter-ro`
+        # filesystem label printed during fsck to the healthy "MinimalRouter
+        # first boot already completed" line further down and reported a re-run
+        # on a perfectly good boot.
+        -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+[^\n]*first boot} {
             puts stderr "firstboot wizard unexpectedly re-ran during $stage"
             exit 10
         }
