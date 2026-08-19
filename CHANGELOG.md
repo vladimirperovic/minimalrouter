@@ -6,7 +6,49 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.5**.
+Next development version: **v0.1.6**.
+
+## [v0.1.5] — 2026-08-19
+
+### Highlights
+
+- Promoted the approved v0.1.5 dashboard visual system into the production
+  appliance frontend while keeping the GitHub Pages demo on the same shared
+  components and CSS; demo mode now differs only in mocked/demo-only state.
+- Reworked mobile navigation around a fixed top-right control and pushed/scaled
+  foreground-page interaction, with same-button close, Escape close,
+  exposed-page close, route navigation close and scroll restoration.
+- Locked the desktop frame to an exact 37 px gutter at the viewport/sidebar edge,
+  between sidebar and content, and at the far-right content edge.
+- Removed the redundant `Gateway healthy` Overview ribbon chip while retaining
+  the separate topbar health control.
+- Redesigned Logs startup diagnostics as a horizontal milestone timeline with a
+  horizontally scrollable mobile presentation.
+- Added per-device Internet pause for 15 minutes, 1 hour or until resumed, using
+  a router-applyd-owned nftables timeout set and trusted-LAN address validation.
+- Added sampled 30-day gateway availability/outage insights and bounded local
+  public-IP transition history.
+- Added fixed Gateway Health recovery actions for WAN reconnect, DNS/DHCP restart
+  and WireGuard restart without exposing arbitrary service names or shell access.
+- Moved Recovery/backup/pfSense migration tools to the Recovery workspace while
+  keeping authentication/security controls in Security.
+- Expanded connected-device state with Online, Last seen and New indicators from
+  existing bounded DHCP/accounting data.
+- Expanded production and GitHub Pages Playwright coverage across all mobile
+  dashboard routes, pushed-menu behavior, overflow, desktop frame geometry and
+  horizontal startup timeline behavior.
+- Expanded the Golden Appliance ISO matrix with installed cold boot, firstboot
+  non-reentry, SSH/API readiness, forced routerd supervision recovery, warm
+  reboot, existing-install overwrite refusal and undersized-disk refusal.
+- Updated release-facing README, installation, Proxmox, validation, release
+  security and v0.1.5 release documentation for the new ISO and signed artifacts.
+
+### Release artifacts
+
+The signed release workflow publishes the tested AMD64 Golden ISO and checksum,
+signed AMD64/ARM64 distribution archives and manifests, SPDX SBOMs,
+`SHA256SUMS`, and GitHub attestations after the exact tagged release passes its
+release E2E gate.
 
 ## [v0.1.4] — 2026-08-18
 

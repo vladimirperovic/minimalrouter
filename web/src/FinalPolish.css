@@ -1,0 +1,278 @@
+/* Final v0.1.5 visual polish shared by production and GitHub Pages demo. */
+
+/* Lock the desktop frame geometry to one gutter on all three exposed edges:
+   viewport -> sidebar, sidebar -> page, and page -> viewport. The historical
+   topbar negative margin used to visually consume most of the middle gutter. */
+@media (min-width: 901px) {
+  .dashboard-sidebar {
+    box-sizing: border-box;
+    inset-inline-start: var(--v015-frame-gutter, 37px) !important;
+    width: var(--v015-sidebar-width, 280px) !important;
+  }
+
+  .dashboard-main {
+    box-sizing: border-box;
+    margin-left: calc(var(--v015-sidebar-width, 280px) + var(--v015-frame-gutter, 37px)) !important;
+    padding-left: var(--v015-frame-gutter, 37px) !important;
+    padding-right: var(--v015-frame-gutter, 37px) !important;
+  }
+
+  .dashboard-topbar.classic-topbar {
+    width: auto;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+}
+
+/* ---------- Logs: horizontal startup timeline ---------- */
+
+.startup-timeline {
+  overflow: hidden;
+}
+
+.startup-timeline > .card-title-row {
+  align-items: center;
+}
+
+.startup-timeline .tl-boots {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  border-top: 0;
+  border-bottom: 0;
+  padding: 0 24px 18px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.startup-timeline .tl-boot {
+  min-height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--classic-border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--classic-panel);
+  color: var(--classic-muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .16s ease, background-color .16s ease, color .16s ease;
+}
+
+.startup-timeline .tl-boot:hover {
+  border-color: color-mix(in srgb, var(--classic-blue) 26%, var(--classic-border));
+  color: var(--classic-text);
+}
+
+.startup-timeline .tl-boot.is-active {
+  border-color: color-mix(in srgb, var(--classic-blue) 30%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 9%, var(--classic-panel));
+  color: var(--classic-blue);
+}
+
+.startup-timeline .tl-wrap {
+  margin: 0;
+  border-top: 1px solid var(--classic-border);
+  padding: 0;
+  background: color-mix(in srgb, var(--classic-soft) 32%, var(--classic-panel));
+}
+
+.startup-timeline .tl {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(150px, 1fr);
+  gap: 0;
+  margin: 0;
+  padding: 24px 18px 18px;
+  overflow-x: auto;
+  list-style: none;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.startup-timeline .tl-item {
+  --tl-accent: var(--classic-muted);
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: 18px 20px auto;
+  column-gap: 0;
+  align-content: start;
+  padding: 0 10px 8px;
+  scroll-snap-align: start;
+}
+
+.startup-timeline .tl-item::after {
+  position: absolute;
+  z-index: 0;
+  top: 29px;
+  left: 20px;
+  width: calc(100% - 8px);
+  height: 2px;
+  background: color-mix(in srgb, var(--classic-border) 88%, transparent);
+  content: "";
+}
+
+.startup-timeline .tl-item:last-child::after {
+  display: none;
+}
+
+.startup-timeline .tl-time {
+  grid-row: 1;
+  color: var(--classic-muted);
+  font-size: 10px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+
+.startup-timeline .tl-dot {
+  position: relative;
+  z-index: 2;
+  display: block;
+  grid-row: 2;
+  width: 12px;
+  height: 12px;
+  align-self: center;
+  border: 3px solid var(--classic-panel);
+  border-radius: 50%;
+  background: var(--tl-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tl-accent) 28%, transparent);
+}
+
+.startup-timeline .tl-body {
+  display: grid;
+  grid-row: 3;
+  min-width: 0;
+  min-height: 82px;
+  align-content: start;
+  gap: 5px;
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--tl-accent) 15%, var(--classic-border));
+  border-radius: 13px;
+  padding: 12px 12px 11px;
+  background: var(--classic-panel);
+  box-shadow: 0 8px 24px rgba(20, 34, 51, .035);
+}
+
+.startup-timeline .tl-body b {
+  overflow: hidden;
+  margin: 0;
+  color: var(--classic-text);
+  font-size: 12px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.startup-timeline .tl-body small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.startup-timeline .tl-ink { --tl-accent: var(--classic-text); }
+.startup-timeline .tl-azure { --tl-accent: var(--classic-blue); }
+.startup-timeline .tl-green { --tl-accent: var(--classic-green); }
+.startup-timeline .tl-amber { --tl-accent: var(--classic-orange); }
+.startup-timeline .tl-emerald { --tl-accent: #1d9b66; }
+.startup-timeline .tl-violet { --tl-accent: var(--classic-purple); }
+.startup-timeline .tl-event { --tl-accent: color-mix(in srgb, var(--classic-muted) 82%, var(--classic-text)); }
+
+.startup-timeline .tl-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  border-top: 0;
+  padding: 0 24px 22px;
+  background: transparent;
+}
+
+.startup-timeline .tl-summary > span {
+  min-width: 0;
+  border: 1px solid var(--classic-border);
+  border-radius: 11px;
+  padding: 10px 12px;
+  background: var(--classic-panel);
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.startup-timeline .tl-summary b {
+  color: var(--classic-text);
+  font-weight: 760;
+}
+
+/* Keep the Logs toolbar/search from becoming a cramped horizontal knot. */
+#logs .card-title-row {
+  flex-wrap: wrap;
+}
+
+#logs .audit-search {
+  min-width: min(100%, 260px);
+  margin-left: auto;
+}
+
+#logs .audit-search input {
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .startup-timeline > .card-title-row {
+    align-items: flex-start;
+  }
+
+  .startup-timeline .tl-boots {
+    padding: 0 16px 14px;
+  }
+
+  .startup-timeline .tl-wrap {
+    padding: 0;
+  }
+
+  .startup-timeline .tl {
+    grid-auto-columns: minmax(166px, 72vw);
+    padding: 20px 8px 16px;
+  }
+
+  .startup-timeline .tl-item {
+    padding-inline: 8px;
+  }
+
+  .startup-timeline .tl-item::after {
+    left: 18px;
+  }
+
+  .startup-timeline .tl-summary {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    margin: 0;
+    padding: 0 16px 16px;
+  }
+
+  #logs .filter-buttons {
+    width: 100%;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+  }
+
+  #logs .audit-search {
+    width: 100%;
+    min-width: 100%;
+    margin-left: 0;
+  }
+}

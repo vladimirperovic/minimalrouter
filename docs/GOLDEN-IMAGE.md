@@ -1,6 +1,6 @@
-# MinimalRouter v0.1.4 Golden Appliance ISO — source of truth
+# MinimalRouter v0.1.5 Golden Appliance ISO — source of truth
 
-This document records **how and why** the v0.1.4 Golden ISO is built. It exists so
+This document records **how and why** the current Golden ISO is built. It exists so
 a future maintainer or AI agent does not accidentally return to the fragile
 installer model that preceded it.
 
@@ -46,7 +46,7 @@ and packages such as `sfdisk` not being selectable.
 That made a router installer depend on networking and package-manager state before
 WAN/PPPoE was working — exactly when it must be most self-contained.
 
-**v0.1.4 rule:** `live-installer.sh` performs no `apk` transaction.
+**Golden rule:** `live-installer.sh` performs no `apk` transaction.
 
 ### 2. Live-kernel / target-kernel mismatch
 
@@ -57,7 +57,7 @@ repair target initramfs/modules from the live kernel produced missing-module
 behavior and made the install depend on whichever package version happened to be
 resolved that day.
 
-**v0.1.4 rule:** kernel, initramfs and `/lib/modules/<release>` are assembled and
+**Golden rule:** kernel, initramfs and `/lib/modules/<release>` are assembled and
 validated together in CI. The live flasher never runs `mkinitfs`.
 
 ### 3. Too many destructive steps on the user VM
@@ -173,7 +173,7 @@ Package installation happens here, never in the user's live flasher.
 
 `packaging/alpine/build-golden-image.sh` creates a logical 8 GiB raw image.
 
-Current v0.1.4 layout:
+Current v0.1.5 layout:
 
 ```text
 DOS/MBR partition table
@@ -302,6 +302,10 @@ marker in the post-MBR gap, with filesystem-label fallback for older images.
 
 If detected, the ISO stops before overwrite.
 
+v0.1.5 CI adds destructive-safety regressions that explicitly prove an existing
+MinimalRouter target is refused and a 4 GiB undersized disk is rejected before
+destructive writes begin.
+
 ## Console marker design
 
 The flasher must remember whether the operator chose VGA or serial without
@@ -353,7 +357,7 @@ ttyS0 @ 115200
 
 ## E2E test — what “green Appliance ISO” means
 
-`scripts/ci/iso-full-install.exp` boots QEMU with:
+`scripts/ci/iso-full-install.exp` and the surrounding workflow boot QEMU with:
 
 - one blank 8 GiB VirtIO disk;
 - two VirtIO NICs;
@@ -363,7 +367,7 @@ ttyS0 @ 115200
 CI changes only the ISO boot-menu default to the existing serial entry so Expect
 can drive the same production flasher.
 
-The test proves:
+The v0.1.5 gate proves:
 
 - Golden checksum/gzip verification;
 - safe VM disk auto-selection;
@@ -379,8 +383,14 @@ The test proves:
 - firstboot-complete marker and SQLite state DB;
 - kernel and `/lib/modules/$(uname -r)` match;
 - `routerd` service and readiness marker;
-- Dashboard TCP/8443 listener;
-- valid Alpine v3.22 main/community repositories.
+- Dashboard/API TCP/8443 readiness;
+- valid Alpine v3.22 main/community repositories;
+- cold boot of the installed disk with the ISO removed;
+- proof that completed firstboot does not re-enter;
+- `routerd` supervision recovery after a forced crash;
+- warm reboot back to the same ready state;
+- existing-install overwrite refusal;
+- undersized-disk refusal before destructive writes.
 
 `FULL_ISO_INSTALL_OK` is emitted only after every required marker succeeds.
 
@@ -389,21 +399,22 @@ ISO after firmware signing and before publication.
 
 ## Release artifacts
 
-v0.1.4 release publication includes the production ISO and verification material:
+v0.1.5 release publication includes the production ISO and verification material:
 
 ```text
-minimalrouter-0.1.4-amd64.iso
-minimalrouter-0.1.4-amd64.iso.sha256
+minimalrouter-0.1.5-amd64.iso
+minimalrouter-0.1.5-amd64.iso.sha256
 SHA256SUMS
 ```
 
-The ISO is also covered by a GitHub artifact attestation. The appliance inside the
-ISO is constructed from the signed AMD64 distribution and contains the pinned
-`firmware-signing.pub` trust anchor used by `router-update`.
+The release also carries signed AMD64/ARM64 distributions and manifests, SPDX
+SBOMs and GitHub attestations. The appliance inside the ISO is constructed from
+the signed AMD64 distribution and contains the pinned `firmware-signing.pub`
+trust anchor used by `router-update`.
 
 ## What CI does not prove
 
-Do not turn automated evidence into a broader claim. v0.1.4 still needs separate
+Do not turn automated evidence into a broader claim. v0.1.5 still needs separate
 real evidence for:
 
 - real ISP PPPoE authentication/reconnect behavior;

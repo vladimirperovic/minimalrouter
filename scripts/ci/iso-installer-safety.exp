@@ -1,0 +1,92 @@
+#!/usr/bin/expect -f
+
+# Exercises destructive-install safety paths using the serial-default CI ISO.
+# mode=existing: an already-installed MinimalRouter disk must never be reflashed.
+# mode=small: a virtual disk smaller than 8 GiB must be rejected before writes.
+set timeout 180
+set mode [lindex $argv 0]
+set iso [lindex $argv 1]
+set disk [lindex $argv 2]
+set logpath [lindex $argv 3]
+
+if {$mode eq "" || $iso eq "" || $disk eq "" || $logpath eq ""} {
+    puts stderr "usage: iso-installer-safety.exp <existing|small> <iso> <disk> <log>"
+    exit 2
+}
+if {$mode ne "existing" && $mode ne "small"} {
+    puts stderr "unknown safety mode: $mode"
+    exit 3
+}
+
+log_user 1
+log_file -noappend $logpath
+match_max 65536
+
+spawn qemu-system-x86_64 \
+    -machine pc,accel=tcg \
+    -cpu max \
+    -smp 1 \
+    -m 1024 \
+    -boot d \
+    -cdrom $iso \
+    -drive file=$disk,format=raw,if=virtio \
+    -display none \
+    -serial stdio \
+    -no-shutdown
+
+expect {
+    -re {Golden image verified} {}
+    timeout { puts stderr "timeout waiting for golden image verification"; exit 10 }
+    eof { puts stderr "QEMU exited before golden image verification"; exit 11 }
+}
+
+if {$mode eq "existing"} {
+    expect {
+        -re {minimalrouter appears to be already installed on /dev/vda} {}
+        -re {Writing the prebuilt MinimalRouter appliance} {
+            puts stderr "existing appliance reached destructive write path"
+            exit 12
+        }
+        timeout { puts stderr "existing-install guard did not trigger"; exit 13 }
+        eof { puts stderr "QEMU exited before existing-install guard"; exit 14 }
+    }
+    expect {
+        -re {The ISO stopped before overwriting the appliance} {}
+        timeout { puts stderr "missing existing-install refusal proof"; exit 15 }
+    }
+    send -- "echo EXISTING_INSTALL_GUARD_OK; poweroff -f\r"
+    expect {
+        -re {EXISTING_INSTALL_GUARD_OK} {}
+        timeout { puts stderr "missing existing-install marker"; exit 16 }
+    }
+} else {
+    expect {
+        -re {Using the only attached installation disk automatically: /dev/vda} {}
+        timeout { puts stderr "small-disk test did not auto-select virtual disk"; exit 20 }
+        eof { puts stderr "QEMU exited before small-disk selection"; exit 21 }
+    }
+    expect {
+        -re {Installation disk /dev/vda is only 4 GiB. Use an 8 GiB or larger VM disk} {}
+        -re {Writing the prebuilt MinimalRouter appliance} {
+            puts stderr "undersized disk reached destructive write path"
+            exit 22
+        }
+        timeout { puts stderr "undersized-disk guard did not trigger"; exit 23 }
+        eof { puts stderr "QEMU exited before undersized-disk guard"; exit 24 }
+    }
+    expect {
+        -re {No further disk changes will be made} {}
+        timeout { puts stderr "missing undersized-disk refusal proof"; exit 25 }
+    }
+    send -- "echo UNDERSIZED_DISK_GUARD_OK; poweroff -f\r"
+    expect {
+        -re {UNDERSIZED_DISK_GUARD_OK} {}
+        timeout { puts stderr "missing undersized-disk marker"; exit 26 }
+    }
+}
+
+expect {
+    eof {}
+    timeout { send -- "\003" }
+}
+exit 0

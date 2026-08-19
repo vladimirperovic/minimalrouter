@@ -1,6 +1,6 @@
 # Installation
 
-Minimal Router OS v0.1.4 has two installation paths.
+Minimal Router OS v0.1.5 has two installation paths.
 
 ## Preferred: Golden Appliance ISO (AMD64 / Proxmox)
 
@@ -30,7 +30,7 @@ Dashboard:    https://192.168.1.1:8443
 Serial:       ttyS0 @ 115200
 ```
 
-The installer media itself retains BIOS and UEFI boot metadata, but v0.1.4 does
+The installer media itself retains BIOS and UEFI boot metadata, but v0.1.5 does
 not claim a fully qualified UEFI **installed-disk** path yet.
 
 ## First boot

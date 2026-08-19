@@ -1,0 +1,248 @@
+/* Final v0.1.5 frame refinements.
+
+   Desktop uses one 37px frame gutter: the sidebar sits 37px from the left
+   viewport edge, the page begins 37px after the sidebar, and the page content
+   finishes 37px before the right viewport edge. Mobile keeps the existing
+   drawer/full-width rules from ClassicDashboard.css. */
+:root {
+  --v015-frame-gutter: 37px;
+  --v015-sidebar-width: 280px;
+}
+
+@media (min-width: 901px) {
+  .dashboard-sidebar {
+    width: var(--v015-sidebar-width);
+    inset-inline-start: var(--v015-frame-gutter);
+  }
+
+  .dashboard-main {
+    margin-left: calc(var(--v015-sidebar-width) + var(--v015-frame-gutter));
+    padding-left: var(--v015-frame-gutter);
+    padding-right: var(--v015-frame-gutter);
+  }
+}
+
+.overview-service-ribbon > .overview-service-chip:nth-last-child(2) {
+  display: none;
+}
+
+.overview-availability-host {
+  padding: 0 18px 15px;
+}
+
+.overview-availability-summary {
+  margin: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 11%, transparent);
+  padding-top: 11px;
+  color: color-mix(in srgb, currentColor 74%, transparent);
+  font-size: 11.5px;
+  font-weight: 680;
+  letter-spacing: .01em;
+}
+
+.gateway-service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.gateway-service-notice,
+.gateway-empty-copy {
+  margin: 12px 0 0;
+  color: var(--classic-muted);
+  font-size: 12px;
+}
+
+.gateway-ip-events {
+  display: grid;
+  gap: 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--classic-border);
+}
+
+.gateway-ip-event {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) 20px minmax(120px, auto) 1fr;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  border-bottom: 1px solid var(--classic-border);
+  font-size: 12px;
+}
+
+.gateway-ip-event code {
+  font-size: 11.5px;
+}
+
+.gateway-ip-event time {
+  justify-self: end;
+  color: var(--classic-muted);
+}
+
+.elegant-device-table tr.is-offline td {
+  color: var(--classic-muted);
+}
+
+.elegant-device-table tr.is-paused td {
+  background: color-mix(in srgb, #d97706 4%, transparent);
+}
+
+.device-activity-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.device-activity-state.is-online {
+  color: var(--demo-good-ink);
+}
+
+.device-activity-state.is-online i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px var(--demo-good-wash);
+}
+
+.device-activity-state.is-online small {
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  font-weight: 560;
+}
+
+.device-activity-state.is-offline {
+  color: var(--classic-muted);
+  font-weight: 620;
+}
+
+.device-activity-state.is-paused {
+  color: #a85b00;
+}
+
+.device-activity-badge.is-new,
+.device-activity-badge.is-paused {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 7px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 9.5px;
+  font-weight: 760;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.device-activity-badge.is-new {
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 22%, transparent);
+  background: color-mix(in srgb, var(--classic-blue) 8%, transparent);
+  color: var(--classic-blue);
+}
+
+.device-activity-badge.is-paused {
+  border: 1px solid color-mix(in srgb, #d97706 28%, transparent);
+  background: color-mix(in srgb, #d97706 9%, transparent);
+  color: #a85b00;
+}
+
+.device-row-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+}
+
+.device-pause-control {
+  position: relative;
+}
+
+.device-pause-button {
+  min-height: 30px;
+  border: 1px solid var(--classic-border);
+  border-radius: 8px;
+  padding: 4px 9px;
+  background: var(--classic-card);
+  color: var(--classic-text);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.device-pause-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #d97706 45%, var(--classic-border));
+}
+
+.device-pause-button.is-resume {
+  border-color: color-mix(in srgb, #d97706 35%, var(--classic-border));
+  color: #a85b00;
+}
+
+.device-pause-button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+
+.device-pause-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  min-width: 150px;
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: 10px;
+  background: var(--classic-card);
+  box-shadow: 0 14px 32px rgb(15 23 42 / 16%);
+}
+
+.device-pause-menu button {
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  padding: 9px 11px;
+  background: transparent;
+  color: var(--classic-text);
+  text-align: left;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.device-pause-menu button:last-child {
+  border-bottom: 0;
+}
+
+.device-pause-menu button:hover {
+  background: color-mix(in srgb, var(--classic-blue) 6%, transparent);
+}
+
+.device-pause-error {
+  margin: 0 0 10px;
+  border: 1px solid color-mix(in srgb, #dc2626 20%, transparent);
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, #dc2626 5%, transparent);
+  color: #b91c1c;
+  font-size: 11px;
+}
+
+.device-action-placeholder {
+  color: var(--classic-muted);
+}
+
+@media (max-width: 700px) {
+  .gateway-ip-event {
+    grid-template-columns: 1fr auto 1fr;
+  }
+  .gateway-ip-event time {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}

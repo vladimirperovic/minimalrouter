@@ -184,6 +184,14 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium webkit
       - name: Run dashboard E2E tests
         run: pnpm test:e2e
+      - name: Build GitHub Pages demo dashboard
+        run: pnpm build
+        env:
+          VITE_DEMO_MODE: "true"
+      - name: Run GitHub Pages mobile demo E2E
+        run: pnpm exec playwright test e2e/mobile-demo.spec.ts --project=mobile-webkit --project=mobile-chromium
+        env:
+          MR_DEMO_E2E: "1"
 
   fresh-install:
     name: Clean Alpine install and wizard

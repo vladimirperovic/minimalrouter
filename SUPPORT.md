@@ -1,10 +1,10 @@
 # Support
 
 Minimal Router OS is a **Beta** community project. The current release line is
-v0.1.4. There is no commercial support, guaranteed response time, production SLA
+v0.1.5. There is no commercial support, guaranteed response time, production SLA
 or warranty.
 
-v0.1.4 is intended for controlled pilots with console access and a known-good
+v0.1.5 is intended for controlled pilots with console access and a known-good
 router available for rollback. It is not supported as an unattended production
 firewall.
 
@@ -14,7 +14,7 @@ firewall.
    and `docs/GOLDEN-IMAGE.md` first.
 2. Read `docs/TROUBLESHOOTING.md` for safe diagnostics.
 3. Search existing issues and pull requests.
-4. Confirm the exact release or commit. Prefer the published v0.1.4 release over
+4. Confirm the exact release or commit. Prefer the published v0.1.5 release over
    an arbitrary Actions artifact when reproducing a user install problem.
 5. Restore the known-good router first when the test network is exposed or unavailable.
 6. Remove credentials, tokens, keys, public IP addresses, hostnames, device names,
@@ -22,7 +22,7 @@ firewall.
 
 ## Installation reports
 
-For v0.1.4 Golden ISO problems, include:
+For v0.1.5 Golden ISO problems, include:
 
 - exact ISO filename and SHA-256 result;
 - BIOS/UEFI mode;
@@ -67,20 +67,3 @@ significantly increases attack surface, runtime complexity, privilege, recovery
 risk or maintenance cost.
 
 Project decision-making is documented in [GOVERNANCE.md](GOVERNANCE.md).
-
-## Security vulnerabilities
-
-Do not report vulnerabilities in a public issue. Use GitHub's private vulnerability
-reporting feature when available. See [SECURITY.md](SECURITY.md).
-
-## Privacy
-
-The project does not require a full backup, database, packet capture or real
-network inventory for support. Read [PRIVACY.md](PRIVACY.md) before sharing any
-diagnostic material.
-
-## Production incidents
-
-For a network outage or security incident, restore the known-good router or
-firewall first. Do not wait for a community response while the network remains
-exposed or unavailable.

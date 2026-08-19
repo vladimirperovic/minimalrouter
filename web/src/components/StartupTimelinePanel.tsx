@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
+import { isDemoMode } from "../lib/demoApi";
 
 type Boot = {
   id: string;
@@ -24,6 +25,21 @@ const MILESTONES: { key: keyof Boot["readiness"]; label: string; detail: string;
   { key: "wireguard_seconds", label: "WireGuard", detail: "interface ready", tone: "tl-violet" },
 ];
 
+const DEMO_BOOT: Boot = {
+  id: "demo-latest",
+  started_at: new Date(Date.now() - 14_000).toISOString(),
+  completed: true,
+  readiness: {
+    management_seconds: 1,
+    pppoe_seconds: 4,
+    dns_seconds: 5,
+    internet_seconds: 6,
+    wireguard_seconds: 7,
+  },
+  events: [{ offset_seconds: 3, kind: "routerd", message: "configuration reconciled" }],
+  samples: [{ offset_seconds: 7, cpu_percent: 4.2, memory_used_mb: 178, memory_total_mb: 512 }],
+};
+
 type TimelineItem = {
   offset: number;
   tone: string;
@@ -43,9 +59,22 @@ export default function StartupTimelinePanel() {
       const r = await apiFetch("/api/v1/startup/boots");
       if (!r.ok) throw new Error(`Startup timeline unavailable (${r.status})`);
       const b = await r.json();
-      setBoots(Array.isArray(b.boots) ? b.boots : []);
+      const nextBoots = Array.isArray(b.boots) && b.boots.length > 0
+        ? b.boots as Boot[]
+        : isDemoMode
+          ? [DEMO_BOOT]
+          : [];
+      setBoots(nextBoots);
+      setSelected((current) => Math.min(current, Math.max(0, nextBoots.length - 1)));
+      setError("");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Startup timeline unavailable");
+      if (isDemoMode) {
+        setBoots([DEMO_BOOT]);
+        setSelected(0);
+        setError("");
+      } else {
+        setError(e instanceof Error ? e.message : "Startup timeline unavailable");
+      }
     }
     try {
       const r = await apiFetch("/api/v1/health");

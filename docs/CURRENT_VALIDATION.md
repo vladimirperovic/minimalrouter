@@ -6,17 +6,18 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.1.4 — Beta / controlled pilot.**
+**Minimal Router OS v0.1.5 — Beta / controlled pilot.**
 
-v0.1.4 has a CI-built Golden Appliance ISO for AMD64/Proxmox and signed
+v0.1.5 has a CI-built Golden Appliance ISO for AMD64/Proxmox and signed
 AMD64/ARM64 distribution/update payloads. It is not yet recommended as an
 unattended replacement for pfSense/OpenWrt.
 
-## Golden Appliance ISO evidence — v0.1.4
+## Golden Appliance ISO evidence — v0.1.5
 
-The architecture merged through PR #100 after a complete QEMU installation test
-passed. The release workflow is also required to repeat the same full E2E test
-against the signed release ISO before publication.
+The v0.1.5 release candidate extends the original Golden Appliance path with
+additional installed-appliance, supervision and installer-safety checks. The
+signed release workflow is required to rebuild the exact tagged release and
+repeat the full E2E install test before publication.
 
 The automated Golden path proves:
 
@@ -35,8 +36,14 @@ The automated Golden path proves:
 - firstboot completion marker and canonical SQLite state exist;
 - running kernel matches `/lib/modules/$(uname -r)`;
 - `routerd` reaches its readiness marker;
-- Dashboard TCP/8443 is listening;
-- Alpine v3.22 main/community repository configuration remains valid.
+- Dashboard/API TCP/8443 is listening and reachable;
+- Alpine v3.22 main/community repository configuration remains valid;
+- an installed-disk cold boot succeeds without the ISO attached;
+- firstboot does not re-enter after completion;
+- a forced `routerd` crash is recovered by service supervision;
+- a warm reboot returns the appliance to the same ready state;
+- an existing MinimalRouter installation is refused rather than overwritten;
+- an undersized 4 GiB target is rejected before destructive writes begin.
 
 The test emits `FULL_ISO_INSTALL_OK` only after the required markers pass.
 
@@ -58,7 +65,7 @@ The installer ISO contains BIOS and UEFI boot metadata, but this does **not** ye
 qualify the installed Golden disk for UEFI.
 
 Automated QEMU installation does not prove real ISP PPPoE, physical NICs,
-external Internet exposure, thermals, power-loss behavior or long-duration
+external Internet exposure, thermals, abrupt power-loss behavior or long-duration
 operation.
 
 ## Real Proxmox evidence — 2026-08-01
@@ -84,9 +91,9 @@ Additional results:
 - pfSense operational fallback: **PASS**, about 93 seconds.
 
 The tested Alpine `linux-virt` guest lacked the PPPoE module required by the real
-WAN path. `linux-lts` provided it and the pilot succeeded. The v0.1.4 Golden image
-therefore standardizes the AMD64 appliance on `linux-lts` rather than asking the
-user to discover this during installation.
+WAN path. `linux-lts` provided it and the pilot succeeded. The Golden appliance
+line therefore standardizes the AMD64 appliance on `linux-lts` rather than asking
+the user to discover this during installation.
 
 The successful external WireGuard pilot used a manually provisioned hostname on
 the Proxmox side. MinimalRouter-managed No-IP and later public-IP propagation
@@ -118,6 +125,23 @@ Scenarios 18–25 were run end to end:
 Later scenario fixes and definitions remain tracked in the lab/failure documents;
 a corrected test definition is not recorded as a real-lab PASS until rerun.
 
+## v0.1.5 dashboard and operator validation
+
+The release-candidate UI gate now covers both the production dashboard and the
+GitHub Pages demo build. The two use the same production components and CSS;
+demo mode differs only in mocked data and explicitly demo-only states.
+
+Automated Playwright regression coverage includes:
+
+- the Noema-inspired pushed mobile navigation interaction without copying Noema styling;
+- fixed top-right mobile menu control, same-button close, Escape close and exposed-page close;
+- scroll-position restoration and route-change reset behavior;
+- all dashboard routes fitting the mobile viewport without page-level horizontal overflow;
+- the production and Pages demo mobile build paths;
+- equal 37 px desktop frame gutters;
+- removal of the redundant `Gateway healthy` Overview ribbon chip while retaining the separate topbar health control;
+- the horizontal Logs startup timeline on desktop and horizontally scrollable mobile presentation.
+
 ## Automated validation outside the ISO path
 
 Repository workflows cover, among other checks:
@@ -130,6 +154,7 @@ Repository workflows cover, among other checks:
 - ARM64 QEMU smoke tests;
 - isolated WAN-router-LAN DHCP/DNS/NAT/firewall testing;
 - storage-pressure and appliance-health regression tests;
+- service-supervision regression testing;
 - control-plane benchmarks.
 
 These tests do not replace real ISP, NIC, thermal, power-loss or endurance
@@ -137,27 +162,28 @@ validation.
 
 ## Remaining gates before unattended production use
 
-1. install the published v0.1.4 Golden ISO from blank disk on owner Proxmox and
+1. install the published v0.1.5 Golden ISO from blank disk on owner Proxmox and
    repeat the real WAN cutover;
 2. repeat guest/host cold boots with stable WAN/LAN mapping;
 3. repeated real PPPoE disconnect/reconnect and reboot recovery;
 4. MinimalRouter-managed No-IP update and later public-IP change;
 5. WireGuard recovery after real PPPoE reconnect/reboot;
-6. encrypted backup restore into a fresh VM;
-7. external IPv4/IPv6 scanning;
-8. destructive full-disk/inode/read-only-filesystem and abrupt-power tests;
-9. sustained throughput, packet rate, latency/loss and thermal measurements;
-10. installed-disk UEFI qualification if UEFI is to be supported;
-11. at least seven days of stable unattended operation;
-12. independent focused security review.
+6. timed device-pause expiry/resume on a real LAN client;
+7. encrypted backup restore into a fresh VM;
+8. external IPv4/IPv6 scanning;
+9. destructive full-disk/inode/read-only-filesystem and abrupt-power tests;
+10. sustained throughput, packet rate, latency/loss and thermal measurements;
+11. installed-disk UEFI qualification if UEFI is to be supported;
+12. at least seven days of stable unattended operation;
+13. independent focused security review.
 
 ## Recommendation
 
-v0.1.4 is suitable for a **controlled Proxmox pilot** with noVNC/serial recovery
-and a known-good router ready for rollback. The Golden ISO removes the previous
-live-install complexity and is now exercised as an appliance image end-to-end,
-but the real-WAN/endurance gates above still prevent an unattended-production
-claim.
+v0.1.5 is suitable for a **controlled Proxmox pilot** with noVNC/serial recovery
+and a known-good router ready for rollback. The Golden ISO is exercised as an
+appliance image end-to-end and v0.1.5 broadens the automated cold-boot,
+supervision and installer-safety evidence, but the real-WAN/endurance gates above
+still prevent an unattended-production claim.
 
 Detailed evidence and procedures:
 

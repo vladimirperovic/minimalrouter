@@ -1,6 +1,6 @@
 # Roadmap
 
-Minimal Router OS is currently **Beta (v0.1.4)**. The roadmap is organized around
+Minimal Router OS is currently **Beta (v0.1.5)**. The roadmap is organized around
 evidence and release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
@@ -18,12 +18,19 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 - [x] crash-safe A/B update/rollback with signed-manifest support
 - [x] bounded storage/logging and aggregate appliance health
 - [x] gateway monitoring, live bandwidth and connected-device dashboard
+- [x] per-device Internet pause with bounded runtime enforcement
+- [x] sampled gateway availability/outage and public-IP history
+- [x] fixed service-recovery actions through the privileged helper
+- [x] production dashboard + GitHub Pages demo on the same visual system
+- [x] pushed mobile navigation and horizontal startup timeline
 - [x] Go/frontend/security/Alpine/QEMU/network-lab CI
 - [x] AMD64 Golden Appliance ISO: CI-built Alpine + `linux-lts` + MinimalRouter
 - [x] safe raw-image flasher with checksum verification and reinstall guard
 - [x] VGA/noVNC install path plus persistent `ttyS0` 115200 recovery
 - [x] blank-disk QEMU E2E: flash, reboot, firstboot, serial, SSH, firewall,
       router services and Dashboard verification
+- [x] installed cold-boot, firstboot non-reentry, supervision recovery, warm
+      reboot and destructive installer-safety regression coverage
 - [x] release pipeline capable of publishing the tested Golden ISO from the
       signed AMD64 release payload with checksum and GitHub attestation
 
@@ -39,11 +46,12 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
 ## Next pilot gates
 
-- [ ] repeat the v0.1.4 Golden ISO on owner Proxmox from blank disk through real WAN cutover
+- [ ] repeat the v0.1.5 Golden ISO on owner Proxmox from blank disk through real WAN cutover
 - [ ] five repeated guest/host cold boots with stable WAN/LAN identity
 - [ ] repeated real PPPoE disconnect/reconnect and reboot recovery
 - [ ] MinimalRouter-managed No-IP update and later public-IP change
 - [ ] WireGuard recovery after real PPPoE reconnect/reboot
+- [ ] timed device-pause expiry/resume on a real LAN client
 - [ ] encrypted backup restore into a fresh VM
 - [ ] external IPv4/IPv6 scan
 - [ ] sustained throughput, packet rate, latency/loss and thermal measurements
@@ -52,7 +60,7 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
 ## Platform / media gates
 
-- [ ] full installed-disk UEFI qualification; v0.1.4 E2E target is SeaBIOS/MBR
+- [ ] full installed-disk UEFI qualification; v0.1.5 E2E target is SeaBIOS/MBR
 - [ ] owner-qualified recovery-media procedure
 - [ ] supported Proxmox/NIC matrix
 - [ ] ARM64 appliance-image/installer path if it becomes a supported target

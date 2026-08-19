@@ -1,0 +1,272 @@
+/*
+ * Mobile navigation mechanics inspired by Noema's interaction model.
+ * MinimalRouter keeps its own colors, typography and navigation content: only
+ * the push-away sheet behavior and fixed top-right control are shared.
+ */
+
+.mobile-navigation-toggle {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  body.mobile-navigation-open {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .dashboard-app {
+    position: relative;
+    min-height: 100dvh;
+    overflow: clip;
+    background: var(--classic-panel, var(--dashboard-panel, #fff));
+  }
+
+  /* The existing topbar button remains the React state owner, but is hidden.
+     The visible control below sits outside the moving page sheet so it remains
+     in the same top-right position at every scroll depth. */
+  .dashboard-topbar .dashboard-menu {
+    display: none !important;
+  }
+
+  .mobile-navigation-toggle {
+    position: fixed;
+    top: max(14px, env(safe-area-inset-top));
+    right: max(14px, env(safe-area-inset-right));
+    z-index: 120;
+    display: grid !important;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    place-items: center;
+    border: 1px solid var(--classic-border, var(--dashboard-border, rgba(0, 0, 0, .12)));
+    border-radius: 13px;
+    padding: 0;
+    background: var(--classic-panel, var(--dashboard-panel, #fff));
+    color: var(--classic-text, var(--text-primary, #1d1d1f));
+    box-shadow: 0 8px 24px rgba(20, 34, 51, .12);
+    font-size: 0;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  .mobile-navigation-toggle::before {
+    content: "☰";
+    font-size: 21px;
+    font-weight: 520;
+    line-height: 1;
+  }
+
+  .mobile-navigation-toggle.is-open::before {
+    content: "×";
+    font-size: 30px;
+    font-weight: 320;
+  }
+
+  .mobile-navigation-toggle:active {
+    transform: scale(.96);
+  }
+
+  /* The menu is a full viewport layer behind the dashboard. Only the right
+     half needs navigation content because the foreground sheet moves left. */
+  .dashboard-sidebar,
+  .dashboard-sidebar.is-open {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10 !important;
+    width: 100vw !important;
+    max-width: none !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    padding:
+      calc(76px + env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      max(44vw, 166px) !important;
+    background: var(--classic-panel, var(--dashboard-panel, #fff)) !important;
+    box-shadow: none !important;
+    box-sizing: border-box;
+    transform: none !important;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    overscroll-behavior: contain;
+    transition: visibility 0s linear 520ms, opacity 220ms ease !important;
+  }
+
+  .dashboard-sidebar.is-open {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transition-delay: 0s !important;
+  }
+
+  .dashboard-sidebar .dashboard-brand,
+  :root[data-theme="dark"] .dashboard-sidebar .dashboard-brand {
+    justify-content: flex-start;
+    min-height: 0;
+    margin: 0 0 12px;
+    padding: 0 2px 14px;
+    border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 82%, transparent);
+  }
+
+  .dashboard-sidebar .dashboard-brand .dashboard-brand-title strong {
+    font-size: 20px;
+  }
+
+  .dashboard-sidebar nav.dashboard-navigation {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 0 0 10px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group {
+    padding: 0;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group + .dashboard-nav-group {
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group h2 {
+    margin: 0 0 6px;
+    padding: 0 2px;
+    font-size: 9px;
+    letter-spacing: .14em;
+  }
+
+  .dashboard-sidebar .dashboard-nav-group > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .dashboard-sidebar nav a {
+    min-width: 0;
+    min-height: 40px;
+    justify-content: flex-start;
+    border: 0;
+    border-radius: 10px;
+    padding: 0 9px;
+    background: transparent;
+    font-size: 12.5px;
+    line-height: 1.15;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .dashboard-sidebar nav a.is-active {
+    border: 0;
+    background: color-mix(in srgb, var(--classic-blue) 10%, var(--classic-panel));
+    color: var(--classic-blue);
+  }
+
+  .dashboard-sidebar-footer {
+    flex: 0 0 auto;
+    padding-top: 10px;
+  }
+
+  .dashboard-sidebar .dashboard-brand-revision {
+    min-height: 32px;
+    padding-inline: 2px;
+    font-size: 9px;
+  }
+
+  /* Foreground sheet: same mechanics as Noema, without importing its colors.
+     Keep the transform origin at the center of the currently visible viewport,
+     not the center of a potentially very tall dashboard page. */
+  .dashboard-main {
+    position: relative;
+    z-index: 30;
+    min-height: 100dvh;
+    background: var(--classic-bg, var(--dashboard-bg, #f5f5f7));
+    transform-origin: 50% calc(var(--mobile-nav-scroll, 0px) + 50dvh);
+    transform: none;
+    will-change: transform;
+    transition:
+      transform 620ms cubic-bezier(.15, .2, .1, 1),
+      border-radius 620ms cubic-bezier(.15, .2, .1, 1),
+      box-shadow 620ms cubic-bezier(.15, .2, .1, 1);
+  }
+
+  .dashboard-main::after {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    border-radius: inherit;
+    background: rgba(14, 20, 28, .18);
+    opacity: 0;
+    pointer-events: none;
+    content: "";
+    transition: opacity 420ms ease;
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-main {
+    overflow: hidden;
+    border-radius: 18px;
+    transform: perspective(1400px) translateX(-50vw) rotateY(9deg) scale(.86);
+    box-shadow: 0 0 70px rgba(20, 34, 51, .22), 0 30px 60px rgba(20, 34, 51, .18);
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-main::after {
+    opacity: 1;
+  }
+
+  /* Neutralize the previous full-screen-overlay behavior. The topbar now moves
+     with the page sheet and the visible fixed button is the only menu control. */
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-topbar.classic-topbar {
+    position: sticky !important;
+    top: 0 !important;
+    right: auto !important;
+    left: auto !important;
+    min-height: 64px;
+    margin: 0 -14px 18px !important;
+    padding: 0 max(14px, env(safe-area-inset-right)) 0 max(14px, env(safe-area-inset-left)) !important;
+    border-bottom: 1px solid var(--classic-border);
+    background: color-mix(in srgb, var(--classic-bg) 92%, transparent);
+    box-shadow: none;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .classic-page-heading,
+  .dashboard-app:has(.dashboard-sidebar.is-open) .classic-topbar-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .dashboard-app:has(.dashboard-sidebar.is-open) .dashboard-topbar .dashboard-menu {
+    display: none !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .dashboard-sidebar,
+  .dashboard-sidebar.is-open {
+    padding-left: max(42vw, 154px) !important;
+  }
+
+  .dashboard-sidebar nav a {
+    min-height: 38px;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 900px) {
+  .dashboard-main,
+  .dashboard-sidebar,
+  .mobile-navigation-toggle {
+    transition-duration: 0.01ms !important;
+  }
+}
