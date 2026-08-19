@@ -35,8 +35,7 @@ spawn qemu-system-x86_64 \
     -cdrom $iso \
     -drive file=$disk,format=raw,if=virtio \
     -display none \
-    -serial stdio \
-    -no-shutdown
+    -serial stdio
 
 # First prove the flasher itself has reached userspace. This resets Expect's
 # timer before the intentionally expensive SHA256 + gzip verification step.
@@ -68,10 +67,16 @@ if {$mode eq "existing"} {
         -re {The ISO stopped before overwriting the appliance} {}
         timeout { puts stderr "missing existing-install refusal proof"; exit 15 }
     }
+    send -- "stty -echo\r"
+    expect {
+        -re {# $} {}
+        timeout { puts stderr "existing-install recovery shell was not ready"; exit 16 }
+        eof { puts stderr "QEMU exited before existing-install recovery shell"; exit 17 }
+    }
     send -- "echo EXISTING_INSTALL_GUARD_OK; poweroff -f\r"
     expect {
-        -re {EXISTING_INSTALL_GUARD_OK} {}
-        timeout { puts stderr "missing existing-install marker"; exit 16 }
+        -re {EXISTING_INSTALL_GUARD_OK\r?\n} {}
+        timeout { puts stderr "missing existing-install marker"; exit 18 }
     }
 } else {
     expect {
@@ -92,15 +97,22 @@ if {$mode eq "existing"} {
         -re {No further disk changes will be made} {}
         timeout { puts stderr "missing undersized-disk refusal proof"; exit 25 }
     }
+    send -- "stty -echo\r"
+    expect {
+        -re {# $} {}
+        timeout { puts stderr "undersized-disk recovery shell was not ready"; exit 26 }
+        eof { puts stderr "QEMU exited before undersized-disk recovery shell"; exit 27 }
+    }
     send -- "echo UNDERSIZED_DISK_GUARD_OK; poweroff -f\r"
     expect {
-        -re {UNDERSIZED_DISK_GUARD_OK} {}
-        timeout { puts stderr "missing undersized-disk marker"; exit 26 }
+        -re {UNDERSIZED_DISK_GUARD_OK\r?\n} {}
+        timeout { puts stderr "missing undersized-disk marker"; exit 28 }
     }
 }
 
+set timeout 60
 expect {
     eof {}
-    timeout { send -- "\003" }
+    timeout { puts stderr "QEMU did not exit after safety-test poweroff"; exit 29 }
 }
 exit 0
