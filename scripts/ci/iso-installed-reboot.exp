@@ -31,8 +31,7 @@ spawn qemu-system-x86_64 \
     -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
     -device virtio-net-pci,netdev=lan \
     -display none \
-    -serial stdio \
-    -no-shutdown
+    -serial stdio
 
 proc login_root {password stage} {
     expect {
@@ -137,8 +136,9 @@ expect {
     -re {INSTALLED_REBOOT_MATRIX_OK\r?\n} {}
     timeout { puts stderr "missing installed reboot matrix marker"; exit 40 }
 }
+set timeout 60
 expect {
     eof {}
-    timeout { send -- "\003" }
+    timeout { puts stderr "QEMU did not exit after installed reboot matrix poweroff"; exit 41 }
 }
 exit 0
