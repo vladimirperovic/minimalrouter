@@ -32,8 +32,7 @@ spawn qemu-system-x86_64 \
     -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
     -device virtio-net-pci,netdev=lan \
     -display none \
-    -serial stdio \
-    -no-shutdown
+    -serial stdio
 
 proc wait_and_send {pattern text code} {
     expect {
@@ -157,15 +156,26 @@ expect {
     timeout { puts stderr "timeout waiting for installed-system root shell"; exit 43 }
 }
 
+# Disable serial input echo before sending any success-token-bearing command.
+# Otherwise Expect can match a token in the echoed command line even when the
+# underlying assertion fails, turning a broken appliance into a false green.
+send -- "stty -echo\r"
+expect {
+    -re {# $} {}
+    -re {~ #} {}
+    timeout { puts stderr "timeout disabling installed-system tty echo"; exit 44 }
+    eof { puts stderr "QEMU exited while disabling installed-system tty echo"; exit 45 }
+}
+
 send -- "i=0; while \[ \"\$i\" -lt 360 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; if \[ \"\$i\" -ge 360 \]; then echo ROUTERD_DIAGNOSTICS_BEGIN; rc-service router-applyd status 2>&1 || true; rc-service routerd status 2>&1 || true; ls -l /run/minimalrouter 2>&1 || true; echo ROUTERD_LOG; tail -n 120 /var/log/routerd.log 2>&1 || true; echo ROUTERD_ERR; tail -n 120 /var/log/routerd.err 2>&1 || true; echo APPLYD_LOG; tail -n 80 /var/log/router-applyd.log 2>&1 || true; echo APPLYD_ERR; tail -n 80 /var/log/router-applyd.err 2>&1 || true; echo ROUTERD_DIAGNOSTICS_END; echo INSTALLED_SERVICES_TIMEOUT; fi\r"
 expect {
-    -re {INSTALLED_SERVICES_READY} {}
-    -re {INSTALLED_SERVICES_TIMEOUT} {
+    -re {INSTALLED_SERVICES_TIMEOUT\r?\n} {
         puts stderr "installed appliance did not bring LAN/SSH/firewall/dashboard online"
-        exit 44
+        exit 46
     }
-    timeout { puts stderr "timeout waiting for installed appliance services"; exit 45 }
-    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 46 }
+    -re {INSTALLED_SERVICES_READY\r?\n} {}
+    timeout { puts stderr "timeout waiting for installed appliance services"; exit 47 }
+    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 48 }
 }
 
 # Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
@@ -174,8 +184,8 @@ expect {
 verify_ssh $recovery_password INSTALLED_SSH_OK
 send -- "echo INSTALLED_SSH_OK\r"
 expect {
-    -re {INSTALLED_SSH_OK} {}
-    timeout { puts stderr "SSH evidence marker was not persisted to the serial log"; exit 47 }
+    -re {INSTALLED_SSH_OK\r?\n} {}
+    timeout { puts stderr "SSH evidence marker was not persisted to the serial log"; exit 49 }
 }
 
 set checks {
@@ -203,7 +213,8 @@ foreach command $checks {
 send -- "echo FULL_ISO_INSTALL_OK\r"
 
 # INSTALLED_SSH_OK was already consumed above after proving a real SSH login.
-# Only wait here for markers emitted by the checks we just sent.
+# Only wait here for markers emitted by the checks we just sent. With tty echo
+# disabled, every marker below is evidence that its assertion really succeeded.
 foreach marker {
     CHECK_ROUTERD_OK
     CHECK_APPLYD_OK
@@ -224,15 +235,16 @@ foreach marker {
     FULL_ISO_INSTALL_OK
 } {
     expect {
-        -re $marker {}
+        -re "${marker}\\r?\\n" {}
         timeout { puts stderr "missing installed-system marker: $marker"; exit 50 }
         eof { puts stderr "QEMU exited before marker: $marker"; exit 51 }
     }
 }
 
 send -- "poweroff -f\r"
+set timeout 60
 expect {
     eof {}
-    timeout { send -- "\003" }
+    timeout { puts stderr "QEMU did not exit after full-install poweroff"; exit 52 }
 }
 exit 0
