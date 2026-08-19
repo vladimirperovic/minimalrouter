@@ -75,7 +75,7 @@ if {$mode eq "existing"} {
     }
     send -- "echo EXISTING_INSTALL_GUARD_OK; poweroff -f\r"
     expect {
-        -re {EXISTING_INSTALL_GUARD_OK\r?\n} {}
+        -re {EXISTING_INSTALL_GUARD_OK} {}
         timeout { puts stderr "missing existing-install marker"; exit 18 }
     }
 } else {
@@ -105,7 +105,7 @@ if {$mode eq "existing"} {
     }
     send -- "echo UNDERSIZED_DISK_GUARD_OK; poweroff -f\r"
     expect {
-        -re {UNDERSIZED_DISK_GUARD_OK\r?\n} {}
+        -re {UNDERSIZED_DISK_GUARD_OK} {}
         timeout { puts stderr "missing undersized-disk marker"; exit 28 }
     }
 }
