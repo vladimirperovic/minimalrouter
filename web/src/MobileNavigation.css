@@ -270,3 +270,35 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Mobile topbar: make room for the fixed menu control.
+
+   `.mobile-navigation-toggle` is fixed at top-right and sits above the topbar,
+   so the row of topbar actions has to stop short of it. Measured at 412px the
+   actions ran to x=376 while the toggle starts at x=352 — the account button
+   was 24px underneath it. Reserving the toggle's width plus a gap keeps all
+   four controls reachable.
+
+   The page title was also flush against y=0 rather than centred in the 64px
+   bar, which read as clipped at the top. */
+@media (max-width: 900px) {
+  .dashboard-topbar.classic-topbar {
+    align-items: center;
+  }
+
+  .classic-topbar-actions {
+    margin-right: 56px;
+  }
+
+  .classic-page-heading {
+    display: flex;
+    align-items: center;
+    min-height: 46px;
+  }
+}
+
+@media (max-width: 430px) {
+  .classic-topbar-actions {
+    margin-right: 52px;
+  }
+}

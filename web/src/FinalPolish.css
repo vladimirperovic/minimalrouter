@@ -21,8 +21,11 @@
     width: auto;
     margin-left: 0 !important;
     margin-right: 0 !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
+    /* The topbar is a rounded panel here, not a full-bleed strip, so it needs
+       its own inner gutter. With zero padding the page title sat flush against
+       the panel's left edge. */
+    padding-left: 26px !important;
+    padding-right: 26px !important;
   }
 }
 

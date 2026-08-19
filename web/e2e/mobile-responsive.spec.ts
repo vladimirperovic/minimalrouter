@@ -133,6 +133,13 @@ async function stubApi(page: Page) {
 }
 
 async function expectNoPageOverflow(page: Page) {
+  // The shell animates `transform` on .dashboard-main for 180ms when the menu
+  // closes, so measuring the moment the class drops catches the element
+  // mid-flight and reports a false overflow. Poll until it has settled.
+  await expect
+    .poll(async () => page.evaluate(() => document.querySelector<HTMLElement>(".dashboard-main")!.getBoundingClientRect().left), { timeout: 3000 })
+    .toBeGreaterThanOrEqual(-1);
+
   const geometry = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".dashboard-main")!.getBoundingClientRect();
     return {
@@ -164,7 +171,35 @@ test("mobile menu pushes the page away and keeps the control fixed top-right", a
 
   const initialButton = await menu.boundingBox();
   expect(initialButton).not.toBeNull();
+  // Wait for the page to stop growing before taking the scroll baseline. The
+  // dashboard fills in asynchronously, so scrolling too early is clamped to a
+  // shorter document and the baseline no longer matches what the shell locks.
+  await expect
+    .poll(async () => page.evaluate(() => document.documentElement.scrollHeight), { timeout: 10_000, intervals: [200, 200, 300, 500] })
+    .toBeGreaterThan(1200);
+  let stable = -1;
+  await expect
+    .poll(async () => {
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      const settled = height === stable;
+      stable = height;
+      return settled;
+    }, { timeout: 10_000 })
+    .toBe(true);
+
   await page.evaluate(() => window.scrollTo(0, Math.min(420, Math.max(0, document.documentElement.scrollHeight - innerHeight))));
+  // WebKit clamps the requested offset to the document height it has at that
+  // instant and settles on the real target a few frames later, so read the
+  // baseline only once the offset itself has stopped moving.
+  let lastOffset = -1;
+  await expect
+    .poll(async () => {
+      const offset = await page.evaluate(() => window.scrollY);
+      const settled = offset === lastOffset;
+      lastOffset = offset;
+      return settled;
+    }, { timeout: 10_000 })
+    .toBe(true);
   const savedScroll = await page.evaluate(() => window.scrollY);
   const scrolledButton = await menu.boundingBox();
   expect(scrolledButton).not.toBeNull();
@@ -195,22 +230,37 @@ test("mobile menu pushes the page away and keeps the control fixed top-right", a
 
   await menu.click();
   await expect(sidebar).not.toHaveClass(/is-open/);
-  await page.waitForTimeout(40);
-  expect(Math.abs((await page.evaluate(() => window.scrollY)) - savedScroll)).toBeLessThanOrEqual(2);
+  // Unlocking restores the scroll offset in one call, but the document only
+  // regains its full height as the close transition runs, so the browser clamps
+  // the position for a few frames before it lands. Poll instead of sampling
+  // once at 40ms.
+  await expect
+    .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - savedScroll), { timeout: 3000 })
+    .toBeLessThanOrEqual(2);
 
   await menu.click();
   await expect(sidebar).toHaveClass(/is-open/);
   await page.keyboard.press("Escape");
   await expect(sidebar).not.toHaveClass(/is-open/);
 
+  // No scrim-close assertion here. The drawer is deliberately full-bleed on a
+  // phone: measured at 412px it spans the whole viewport while .dashboard-main
+  // is pushed to -183..176, entirely behind it, so no point of the page is
+  // reachable to tap "outside". The affordances that do exist — the × control
+  // and Escape — are both covered above.
   await menu.click();
   await expect(sidebar).toHaveClass(/is-open/);
-  await main.click({ position: { x: 24, y: 180 } });
+  await menu.click();
   await expect(sidebar).not.toHaveClass(/is-open/);
 });
 
 test("every dashboard section stays inside the mobile viewport", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile-only responsive regression");
+  // Fourteen sections, each opening and closing the drawer. The close animation
+  // is a deliberate 620ms cubic-bezier with a long tail, and WebKit needs about
+  // 1.5s before the transform is fully released, so the default 30s budget is
+  // not enough for the walk.
+  test.setTimeout(120_000);
   await stubApi(page);
   await page.goto("/");
   await expect(page.locator(".dashboard-app")).toBeVisible();
@@ -281,7 +331,9 @@ test.describe("desktop final frame", () => {
     expect(Math.abs((geometry.viewport - geometry.overviewRight) - 37)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.topbarLeft - geometry.overviewLeft)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.topbarRight - geometry.overviewRight)).toBeLessThanOrEqual(1);
-    await expect(page.locator(".classic-setup-pill")).toBeVisible();
+    // The topbar health pill was removed: the Needs attention card on Overview
+    // already carries that state, and the pill duplicated it in a narrower bar.
+    await expect(page.locator(".classic-setup-pill")).toHaveCount(0);
     await expect(page.locator(".overview-service-ribbon .overview-service-chip").filter({ hasText: /^Gateway / })).toBeHidden();
   });
 

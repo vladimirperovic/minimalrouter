@@ -64,10 +64,10 @@ test("Security owns TOTP while Recovery owns backup, migration and diagnostics",
   await page.goto("/");
   await openSection(page, isMobile, "Security");
   await expect(page.getByRole("heading", { name: "Two-factor authentication" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Administration and recovery tools" })).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeHidden();
 
   await openSection(page, isMobile, "Recovery");
-  await expect(page.getByRole("heading", { name: "Administration and recovery tools" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Download diagnostics" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Export encrypted backup" })).toBeVisible();
   await page.getByText("Migrate from pfSense config.xml").click();

@@ -815,15 +815,15 @@
 
 @media (max-width: 430px) {
   .dashboard-main {
-    padding-right: max(12px, env(safe-area-inset-right)) !important;
-    padding-left: max(12px, env(safe-area-inset-left)) !important;
+    padding-right: max(6px, env(safe-area-inset-right)) !important;
+    padding-left: max(6px, env(safe-area-inset-left)) !important;
   }
 
   .dashboard-topbar.classic-topbar {
-    margin-right: -12px !important;
-    margin-left: -12px !important;
-    padding-right: max(12px, env(safe-area-inset-right)) !important;
-    padding-left: max(12px, env(safe-area-inset-left)) !important;
+    margin-right: -6px !important;
+    margin-left: -6px !important;
+    padding-right: max(6px, env(safe-area-inset-right)) !important;
+    padding-left: max(6px, env(safe-area-inset-left)) !important;
   }
 
   .classic-topbar-actions {

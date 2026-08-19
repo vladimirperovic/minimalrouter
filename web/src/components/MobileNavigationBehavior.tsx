@@ -46,6 +46,10 @@ export default function MobileNavigationBehavior() {
         document.body.style.left = "";
         document.body.style.width = "";
         main.style.removeProperty("--mobile-nav-scroll");
+        // Force the reflow before restoring. Straight after the styles are
+        // cleared the document is still at its locked height, so the browser
+        // clamps a scrollTo to that shorter range and the position is lost.
+        void document.body.offsetHeight;
         window.scrollTo({ top: y, left: 0, behavior: "auto" });
       };
 
@@ -64,9 +68,17 @@ export default function MobileNavigationBehavior() {
       const sync = () => {
         const next = mobile() && sidebar.classList.contains("is-open");
         setOpen(next);
-        document.body.classList.toggle("mobile-navigation-open", next);
-        if (next) lockBody();
-        else unlockBody();
+        // Order matters. `.mobile-navigation-open` sets `overflow: hidden` on
+        // the body, which shortens the scrollable range and makes the browser
+        // clamp the current offset. Capturing the scroll position first, and
+        // dropping the class before restoring it, keeps the saved value honest.
+        if (next) {
+          lockBody();
+          document.body.classList.add("mobile-navigation-open");
+        } else {
+          document.body.classList.remove("mobile-navigation-open");
+          unlockBody();
+        }
       };
 
       const close = () => {

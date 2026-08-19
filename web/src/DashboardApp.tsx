@@ -601,18 +601,6 @@ function Dashboard() {
         ? "No active appliance alerts. All health checks are passing."
         : `${failingChecks.length} check(s) need attention: ${failingChecks.map((check) => check.label).join(", ")}.`;
 
-  const applianceState = healthUnavailable
-    ? { className: "is-unknown", label: "Health unknown" }
-    : system.recovery_required
-      ? { className: "is-bad", label: "Recovery required" }
-      : health?.state === "healthy"
-        ? { className: "", label: "Healthy" }
-        : health?.state === "recovery_required" || health?.state === "degraded"
-          ? { className: "is-bad", label: "Degraded" }
-          : health?.state === "warning"
-            ? { className: "is-warning", label: "Needs attention" }
-            : { className: "is-unknown", label: "Health unknown" };
-
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
@@ -643,7 +631,6 @@ function Dashboard() {
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
               {alertCount > 0 && <i aria-hidden="true" />}
             </button>
-            <span className={`classic-setup-pill ${applianceState.className}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12 4 4L19 6" /></svg>{applianceState.label}</span>
             <a aria-label="Help and operator guide" className="classic-topbar-button classic-help-button" href="/help.html" rel="noreferrer" target="_blank"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9.2" /><path d="M9.2 9.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.8-1.1 1.6" /><circle cx="12" cy="16.8" r=".5" /></svg><span>Help</span></a>
             <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
           </div>
