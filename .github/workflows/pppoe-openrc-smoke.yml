@@ -100,9 +100,11 @@ jobs:
           docker exec mr-openrc-client chmod 0755 /etc/init.d/pppoe-wan
           docker exec mr-openrc-client chmod 0600 /etc/ppp/peers/wan /etc/ppp/chap-secrets /etc/ppp/pap-secrets
 
+          # router-applyd uses restart when WAN changes. Reproduce the important
+          # first-enable case exactly: the service has never been started.
           set +e
           docker exec mr-openrc-client rc-service networking start >build/pppoe-openrc/networking.log 2>&1
-          docker exec mr-openrc-client rc-service pppoe-wan start >build/pppoe-openrc/service-start.log 2>&1
+          docker exec mr-openrc-client rc-service pppoe-wan restart >build/pppoe-openrc/service-start.log 2>&1
           SERVICE_RC=$?
           set -e
 
@@ -129,7 +131,7 @@ jobs:
           test "$SERVICE_RC" -eq 0
           test "$ok" -eq 1
           docker exec mr-openrc-client ip -4 route show default dev ppp0 | grep -q .
-          echo 'PPPOE_OPENRC_OK: exact appliance service established CHAP + IPCP + default route'
+          echo 'PPPOE_OPENRC_OK: restart-from-stopped established CHAP + IPCP + default route'
 
       - name: Upload evidence
         if: always()
