@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 const NOW = new Date("2026-08-18T15:14:00Z");
+const CURRENT_EPOCH = Math.floor(Date.now() / 1000);
 
 const CONFIG = {
   revision: 42,
@@ -42,7 +43,7 @@ const SYSTEM = {
     rx_bytes: 1000,
     tx_bytes: 500,
     dhcp_leases: [
-      { hostname: "Kids iPad", ip_address: "192.168.1.60", mac: "00:00:5e:00:53:13", expires_at: Math.floor(NOW.getTime() / 1000) + 21_500 },
+      { hostname: "Kids iPad", ip_address: "192.168.1.60", mac: "00:00:5e:00:53:13", expires_at: CURRENT_EPOCH + 21_500 },
     ],
   },
 };
@@ -53,7 +54,7 @@ const ACCOUNTING = {
   updated_at: NOW.toISOString(),
   months: [
     { month: "2026-08", total_bytes: 19_800_000_000, devices: [
-      { address: "192.168.1.60", hostname: "Kids iPad", mac: "00:00:5e:00:53:13", rx_bytes: 18_900_000_000, tx_bytes: 900_000_000, total_bytes: 19_800_000_000, last_seen_epoch: Math.floor(NOW.getTime() / 1000) - 60 },
+      { address: "192.168.1.60", hostname: "Kids iPad", mac: "00:00:5e:00:53:13", rx_bytes: 18_900_000_000, tx_bytes: 900_000_000, total_bytes: 19_800_000_000, last_seen_epoch: CURRENT_EPOCH - 60 },
     ] },
     { month: "2026-07", total_bytes: 1_000, devices: [] },
   ],
