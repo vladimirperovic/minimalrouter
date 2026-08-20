@@ -89,7 +89,7 @@ docker run --rm --platform linux/amd64 \
     # filesystem is assembled outside its target kernel. It must not skip the
     # persistent boot request, though: OpenRC reads /etc/modules on the installed
     # appliance. Without these entries PPPoE boots without ppp_generic/pppoe and
-    # /dev/ppp never appears, causing router-applyd's real pppd preflight to fail.
+    # /dev/ppp never appears, causing the router-applyd pppd preflight to fail.
     touch "$ROOT/etc/modules"
     while IFS= read -r module; do
       case "$module" in ""|\#*) continue ;; esac
