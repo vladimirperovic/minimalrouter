@@ -61,9 +61,11 @@ Charts should remain simple:
 ## Connected devices
 
 The device view should support quick scanning and actions without becoming a
-full network-management table. Current columns cover hostname, IP, MAC, lease
-expiry and actions. Static leases are clearly marked and Wake-on-LAN is available
-where applicable.
+full network-management table. v0.1.5 combines hostname/IP/MAC and lease data
+with **Online**, **Last seen**, and **New** state derived from bounded DHCP and
+accounting evidence. Static leases are clearly marked, Wake-on-LAN remains
+available where applicable, and a device can be paused from Internet access for
+15 minutes, 1 hour, or until resumed.
 
 Search filters by device name, IP or MAC.
 
@@ -90,12 +92,19 @@ hidden or presented as active.
 
 ## Responsive behavior
 
-Below desktop width the status row may reduce secondary chips. On mobile:
+Below desktop width the status row may reduce secondary chips. On mobile v0.1.5
+uses a fixed top-right navigation control: opening the menu reveals navigation
+behind a pushed/scaled foreground page rather than replacing the app with an
+unrelated mobile layout. The menu closes with the same control, Escape, an
+exposed-page click, or section navigation, and the previous scroll position is
+restored when appropriate.
 
-- navigation becomes a drawer;
+On mobile:
+
 - content becomes one column;
 - cards keep readable padding;
 - tables may scroll horizontally when stacking would lose important network data;
+- startup diagnostics use a horizontal, scrollable milestone sequence;
 - controls need comfortable touch targets;
 - the first-run and recovery flows must remain fully usable.
 
