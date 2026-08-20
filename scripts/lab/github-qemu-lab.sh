@@ -41,13 +41,6 @@ PUBKEY="$(cat "$LAB_GITHUB_KEY.pub")"
 # Install the qm compatibility command used by a handful of existing scenarios.
 install -m 0755 scripts/lab/github-qm.sh "$STATE/bin/qm"
 
-qmpids() {
-  for vm in 150 151 153 154; do
-    pf="$STATE/vm-$vm.pid"
-    [[ -s "$pf" ]] && cat "$pf"
-  done
-}
-
 cleanup() {
   set +e
   for vm in 150 151 153 154; do
@@ -158,42 +151,43 @@ make_seed 153 "$SIM_NET"
 make_seed 154 "$LAN_NET"
 
 for vm in 150 153 154; do
+  rm -f "$STATE/disk-$vm.qcow2"
   qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$STATE/disk-$vm.qcow2"
 done
 
 cat > "$STATE/start-150.sh" <<EOF
 #!/bin/sh
-exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 768 \\
-  -drive file='$STATE/disk-150.qcow2',format=qcow2,if=virtio \\
-  -drive file='$STATE/seed-150.img',format=raw,if=virtio,readonly=on \\
-  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2250-:22 \\
-  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:15:00:00 \\
-  -netdev tap,id=wan,ifname=tap-isp-wan,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=wan,mac=52:54:00:15:00:01 \\
+exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 768 \
+  -drive file='$STATE/disk-150.qcow2',format=qcow2,if=virtio \
+  -drive file='$STATE/seed-150.img',format=raw,if=virtio,readonly=on \
+  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2250-:22 \
+  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:15:00:00 \
+  -netdev tap,id=wan,ifname=tap-isp-wan,script=no,downscript=no \
+  -device virtio-net-pci,netdev=wan,mac=52:54:00:15:00:01 \
   -display none -serial file:'$STATE/logs/isp-serial.log' -daemonize -pidfile '$STATE/vm-150.pid'
 EOF
 cat > "$STATE/start-153.sh" <<EOF
 #!/bin/sh
-exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 768 \\
-  -drive file='$STATE/disk-153.qcow2',format=qcow2,if=virtio \\
-  -drive file='$STATE/seed-153.img',format=raw,if=virtio,readonly=on \\
-  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2253-:22 \\
-  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:53:00:00 \\
-  -netdev tap,id=wan,ifname=tap-sim-wan,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=wan,mac=52:54:00:53:00:01 \\
-  -netdev tap,id=extra,ifname=tap-sim-extra,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=extra,mac=52:54:00:53:00:02 \\
+exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 768 \
+  -drive file='$STATE/disk-153.qcow2',format=qcow2,if=virtio \
+  -drive file='$STATE/seed-153.img',format=raw,if=virtio,readonly=on \
+  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2253-:22 \
+  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:53:00:00 \
+  -netdev tap,id=wan,ifname=tap-sim-wan,script=no,downscript=no \
+  -device virtio-net-pci,netdev=wan,mac=52:54:00:53:00:01 \
+  -netdev tap,id=extra,ifname=tap-sim-extra,script=no,downscript=no \
+  -device virtio-net-pci,netdev=extra,mac=52:54:00:53:00:02 \
   -display none -serial file:'$STATE/logs/sim-serial.log' -daemonize -pidfile '$STATE/vm-153.pid'
 EOF
 cat > "$STATE/start-154.sh" <<EOF
 #!/bin/sh
-exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 640 \\
-  -drive file='$STATE/disk-154.qcow2',format=qcow2,if=virtio \\
-  -drive file='$STATE/seed-154.img',format=raw,if=virtio,readonly=on \\
-  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2254-:22 \\
-  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:54:00:00 \\
-  -netdev tap,id=lan,ifname=tap-lan-lan,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=lan,mac=52:54:00:54:00:01 \\
+exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 1 -m 640 \
+  -drive file='$STATE/disk-154.qcow2',format=qcow2,if=virtio \
+  -drive file='$STATE/seed-154.img',format=raw,if=virtio,readonly=on \
+  -netdev user,id=mgmt,hostfwd=tcp:127.0.0.1:2254-:22 \
+  -device virtio-net-pci,netdev=mgmt,mac=52:54:00:54:00:00 \
+  -netdev tap,id=lan,ifname=tap-lan-lan,script=no,downscript=no \
+  -device virtio-net-pci,netdev=lan,mac=52:54:00:54:00:01 \
   -display none -serial file:'$STATE/logs/lan-serial.log' -daemonize -pidfile '$STATE/vm-154.pid'
 EOF
 
@@ -201,14 +195,14 @@ MR_DISK="${LAB_MR_DISK:-$ROOT/build/iso/full-install-disk.raw}"
 [[ -s "$MR_DISK" ]] || { echo "missing installed MinimalRouter disk: $MR_DISK" >&2; exit 1; }
 cat > "$STATE/start-151.sh" <<EOF
 #!/bin/sh
-exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 2 -m 1536 \\
-  -drive file='$MR_DISK',format=raw,if=virtio \\
-  -netdev tap,id=wan,ifname=tap-mr-wan,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=wan,mac=52:54:00:51:00:00 \\
-  -netdev tap,id=lan,ifname=tap-mr-lan,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=lan,mac=52:54:00:51:00:01 \\
-  -netdev tap,id=extra,ifname=tap-mr-extra,script=no,downscript=no \\
-  -device virtio-net-pci,netdev=extra,mac=52:54:00:51:00:02 \\
+exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 2 -m 1536 \
+  -drive file='$MR_DISK',format=raw,if=virtio \
+  -netdev tap,id=wan,ifname=tap-mr-wan,script=no,downscript=no \
+  -device virtio-net-pci,netdev=wan,mac=52:54:00:51:00:00 \
+  -netdev tap,id=lan,ifname=tap-mr-lan,script=no,downscript=no \
+  -device virtio-net-pci,netdev=lan,mac=52:54:00:51:00:01 \
+  -netdev tap,id=extra,ifname=tap-mr-extra,script=no,downscript=no \
+  -device virtio-net-pci,netdev=extra,mac=52:54:00:51:00:02 \
   -display none -serial file:'$STATE/logs/mr-serial.log' -daemonize -pidfile '$STATE/vm-151.pid'
 EOF
 chmod 0755 "$STATE"/start-*.sh
@@ -219,15 +213,22 @@ for vm in 150 153 154 151; do
 done
 
 wait_aux() {
-  local vm="$1" port="$2" i=0
+  local vm="$1" port="$2" log_name i=0
+  case "$vm" in
+    150) log_name=isp ;;
+    153) log_name=sim ;;
+    154) log_name=lan ;;
+    *) log_name="vm-$vm" ;;
+  esac
   while (( i < 240 )); do
     if ssh -i "$LAB_GITHUB_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
       -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=2 \
       -p "$port" lab@127.0.0.1 true >/dev/null 2>&1; then return 0; fi
-    sleep 2; i=$((i+2))
+    sleep 2
+    i=$((i+2))
   done
   echo "aux VM $vm did not become SSH-ready" >&2
-  tail -100 "$STATE/logs/$(case "$vm" in 150) echo isp;;153) echo sim;;154) echo lan;;esac)-serial.log" >&2 || true
+  tail -100 "$STATE/logs/$log_name-serial.log" >&2 || true
   return 1
 }
 wait_aux 150 2250
@@ -260,12 +261,11 @@ aux_copy_run 2250 scripts/lab/payloads/isp-provision.sh
 aux_copy_run 2253 scripts/lab/payloads/sim-provision.sh
 aux_copy_run 2254 scripts/lab/payloads/client-provision.sh
 
-# Add the public-simulator aliases that the historical torture suite uses.
+# Add simulator aliases used by the historical torture suite.
 aux_exec 2253 'ip addr add 11.250.0.10/32 dev eth1 2>/dev/null || true; ip addr add 11.255.0.2/32 dev eth1 2>/dev/null || true; sed -i "/listen 10.250.0.10:80/a\\    listen 11.255.0.2:80;" /etc/nginx/sites-available/lab; systemctl restart nginx'
 aux_exec 2250 'ip route replace 11.250.0.10/32 dev eth1; ip route replace 11.255.0.2/32 dev eth1'
 
-# Lab-only bootstrap on the installed ISO: out-of-band fault hooks and fresh WG
-# keys. Production files/binaries are not replaced.
+# Lab-only bootstrap on the installed ISO: fault hooks and fresh WG keys.
 mr_exec 'set -e
 mkdir -p /etc/conf.d /run/minimalrouter-fault /root/lab-wg-keys
 chmod 0755 /run/minimalrouter-fault
@@ -321,20 +321,21 @@ done
 LOGIN="$(curl -sk --max-time 10 -c "$COOKIE" -X POST "$MR_API/api/v1/auth/login" -H 'Content-Type: application/json' -d "{\"password\":\"$LAB_ADMIN_PW\"}")"
 CSRF="$(printf '%s' "$LOGIN" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))')"
 [[ -n "$CSRF" ]] || { echo "could not authenticate to installed MinimalRouter" >&2; echo "$LOGIN" >&2; exit 1; }
-CFG="$(curl -sk --max-time 15 -b "$COOKIE" "$MR_API/api/v1/config)"
+CFG="$(curl -sk --max-time 15 -b "$COOKIE" "$MR_API/api/v1/config")"
 
-BODY="$(printf '%s' "$CFG" | python3 -c "import json,sys
+export MR_WG0_KEY MR_WG1_KEY SIM_WG0_PUB SIM_WG1_PUB
+BODY="$(printf '%s' "$CFG" | python3 -c 'import json,os,sys
 c=json.load(sys.stdin)
-c['system']['hostname']='mr-test'; c['system']['domain']='lab.test'; c['system']['management_access']='lan_and_wireguard'
-c['wan']={'interface':'eth0','enabled':True,'username':'mr-test','password':'minimalrouter-lab-pppoe','mtu':1492}
-c['lan']['interface']='eth1'; c['lan']['ip_address']='192.168.1.1'; c['lan']['cidr']='192.168.1.1/24'; c['lan']['netmask']='255.255.255.0'
-c['dhcp']={'enabled':True,'dns_enabled':False,'range_start':'192.168.1.100','range_end':'192.168.1.200','lease_time':'12h','dns_servers':['1.1.1.1','1.0.0.1'],'static_leases':[]}
-c['dns']={'records':[{'name':'router.home.arpa','ip':'192.168.1.1'},{'name':'client.home.arpa','ip':'192.168.1.100'}]}
-c['firewall']['extra_lans']=[{'id':'elab1','name':'lab-extra','interface':'eth2','cidr':'10.78.0.0/24','router_address':'10.78.0.1/24','dst_ip':'10.78.0.10','dst_port':8080,'allow_from':['192.168.1.0/24'],'enabled':True}]
-c['wireguard']={'enabled':True,'interface':'wg0','private_key':'$MR_WG0_KEY','listen_port':51820,'address':'10.6.0.1/24','peers':[{'id':'sim-peer','name':'sim-lab','public_key':'$SIM_WG0_PUB','allowed_ips':['10.6.0.10/32'],'endpoint':'11.250.0.10:51820','enabled':True}]}
-c['wg_client']={'enabled':True,'interface':'wg1','private_key':'$MR_WG1_KEY','address':'10.79.0.1/32','public_key':'$SIM_WG1_PUB','endpoint':'11.250.0.10:51821','allowed_ips':['10.79.1.0/24','10.79.0.2/32'],'persistent_keepalive':25}
-c['trusted_networks']=['192.168.1.0/24','10.6.0.0/24']
-print(json.dumps(c))")"
+c["system"]["hostname"]="mr-test"; c["system"]["domain"]="lab.test"; c["system"]["management_access"]="lan_and_wireguard"
+c["wan"]={"interface":"eth0","enabled":True,"username":"mr-test","password":"minimalrouter-lab-pppoe","mtu":1492}
+c["lan"]["interface"]="eth1"; c["lan"]["ip_address"]="192.168.1.1"; c["lan"]["cidr"]="192.168.1.1/24"; c["lan"]["netmask"]="255.255.255.0"
+c["dhcp"]={"enabled":True,"dns_enabled":False,"range_start":"192.168.1.100","range_end":"192.168.1.200","lease_time":"12h","dns_servers":["1.1.1.1","1.0.0.1"],"static_leases":[]}
+c["dns"]={"records":[{"name":"router.home.arpa","ip":"192.168.1.1"},{"name":"client.home.arpa","ip":"192.168.1.100"}]}
+c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":"eth2","cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
+c["wireguard"]={"enabled":True,"interface":"wg0","private_key":os.environ["MR_WG0_KEY"],"listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":os.environ["SIM_WG0_PUB"],"allowed_ips":["10.6.0.10/32"],"endpoint":"11.250.0.10:51820","enabled":True}]}
+c["wg_client"]={"enabled":True,"interface":"wg1","private_key":os.environ["MR_WG1_KEY"],"address":"10.79.0.1/32","public_key":os.environ["SIM_WG1_PUB"],"endpoint":"11.250.0.10:51821","allowed_ips":["10.79.1.0/24","10.79.0.2/32"],"persistent_keepalive":25}
+c["trusted_networks"]=["192.168.1.0/24","10.6.0.0/24"]
+print(json.dumps(c))')"
 
 curl -sk --max-time 120 -b "$COOKIE" -X PUT "$MR_API/api/v1/config" \
   -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" -d "$BODY" > "$STATE/config-put.json"
@@ -359,8 +360,7 @@ done
 mr_exec 'ip -4 -o addr show ppp0' | grep -q '10.250.0.50' || { echo "PPPoE did not come up" >&2; exit 1; }
 aux_exec 2253 'ip route replace 10.250.0.50/32 via 10.250.0.1 dev eth1'
 
-# Give the LAN client a real DHCP lease from MinimalRouter. Keep a dhclient
-# compatibility command even on Debian images where ISC dhclient is absent.
+# Give the LAN client a real DHCP lease from MinimalRouter.
 aux_exec 2254 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq busybox >/dev/null; cat > /usr/local/sbin/lab-udhcpc <<"EOF"
 #!/bin/sh
 case "$1" in
@@ -406,8 +406,7 @@ aux_exec 2254 'host router.home.arpa 192.168.1.1' | grep -q '192.168.1.1'
 aux_exec 2254 'curl -s --max-time 8 http://11.255.0.2/marker.txt' | grep -q torture-lab
 
 # Shadow copy: scenarios remain byte-for-byte identical; only lib.sh gains the
-# GitHub transport overrides. Copy all scripts so relative paths used by the
-# signed-update scenario still resolve, and link the real build artifacts.
+# GitHub transport overrides.
 WORK="$STATE/worktree"
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -415,8 +414,8 @@ cp -a scripts "$WORK/scripts"
 ln -s "$ROOT/build" "$WORK/build"
 cat scripts/lab/github-backend.sh >> "$WORK/scripts/lab/lib.sh"
 
-# If an unexpected scenario failure leaves MR powered off, the next scenario
-# must still get an independent baseline instead of cascading 152 false reds.
+# Prevent one power-cut failure from cascading into false failures in all later
+# scenarios. This patch is applied only in the disposable shadow copy.
 python3 - "$WORK/scripts/lab/lab-run.sh" <<'PY'
 from pathlib import Path
 import sys
