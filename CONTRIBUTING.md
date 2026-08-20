@@ -25,9 +25,9 @@ No contribution is too small when it makes the project safer or easier to use.
 
 ## Project status and governance
 
-The project is currently **early alpha**. Changes may be incompatible, some
-features are intentionally unavailable, and no release should be treated as an
-unattended production firewall unless its release notes explicitly say so.
+The project is currently **Beta (v0.1.5)**. Compatibility may still change,
+some features are intentionally unavailable, and no release should be treated as
+an unattended production firewall unless its release notes explicitly say so.
 
 Please do not present Minimal Router OS as a complete pfSense or OpenWrt
 replacement. The current goal is a focused, understandable home-router appliance
