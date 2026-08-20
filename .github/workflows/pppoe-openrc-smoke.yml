@@ -1,0 +1,141 @@
+name: PPPoE OpenRC smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/pppoe-openrc-smoke.yml'
+      - 'packaging/alpine/pppoe-wan.initd'
+      - 'internal/services/pppd.go'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pppoe-openrc-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openrc-pppoe:
+    name: Exact pppoe-wan OpenRC service
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run exact OpenRC PPPoE service
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/pppoe-openrc
+          cleanup() {
+            set +e
+            sudo ip link del mr-openrc-veth >/dev/null 2>&1 || true
+            docker rm -f mr-openrc-client mr-openrc-isp >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          cleanup
+
+          sudo modprobe ppp_generic
+          sudo modprobe pppoe
+          test -c /dev/ppp || { sudo mknod /dev/ppp c 108 0; sudo chmod 600 /dev/ppp; }
+
+          docker run -d --name mr-openrc-client --privileged alpine:3.22 sleep infinity
+          docker run -d --name mr-openrc-isp --privileged debian:trixie-slim sleep infinity
+          docker exec mr-openrc-client sh -ec 'apk add --no-cache openrc ifupdown-ng ppp ppp-pppoe iproute2 >/dev/null; mkdir -p /run/openrc; touch /run/openrc/softlevel; printf "auto lo\niface lo inet loopback\n" > /etc/network/interfaces'
+          docker exec mr-openrc-isp sh -ec 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq ppp pppoe iproute2 >/dev/null'
+
+          CLIENT_PID="$(docker inspect -f '{{.State.Pid}}' mr-openrc-client)"
+          ISP_PID="$(docker inspect -f '{{.State.Pid}}' mr-openrc-isp)"
+          sudo ip link add mr-openrc-veth type veth peer name isp-openrc-veth
+          sudo ip link set mr-openrc-veth netns "$CLIENT_PID"
+          sudo ip link set isp-openrc-veth netns "$ISP_PID"
+          docker exec mr-openrc-client ip link set mr-openrc-veth name labwan
+          docker exec mr-openrc-client ip link set labwan up
+          docker exec mr-openrc-isp ip link set isp-openrc-veth name labwan
+          docker exec mr-openrc-isp ip link set labwan up
+
+          docker exec mr-openrc-isp sh -ec 'cat > /etc/ppp/pppoe-server-options <<"EOF"
+          require-chap
+          lcp-echo-interval 3
+          lcp-echo-failure 4
+          logfile /tmp/pppoe-server.log
+          mtu 1492
+          mru 1492
+          EOF
+          cat > /etc/ppp/chap-secrets <<"EOF"
+          mr-test * minimalrouter-lab-pppoe 10.250.0.50
+          EOF
+          chmod 0600 /etc/ppp/chap-secrets'
+          docker exec -d mr-openrc-isp sh -c 'exec pppoe-server -F -I labwan -L 10.250.0.1 -R 10.250.0.50 -N 1 -T 60 -C lab-isp -S lab-isp >/tmp/server.console 2>&1'
+          sleep 1
+
+          cat > build/pppoe-openrc/wan <<'EOF'
+          plugin pppoe.so labwan
+          name "mr-test"
+          noipdefault
+          noauth
+          noipv6
+          defaultroute
+          replacedefaultroute
+          persist
+          maxfail 0
+          holdoff 5
+          lcp-echo-interval 5
+          lcp-echo-failure 4
+          mtu 1492
+          mru 1492
+          EOF
+          cat > build/pppoe-openrc/chap-secrets <<'EOF'
+          "mr-test" * "minimalrouter-lab-pppoe" *
+          EOF
+          cp build/pppoe-openrc/chap-secrets build/pppoe-openrc/pap-secrets
+          docker exec mr-openrc-client mkdir -p /etc/ppp/peers
+          docker cp build/pppoe-openrc/wan mr-openrc-client:/etc/ppp/peers/wan
+          docker cp build/pppoe-openrc/chap-secrets mr-openrc-client:/etc/ppp/chap-secrets
+          docker cp build/pppoe-openrc/pap-secrets mr-openrc-client:/etc/ppp/pap-secrets
+          docker cp packaging/alpine/pppoe-wan.initd mr-openrc-client:/etc/init.d/pppoe-wan
+          docker exec mr-openrc-client chmod 0755 /etc/init.d/pppoe-wan
+          docker exec mr-openrc-client chmod 0600 /etc/ppp/peers/wan /etc/ppp/chap-secrets /etc/ppp/pap-secrets
+
+          set +e
+          docker exec mr-openrc-client rc-service networking start >build/pppoe-openrc/networking.log 2>&1
+          docker exec mr-openrc-client rc-service pppoe-wan start >build/pppoe-openrc/service-start.log 2>&1
+          SERVICE_RC=$?
+          set -e
+
+          ok=0
+          for _ in $(seq 1 40); do
+            if docker exec mr-openrc-client sh -c "ip -4 -o addr show ppp0 2>/dev/null | grep -q '10.250.0.50'"; then ok=1; break; fi
+            sleep 0.5
+          done
+
+          {
+            echo "service_rc=$SERVICE_RC"
+            docker exec mr-openrc-client rc-service pppoe-wan status || true
+            docker exec mr-openrc-client ps w || true
+            docker exec mr-openrc-client ip -brief link || true
+            docker exec mr-openrc-client ip -4 addr show || true
+            docker exec mr-openrc-client ip -4 route show || true
+            cat build/pppoe-openrc/networking.log || true
+            cat build/pppoe-openrc/service-start.log || true
+            echo '=== ISP ==='
+            docker exec mr-openrc-isp sh -c 'cat /tmp/pppoe-server.log 2>/dev/null || true'
+            docker exec mr-openrc-isp sh -c 'cat /tmp/server.console 2>/dev/null || true'
+          } | tee build/pppoe-openrc/evidence.log
+
+          test "$SERVICE_RC" -eq 0
+          test "$ok" -eq 1
+          docker exec mr-openrc-client ip -4 route show default dev ppp0 | grep -q .
+          echo 'PPPOE_OPENRC_OK: exact appliance service established CHAP + IPCP + default route'
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pppoe-openrc-${{ github.sha }}
+          path: build/pppoe-openrc
+          if-no-files-found: warn
+          retention-days: 14
