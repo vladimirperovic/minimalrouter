@@ -1,6 +1,6 @@
 # Development guide
 
-Minimal Router OS is an early alpha Go and React project. The production
+Minimal Router OS is a **Beta (v0.1.5)** Go and React project. The production
 appliance runs on Alpine Linux; ordinary unit and frontend work can be done on
 macOS or Linux without altering the developer's network.
 
