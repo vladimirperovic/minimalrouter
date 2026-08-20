@@ -23,8 +23,6 @@ cat > /etc/ppp/pppoe-server-options <<'EOF'
 require-chap
 lcp-echo-interval 3
 lcp-echo-failure 4
-local-ip 10.250.0.1
-remote-ip 10.250.0.50-10.250.0.120
 logfile /var/log/pppoe-server.log
 mtu 1492
 mru 1492
@@ -40,7 +38,11 @@ cat > /etc/systemd/system/pppoe-server.service <<EOF
 Description=Lab PPPoE access concentrator (rp-pppoe)
 After=network-online.target
 [Service]
-ExecStart=/usr/sbin/pppoe-server -I $(cat /etc/lab-iface) -T 60 -C lab-isp -S lab-isp
+# rp-pppoe daemonizes by default; -F keeps the process attached so systemd owns
+# the real server instead of repeatedly restarting after the parent exits.
+# Keep address allocation in pppoe-server itself; pppd's options file is only
+# for PPP options and must not contain pseudo-options such as local-ip/remote-ip.
+ExecStart=/usr/sbin/pppoe-server -F -I $(cat /etc/lab-iface) -L 10.250.0.1 -R 10.250.0.50 -N 71 -T 60 -C lab-isp -S lab-isp
 Restart=always
 RestartSec=2
 [Install]
@@ -49,6 +51,7 @@ EOF
 systemctl daemon-reload
 systemctl enable pppoe-server >/dev/null 2>&1
 systemctl restart pppoe-server
+systemctl is-active --quiet pppoe-server
 
 echo "== dnsmasq =="
 cat > /etc/dnsmasq.d/lab.conf <<EOF
@@ -71,6 +74,7 @@ systemctl restart dnsmasq
 
 echo "== routing + NAT + modes =="
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
+[ -f /etc/sysctl.conf ] || : > /etc/sysctl.conf
 grep -q 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 mkdir -p /etc/nftables.d
 echo real > /etc/lab-mode
@@ -80,8 +84,10 @@ cat > /usr/local/sbin/lab-nat <<'EOF'
 # mode sim: no upstream egress; only the lab segment (10.250.0.0/24) is reachable.
 IFACE=$(cat /etc/lab-iface)
 MODE=$(cat /etc/lab-mode)
+# Shell redirections are not valid nft batch syntax. Delete old tables from the
+# shell first, then feed only nft grammar to nft -f -.
+nft delete table inet labnat 2>/dev/null || true
 nft -f - <<NATEOF
-flush table inet labnat 2>/dev/null
 table inet labnat {
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
@@ -89,8 +95,8 @@ table inet labnat {
   }
 }
 NATEOF
+nft delete table inet labfw 2>/dev/null || true
 nft -f - <<FORWEOF
-flush table inet labfw 2>/dev/null
 table inet labfw {
   chain blackhole {
   }
