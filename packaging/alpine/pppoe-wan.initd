@@ -3,7 +3,10 @@
 name="pppoe-wan"
 description="Minimal Router OS PPPoE WAN session"
 command="/usr/sbin/pppd"
-command_args="call wan nodetach"
+# Keep pppd attached to OpenRC's supervised background process and retain a
+# root-only session log. The apply helper can now surface the real PPP failure
+# instead of timing out later with only "ppp0 has no address".
+command_args="call wan nodetach logfile /var/log/pppoe-wan.log"
 command_background="yes"
 pidfile="/run/pppoe-wan.pid"
 command_user="root:root"
@@ -15,10 +18,34 @@ depend() {
     use logger
 }
 
+ensure_ppp_runtime() {
+    # The service owns its kernel prerequisites as well as router-applyd. This
+    # keeps manual recovery/restarts correct even if pppoe-wan is invoked on its
+    # own after a module unload or a minimal device-manager boot.
+    for module in ppp_generic pppox pppoe; do
+        if [ ! -d "/sys/module/$module" ] && ! modprobe "$module" 2>/dev/null; then
+            eerror "required PPPoE kernel module '$module' could not be loaded"
+            return 1
+        fi
+    done
+    if [ ! -c /dev/ppp ]; then
+        rm -f /dev/ppp
+        mknod -m 0600 /dev/ppp c 108 0 2>/dev/null || true
+    fi
+    if [ ! -c /dev/ppp ]; then
+        eerror "PPPoE kernel stack is loaded but /dev/ppp is unavailable"
+        return 1
+    fi
+}
+
 start_pre() {
+    ensure_ppp_runtime || return 1
     checkpath --file --owner root:root --mode 0600 /etc/ppp/peers/wan
     checkpath --file --owner root:root --mode 0600 /etc/ppp/chap-secrets
     checkpath --file --owner root:root --mode 0600 /etc/ppp/pap-secrets
+    checkpath --file --owner root:root --mode 0600 /var/log/pppoe-wan.log
+    : > /var/log/pppoe-wan.log
+    chmod 0600 /var/log/pppoe-wan.log
 
     wan_interface=$(/usr/bin/awk '$1 == "plugin" && $2 == "pppoe.so" { print $3; exit }' /etc/ppp/peers/wan)
     case "$wan_interface" in
@@ -28,4 +55,29 @@ start_pre() {
             ;;
     esac
     /sbin/ip link set dev "$wan_interface" up
+}
+
+start_post() {
+    # router-applyd already requires the same runtime invariant. Enforce it at
+    # the service boundary too so `rc-service pppoe-wan restart` cannot report
+    # success while pppd is merely retrying a broken session in the background.
+    attempts=0
+    while [ "$attempts" -lt 40 ]; do
+        if /sbin/ip -4 -o addr show dev ppp0 2>/dev/null | /bin/grep -q ' inet '; then
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 0.5
+    done
+
+    eerror "PPPoE session did not obtain an IPv4 address within 20 seconds"
+    if [ -s /var/log/pppoe-wan.log ]; then
+        eerror "pppd diagnostics follow:"
+        /usr/bin/tail -n 40 /var/log/pppoe-wan.log 2>/dev/null | while IFS= read -r line; do
+            eerror "$line"
+        done
+    else
+        eerror "pppd produced no session log"
+    fi
+    return 1
 }
