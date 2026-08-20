@@ -1,0 +1,144 @@
+name: GitHub QEMU torture lab
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/**'
+      - 'scripts/lab/**'
+      - 'scripts/ci/**'
+      - '.github/workflows/torture-lab.yml'
+      - 'Makefile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'VERSION'
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'packaging/**'
+      - 'scripts/lab/**'
+      - 'scripts/ci/**'
+      - '.github/workflows/torture-lab.yml'
+      - 'Makefile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'VERSION'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-qemu-torture-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-torture-suite:
+    name: 153-scenario QEMU torture lab
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Install QEMU lab dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cloud-image-utils curl dnsutils expect iproute2 jq nftables \
+            openssh-client qemu-system-x86 qemu-utils sshpass xorriso \
+            extlinux syslinux-common e2fsprogs util-linux
+
+      - name: Validate GitHub torture harness syntax
+        run: |
+          bash -n scripts/lab/github-qemu-lab.sh
+          bash -n scripts/lab/github-qm.sh
+          sh -n scripts/lab/github-backend.sh
+          count="$(find scripts/lab/scenarios -maxdepth 1 -type f -name '[0-9]*.sh' | wc -l)"
+          test "$count" -eq 153
+
+      - name: Build golden appliance ISO
+        run: sh packaging/alpine/build-iso.sh
+
+      - name: Flash ISO and complete firstboot for torture target
+        run: |
+          set -eux
+          iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
+          cp build/iso/syslinux.cfg build/iso/syslinux-torture.cfg
+          sed -i 's/^DEFAULT minimalrouter$/DEFAULT minimalrouter-serial/' build/iso/syslinux-torture.cfg
+          xorriso \
+            -indev "$iso" \
+            -outdev build/iso/minimalrouter-torture-install.iso \
+            -boot_image any replay \
+            -map build/iso/syslinux-torture.cfg /boot/syslinux/syslinux.cfg \
+            -commit -end
+          truncate -s 8G build/iso/full-install-disk.raw
+          chmod +x scripts/ci/iso-full-install.exp
+          timeout 1500 scripts/ci/iso-full-install.exp \
+            build/iso/minimalrouter-torture-install.iso \
+            build/iso/full-install-disk.raw \
+            build/iso/qemu-torture-install.log
+          grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-torture-install.log
+          grep -F 'INSTALLED_SSH_OK' build/iso/qemu-torture-install.log
+
+      - name: Run all 153 existing torture scenarios on GitHub QEMU
+        run: |
+          sudo env \
+            PATH="$PATH" \
+            HOME="$HOME" \
+            LAB_GITHUB_STATE="$GITHUB_WORKSPACE/build/github-torture" \
+            LAB_ADMIN_PW='MinimalRouterCI-2026!' \
+            LAB_RECOVERY_PW='MRciRecovery-2026!' \
+            bash scripts/lab/github-qemu-lab.sh
+
+      - name: Make retained evidence readable
+        if: always()
+        run: sudo chown -R "$USER":"$USER" build/github-torture build/iso/qemu-torture-install.log 2>/dev/null || true
+
+      - name: Print torture summary
+        if: always()
+        run: |
+          test -f build/github-torture/summary.json && cat build/github-torture/summary.json || true
+          test -f build/github-torture/torture.log && tail -200 build/github-torture/torture.log || true
+
+      - name: Upload QEMU torture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-qemu-torture-${{ github.sha }}
+          path: |
+            build/github-torture/summary.json
+            build/github-torture/torture.log
+            build/github-torture/results
+            build/github-torture/logs
+            build/github-torture/config-put.json
+            build/github-torture/config-confirm.json
+            build/iso/qemu-torture-install.log
+          if-no-files-found: warn
+          retention-days: 14
