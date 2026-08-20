@@ -1,8 +1,9 @@
 # Troubleshooting
 
-Minimal Router OS is early-alpha networking software. Troubleshooting must not
-leave the active network exposed or unavailable. Restore the known-good router
-first when a test causes an outage, then investigate on an isolated network.
+Minimal Router OS is **Beta (v0.1.5)** networking software for controlled pilots.
+Troubleshooting must not leave the active network exposed or unavailable. Restore
+the known-good router first when a test causes an outage, then investigate on an
+isolated network.
 
 ## First response
 
@@ -130,8 +131,10 @@ VLAN requirements outside the current supported profile, MTU expectations, and
 that credentials were entered through the application rather than stored in the
 repository or shell history.
 
-Real ISP PPPoE remains a release-validation gap. Keep the production router ready
-for immediate restoration.
+A first real owner-Proxmox PPPoE/Internet pilot has passed. The remaining target
+validation is repeatability: explicit disconnect/reconnect, reboot recovery,
+longer stability, and recovery together with WireGuard/DDNS. Keep the known-good
+router ready for immediate restoration while those gates remain open.
 
 ## WireGuard peer cannot connect
 
@@ -158,8 +161,9 @@ df -h
 du -x -h /var/lib/minimalrouter /var/log 2>/dev/null | sort -h | tail
 ```
 
-Bounded log rotation and snapshot retention remain areas of active validation.
-Take an encrypted backup before manual cleanup.
+Bounded log rotation and snapshot retention are implemented, but real full-disk,
+inode-exhaustion and read-only-filesystem behavior remain target-appliance
+validation gates. Take an encrypted backup before manual cleanup.
 
 ## Reboot or power-loss recovery problem
 
