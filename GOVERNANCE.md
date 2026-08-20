@@ -1,6 +1,6 @@
 # Project governance
 
-Minimal Router OS is an early-alpha open-source project with a deliberately
+Minimal Router OS is a **Beta (v0.1.5)** open-source project with a deliberately
 small maintenance and security boundary. Governance is designed to keep project
 decisions transparent while preserving the conservative review required for a
 router and firewall appliance.
@@ -83,7 +83,7 @@ artifact.
 
 ## Scope and compatibility
 
-During early alpha, compatibility may change between commits. The project favors
+During Beta, compatibility may still change between releases. The project favors
 safe defaults, a small attack surface, and recoverable behavior over broad
 feature parity. Useful features may be declined when they substantially increase
 privilege, exposure, complexity, or long-term maintenance cost.
