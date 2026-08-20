@@ -26,12 +26,34 @@ type DiagnosticResult = {
   checks: Record<string, { ok: boolean; detail: string }>;
 };
 
+type GatewayInsights = {
+  available: boolean;
+  sampled_hours: number;
+  samples: number;
+  up_samples: number;
+  uptime_percent: number;
+  outages: number;
+  public_ip_changes: Array<{ timestamp: string; old_ip: string; new_ip: string }>;
+};
+
+type ServiceAction = "wan-reconnect" | "dns-dhcp-restart" | "wireguard-restart";
+
 function stateLabel(state?: GatewaySummary["state"]) {
   return state ? state.charAt(0).toUpperCase() + state.slice(1) : "Unknown";
 }
 
 function metric(value?: number, suffix = "") {
   return Number.isFinite(value) ? `${Math.round(value || 0)}${suffix}` : "—";
+}
+
+function formatInsightCoverage(insights: GatewayInsights | null) {
+  if (!insights?.available || insights.sampled_hours <= 0) return { value: "Collecting", note: "30-day sampled history" };
+  const outageLabel = `${insights.outages} outage${insights.outages === 1 ? "" : "s"}`;
+  if (insights.sampled_hours >= 29 * 24) {
+    return { value: `${insights.uptime_percent.toFixed(2)}%`, note: `30 days · ${outageLabel}` };
+  }
+  const days = Math.max(1, Math.floor(insights.sampled_hours / 24));
+  return { value: `${insights.uptime_percent.toFixed(2)}%`, note: `${days}d coverage · ${outageLabel}` };
 }
 
 function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
@@ -77,8 +99,11 @@ function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
 export default function GatewayQualityPanel({ summary, settings, busy, onApply, onError }: Props) {
   const [windowName, setWindowName] = useState<WindowName>("1h");
   const [points, setPoints] = useState<GatewayHistoryPoint[]>([]);
+  const [insights, setInsights] = useState<GatewayInsights | null>(null);
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
+  const [serviceAction, setServiceAction] = useState<ServiceAction | null>(null);
+  const [serviceNotice, setServiceNotice] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -97,6 +122,24 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     const timer = window.setInterval(loadHistory, 30000);
     return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
   }, [windowName, onError]);
+
+  useEffect(() => {
+    let mounted = true;
+    const controller = new AbortController();
+    const loadInsights = async () => {
+      try {
+        const response = await apiFetch("/api/v1/gateway/insights", { signal: controller.signal });
+        if (!response.ok) throw new Error(`Gateway insights unavailable (${response.status})`);
+        const body = await response.json() as GatewayInsights;
+        if (mounted) setInsights(body);
+      } catch (error) {
+        if (mounted && (error as Error).name !== "AbortError") setInsights(null);
+      }
+    };
+    void loadInsights();
+    const timer = window.setInterval(loadInsights, 30000);
+    return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
+  }, []);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -123,6 +166,28 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     }
   };
 
+  const runServiceAction = async (action: ServiceAction) => {
+    const labels: Record<ServiceAction, string> = {
+      "wan-reconnect": "WAN reconnect completed.",
+      "dns-dhcp-restart": "DNS & DHCP restarted.",
+      "wireguard-restart": "WireGuard restarted.",
+    };
+    setServiceAction(action);
+    setServiceNotice("");
+    try {
+      const response = await apiFetch(`/api/v1/system/actions/${action}`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Service action failed (${response.status})`);
+      setServiceNotice(labels[action]);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Service action failed");
+    } finally {
+      setServiceAction(null);
+    }
+  };
+
+  const availability = formatInsightCoverage(insights);
+
   return <section className="dashboard-section gateway-quality" id="gateway">
     <div className="dashboard-section-heading has-facts">
       <div className="subpage-hero-head"><div><p className="eyebrow">WAN observability & recovery</p><h2>Gateway quality</h2><small>Continuous health monitoring with conservative PPPoE auto-recovery after a verified 3-minute link outage.</small></div><span className={`classic-status-chip ${summary?.state === "healthy" ? "" : "is-warning"}`}>{summary?.enabled ? stateLabel(summary.state) : "Monitoring off"}</span></div>
@@ -132,7 +197,7 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
         <div><dt>Jitter</dt><dd>{metric(summary?.jitter_ms, " ms")}</dd><small>reply variation</small></div>
         <div><dt>Packet loss</dt><dd>{metric(summary?.packet_loss_percent, "%")}</dd><small>target average</small></div>
         <div><dt>PPPoE uptime</dt><dd>{summary?.pppoe_uptime_seconds ? `${Math.floor(summary.pppoe_uptime_seconds / 3600)}h ${Math.floor((summary.pppoe_uptime_seconds % 3600) / 60)}m` : "—"}</dd><small>{summary?.link?.peer_ip ? `Peer ${summary.link.peer_ip}` : "Peer unavailable"}</small></div>
-        <div><dt>Reconnects</dt><dd>{summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0}</dd><small>1h / 24h</small></div>
+        <div><dt>Availability</dt><dd>{availability.value}</dd><small>{availability.note}</small></div>
       </dl>
     </div>
 
@@ -147,10 +212,7 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
         <div className="diag">
           <div className={`diag-result ${diagnostics.overall === "healthy" ? "is-good" : "is-bad"}`}>
             <span className="diag-result-icon" aria-hidden="true">{diagnostics.overall === "healthy" ? "✓" : "!"}</span>
-            <div>
-              <small>Result</small>
-              <strong>{diagnostics.overall === "healthy" ? "Internet path is healthy" : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}`}</strong>
-            </div>
+            <div><small>Result</small><strong>{diagnostics.overall === "healthy" ? "Internet path is healthy" : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}`}</strong></div>
           </div>
           <div className="diag-checks">
             {Object.entries(diagnostics.checks).map(([name, check]) => (
@@ -164,15 +226,31 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
       )}
     </article>
 
+    <article className="card gateway-service-controls">
+      <div className="card-title-row"><div><h3>Service recovery</h3><p>Fixed, allowlisted recovery actions through router-applyd. They do not expose arbitrary service or shell execution.</p></div></div>
+      <div className="gateway-service-actions">
+        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</button>
+        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</button>
+        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</button>
+      </div>
+      {serviceNotice && <p className="gateway-service-notice" role="status">{serviceNotice}</p>}
+    </article>
+
+    <article className="card gateway-ip-history">
+      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div></div>
+      {insights?.public_ip_changes?.length ? (
+        <div className="gateway-ip-events">
+          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code>{change.old_ip}</code><span aria-hidden="true">→</span><code>{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
+        </div>
+      ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
+    </article>
+
     <article className="card rec-card">
       <div className="rec-head">
-        <div>
-          <h3>Automatic recovery</h3>
-          <p>Conservative PPPoE auto-recovery after a verified 3-minute link outage — it never reacts to packet loss, DNS failure or one unreachable website.</p>
-        </div>
+        <div><h3>Automatic recovery</h3><p>Conservative PPPoE auto-recovery after a verified 3-minute link outage — it never reacts to packet loss, DNS failure or one unreachable website.</p></div>
         <span className={`rec-chip ${settings.enabled ? "is-armed" : "is-off"}`}><i aria-hidden="true" />{settings.enabled ? "Armed" : "Paused"}</span>
       </div>
-      <p className="rec-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress.</p>
+      <p className="rec-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress. Current reconnect counters: {summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0} (1h / 24h).</p>
     </article>
 
     <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>

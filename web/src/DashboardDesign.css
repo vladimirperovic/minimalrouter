@@ -1,0 +1,1286 @@
+/* v0.1.5 dashboard design.
+
+   This layer began life as the demo-gated preview in Demo015Preview.css and is
+   now the production visual system: same rules, with the
+   `html.demo-015-preview` scope removed and the classes the preview's script
+   used to attach mapped onto the markup the components already render
+   (.demo-page-heading → .dashboard-section-heading, .demo-unified-table-card →
+   .table-card, .demo-unified-form → .settings-form, .demo-empty-state →
+   .empty-state).
+
+   Demo-only pieces were dropped rather than promoted: the synthetic WireGuard
+   QR, the retired preview badge, and the six quick-status cards.
+
+   Rules for classes the components do not emit yet (.demo-status-badge,
+   .demo-icon-button, .demo-metric-tip, .demo-recovery-*, .demo-checks-*) are
+   kept here deliberately — they are inert until the matching component work
+   lands, at which point no CSS has to move again. */
+
+/* Inter, self-hosted.
+
+   The stock stack is "SF Pro Display", "Segoe UI", ui-sans-serif, …, so the
+   product renders in a different typeface on every operating system — SF Pro on
+   macOS, Segoe UI on Windows, whatever DejaVu-alike a Linux box has. Inter is
+   OFL-licensed and drawn for UI at small sizes, so it holds the 8–12px labels
+   this dashboard leans on.
+
+   The files are bundled rather than loaded from a CDN: the appliance serves
+   web/dist/ with no internet access, so a webfont request would simply fail,
+   and an admin interface should not be phoning out to a third party either.
+   Both subsets are the variable font — latin-ext is included because the UI
+   already carries Serbian copy and needs č/ć/š/ž/đ. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+body,
+.dashboard-app {
+  font-family: "Inter Variable", "SF Pro Display", "Segoe UI", ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Inter ships the tabular figures and contextual alternates this UI wants for
+   addresses, ports and counters. */
+.dashboard-app {
+  font-feature-settings: "cv05" 1, "cv08" 1, "ss03" 1;
+}
+
+:root {
+  --demo-card-radius: 18px;
+  --demo-control-radius: 11px;
+  --demo-shadow: 0 14px 38px rgba(20, 34, 51, .055);
+  --demo-shadow-soft: 0 8px 24px rgba(20, 34, 51, .035);
+  --demo-soft-border: color-mix(in srgb, var(--classic-border) 86%, transparent);
+
+  /* One type scale for the whole pass. Every size below is a step on this
+     ladder rather than a per-component literal, so a page reads as one
+     document instead of a stack of separately tuned cards. */
+  --demo-text-3xl: clamp(24px, 2.2vw, 31px);
+  --demo-text-2xl: clamp(22px, 2vw, 28px);
+  --demo-text-xl: 18px;
+  --demo-text-lg: 15px;
+  --demo-text-md: 13.5px;
+  --demo-text-sm: 12px;
+  --demo-text-xs: 11.5px;
+  --demo-text-2xs: 10.5px;
+
+  --demo-weight-title: 780;
+  --demo-weight-strong: 760;
+  --demo-weight-medium: 720;
+  --demo-weight-label: 690;
+
+  --demo-track-tight: -.035em;
+  --demo-track-snug: -.02em;
+  --demo-track-caps: .055em;
+
+  /* Status ink is theme-owned. The light values below are the approved pass-2
+     colors; the dark block re-lights them so small badge text keeps AA
+     contrast on the dark panel instead of sinking into it. */
+  --demo-good-ink: #19884a;
+  --demo-good-edge: rgba(36, 164, 91, .18);
+  --demo-good-wash: rgba(36, 164, 91, .08);
+  --demo-warn-ink: #a96508;
+  --demo-warn-edge: rgba(205, 132, 22, .18);
+  --demo-warn-wash: rgba(205, 132, 22, .08);
+  --demo-bad-ink: #c22f39;
+  --demo-bad-edge: rgba(202, 57, 66, .18);
+  --demo-bad-wash: rgba(202, 57, 66, .08);
+  --demo-destructive-ink: #c83f46;
+
+  --demo-accent-ink: #1479f7;
+  --demo-migration-ink: #6258e8;
+  --demo-hero-ink: #f4f8ff;
+  --demo-hero-ink-muted: #abc0d9;
+}
+
+:root[data-theme="dark"] {
+  --demo-shadow: 0 14px 38px rgba(0, 0, 0, .34);
+  --demo-shadow-soft: 0 8px 24px rgba(0, 0, 0, .24);
+
+  --demo-good-ink: #56d68b;
+  --demo-good-edge: rgba(86, 214, 139, .26);
+  --demo-good-wash: rgba(86, 214, 139, .12);
+  --demo-warn-ink: #f0b64b;
+  --demo-warn-edge: rgba(240, 182, 75, .26);
+  --demo-warn-wash: rgba(240, 182, 75, .12);
+  --demo-bad-ink: #ff7b84;
+  --demo-bad-edge: rgba(255, 123, 132, .26);
+  --demo-bad-wash: rgba(255, 123, 132, .12);
+  --demo-destructive-ink: #ff8a90;
+
+  --demo-accent-ink: #64a9ff;
+  --demo-migration-ink: #a89bff;
+}
+
+.classic-help-button,
+.classic-account-button {
+  box-sizing: border-box;
+  height: 48px;
+  min-height: 48px;
+}
+
+.classic-help-button {
+  width: auto;
+  min-width: 112px;
+  gap: 9px;
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.classic-help-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* `.dashboard-brand` is a nowrap flex row sized for the wordmark alone, so the
+   badge was squeezed to ~44px and broke into a six-line stack. Let the row wrap
+   and keep the badge itself on one line. */
+.dashboard-brand {
+  flex-wrap: wrap;
+}
+
+/* Shared page heading system.
+
+   No padding or bottom border here. `.dashboard-section-heading` is not a bare
+   text heading — the base stylesheet paints it as the navy hero card and gives
+   it `padding: 28px 30px`. Pass 2 overrode that with `4px 2px 18px`, which left
+   the eyebrow, title and facts strip sitting 3px from the panel edge on every
+   page that uses the hero, and drew a light 1px rule across a dark card. */
+.dashboard-section-heading {
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+/* Only the plain headings become a flex row. A `.has-facts` heading is a
+   single-column grid whose head and facts rows both span `grid-column: 1 / -1`;
+   forcing flex on it dropped that placement and pushed the facts strip outside
+   the 1480px panel, which is what turned every hero into an empty slab. */
+.dashboard-section-heading:not(.has-facts) {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.dashboard-section-heading h2 {
+  margin: 0 0 6px;
+  font-size: var(--demo-text-2xl);
+  font-weight: var(--demo-weight-title);
+  line-height: 1.08;
+  letter-spacing: var(--demo-track-tight);
+}
+
+/* Colour and size live with the other hero copy rules further down, so there is
+   one source of truth for what text on the navy panel looks like. */
+.dashboard-section-heading .section-copy,
+.dashboard-section-heading p {
+  max-width: 760px;
+  margin: 0;
+}
+
+/* WAN overview. */
+.overview-wan-main > div {
+  display: grid;
+  align-content: end;
+}
+
+.overview-wan-main small {
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.overview-wan-quality {
+  gap: 12px;
+}
+
+.overview-wan-quality small {
+  font-size: 10px;
+}
+
+.overview-wan-quality strong {
+  font-size: 13px;
+}
+
+/* Unified cards, tables and forms. */
+.table-card,
+#network .static-leases,
+#firewall .firewall-rules {
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: var(--demo-card-radius);
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow);
+}
+
+.table-card .card-title-row,
+#network .static-leases .card-title-row,
+#firewall .firewall-rules .card-title-row {
+  margin: 0;
+  padding: 22px 24px 18px;
+  border-bottom: 0;
+}
+
+.table-card .card-title-row h3,
+#network .static-leases .card-title-row h3,
+#firewall .firewall-rules .card-title-row h3 {
+  margin: 0 0 5px;
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: -.025em;
+}
+
+.table-card .card-title-row p,
+#network .static-leases .card-title-row p,
+#firewall .firewall-rules .card-title-row p {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.quiet-meta {
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  font-weight: 720;
+}
+
+.table-scroll,
+#network .static-leases .table-scroll,
+#firewall .firewall-rules .table-scroll {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 1px 0 var(--classic-border);
+}
+
+.table-scroll table,
+#network .static-leases table,
+#firewall .firewall-rules table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  text-align: left;
+}
+
+.table-scroll th,
+#network .static-leases th,
+#firewall .firewall-rules th {
+  padding: 13px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 52%, var(--classic-panel));
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  font-weight: 740;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.table-scroll td,
+#network .static-leases td,
+#firewall .firewall-rules td {
+  padding: 17px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  color: var(--classic-text);
+  font-size: 13.5px;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+
+.table-scroll tbody tr:last-child td,
+#network .static-leases tbody tr:last-child td,
+#firewall .firewall-rules tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table-scroll tbody tr,
+#network .static-leases tbody tr,
+#firewall .firewall-rules tbody tr {
+  transition: background-color .15s ease;
+}
+
+.table-scroll tbody tr:hover,
+#network .static-leases tbody tr:hover,
+#firewall .firewall-rules tbody tr:hover {
+  background: color-mix(in srgb, var(--classic-soft) 72%, transparent);
+}
+
+.table-scroll code,
+#network .static-leases td code,
+#firewall .firewall-rules td code {
+  padding: 0;
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 570;
+  white-space: nowrap;
+}
+
+/* Connected devices gets the same table rhythm without destroying its richer cells. */
+.modern-device-section {
+  border: 1px solid var(--classic-border);
+  border-radius: var(--demo-card-radius);
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow);
+}
+
+.modern-device-section .modern-section-heading {
+  padding: 22px 24px 18px;
+}
+
+.modern-device-section .elegant-table-container {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 0 1px 0 var(--classic-border);
+}
+
+.modern-device-section .elegant-device-table th {
+  background: color-mix(in srgb, var(--classic-soft) 52%, var(--classic-panel));
+}
+
+/* DHCP reservations: search on the right and continuous separators. */
+#network .static-lease-search {
+  width: min(360px, calc(100% - 48px));
+  margin: 0 24px 18px auto !important;
+}
+
+#network .static-leases td:first-child {
+  font-size: 15px;
+  font-weight: 720;
+  letter-spacing: -.012em;
+}
+
+#network .static-leases .static-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 7px;
+}
+
+#network .static-lease-form {
+  margin: 0;
+  padding: 22px 24px 24px;
+  border-top: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 42%, var(--classic-panel));
+}
+
+/* Firewall: strong hierarchy and one clean boundary between rules and editor. */
+#firewall .firewall-rules td:first-child {
+  font-size: 14.5px;
+  font-weight: 720;
+}
+
+#firewall .firewall-rules td.is-good,
+#firewall .firewall-rules td.is-bad {
+  font-weight: 760;
+  text-transform: capitalize;
+}
+
+#firewall .firewall-rules .settings-form {
+  margin: 0;
+  padding: 24px;
+  border-top: 1px solid var(--classic-border);
+  background: color-mix(in srgb, var(--classic-soft) 30%, var(--classic-panel));
+}
+
+/* Form system: fewer arbitrary rules, stronger sections, consistent controls. */
+.settings-form .field > span,
+.settings-form .field > span {
+  margin-bottom: 7px;
+  font-size: 11.5px;
+  font-weight: 690;
+  line-height: 1.35;
+}
+
+.settings-form input,
+.settings-form select,
+.settings-form textarea {
+  min-height: 44px;
+  border-radius: var(--demo-control-radius);
+  font-size: 13.5px;
+}
+
+.settings-form .form-note {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.settings-form .form-actions {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0 !important;
+}
+
+#network .settings-form > fieldset,
+#qos .settings-form > fieldset,
+#wireguard .settings-form > fieldset,
+#cloudflare .settings-form > fieldset,
+#squid .settings-form > fieldset,
+#wifi .settings-form > fieldset,
+#security .settings-form > fieldset {
+  margin: 0 0 18px;
+  border: 1px solid var(--classic-border);
+  border-radius: 16px;
+  padding: 22px 24px 24px;
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow-soft);
+}
+
+#network .settings-form > fieldset legend,
+#qos .settings-form > fieldset legend,
+#wireguard .settings-form > fieldset legend,
+#cloudflare .settings-form > fieldset legend,
+#squid .settings-form > fieldset legend,
+#wifi .settings-form > fieldset legend,
+#security .settings-form > fieldset legend {
+  padding: 0 8px;
+  color: var(--classic-text);
+  font-size: 14px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+/* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
+#network .demo-015-hidden-wan-toggle {
+  display: none !important;
+}
+
+#network .settings-form > fieldset {
+  position: relative;
+}
+
+#network .demo-015-fieldset-actions {
+  margin-top: 22px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+#network .demo-015-fieldset-actions .button {
+  min-width: 126px;
+}
+
+#network .demo-015-original-network-save {
+  display: none !important;
+}
+
+/* Button system. */
+.button,
+button.secondary,
+button.primary {
+  box-sizing: border-box;
+  min-height: 40px;
+  border-radius: 10px;
+  padding: 0 15px;
+  font-size: 11.5px;
+  font-weight: 720;
+  line-height: 1;
+}
+
+.button.primary {
+  min-height: 42px;
+  padding-inline: 17px;
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--classic-blue) 20%, transparent);
+}
+
+.button.small {
+  min-height: 36px;
+  padding-inline: 12px;
+  font-size: 10.5px;
+}
+
+.demo-icon-button::before {
+  content: attr(data-demo-icon);
+  display: inline-grid;
+  min-width: 14px;
+  margin-right: 7px;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.demo-destructive-action:not(.primary) {
+  color: var(--demo-destructive-ink);
+}
+
+.demo-destructive-action:not(.primary):hover {
+  border-color: color-mix(in srgb, var(--demo-destructive-ink) 36%, var(--classic-border));
+  background: color-mix(in srgb, var(--demo-destructive-ink) 7%, var(--classic-panel));
+}
+
+/* Consistent status badges. */
+.demo-status-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 10.5px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.demo-status-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.demo-status-badge.is-good {
+  border-color: var(--demo-good-edge);
+  background: var(--demo-good-wash);
+  color: var(--demo-good-ink);
+}
+
+.demo-status-badge.is-warning {
+  border-color: var(--demo-warn-edge);
+  background: var(--demo-warn-wash);
+  color: var(--demo-warn-ink);
+}
+
+.demo-status-badge.is-bad {
+  border-color: var(--demo-bad-edge);
+  background: var(--demo-bad-wash);
+  color: var(--demo-bad-ink);
+}
+
+.demo-status-badge.is-muted {
+  border-color: var(--classic-border);
+  background: var(--classic-soft);
+  color: var(--classic-muted);
+}
+
+/* Empty-state system. */
+.empty-state {
+  min-height: 110px;
+  padding: 26px !important;
+  color: var(--classic-muted) !important;
+  text-align: center;
+}
+
+td.empty-state::before {
+  content: "+";
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  margin: 0 auto 9px;
+  border: 1px solid var(--classic-border);
+  border-radius: 10px;
+  background: var(--classic-soft);
+  color: var(--classic-blue);
+  font-size: 20px;
+  font-weight: 500;
+}
+
+/* Recovery gets the visual language used in the approved mock. */
+.classic-security-page .security-recovery-card {
+  display: none !important;
+}
+
+.demo-015-recovery-slot {
+  margin-top: 4px;
+}
+
+.demo-015-recovery-moved .security-recovery-card {
+  margin: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.demo-015-recovery-moved .security-recovery-card > .card-title-row {
+  margin: 0 0 14px;
+  border: 1px solid var(--classic-border);
+  border-radius: 15px;
+  padding: 17px 18px;
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow-soft);
+}
+
+.demo-015-recovery-moved .security-recovery-card .card-title-row h3 {
+  margin-bottom: 4px;
+  font-size: 16px;
+  font-weight: 760;
+  letter-spacing: -.02em;
+}
+
+.demo-015-recovery-moved .security-recovery-card .card-title-row p {
+  max-width: 760px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.demo-015-recovery-moved .security-recovery-card details {
+  margin: 0 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--classic-border);
+  border-radius: 15px;
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow-soft);
+}
+
+.demo-015-recovery-moved .security-recovery-card summary {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 740;
+}
+
+.demo-015-recovery-moved .security-recovery-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.demo-015-recovery-moved .security-recovery-card details[open] > summary {
+  border-bottom: 1px solid var(--classic-border);
+}
+
+.demo-recovery-index {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+}
+
+.demo-recovery-index.is-1 { background: #1479f7; }
+.demo-recovery-index.is-2 { background: #18a861; }
+.demo-recovery-index.is-3 { background: #6258e8; }
+
+.demo-recovery-label {
+  color: var(--classic-text);
+  font-size: 13.5px;
+  font-weight: 760;
+  letter-spacing: -.012em;
+}
+
+.demo-recovery-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 9.5px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.demo-recovery-badge.is-recommended {
+  background: color-mix(in srgb, var(--demo-accent-ink) 12%, transparent);
+  color: var(--demo-accent-ink);
+}
+
+.demo-recovery-badge.is-migration {
+  background: color-mix(in srgb, var(--demo-migration-ink) 12%, transparent);
+  color: var(--demo-migration-ink);
+}
+
+.demo-recovery-chevron {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  place-items: center;
+  border: 1px solid var(--classic-border);
+  border-radius: 9px;
+  color: var(--classic-muted);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform .16s ease;
+}
+
+.demo-015-recovery-moved details[open] .demo-recovery-chevron {
+  transform: rotate(-90deg);
+}
+
+.demo-015-recovery-moved details .settings-form {
+  margin: 0;
+  padding: 20px 22px 22px;
+}
+
+.demo-015-recovery-moved details .form-note {
+  width: fit-content;
+  max-width: 720px;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 18%, var(--classic-border));
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--classic-blue) 4%, var(--classic-panel));
+}
+
+.demo-recovery-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 16%, var(--classic-border));
+  border-radius: 12px;
+  padding: 11px 14px;
+  background: color-mix(in srgb, var(--classic-blue) 3%, var(--classic-panel));
+  color: var(--classic-muted);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.demo-recovery-legend > span {
+  color: var(--classic-blue);
+  font-size: 15px;
+}
+
+.demo-recovery-legend p {
+  margin: 0;
+}
+
+.demo-recovery-legend i {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--classic-border);
+}
+
+@media (max-width: 900px) {
+  .classic-help-button {
+    min-width: 48px;
+    padding: 0 13px;
+  }
+
+  .classic-help-button span {
+    display: none;
+  }
+
+  .dashboard-section-heading {
+    display: block;
+  }
+
+  #network .static-leases th,
+  #network .static-leases td,
+  #firewall .firewall-rules th,
+  #firewall .firewall-rules td {
+    padding-inline: 15px;
+  }
+
+  .demo-recovery-legend {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .demo-recovery-legend i {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+
+  .demo-recovery-badge {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Visual pass 3 — harmonization
+
+   Pass 2 built the card, table, button and badge systems but only reached the
+   pages that already used `.dashboard-section-heading`. The four pages that
+   open with a dark hero panel (Overview, Security, DNS Filter, WireGuard) kept
+   their own type scale, so page titles ranged from 25.6px to 38px across the
+   product. This pass puts every page on one ladder, gives the system a dark
+   theme, and replaces selectors that never matched anything.
+   ========================================================================== */
+
+/* --- Page frame ------------------------------------------------------------
+   Every page body is capped at 1480px and centred, but the sticky topbar was
+   left uncapped, so above ~1530px of main width the header overhung the content
+   by ~50px on each side on all fourteen pages. Put the header on the same
+   measure so the page has one left and one right edge. */
+.dashboard-main > .dashboard-topbar {
+  width: min(100%, 1480px);
+  max-width: 1480px;
+  margin-inline: auto;
+}
+
+/* The topbar's top margin was collapsing up out of `.dashboard-app`, so the
+   painted surface started 14px down the page and a strip of flat body colour
+   showed above its gradient — a hard horizontal line across the top. The block
+   formatting context has to be on `.dashboard-app` itself: that keeps the
+   margin inside the element that carries the background, so the gradient starts
+   at the viewport edge and the header still sits 22px in. */
+.dashboard-app {
+  display: flow-root;
+  /* Same four-layer construction as the stock surface, stepped down roughly 6%
+     in lightness. The white cards and the navy hero both gain edge definition
+     against it; the top-right highlight is kept so the page still has a light
+     source rather than reading as flat grey. */
+  background:
+    radial-gradient(72% 48% at 78% -8%, rgba(255, 255, 255, .88) 0%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(50% 44% at 8% 34%, rgba(168, 181, 201, .38) 0%, rgba(168, 181, 201, 0) 72%),
+    radial-gradient(42% 36% at 96% 78%, rgba(178, 189, 206, .3) 0%, rgba(178, 189, 206, 0) 75%),
+    linear-gradient(118deg, #dde1e9 0%, #eceef3 46%, #d9dde6 100%);
+}
+
+/* Keep the page behind the app the same tone, so overscroll does not flash a
+   lighter band. */
+:root,
+body {
+  background-color: #dde1e9;
+}
+
+/* Roomier frame: the rail and the header sat 14px off the edges, which read as
+   cramped once the cards inside gained padding. */
+.dashboard-sidebar {
+  inset-block: 22px;
+  inset-inline-start: 22px;
+}
+
+.dashboard-main > .dashboard-topbar {
+  margin-top: 22px;
+  padding-inline: 30px;
+}
+
+/* --- Technical facts strip -------------------------------------------------
+   Uptime and MTU are retired from this row rather than deleted: the strip is
+   React-rendered, so the values stay in the DOM and MTU is mirrored into the
+   WAN metrics from there. */
+.overview-technical-facts > .demo-015-fact-retired {
+  display: none;
+}
+
+/* --- Metric tooltips -------------------------------------------------------
+   The bubble has to be taken out of flow and heavily reset: as a direct child
+   it would otherwise be caught by `.overview-wan-quality span` (which makes it
+   a tile) or `.overview-assurance > div > span` (which makes it a 36px icon
+   box). It opens downward because `.overview-status-hero` is `overflow:
+   hidden`, and the cards nearest the hero's top edge would have an upward
+   bubble clipped off. */
+.demo-has-tip {
+  position: relative;
+}
+
+.overview-wan-quality .demo-metric-tip,
+.overview-assurance .demo-metric-tip {
+  /* Fixed, not absolute: the bubble follows the pointer, and fixed positioning
+     is not clipped by the hero's `overflow: hidden` the way an absolutely
+     positioned child would be. */
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  left: 0;
+  display: block;
+  width: max-content;
+  max-width: 264px;
+  height: auto;
+  min-height: 0;
+  border: 1px solid rgba(186, 214, 247, .2);
+  border-radius: 10px;
+  padding: 9px 11px;
+  background: #0a1a2c;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .42);
+  color: #d7e5f6;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(3px);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s;
+  pointer-events: none;
+}
+
+.demo-has-tip:hover > .demo-metric-tip,
+.demo-has-tip:focus-visible > .demo-metric-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* The rail sits further in than the header so the two do not read as one edge. */
+.dashboard-sidebar {
+  inset-inline-start: 37px;
+}
+
+.demo-has-tip {
+  cursor: help;
+}
+
+.demo-has-tip:focus-visible {
+  outline: 2px solid #cfe3ff;
+  outline-offset: 2px;
+}
+
+/* --- Overview stacking order -----------------------------------------------
+   An alert the operator has to act on should come before the boot log they
+   read afterwards, and the two were also touching with no separation. Ordering
+   is done with flex rather than by moving nodes: these are React-rendered
+   siblings, and reordering the live DOM would be undone on the next render.
+
+   Every child gets an explicit order — default `order: 0` would otherwise
+   float the untouched blocks above the two being placed. */
+#overview.classic-dashboard-overview {
+  display: flex;
+  flex-direction: column;
+}
+
+#overview > .overview-service-ribbon { order: 1; }
+#overview > .overview-status-hero { order: 2; }
+#overview > .health-banner { order: 4; }
+#overview > .health-checks-section { order: 5; }
+#overview > .boot-activity-host { order: 6; }
+#overview > .overview-diagnostic-strip { order: 7; }
+#overview > .overview-content-grid { order: 8; }
+
+/* Needs attention is tucked under the hero: narrower on both sides and pulled
+   up behind it, so it reads as a second card in a stack rather than a separate
+   banner. The hero keeps its own stacking context above it, and the overlap is
+   added back as top padding so nothing is hidden under the hero's edge. */
+#overview > .overview-status-hero {
+  position: relative;
+  z-index: 2;
+}
+
+#overview > .health-banner {
+  position: relative;
+  z-index: 1;
+  width: calc(100% - 44px);
+  margin: -26px auto 18px;
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+}
+
+#overview > .health-banner .health-banner-main {
+  padding-top: 34px;
+}
+
+/* "Review checks" renders the checks list as its own section at the very end of
+   the page and scrolls to it, which reads as the panel jumping out. Ordered
+   directly under the banner and joined to it, the same click reads as the card
+   opening: same width and inset as the tucked card, square shared edge, and no
+   gap between the two. */
+#overview > .health-banner:has(+ .health-checks-section),
+#overview > .health-banner {
+  transition: border-radius .18s ease;
+}
+
+#overview > .health-checks-section {
+  position: relative;
+  z-index: 1;
+  /* One step narrower again than the banner above it, so the stack reads
+     hero → needs attention → checks and no layer is ever wider than the one
+     it sits under. */
+  width: calc(100% - 68px);
+  margin: -18px auto 18px;
+  border: 1px solid var(--separator);
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
+  padding-top: 6px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+  animation: demo-checks-open .2s var(--ease, ease);
+}
+
+/* With the list open the banner is the top half of one card, so it loses its
+   own bottom rounding and shadow. */
+#overview > .health-banner:has(+ .health-checks-section) {
+  margin-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Collapse control closing the checks list, mirroring the chevron language used
+   on the Recovery steps. */
+.demo-checks-collapse {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  padding: 13px 0 15px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: var(--demo-weight-medium);
+}
+
+.demo-checks-collapse:hover {
+  background: color-mix(in srgb, var(--classic-blue) 5%, transparent);
+  color: var(--classic-blue);
+}
+
+.demo-checks-collapse:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: -2px;
+}
+
+.demo-checks-chevron {
+  font-size: 15px;
+  line-height: 1;
+  transform: translateY(2px);
+}
+
+.health-checks-section.demo-checks-collapsed {
+  display: none;
+}
+
+/* With the list hidden the banner is a standalone tucked card again. */
+#overview > .health-banner:has(+ .health-checks-section.demo-checks-collapsed) {
+  margin-bottom: 18px;
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 16px 32px rgba(20, 34, 51, .1);
+}
+
+@keyframes demo-checks-open {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#overview > .boot-activity-host {
+  margin: 0 0 18px;
+}
+
+/* --- Overview diagnostics --------------------------------------------------
+   Time sync and conntrack now live inside the hero (see
+   patchOverviewDiagnostics), so the standalone strip below it would repeat
+   them. The strip stays in the DOM as the source of the live values. */
+.overview-diagnostic-strip {
+  display: none;
+}
+
+/* --- Hero decoration -------------------------------------------------------
+   The base stylesheet already retires the decorative ring on every hero
+   (`display: none; content: none`), but the Security page draws its own from
+   `.classic-hero-heading::after` and was missed, so one page still carried a
+   large faint "O" behind the status chip. Retire that one too. */
+.classic-hero-heading::after {
+  display: none;
+  content: none;
+}
+
+/* --- Hero controls ---------------------------------------------------------
+   The navy hero is one component reused on every page, so the control in its
+   top-right corner should read as one thing too. Eight pages put a
+   `.classic-status-chip` there (38px, radius 10, translucent on navy) but
+   Recovery kept a bright blue `.button.primary`, Logs three white
+   `.button.secondary`, and DNS Filter one of each — the base CSS only lit up
+   buttons nested in `.toolbar` or `.dns-filter-actions`, never a direct child.
+   Put every hero control on the chip's geometry and palette. */
+.subpage-hero-head .button,
+.subpage-hero-head .button.primary,
+.subpage-hero-head .button.secondary {
+  min-height: 38px;
+  border: 1px solid rgba(161, 193, 230, .22);
+  border-radius: 10px;
+  background: rgba(198, 223, 252, .1);
+  color: #e7f1ff;
+  box-shadow: none;
+}
+
+/* The page's own primary action keeps a little more weight than a secondary
+   one, but expressed inside the hero palette rather than as a blue slab. */
+.subpage-hero-head .button.primary {
+  border-color: rgba(186, 214, 247, .38);
+  background: rgba(198, 223, 252, .19);
+  color: #ffffff;
+}
+
+.subpage-hero-head .button:hover,
+.subpage-hero-head .button.primary:hover,
+.subpage-hero-head .button.secondary:hover {
+  border-color: rgba(186, 214, 247, .46);
+  background: rgba(198, 223, 252, .28);
+  color: #ffffff;
+}
+
+.subpage-hero-head .button:focus-visible {
+  outline: 2px solid #cfe3ff;
+  outline-offset: 2px;
+}
+
+/* The icon glyph pass-2 prepends was sized for light buttons. */
+.subpage-hero-head .demo-icon-button::before {
+  opacity: .75;
+}
+
+/* --- Page titles -----------------------------------------------------------
+   Two steps, and the split is by page type, not by markup accident. Every
+   subpage hero — whether the markup calls it `.dashboard-section-heading` or
+   `.dns-filter-heading` — is the same component and sits at --demo-text-2xl.
+   Only the three landing-style panels (Overview, Security, WireGuard) take the
+   step up. DNS Filter was previously grouped with the landing panels purely
+   because of its class name, which made its title 31px against 28px on the
+   twelve pages either side of it. */
+.dns-filter-heading h2 {
+  font-size: var(--demo-text-2xl);
+}
+
+.wg-page-hero h2,
+.classic-security-page > .classic-hero-card h1,
+.overview-status-hero h1,
+.overview-status-hero h2 {
+  font-size: var(--demo-text-3xl);
+}
+
+.dns-filter-heading h2,
+.wg-page-hero h2,
+.classic-security-page > .classic-hero-card h1,
+.overview-status-hero h1,
+.overview-status-hero h2 {
+  font-weight: var(--demo-weight-title);
+  line-height: 1.08;
+  letter-spacing: var(--demo-track-tight);
+}
+
+/* The eyebrow above a hero title is the same label part on every page. The two
+   heading classes had drifted to different sizes, weights and tracking. */
+.dashboard-section-heading .eyebrow,
+.dns-filter-heading .eyebrow,
+.wg-page-hero .eyebrow,
+.classic-security-page .eyebrow,
+.overview-status-hero .eyebrow {
+  color: var(--demo-hero-ink-muted);
+  font-size: var(--demo-text-2xs);
+  font-weight: var(--demo-weight-medium);
+  letter-spacing: var(--demo-track-caps);
+  text-transform: uppercase;
+}
+
+/* Hero body copy shares one measure, rhythm and colour so the panels read as
+   siblings. `--classic-muted` is the grey for light surfaces; pass 2 applied it
+   to `.dashboard-section-heading` copy, which put a 4.2:1 light-theme grey on the navy
+   panel across twelve pages while DNS Filter kept the properly tuned on-navy
+   tone. Standardise on the on-navy tone. */
+.dashboard-section-heading .section-copy,
+.dashboard-section-heading > .subpage-hero-head p:not(.eyebrow),
+.dns-filter-heading .dns-filter-intro,
+.wg-page-hero p:not(.eyebrow),
+.overview-status-hero p:not(.eyebrow) {
+  max-width: 760px;
+  color: var(--demo-hero-ink-muted);
+  font-size: var(--demo-text-sm);
+  line-height: 1.55;
+}
+
+/* --- Card titles -----------------------------------------------------------
+   Table cards were unified in pass 2; extend the same heading treatment to the
+   plain cards on Gateway, QoS and WireGuard so a card title is one thing. */
+.dashboard-section .card > .card-title-row h3 {
+  margin: 0 0 5px;
+  font-size: var(--demo-text-xl);
+  font-weight: var(--demo-weight-strong);
+  letter-spacing: -.025em;
+}
+
+/* --- Grouped form sections -------------------------------------------------
+   Pass 2 listed section ids by hand and two of them never matched: the Security
+   page renders without an id, and DNS Filter's element is `#adguard`, not
+   `#dns-filter`. markVisualSystem() already tags every settings form with
+   `.settings-form`, so drive the system from that class instead. It also
+   picks up Gateway, which the hand-written list omitted. */
+.settings-form > fieldset {
+  margin: 0 0 18px;
+  border: 1px solid var(--classic-border);
+  border-radius: 16px;
+  padding: 22px 24px 24px;
+  background: var(--classic-panel);
+  box-shadow: var(--demo-shadow-soft);
+}
+
+.settings-form > fieldset legend {
+  padding: 0 8px;
+  color: var(--classic-text);
+  font-size: 14px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+.settings-form > fieldset:last-of-type {
+  margin-bottom: 0;
+}
+
+/* --- Dark theme parity -----------------------------------------------------
+   The pass-2 surfaces were tuned against a white panel. On the dark theme the
+   same washes collapse into near-invisible grey, so re-seat the ones that
+   carry meaning. */
+:root[data-theme="dark"] .table-scroll th,
+:root[data-theme="dark"] #network .static-leases th,
+:root[data-theme="dark"] #firewall .firewall-rules th,
+:root[data-theme="dark"] .modern-device-section .elegant-device-table th {
+  background: color-mix(in srgb, var(--classic-soft) 78%, var(--classic-panel));
+}
+
+:root[data-theme="dark"] .table-scroll tbody tr:hover,
+:root[data-theme="dark"] #network .static-leases tbody tr:hover,
+:root[data-theme="dark"] #firewall .firewall-rules tbody tr:hover {
+  background: color-mix(in srgb, var(--classic-soft) 60%, transparent);
+}
+
+:root[data-theme="dark"] .demo-recovery-legend,
+:root[data-theme="dark"] .demo-015-recovery-moved details .form-note {
+  border-color: color-mix(in srgb, var(--demo-accent-ink) 26%, var(--classic-border));
+  background: color-mix(in srgb, var(--demo-accent-ink) 9%, var(--classic-panel));
+}
+
+:root[data-theme="dark"] .demo-recovery-legend > span {
+  color: var(--demo-accent-ink);
+}
+
+/* --- Empty states ----------------------------------------------------------
+   The tile read as a disabled control. Tie it to the accent so it reads as the
+   invitation it is. */
+td.empty-state::before {
+  border-color: color-mix(in srgb, var(--classic-blue) 22%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 6%, var(--classic-panel));
+}
+
+/* --- Focus -----------------------------------------------------------------
+   This pass restyles buttons and takes over <summary>, which is the only way
+   to reach the recovery steps from the keyboard. Keep the ring on both. */
+.demo-015-recovery-moved summary:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: -2px;
+  border-radius: 15px;
+}
+
+.demo-icon-button:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 2px;
+}

@@ -115,15 +115,11 @@ while IFS= read -r kernel_module; do
     grep -qxF "$kernel_module" /etc/modules 2>/dev/null || printf '%s\n' "$kernel_module" >> /etc/modules
 done < packaging/alpine/minimalrouter.modules
 
-
 # MinimalRouter owns every WAN/LAN/tunnel interface: router-applyd assigns the
 # LAN address, pppd owns the WAN, and wg(8) owns the tunnels. A distribution
 # /etc/network/interfaces that still carries "iface eth0 inet dhcp" competes
-# with all three -- it delays boot on `need net`, can hand the WAN interface an
-# unexpected DHCP lease, and can re-run ifup against an address the helper has
-# already installed. The isolated lab has always installed this file by hand
-# (scripts/lab/payloads/mr-install.sh); shipping it here is what makes a normal
-# setup-alpine host match the tested configuration.
+# with all three -- it can launch BusyBox udhcpc, hand the physical PPPoE WAN an
+# unexpected RFC1918 lease/default route, or overwrite resolver state.
 if [ -f /etc/network/interfaces ] && [ ! -f /etc/network/interfaces.minimalrouter-backup ]; then
     cp -p /etc/network/interfaces /etc/network/interfaces.minimalrouter-backup
     echo "Saved previous network configuration to /etc/network/interfaces.minimalrouter-backup"
@@ -131,7 +127,7 @@ fi
 install -d -m 0755 -o root -g root /etc/network
 {
     echo "# Managed by MinimalRouter. Interfaces are owned by router-applyd,"
-    echo "# pppd and wg(8); do not add addresses here."
+    echo "# pppd and wg(8); do not add DHCP/static addresses here."
     echo "auto lo"
     echo "iface lo inet loopback"
     echo ""
@@ -146,18 +142,49 @@ install -d -m 0755 -o root -g root /etc/network
 } > /etc/network/interfaces
 chmod 0644 /etc/network/interfaces
 
-# cloud-init re-applies its own network configuration on every boot and will
-# undo the file above on cloud images.
-if rc-service --exists cloud-init >/dev/null 2>&1; then
-    rc-service cloud-init stop >/dev/null 2>&1 || true
-    rc-update del cloud-init default >/dev/null 2>&1 || true
-fi
+# Defense in depth for machines converted from a normal Alpine/cloud install.
+# dhcpcd is intentionally not in the Golden image, but if it is present now or
+# appears later it is forbidden from owning every MinimalRouter interface.
+cat > /etc/dhcpcd.conf <<'DHCPCD_CONFIG'
+# Managed by MinimalRouter. WAN=pppd, LAN=router-applyd, tunnels=wg(8).
+denyinterfaces *
+DHCPCD_CONFIG
+chmod 0644 /etc/dhcpcd.conf
 
-# 6. Enable services in OpenRC default runlevel
-# MinimalRouter owns every router interface. dhcpcd must not race
-# router-applyd/pppd for DHCP addresses or default routes at boot.
-for unused_service in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
+# BusyBox udhcpc remains present as an Alpine base applet. It is never launched
+# automatically because /etc/network/interfaces contains no DHCP stanza. If an
+# operator invokes it manually, at least do not allow it to replace the router's
+# resolver configuration.
+install -d -m 0755 -o root -g root /etc/udhcpc
+cat > /etc/udhcpc/udhcpc.conf <<'UDHCPC_CONFIG'
+# Managed by MinimalRouter. Automatic udhcpc use is unsupported.
+RESOLV_CONF="no"
+UDHCPC_CONFIG
+chmod 0644 /etc/udhcpc/udhcpc.conf
+
+# cloud-init's documented fallback is to generate DHCP on a first interface when
+# no explicit network data is available. Disable both network rendering and
+# activation, in addition to removing all Alpine cloud-init phases from OpenRC.
+install -d -m 0755 -o root -g root /etc/cloud/cloud.cfg.d
+cat > /etc/cloud/cloud.cfg.d/99-minimalrouter-network.cfg <<'CLOUD_INIT_NETWORK'
+network:
+  config: disabled
+disable_network_activation: true
+CLOUD_INIT_NETWORK
+chmod 0644 /etc/cloud/cloud.cfg.d/99-minimalrouter-network.cfg
+for cloud_service in cloud-init cloud-init-local cloud-config cloud-final; do
+    rc-service "$cloud_service" stop >/dev/null 2>&1 || true
+    rc-update del "$cloud_service" boot >/dev/null 2>&1 || true
+    rc-update del "$cloud_service" default >/dev/null 2>&1 || true
+done
+
+# 6. Enable services in OpenRC default runlevel.
+# MinimalRouter owns every router interface. No competing client/manager may be
+# auto-started on either boot or default runlevels.
+for unused_service in dhcpcd networkmanager NetworkManager connman iwd wpa_supplicant \
+    dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$unused_service" stop >/dev/null 2>&1 || true
+    rc-update del "$unused_service" boot >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
 rc-update add chronyd default

@@ -14,6 +14,14 @@ func configureGatewayMonitoring(server *api.Server, dataDir string) func() {
 		log.Printf("[GATEWAY] Monitoring unavailable: %v", err)
 		return func() {}
 	}
+	// Install the bounded 30-day availability/public-IP derived history before
+	// collection starts so no sample can fall between schema initialization and
+	// the trigger-backed event store.
+	if err := store.EnsureInsightsSchema(); err != nil {
+		_ = store.Close()
+		log.Printf("[GATEWAY] Insight history unavailable: %v", err)
+		return func() {}
+	}
 	monitor := gateway.NewMonitor(store, gateway.NewCommandProber(), gateway.NewLinkReader("ppp0"))
 	server.ConfigureGatewayMonitor(monitor)
 	ctx, cancel := context.WithCancel(context.Background())

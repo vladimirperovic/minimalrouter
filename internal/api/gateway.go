@@ -9,11 +9,8 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/gateway"
 )
 
-var gatewayMonitorRegistry sync.Map // map[*Server]*gateway.Monitor
+var gatewayMonitorRegistry sync.Map
 
-// ConfigureGatewayMonitor attaches WAN quality monitoring and its conservative
-// PPPoE-link auto-recovery supervisor. Auto-recovery reuses the existing
-// verified reconcile path and is stopped together with the monitor.
 func (s *Server) ConfigureGatewayMonitor(monitor *gateway.Monitor) {
 	if monitor == nil {
 		gatewayMonitorRegistry.Delete(s)
@@ -30,9 +27,6 @@ func (s *Server) configuredGatewayMonitor() *gateway.Monitor {
 	return result
 }
 
-// RegisterGatewayRoutes keeps the optional telemetry subsystem separate from
-// the canonical router API route table. All routes still pass through the same
-// authentication, read-only-session, Origin and CSRF protections.
 func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
 	gate := func(next http.HandlerFunc) http.HandlerFunc {
@@ -40,14 +34,15 @@ func (s *Server) RegisterGatewayRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /api/v1/gateway/summary", gate(s.handleGetGatewaySummary))
 	mux.HandleFunc("GET /api/v1/gateway/history", gate(s.handleGetGatewayHistory))
+	mux.HandleFunc("GET /api/v1/gateway/insights", gate(s.handleGetGatewayInsights))
 	mux.HandleFunc("GET /api/v1/gateway/settings", gate(s.handleGetGatewaySettings))
 	mux.HandleFunc("PUT /api/v1/gateway/settings", gate(s.handlePutGatewaySettings))
 	mux.HandleFunc("POST /api/v1/gateway/diagnose", gate(s.handleNetworkDiagnose))
+	mux.HandleFunc("POST /api/v1/system/actions/{action}", gate(s.handleServiceAction))
+	mux.HandleFunc("GET /api/v1/devices/pauses", gate(s.handleGetDevicePauses))
+	mux.HandleFunc("POST /api/v1/devices/pause", gate(s.handlePauseDevice))
+	mux.HandleFunc("POST /api/v1/devices/resume", gate(s.handleResumeDevice))
 	mux.HandleFunc("POST /api/v1/config/preview", gate(s.handleConfigPreview))
-
-	// Firmware update routes live in their own implementation file but are
-	// registered here because cmd/routerd already invokes this optional-route
-	// registrar after the canonical API. They use the same management gate.
 	s.registerFirmwareRoutes(mux)
 	mux.HandleFunc("GET /api/v1/firmware/local-status", gate(s.handleFirmwareLocalStatus))
 }
@@ -67,7 +62,6 @@ func (s *Server) handleGetGatewayHistory(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Gateway monitoring is unavailable", http.StatusServiceUnavailable)
 		return
 	}
-
 	windowName := r.URL.Query().Get("window")
 	if windowName == "" {
 		windowName = "1h"
@@ -93,6 +87,20 @@ func (s *Server) handleGetGatewayHistory(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeGatewayJSON(w, http.StatusOK, map[string]interface{}{"window": windowName, "points": points})
+}
+
+func (s *Server) handleGetGatewayInsights(w http.ResponseWriter, _ *http.Request) {
+	monitor := s.configuredGatewayMonitor()
+	if monitor == nil {
+		http.Error(w, "Gateway monitoring is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	insights, err := monitor.Insights(30*24*time.Hour, 20)
+	if err != nil {
+		http.Error(w, "Gateway insights are unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	writeGatewayJSON(w, http.StatusOK, insights)
 }
 
 func (s *Server) handleGetGatewaySettings(w http.ResponseWriter, _ *http.Request) {

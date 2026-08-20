@@ -70,6 +70,10 @@ jobs:
           grep -F 'router-setup collect' packaging/alpine/firstboot.sh
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
           grep -F 'CHECK_KERNEL_MODULE_MATCH_OK' scripts/ci/iso-full-install.exp
+          grep -F 'INSTALLED_REBOOT_MATRIX_OK' scripts/ci/iso-installed-reboot.exp
+          grep -F 'ROUTERD_CRASH_RECOVERY_OK' scripts/ci/iso-installed-reboot.exp
+          grep -F 'EXISTING_INSTALL_GUARD_OK' scripts/ci/iso-installer-safety.exp
+          grep -F 'UNDERSIZED_DISK_GUARD_OK' scripts/ci/iso-installer-safety.exp
 
           # The user's VM is a flasher target, never an Alpine build host.
           if grep -E '^[[:space:]]*apk[[:space:]]+(add|update|fix)' packaging/alpine/live-installer.sh; then
@@ -183,6 +187,37 @@ jobs:
           grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-full-install.log
           grep -F 'INSTALLED_SSH_OK' build/iso/qemu-full-install.log
 
+      - name: Cold boot, crash-recover and reboot the installed appliance
+        run: |
+          set -eux
+          chmod +x scripts/ci/iso-installed-reboot.exp
+          timeout 900 scripts/ci/iso-installed-reboot.exp \
+            build/iso/full-install-disk.raw \
+            build/iso/qemu-installed-reboot.log
+          grep -F 'INSTALLED_COLD_BOOT_OK' build/iso/qemu-installed-reboot.log
+          grep -F 'ROUTERD_CRASH_RECOVERY_OK' build/iso/qemu-installed-reboot.log
+          grep -F 'INSTALLED_WARM_REBOOT_OK' build/iso/qemu-installed-reboot.log
+          grep -F 'INSTALLED_REBOOT_MATRIX_OK' build/iso/qemu-installed-reboot.log
+
+      - name: Verify destructive installer safety guards
+        run: |
+          set -eux
+          chmod +x scripts/ci/iso-installer-safety.exp
+          timeout 300 scripts/ci/iso-installer-safety.exp \
+            existing \
+            build/iso/minimalrouter-full-install-test.iso \
+            build/iso/full-install-disk.raw \
+            build/iso/qemu-existing-install-guard.log
+          grep -F 'EXISTING_INSTALL_GUARD_OK' build/iso/qemu-existing-install-guard.log
+
+          truncate -s 4G build/iso/undersized-install-disk.raw
+          timeout 300 scripts/ci/iso-installer-safety.exp \
+            small \
+            build/iso/minimalrouter-full-install-test.iso \
+            build/iso/undersized-install-disk.raw \
+            build/iso/qemu-undersized-disk.log
+          grep -F 'UNDERSIZED_DISK_GUARD_OK' build/iso/qemu-undersized-disk.log
+
       - name: Upload tested bootable ISO
         if: always()
         uses: actions/upload-artifact@v4
@@ -193,6 +228,9 @@ jobs:
             build/iso/minimalrouter-*-amd64.iso.sha256
             build/iso/qemu-boot.log
             build/iso/qemu-full-install.log
+            build/iso/qemu-installed-reboot.log
+            build/iso/qemu-existing-install-guard.log
+            build/iso/qemu-undersized-disk.log
           if-no-files-found: warn
           compression-level: 0
           retention-days: 14

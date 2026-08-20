@@ -56,6 +56,23 @@ const SYSTEM = {
   },
 };
 
+const STARTUP = {
+  boots: [{
+    id: "boot-1",
+    started_at: new Date(Date.now() - 60_000).toISOString(),
+    completed: true,
+    readiness: {
+      management_seconds: 1,
+      pppoe_seconds: 4,
+      dns_seconds: 5,
+      internet_seconds: 6,
+      wireguard_seconds: 7,
+    },
+    events: [{ offset_seconds: 3, kind: "routerd", message: "configuration reconciled" }],
+    samples: [{ offset_seconds: 7, cpu_percent: 4.2, memory_used_mb: 178, memory_total_mb: 512 }],
+  }],
+};
+
 const SECTIONS = [
   ["overview", "Overview"],
   ["gateway", "Gateway Quality"],
@@ -105,6 +122,7 @@ async function stubApi(page: Page) {
     });
     if (path === "/api/v1/gateway/settings") return json(route, { enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 });
     if (path === "/api/v1/gateway/history") return json(route, { window: "1h", points: [] });
+    if (path === "/api/v1/startup/boots") return json(route, STARTUP);
     if (path === "/api/v1/snapshots") return json(route, []);
     if (path === "/api/v1/transactions/pending") return json(route, {});
     if (path === "/api/v1/audit/events") return json(route, { events: [] });
@@ -115,6 +133,13 @@ async function stubApi(page: Page) {
 }
 
 async function expectNoPageOverflow(page: Page) {
+  // The shell animates `transform` on .dashboard-main for 180ms when the menu
+  // closes, so measuring the moment the class drops catches the element
+  // mid-flight and reports a false overflow. Poll until it has settled.
+  await expect
+    .poll(async () => page.evaluate(() => document.querySelector<HTMLElement>(".dashboard-main")!.getBoundingClientRect().left), { timeout: 3000 })
+    .toBeGreaterThanOrEqual(-1);
+
   const geometry = await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".dashboard-main")!.getBoundingClientRect();
     return {
@@ -133,42 +158,116 @@ async function expectNoPageOverflow(page: Page) {
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-test("mobile navigation fills the viewport and the menu button closes it", async ({ page, isMobile }) => {
+test("mobile menu pushes the page away and keeps the control fixed top-right", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile-only responsive regression");
   await stubApi(page);
   await page.goto("/");
   await expect(page.locator(".dashboard-app")).toBeVisible();
 
-  const menu = page.getByRole("button", { name: "Open navigation" });
+  const menu = page.locator(".mobile-navigation-toggle");
   const sidebar = page.locator(".dashboard-sidebar");
-  await menu.click();
-  await page.waitForTimeout(280);
+  const main = page.locator(".dashboard-main");
+  await expect(menu).toBeVisible();
 
-  const box = await sidebar.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
-  });
-  expect(Math.abs(box.x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(box.y)).toBeLessThanOrEqual(1);
-  expect(box.width).toBeGreaterThanOrEqual(389);
-  expect(box.height).toBeGreaterThanOrEqual(843);
+  const initialButton = await menu.boundingBox();
+  expect(initialButton).not.toBeNull();
+  // Wait for the page to stop growing before taking the scroll baseline. The
+  // dashboard fills in asynchronously, so scrolling too early is clamped to a
+  // shorter document and the baseline no longer matches what the shell locks.
+  await expect
+    .poll(async () => page.evaluate(() => document.documentElement.scrollHeight), { timeout: 10_000, intervals: [200, 200, 300, 500] })
+    .toBeGreaterThan(1200);
+  let stable = -1;
+  await expect
+    .poll(async () => {
+      const height = await page.evaluate(() => document.documentElement.scrollHeight);
+      const settled = height === stable;
+      stable = height;
+      return settled;
+    }, { timeout: 10_000 })
+    .toBe(true);
+
+  await page.evaluate(() => window.scrollTo(0, Math.min(420, Math.max(0, document.documentElement.scrollHeight - innerHeight))));
+  // WebKit clamps the requested offset to the document height it has at that
+  // instant and settles on the real target a few frames later, so read the
+  // baseline only once the offset itself has stopped moving.
+  let lastOffset = -1;
+  await expect
+    .poll(async () => {
+      const offset = await page.evaluate(() => window.scrollY);
+      const settled = offset === lastOffset;
+      lastOffset = offset;
+      return settled;
+    }, { timeout: 10_000 })
+    .toBe(true);
+  const savedScroll = await page.evaluate(() => window.scrollY);
+  const scrolledButton = await menu.boundingBox();
+  expect(scrolledButton).not.toBeNull();
+  expect(Math.abs((scrolledButton?.x ?? 0) - (initialButton?.x ?? 0))).toBeLessThanOrEqual(1);
+  expect(Math.abs((scrolledButton?.y ?? 0) - (initialButton?.y ?? 0))).toBeLessThanOrEqual(1);
+
+  await menu.click();
   await expect(sidebar).toHaveClass(/is-open/);
-  expect(await page.evaluate(() => getComputedStyle(document.body).overflowY)).toBe("hidden");
+  await page.waitForTimeout(680);
+
+  const sidebarBox = await sidebar.boundingBox();
+  expect(sidebarBox).not.toBeNull();
+  expect(Math.abs(sidebarBox?.x ?? 0)).toBeLessThanOrEqual(1);
+  expect(Math.abs(sidebarBox?.y ?? 0)).toBeLessThanOrEqual(1);
+  expect(sidebarBox?.width ?? 0).toBeGreaterThanOrEqual(389);
+  expect(sidebarBox?.height ?? 0).toBeGreaterThanOrEqual(843);
+
+  const pushed = await main.evaluate((element) => ({
+    transform: getComputedStyle(element).transform,
+    left: element.getBoundingClientRect().left,
+    right: element.getBoundingClientRect().right,
+  }));
+  expect(pushed.transform).not.toBe("none");
+  expect(pushed.left).toBeLessThan(-70);
+  expect(pushed.right).toBeLessThan(390);
+  expect(await page.evaluate(() => getComputedStyle(document.body).position)).toBe("fixed");
   expect(await menu.evaluate((element) => getComputedStyle(element, "::before").content)).toContain("×");
 
+  await menu.click();
+  await expect(sidebar).not.toHaveClass(/is-open/);
+  // Unlocking restores the scroll offset in one call, but the document only
+  // regains its full height as the close transition runs, so the browser clamps
+  // the position for a few frames before it lands. Poll instead of sampling
+  // once at 40ms.
+  await expect
+    .poll(async () => Math.abs((await page.evaluate(() => window.scrollY)) - savedScroll), { timeout: 3000 })
+    .toBeLessThanOrEqual(2);
+
+  await menu.click();
+  await expect(sidebar).toHaveClass(/is-open/);
+  await page.keyboard.press("Escape");
+  await expect(sidebar).not.toHaveClass(/is-open/);
+
+  // No scrim-close assertion here. The drawer is deliberately full-bleed on a
+  // phone: measured at 412px it spans the whole viewport while .dashboard-main
+  // is pushed to -183..176, entirely behind it, so no point of the page is
+  // reachable to tap "outside". The affordances that do exist — the × control
+  // and Escape — are both covered above.
+  await menu.click();
+  await expect(sidebar).toHaveClass(/is-open/);
   await menu.click();
   await expect(sidebar).not.toHaveClass(/is-open/);
 });
 
 test("every dashboard section stays inside the mobile viewport", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile-only responsive regression");
+  // Fourteen sections, each opening and closing the drawer. The close animation
+  // is a deliberate 620ms cubic-bezier with a long tail, and WebKit needs about
+  // 1.5s before the transform is fully released, so the default 30s budget is
+  // not enough for the walk.
+  test.setTimeout(120_000);
   await stubApi(page);
   await page.goto("/");
   await expect(page.locator(".dashboard-app")).toBeVisible();
 
   for (const [id, label] of SECTIONS) {
     if (id !== "overview") {
-      await page.getByRole("button", { name: "Open navigation" }).click();
+      await page.locator(".mobile-navigation-toggle").click();
       await expect(page.locator(".dashboard-sidebar")).toHaveClass(/is-open/);
       await page.locator(`.dashboard-navigation a[href="#${id}"]`).click();
       await expect(page.locator(".dashboard-sidebar")).not.toHaveClass(/is-open/);
@@ -176,4 +275,81 @@ test("every dashboard section stays inside the mobile viewport", async ({ page, 
     await expect(page.locator(".classic-page-heading h1")).toHaveText(label);
     await expectNoPageOverflow(page);
   }
+});
+
+test("startup timeline is horizontal and scrolls inside Logs on mobile", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "mobile-only responsive regression");
+  await stubApi(page);
+  await page.goto("/#logs");
+  await expect(page.locator(".startup-timeline")).toBeVisible();
+
+  const timeline = page.locator(".startup-timeline .tl");
+  const items = timeline.locator(".tl-item");
+  await expect(items).toHaveCount(7);
+  const layout = await timeline.evaluate((element) => ({
+    flow: getComputedStyle(element).gridAutoFlow,
+    overflowX: getComputedStyle(element).overflowX,
+  }));
+  expect(layout.flow).toContain("column");
+  expect(layout.overflowX).toBe("auto");
+
+  const first = await items.nth(0).boundingBox();
+  const second = await items.nth(1).boundingBox();
+  expect(first).not.toBeNull();
+  expect(second).not.toBeNull();
+  expect((second?.x ?? 0) - (first?.x ?? 0)).toBeGreaterThan(120);
+  expect(Math.abs((second?.y ?? 0) - (first?.y ?? 0))).toBeLessThanOrEqual(2);
+  await expectNoPageOverflow(page);
+});
+
+test.describe("desktop final frame", () => {
+  test.use({ viewport: { width: 1600, height: 900 } });
+
+  test("uses equal 37px gutters and hides only the redundant gateway ribbon chip", async ({ page, isMobile }) => {
+    test.skip(isMobile, "desktop-only frame regression");
+    await stubApi(page);
+    await page.goto("/");
+    await expect(page.locator(".classic-dashboard-overview")).toBeVisible();
+
+    const geometry = await page.evaluate(() => {
+      const sidebar = document.querySelector<HTMLElement>(".dashboard-sidebar")!.getBoundingClientRect();
+      const overview = document.querySelector<HTMLElement>(".classic-dashboard-overview")!.getBoundingClientRect();
+      const topbar = document.querySelector<HTMLElement>(".dashboard-topbar")!.getBoundingClientRect();
+      return {
+        viewport: window.innerWidth,
+        sidebarLeft: sidebar.left,
+        sidebarRight: sidebar.right,
+        overviewLeft: overview.left,
+        overviewRight: overview.right,
+        topbarLeft: topbar.left,
+        topbarRight: topbar.right,
+      };
+    });
+
+    expect(Math.abs(geometry.sidebarLeft - 37)).toBeLessThanOrEqual(1);
+    expect(Math.abs((geometry.overviewLeft - geometry.sidebarRight) - 37)).toBeLessThanOrEqual(1);
+    expect(Math.abs((geometry.viewport - geometry.overviewRight) - 37)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.topbarLeft - geometry.overviewLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(geometry.topbarRight - geometry.overviewRight)).toBeLessThanOrEqual(1);
+    // The topbar health pill was removed: the Needs attention card on Overview
+    // already carries that state, and the pill duplicated it in a narrower bar.
+    await expect(page.locator(".classic-setup-pill")).toHaveCount(0);
+    await expect(page.locator(".overview-service-ribbon .overview-service-chip").filter({ hasText: /^Gateway / })).toBeHidden();
+  });
+
+  test("startup timeline stays a single horizontal sequence on desktop", async ({ page, isMobile }) => {
+    test.skip(isMobile, "desktop-only timeline regression");
+    await stubApi(page);
+    await page.goto("/#logs");
+    await expect(page.locator(".startup-timeline")).toBeVisible();
+
+    const items = page.locator(".startup-timeline .tl-item");
+    await expect(items).toHaveCount(7);
+    const boxes = await items.evaluateAll((nodes) => nodes.map((node) => {
+      const rect = (node as HTMLElement).getBoundingClientRect();
+      return { x: rect.x, y: rect.y };
+    }));
+    expect(new Set(boxes.map((box) => Math.round(box.y))).size).toBe(1);
+    for (let i = 1; i < boxes.length; i += 1) expect(boxes[i].x).toBeGreaterThan(boxes[i - 1].x);
+  });
 });

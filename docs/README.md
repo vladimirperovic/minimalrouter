@@ -1,11 +1,11 @@
 # Documentation
 
-Minimal Router OS is currently **Beta (v0.1.4)**. The preferred AMD64/Proxmox
+Minimal Router OS is currently **Beta (v0.1.5)**. The preferred AMD64/Proxmox
 first-install path is the Golden Appliance ISO.
 
 ## Start here
 
-- [`../README.md`](../README.md) — project overview and v0.1.4 quick start
+- [`../README.md`](../README.md) — project overview and v0.1.5 quick start
 - [`ISO_INSTALLATION.md`](ISO_INSTALLATION.md) — preferred Golden ISO installation
 - [`PROXMOX.md`](PROXMOX.md) — recommended VM baseline and pilot procedure
 - [`GOLDEN-IMAGE.md`](GOLDEN-IMAGE.md) — exact build/flasher/firstboot design; mandatory for installer changes
@@ -36,7 +36,8 @@ first-install path is the Golden Appliance ISO.
 - [`../SECURITY.md`](../SECURITY.md) — threat model and vulnerability reporting
 - [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md) — signed tags, payload signatures, Golden ISO and attestations
 - [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — maintainer release process
-- [`releases/v0.1.4.md`](releases/v0.1.4.md) — v0.1.4 release notes
+- [`releases/v0.1.5.md`](releases/v0.1.5.md) — current v0.1.5 release notes
+- [`releases/v0.1.4.md`](releases/v0.1.4.md) — previous v0.1.4 release notes
 - [`FAILURE_SCENARIOS.md`](FAILURE_SCENARIOS.md) — failure-state contract
 - [`../PRIVACY.md`](../PRIVACY.md) — privacy policy
 

@@ -369,6 +369,7 @@ function patchOverviewDiagnostics() {
 }
 
 function patchWireGuardSuccess() {
+  if (!isDemoMode) return;
   const callout = document.querySelector<HTMLElement>(".wg-callout");
   if (!callout || callout.querySelector(".wg-qr")) return;
   const wrapper = document.createElement("div");
@@ -496,7 +497,6 @@ export default function Demo015Preview() {
   const [recoveryError, setRecoveryError] = useState("");
 
   useEffect(() => {
-    if (!isDemoMode) return;
     document.documentElement.classList.add("demo-015-preview");
 
     const sync = () => {
@@ -514,14 +514,16 @@ export default function Demo015Preview() {
       decorateEmptyStates();
       markVisualSystem();
 
-      const recovery = document.getElementById("recovery");
-      let slot = recovery?.querySelector<HTMLElement>(".demo-015-recovery-slot") ?? null;
-      if (recovery && !slot) {
-        slot = document.createElement("div");
-        slot.className = "demo-015-recovery-slot";
-        recovery.appendChild(slot);
+      if (isDemoMode) {
+        const recovery = document.getElementById("recovery");
+        let slot = recovery?.querySelector<HTMLElement>(".demo-015-recovery-slot") ?? null;
+        if (recovery && !slot) {
+          slot = document.createElement("div");
+          slot.className = "demo-015-recovery-slot";
+          recovery.appendChild(slot);
+        }
+        setRecoveryTarget(slot);
       }
-      setRecoveryTarget(slot);
     };
 
     const root = document.getElementById("root") ?? document.body;

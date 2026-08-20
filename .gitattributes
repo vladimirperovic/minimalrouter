@@ -1,0 +1,28 @@
+# The appliance ships shell scripts, OpenRC init scripts and a kernel module
+# manifest that are read by /bin/sh and by the kernel on Alpine. A CRLF checkout
+# turns `#!/bin/sh` into `#!/bin/sh\r`, which fails at runtime with a confusing
+# "not found", and makes exact-match tests over those files fail on Windows.
+# Normalise in the repository and check everything out with LF regardless of
+# core.autocrlf.
+* text=auto eol=lf
+
+# Explicit for the files where a stray CR is fatal rather than cosmetic.
+*.sh            text eol=lf
+*.initd         text eol=lf
+*.exp           text eol=lf
+*.modules       text eol=lf
+Makefile        text eol=lf
+
+# Windows helpers are the one place CRLF is correct.
+*.bat           text eol=crlf
+*.ps1           text eol=crlf
+
+# Never touch binaries.
+*.png           binary
+*.jpg           binary
+*.gif           binary
+*.ico           binary
+*.woff2         binary
+*.zip           binary
+*.gz            binary
+*.iso           binary

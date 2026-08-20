@@ -1,0 +1,136 @@
+#!/usr/bin/expect -f
+
+# Boots an already-installed appliance without the ISO, proves firstboot does
+# not re-run, checks the management plane, kills routerd to exercise
+# supervise-daemon recovery, then performs an in-guest reboot and checks the
+# appliance a second time.
+set timeout 300
+set disk [lindex $argv 0]
+set logpath [lindex $argv 1]
+
+if {$disk eq "" || $logpath eq ""} {
+    puts stderr "usage: iso-installed-reboot.exp <disk> <log>"
+    exit 2
+}
+
+set recovery_password "MRciRecovery-2026!"
+
+log_user 1
+log_file -noappend $logpath
+match_max 65536
+
+spawn qemu-system-x86_64 \
+    -machine pc,accel=tcg \
+    -cpu max \
+    -smp 1 \
+    -m 1536 \
+    -boot c \
+    -drive file=$disk,format=raw,if=virtio \
+    -netdev user,id=wan,restrict=on \
+    -device virtio-net-pci,netdev=wan \
+    -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
+    -device virtio-net-pci,netdev=lan \
+    -display none \
+    -serial stdio
+
+proc login_root {password stage} {
+    expect {
+        -re {login:} { send -- "root\r" }
+        -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+[^\n]*first boot} {
+            puts stderr "firstboot wizard unexpectedly re-ran during $stage"
+            exit 10
+        }
+        timeout { puts stderr "timeout waiting for login during $stage"; exit 11 }
+        eof { puts stderr "QEMU exited before login during $stage"; exit 12 }
+    }
+    expect {
+        -re {Password:} { send -- "$password\r" }
+        timeout { puts stderr "timeout waiting for password during $stage"; exit 13 }
+        eof { puts stderr "QEMU exited before password during $stage"; exit 14 }
+    }
+    expect {
+        -re {# $} {}
+        -re {~ #} {}
+        timeout { puts stderr "timeout waiting for root shell during $stage"; exit 15 }
+        eof { puts stderr "QEMU exited before root shell during $stage"; exit 16 }
+    }
+
+    # Disable tty input echo so success markers cannot be matched from the typed
+    # command itself. From this point, matching the token alone is safe and also
+    # avoids depending on QEMU serial CR/LF rendering.
+    send -- "stty -echo\r"
+    expect {
+        -re {# $} {}
+        -re {~ #} {}
+        timeout { puts stderr "timeout disabling tty echo during $stage"; exit 17 }
+        eof { puts stderr "QEMU exited while disabling tty echo during $stage"; exit 18 }
+    }
+}
+
+proc wait_services {marker} {
+    send -- "i=0; while \[ \"\$i\" -lt 180 \]; do if test -s /etc/minimalrouter/firstboot-complete && ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo $marker; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 180 \] || echo ${marker}_TIMEOUT\r"
+    expect {
+        -re "${marker}_TIMEOUT" { puts stderr "services did not recover for $marker"; exit 20 }
+        -re $marker {}
+        timeout { puts stderr "timeout waiting for $marker"; exit 21 }
+        eof { puts stderr "QEMU exited before $marker"; exit 22 }
+    }
+}
+
+proc verify_ssh {password marker} {
+    for {set i 0} {$i < 45} {incr i} {
+        if {![catch {
+            exec sshpass -p $password ssh \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                -o ConnectTimeout=2 \
+                -p 2222 \
+                root@127.0.0.1 "echo $marker"
+        } output]} {
+            if {[string first $marker $output] >= 0} {
+                puts "$marker (real SSH login succeeded)"
+                return
+            }
+        }
+        after 1000
+    }
+    puts stderr "SSH verification failed: $marker"
+    exit 30
+}
+
+# Cold boot from the installed disk only.
+login_root $recovery_password "cold boot"
+wait_services INSTALLED_COLD_BOOT_OK
+verify_ssh $recovery_password INSTALLED_COLD_BOOT_SSH_OK
+
+# /usr/bin/routerd is a slot-exec dispatcher; after exec the actual supervised
+# child is named routerd-amd64 in this x86_64 appliance test. Kill that child so
+# supervise-daemon must replace it and restore the HTTPS listener without reboot.
+send -- "old=\$(busybox pidof routerd-amd64 | awk '{print \$1}'); test -n \"\$old\" || { echo ROUTERD_PID_MISSING; exit 1; }; kill -9 \"\$old\"; i=0; while \[ \"\$i\" -lt 60 \]; do new=\$(busybox pidof routerd-amd64 | awk '{print \$1}'); if \[ -n \"\$new\" \] && \[ \"\$new\" != \"\$old\" \] && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo ROUTERD_CRASH_RECOVERY_OK; break; fi; i=\$((i+1)); sleep 1; done; \[ \"\$i\" -lt 60 \] || echo ROUTERD_CRASH_RECOVERY_TIMEOUT\r"
+expect {
+    -re {ROUTERD_PID_MISSING} { puts stderr "routerd process was missing before crash test"; exit 31 }
+    -re {ROUTERD_CRASH_RECOVERY_TIMEOUT} { puts stderr "routerd did not recover after SIGKILL"; exit 32 }
+    -re {ROUTERD_CRASH_RECOVERY_OK} {}
+    timeout { puts stderr "timeout waiting for routerd crash recovery"; exit 33 }
+}
+verify_ssh $recovery_password ROUTERD_RECOVERY_SSH_OK
+
+# Warm reboot. The persistent firstboot marker must suppress the wizard and all
+# management services must return again.
+send -- "reboot -f\r"
+login_root $recovery_password "warm reboot"
+wait_services INSTALLED_WARM_REBOOT_OK
+verify_ssh $recovery_password INSTALLED_WARM_REBOOT_SSH_OK
+
+send -- "echo INSTALLED_REBOOT_MATRIX_OK; poweroff -f\r"
+expect {
+    -re {INSTALLED_REBOOT_MATRIX_OK} {}
+    timeout { puts stderr "missing installed reboot matrix marker"; exit 40 }
+}
+set timeout 60
+expect {
+    eof {}
+    timeout { puts stderr "QEMU did not exit after installed reboot matrix poweroff"; exit 41 }
+}
+exit 0

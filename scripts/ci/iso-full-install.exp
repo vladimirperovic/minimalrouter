@@ -1,7 +1,8 @@
 #!/usr/bin/expect -f
 
-# Slow TCG writes need several minutes, but a missing boot/prompt should not hold
-# the runner for twenty minutes. Seven minutes per awaited stage is ample for CI.
+# Slow TCG stages need several minutes, but a missing boot/prompt should not hold
+# the runner indefinitely. Most awaited stages use seven minutes; the raw golden
+# disk copy gets ten because hosted-runner TCG throughput varies substantially.
 set timeout 420
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
@@ -32,8 +33,7 @@ spawn qemu-system-x86_64 \
     -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
     -device virtio-net-pci,netdev=lan \
     -display none \
-    -serial stdio \
-    -no-shutdown
+    -serial stdio
 
 proc wait_and_send {pattern text code} {
     expect {
@@ -83,6 +83,12 @@ expect {
     timeout { puts stderr "timeout waiting for safe VM auto-disk selection"; exit 12 }
     eof { puts stderr "QEMU exited before VM auto-disk selection"; exit 13 }
 }
+
+# Raw image decompression + copy is the one stage whose wall time varies heavily
+# under GitHub-hosted TCG. A healthy observed run exceeded the generic 420s stage
+# budget, so give only this operation a 600s allowance. The outer 1500s workflow
+# limit and every functional assertion remain unchanged.
+set timeout 600
 expect {
     -re {Golden image copied successfully} {}
     -re {A recovery shell will open on this console} {
@@ -92,6 +98,8 @@ expect {
     timeout { puts stderr "timeout waiting for golden image copy"; exit 15 }
     eof { puts stderr "QEMU exited before golden image copy completed"; exit 16 }
 }
+set timeout 420
+
 expect {
     -re {Rebooting into the prebuilt appliance now} {}
     timeout { puts stderr "timeout waiting for appliance reboot"; exit 17 }
@@ -101,7 +109,11 @@ expect {
 # Stage 2: -boot once=d makes the reboot use the installed golden disk. The
 # firstboot service owns the same serial console and asks only for router state.
 expect {
-    -re {minimalrouter v0\.1\.4.*first boot} {}
+    # Match any version. Pinning the banner to a literal release meant the
+    # 0.1.5 bump made this expect block wait for a string the appliance no
+    # longer prints, and the stage timed out instead of reporting a real
+    # first-boot problem.
+    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+[^\n]*first boot} {}
     timeout { puts stderr "timeout waiting for golden-image first boot"; exit 20 }
     eof { puts stderr "QEMU exited before golden-image first boot"; exit 21 }
 }
@@ -153,15 +165,28 @@ expect {
     timeout { puts stderr "timeout waiting for installed-system root shell"; exit 43 }
 }
 
+# Disable serial input echo before sending any success-token-bearing command.
+# Otherwise Expect can match a token in the echoed command line even when the
+# underlying assertion fails, turning a broken appliance into a false green.
+send -- "stty -echo\r"
+expect {
+    -re {# $} {}
+    -re {~ #} {}
+    timeout { puts stderr "timeout disabling installed-system tty echo"; exit 44 }
+    eof { puts stderr "QEMU exited while disabling installed-system tty echo"; exit 45 }
+}
+
 send -- "i=0; while \[ \"\$i\" -lt 360 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; if \[ \"\$i\" -ge 360 \]; then echo ROUTERD_DIAGNOSTICS_BEGIN; rc-service router-applyd status 2>&1 || true; rc-service routerd status 2>&1 || true; ls -l /run/minimalrouter 2>&1 || true; echo ROUTERD_LOG; tail -n 120 /var/log/routerd.log 2>&1 || true; echo ROUTERD_ERR; tail -n 120 /var/log/routerd.err 2>&1 || true; echo APPLYD_LOG; tail -n 80 /var/log/router-applyd.log 2>&1 || true; echo APPLYD_ERR; tail -n 80 /var/log/router-applyd.err 2>&1 || true; echo ROUTERD_DIAGNOSTICS_END; echo INSTALLED_SERVICES_TIMEOUT; fi\r"
 expect {
-    -re {INSTALLED_SERVICES_READY} {}
+    # TTY echo is disabled above, so matching the token itself is safe and more
+    # portable than requiring a specific CR/LF sequence from QEMU's serial PTY.
     -re {INSTALLED_SERVICES_TIMEOUT} {
         puts stderr "installed appliance did not bring LAN/SSH/firewall/dashboard online"
-        exit 44
+        exit 46
     }
-    timeout { puts stderr "timeout waiting for installed appliance services"; exit 45 }
-    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 46 }
+    -re {INSTALLED_SERVICES_READY} {}
+    timeout { puts stderr "timeout waiting for installed appliance services"; exit 47 }
+    eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 48 }
 }
 
 # Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
@@ -171,7 +196,7 @@ verify_ssh $recovery_password INSTALLED_SSH_OK
 send -- "echo INSTALLED_SSH_OK\r"
 expect {
     -re {INSTALLED_SSH_OK} {}
-    timeout { puts stderr "SSH evidence marker was not persisted to the serial log"; exit 47 }
+    timeout { puts stderr "SSH evidence marker was not persisted to the serial log"; exit 49 }
 }
 
 set checks {
@@ -199,7 +224,9 @@ foreach command $checks {
 send -- "echo FULL_ISO_INSTALL_OK\r"
 
 # INSTALLED_SSH_OK was already consumed above after proving a real SSH login.
-# Only wait here for markers emitted by the checks we just sent.
+# Only wait here for markers emitted by the checks we just sent. With tty echo
+# disabled, matching the marker token itself is unambiguous and independent of
+# whether the serial PTY renders LF, CRLF, or prompt+output on the same line.
 foreach marker {
     CHECK_ROUTERD_OK
     CHECK_APPLYD_OK
@@ -227,8 +254,9 @@ foreach marker {
 }
 
 send -- "poweroff -f\r"
+set timeout 60
 expect {
     eof {}
-    timeout { send -- "\003" }
+    timeout { puts stderr "QEMU did not exit after full-install poweroff"; exit 52 }
 }
 exit 0

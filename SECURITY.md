@@ -4,7 +4,7 @@ Minimal Router OS is a network security boundary. Security defects can affect
 every device behind the router, so the project treats secure defaults, least
 privilege, recovery, and honest limitation reporting as core requirements.
 
-The project is currently **Beta (v0.1.4)**. v0.1.4 is intended for controlled
+The project is currently **Beta (v0.1.5)**. v0.1.5 is intended for controlled
 pilots with console access and a known-good rollback router. No version is
 supported as an unattended production firewall unless a future release
 explicitly states that it has reached that level and publishes the corresponding
@@ -16,7 +16,7 @@ There is no stable/LTS supported release yet.
 
 | Version | Security support |
 |---|---|
-| `v0.1.4` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
+| `v0.1.5` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
 | `main` | Active development; may contain unreleased changes |
 | Unofficial forks or modified images | Not supported by this project |
 
@@ -109,7 +109,7 @@ The default and first-run configuration is intended to provide:
 
 ## Golden ISO installation boundary
 
-The v0.1.4 Golden ISO is part of the security boundary.
+The v0.1.5 Golden ISO is part of the security boundary.
 
 - The user VM is a flasher target, not a package/build host.
 - The live flasher verifies the embedded Golden image before writing it.
@@ -123,7 +123,8 @@ The v0.1.4 Golden ISO is part of the security boundary.
 - Release ISOs are built from the already signed AMD64 release distribution and
   are required to contain `firmware-signing.pub`.
 - The release workflow performs a blank-disk QEMU flash/reboot/firstboot/serial/
-  SSH/runtime test before publishing the ISO.
+  SSH/runtime test, then cold-boot, supervision-recovery, warm-reboot and
+  destructive installer-safety checks before publishing the ISO.
 
 See [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) and
 [`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md).

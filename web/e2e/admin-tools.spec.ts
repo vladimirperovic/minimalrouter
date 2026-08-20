@@ -52,8 +52,6 @@ async function stubDashboard(page: Page) {
   await page.route("**/api/v1/audit/events**", (route) => json(route, { events: [] }));
 }
 
-// Below 760px the sidebar is a drawer, so a nav link is not reachable until the
-// menu button opens it. Desktop keeps the sidebar permanently visible.
 async function openSection(page: Page, isMobile: boolean | undefined, name: string) {
   if (isMobile) {
     await page.getByRole("button", { name: "Open navigation" }).click();
@@ -61,17 +59,17 @@ async function openSection(page: Page, isMobile: boolean | undefined, name: stri
   await page.getByRole("link", { name }).click();
 }
 
-test("security exposes TOTP, encrypted backup, pfSense migration and diagnostics controls", async ({ page, isMobile }) => {
+test("Security owns TOTP while Recovery owns backup, migration and diagnostics", async ({ page, isMobile }) => {
   await stubDashboard(page);
   await page.goto("/");
   await openSection(page, isMobile, "Security");
-
   await expect(page.getByRole("heading", { name: "Two-factor authentication" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Administration and recovery tools" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeHidden();
+
+  await openSection(page, isMobile, "Recovery");
+  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Download diagnostics" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Export encrypted backup" })).toBeVisible();
-  // pfSense migration sits behind a disclosure so a destructive migration tool
-  // is not one stray click away from an operator browsing security settings.
   await page.getByText("Migrate from pfSense config.xml").click();
   await expect(page.getByRole("button", { name: "Preview pfSense migration" })).toBeVisible();
 });
@@ -93,7 +91,7 @@ test("TOTP enrollment uses password-gated preview before enable", async ({ page,
   const panel = page.locator('[aria-labelledby="totp-settings-title"]');
   await panel.locator('input[name="current_password"]').fill("test-password");
   await panel.getByRole("button", { name: "Start 2FA enrollment" }).click();
-	await expect(panel.locator('input[readonly]').first()).toHaveValue("JBSWY3DPEHPK3PXP");
+  await expect(panel.locator('input[readonly]').first()).toHaveValue("JBSWY3DPEHPK3PXP");
   await expect(panel.getByRole("button", { name: "Verify and enable 2FA" })).toBeVisible();
 });
 
@@ -116,7 +114,7 @@ test("pfSense migration is previewed with warnings before apply", async ({ page,
   }));
 
   await page.goto("/");
-  await openSection(page, isMobile, "Security");
+  await openSection(page, isMobile, "Recovery");
   const panel = page.locator('[aria-labelledby="recovery-tools-title"]');
   await panel.getByText("Migrate from pfSense config.xml").click();
   await panel.locator('input[name="pfsense_xml"]').setInputFiles({
