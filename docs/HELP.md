@@ -6,18 +6,21 @@ This guide explains the appliance for people who do not need to know Linux netwo
 
 There are two recommended deployment paths.
 
-### Option A — ISO install
+### Option A — v0.1.5 Golden ISO install
 
-Use the ISO when you want the cleanest, most repeatable appliance deployment.
+Use the Golden Appliance ISO when you want the cleanest, most repeatable AMD64/Proxmox deployment.
 
-1. Create a new VM in Proxmox.
-2. Attach two NICs: one LAN/management bridge and one WAN/ISP bridge.
-3. Attach the Minimal Router ISO and boot from it.
-4. Install to the VM disk and reboot.
-5. Open the Proxmox console and verify which interface is WAN and which is LAN before enabling PPPoE.
-6. Open the dashboard from the LAN side and complete the first-run wizard.
-7. Enter ISP PPPoE credentials, verify DNS and Internet reachability, then run **Gateway Quality → Diagnose connection**.
-8. Create a first known-good snapshot and encrypted backup.
+1. Create a new blank VM in Proxmox using the profile in `PROXMOX.md`.
+2. Attach two NICs with deliberate LAN and WAN bridge roles.
+3. Attach `minimalrouter-0.1.5-amd64.iso`, boot it, and let the verified Golden-image flasher install to the blank VM disk.
+4. After the automatic reboot, complete the installed **firstboot on the selected noVNC/tty1 or ttyS0 console**. Confirm WAN/LAN interfaces, optional PPPoE credentials, the Dashboard administrator password, and the recovery/root password there.
+5. Wait for firstboot to finish and for `routerd`/`router-applyd` to become ready. Do not configure a second competing network stack in Alpine.
+6. Open the dashboard from the trusted LAN side and verify the configuration collected during firstboot.
+7. Verify DNS and Internet reachability, then run **Gateway Quality → Diagnose connection**.
+8. Configure WireGuard, Dynamic DNS and other optional features only when needed.
+9. Create a first known-good snapshot and encrypted backup.
+
+The Golden ISO production path intentionally performs firstboot before normal networking and management services start. The dashboard's setup flow remains useful for supported archive/development installs, but it is not the normal v0.1.5 Golden-ISO firstboot path.
 
 ### Option B — AI-assisted VM setup
 
@@ -28,8 +31,8 @@ A safe workflow is:
 1. Inspect Proxmox bridges, VM IDs and storage first.
 2. Create a new isolated VM rather than modifying the working router.
 3. Attach LAN and WAN NICs explicitly.
-4. Attach the ISO or use the validated Alpine installation path.
-5. Install and boot Minimal Router.
+4. Attach the current verified Golden ISO or, for advanced development only, use the documented archive-install path.
+5. Install, reboot, and complete console firstboot.
 6. Verify management, PPPoE, DNS, Internet and WireGuard readiness.
 7. Inspect **Logs → Startup Timeline** before moving production traffic.
 
@@ -58,6 +61,8 @@ The agent can only perform actions in systems it is genuinely connected to; othe
 
 Gateway Quality watches the WAN path over time. Latency is response delay; packet loss is the percentage of probes that did not return. The automatic recovery supervisor is deliberately conservative: it acts only after the PPPoE link itself remains down, not merely because one website, DNS server, or probe target is unavailable. **Diagnose connection** checks the chain in order: PPPoE, public reachability, DNS and HTTPS. Use it before changing settings.
 
+v0.1.5 also exposes three fixed recovery actions from Gateway Health: **Reconnect WAN**, **Restart DNS & DHCP**, and **Restart WireGuard**. These are allowlisted operations; the dashboard cannot choose arbitrary service names or execute shell commands.
+
 ## Network: WAN, LAN, DHCP and local DNS
 
 **WAN / PPPoE** connects the router to the ISP. The username/password normally come from the ISP. **LAN** is the private network behind the router. **DHCP** automatically gives local devices addresses, gateway and DNS information. Static leases reserve a predictable IP for a device. Static DNS records give memorable local names to fixed services.
@@ -66,7 +71,7 @@ Changing the management LAN can disconnect the browser. Critical network changes
 
 ## Firewall
 
-The firewall is stateful and default-deny on WAN. Unsolicited Internet traffic is not accepted just because a service exists on the router. Remote administration should use WireGuard rather than exposing the dashboard. Port forwards and custom rules should be added only when the intended traffic path is understood.
+The firewall is stateful and default-deny on WAN. Unsolicited Internet traffic is not accepted just because a service exists on the router. Remote administration should use WireGuard rather than exposing the dashboard. Port forwards in the current secure profile are bound to the WireGuard server interface; arbitrary WAN/PPPoE DNAT is not exposed by the dashboard.
 
 ## Security
 
@@ -110,9 +115,11 @@ DNS Filter blocks configured domains and can apply scheduled service policies to
 
 When supported wireless hardware is present, Minimal Router can run the local access point. Wi-Fi joins the protected LAN path rather than creating an unmanaged parallel network. Use a strong passphrase and a channel appropriate for the local radio environment.
 
-## Traffic and accounting
+## Traffic, connected devices and accounting
 
 Traffic views show how much data interfaces/devices move. They are for troubleshooting and capacity planning. Counters are not packet capture and do not record application content.
+
+Connected Devices uses bounded DHCP/accounting evidence to show **Online**, **Last seen**, and **New** state. v0.1.5 can pause a LAN device's Internet access for **15 minutes**, **1 hour**, or **until resumed**. Timed pauses use kernel timeout state and are restored safely across reboot from the application's bounded pause state.
 
 ## Configuration snapshots, Smart Change Preview and Safe Apply
 
@@ -146,7 +153,7 @@ CLI equivalents include `router-recovery interfaces`, `set-wan`, `set-lan`, `sna
 
 ## Recovery order when something is wrong
 
-Prefer the least destructive action: **Diagnose connection** → **Startup Timeline/audit log** → restart only the affected service → restore last-known-good/a snapshot → factory reset only as a final recovery path.
+Prefer the least destructive action: **Diagnose connection** → **Startup Timeline/audit log** → use one of the fixed recovery actions when it matches the failure → restore last-known-good/a snapshot → factory reset only as a final recovery path.
 
 ## Security model in plain language
 
