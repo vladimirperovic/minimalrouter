@@ -22,6 +22,9 @@ export LAB_ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouterCI-2026!}"
 export LAB_BACKEND=github
 export LAB_TEMP_LIMIT=200
 export LAB_SIGNED_ROOT="${LAB_SIGNED_ROOT:-/tmp/lab24sig}"
+MR_WAN_MAC="52:54:00:51:00:00"
+MR_LAN_MAC="52:54:00:51:00:01"
+MR_EXTRA_MAC="52:54:00:51:00:02"
 
 mkdir -p "$STATE" "$STATE/bin" "$STATE/logs" "$STATE/results"
 printf '%s\n' "$(ip route show default | head -1)" > "$STATE/default-route"
@@ -198,11 +201,11 @@ cat > "$STATE/start-151.sh" <<EOF
 exec qemu-system-x86_64 -machine pc,accel=tcg -cpu max -smp 2 -m 1536 \
   -drive file='$MR_DISK',format=raw,if=virtio \
   -netdev tap,id=wan,ifname=tap-mr-wan,script=no,downscript=no \
-  -device virtio-net-pci,netdev=wan,mac=52:54:00:51:00:00 \
+  -device virtio-net-pci,netdev=wan,mac=$MR_WAN_MAC \
   -netdev tap,id=lan,ifname=tap-mr-lan,script=no,downscript=no \
-  -device virtio-net-pci,netdev=lan,mac=52:54:00:51:00:01 \
+  -device virtio-net-pci,netdev=lan,mac=$MR_LAN_MAC \
   -netdev tap,id=extra,ifname=tap-mr-extra,script=no,downscript=no \
-  -device virtio-net-pci,netdev=extra,mac=52:54:00:51:00:02 \
+  -device virtio-net-pci,netdev=extra,mac=$MR_EXTRA_MAC \
   -display none -serial file:'$STATE/logs/mr-serial.log' -daemonize -pidfile '$STATE/vm-151.pid'
 EOF
 chmod 0755 "$STATE"/start-*.sh
@@ -255,11 +258,44 @@ mr_exec() {
   sshpass -p "$LAB_RECOVERY_PW" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o LogLevel=ERROR -o ConnectTimeout=8 root@192.168.1.1 "echo '$b64' | base64 -d | sh"
 }
+mr_if_for_mac() {
+  local mac="$1"
+  mr_exec "grep -l '^$mac$' /sys/class/net/*/address 2>/dev/null | head -1 | cut -d/ -f5"
+}
+
+# Resolve appliance interface names by the MACs assigned above. Linux interface
+# enumeration must never be assumed from QEMU argument order.
+MR_WAN_IF="$(mr_if_for_mac "$MR_WAN_MAC")"
+MR_LAN_IF="$(mr_if_for_mac "$MR_LAN_MAC")"
+MR_EXTRA_IF="$(mr_if_for_mac "$MR_EXTRA_MAC")"
+[[ -n "$MR_WAN_IF" && -n "$MR_LAN_IF" && -n "$MR_EXTRA_IF" ]] || {
+  echo "could not resolve all MinimalRouter QEMU interfaces by MAC" >&2
+  mr_exec 'ip -brief link; for p in /sys/class/net/*/address; do printf "%s " "$p"; cat "$p"; done' >&2 || true
+  exit 1
+}
+{
+  printf 'wan=%s mac=%s\nlan=%s mac=%s\nextra=%s mac=%s\n' \
+    "$MR_WAN_IF" "$MR_WAN_MAC" "$MR_LAN_IF" "$MR_LAN_MAC" "$MR_EXTRA_IF" "$MR_EXTRA_MAC"
+  mr_exec 'ip -brief link; for p in /sys/class/net/*/address; do printf "%s " "$p"; cat "$p"; done'
+} > "$STATE/logs/mr-topology.log"
+echo "MinimalRouter interfaces: WAN=$MR_WAN_IF LAN=$MR_LAN_IF EXTRA=$MR_EXTRA_IF"
 
 # Provision the three Debian peers using the same payloads as the Proxmox lab.
 aux_copy_run 2250 scripts/lab/payloads/isp-provision.sh
 aux_copy_run 2253 scripts/lab/payloads/sim-provision.sh
 aux_copy_run 2254 scripts/lab/payloads/client-provision.sh
+
+# Prove the L2 QEMU WAN path before asking router-applyd to mutate anything.
+# A failed discovery here is a topology/NIC problem, not a configuration apply.
+PPPOE_DISCOVERY="$(mr_exec "ip link set dev '$MR_WAN_IF' up; timeout 12 /usr/sbin/pppoe-discovery -I '$MR_WAN_IF' 2>&1 || true")"
+printf '%s\n' "$PPPOE_DISCOVERY" > "$STATE/logs/mr-pppoe-discovery.log"
+if ! printf '%s\n' "$PPPOE_DISCOVERY" | grep -q 'lab-isp'; then
+  echo "PPPoE discovery did not reach the lab ISP on $MR_WAN_IF" >&2
+  cat "$STATE/logs/mr-topology.log" >&2
+  cat "$STATE/logs/mr-pppoe-discovery.log" >&2
+  exit 1
+fi
+echo "PPPoE discovery reached lab-isp on $MR_WAN_IF"
 
 # Add simulator aliases used by the historical torture suite.
 aux_exec 2253 'ip addr add 11.250.0.10/32 dev eth1 2>/dev/null || true; ip addr add 11.255.0.2/32 dev eth1 2>/dev/null || true; sed -i "/listen 10.250.0.10:80/a\\    listen 11.255.0.2:80;" /etc/nginx/sites-available/lab; systemctl restart nginx'
@@ -287,7 +323,7 @@ MR_WG1_PUB="$(mr_exec 'cat /root/lab-wg-keys/mr_wg1.pub')"
 SIM_WG0_PUB="$(aux_exec 2253 'cat /root/lab-wg-keys/sim_wg0.pub')"
 SIM_WG1_PUB="$(aux_exec 2253 'cat /root/lab-wg-keys/sim_wg1.pub')"
 
-aux_exec 2253 "cat > /etc/wireguard/wg0.conf <<'EOF'
+aux_exec 2253 "cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address = 10.6.0.10/32
 ListenPort = 51820
@@ -298,7 +334,7 @@ PublicKey = $MR_WG0_PUB
 AllowedIPs = 10.6.0.1/32
 EOF
 systemctl restart wg-quick@wg0"
-aux_exec 2253 "cat > /etc/wireguard/wg1.conf <<'EOF'
+aux_exec 2253 "cat > /etc/wireguard/wg1.conf <<EOF
 [Interface]
 Address = 10.79.0.2/24
 ListenPort = 51821
@@ -322,16 +358,22 @@ LOGIN="$(curl -sk --max-time 10 -c "$COOKIE" -X POST "$MR_API/api/v1/auth/login"
 CSRF="$(printf '%s' "$LOGIN" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))')"
 [[ -n "$CSRF" ]] || { echo "could not authenticate to installed MinimalRouter" >&2; echo "$LOGIN" >&2; exit 1; }
 CFG="$(curl -sk --max-time 15 -b "$COOKIE" "$MR_API/api/v1/config")"
+CFG_LAN_IF="$(printf '%s' "$CFG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lan"]["interface"])')"
+[[ "$CFG_LAN_IF" == "$MR_LAN_IF" ]] || {
+  echo "installed LAN interface $CFG_LAN_IF does not match QEMU LAN MAC mapping $MR_LAN_IF" >&2
+  cat "$STATE/logs/mr-topology.log" >&2
+  exit 1
+}
 
-export MR_WG0_KEY MR_WG1_KEY SIM_WG0_PUB SIM_WG1_PUB
+export MR_WG0_KEY MR_WG1_KEY SIM_WG0_PUB SIM_WG1_PUB MR_WAN_IF MR_LAN_IF MR_EXTRA_IF
 BODY="$(printf '%s' "$CFG" | python3 -c 'import json,os,sys
 c=json.load(sys.stdin)
 c["system"]["hostname"]="mr-test"; c["system"]["domain"]="lab.test"; c["system"]["management_access"]="lan_and_wireguard"
-c["wan"]={"interface":"eth0","enabled":True,"username":"mr-test","password":"minimalrouter-lab-pppoe","mtu":1492}
-c["lan"]["interface"]="eth1"; c["lan"]["ip_address"]="192.168.1.1"; c["lan"]["cidr"]="192.168.1.1/24"; c["lan"]["netmask"]="255.255.255.0"
+c["wan"]={"interface":os.environ["MR_WAN_IF"],"enabled":True,"username":"mr-test","password":"minimalrouter-lab-pppoe","mtu":1492}
+c["lan"]["interface"]=os.environ["MR_LAN_IF"]; c["lan"]["ip_address"]="192.168.1.1"; c["lan"]["cidr"]="192.168.1.1/24"; c["lan"]["netmask"]="255.255.255.0"
 c["dhcp"]={"enabled":True,"dns_enabled":False,"range_start":"192.168.1.100","range_end":"192.168.1.200","lease_time":"12h","dns_servers":["1.1.1.1","1.0.0.1"],"static_leases":[]}
 c["dns"]={"records":[{"name":"router.home.arpa","ip":"192.168.1.1"},{"name":"client.home.arpa","ip":"192.168.1.100"}]}
-c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":"eth2","cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
+c["firewall"]["extra_lans"]=[{"id":"elab1","name":"lab-extra","interface":os.environ["MR_EXTRA_IF"],"cidr":"10.78.0.0/24","router_address":"10.78.0.1/24","dst_ip":"10.78.0.10","dst_port":8080,"allow_from":["192.168.1.0/24"],"enabled":True}]
 c["wireguard"]={"enabled":True,"interface":"wg0","private_key":os.environ["MR_WG0_KEY"],"listen_port":51820,"address":"10.6.0.1/24","peers":[{"id":"sim-peer","name":"sim-lab","public_key":os.environ["SIM_WG0_PUB"],"allowed_ips":["10.6.0.10/32"],"endpoint":"11.250.0.10:51820","enabled":True}]}
 c["wg_client"]={"enabled":True,"interface":"wg1","private_key":os.environ["MR_WG1_KEY"],"address":"10.79.0.1/32","public_key":os.environ["SIM_WG1_PUB"],"endpoint":"11.250.0.10:51821","allowed_ips":["10.79.1.0/24","10.79.0.2/32"],"persistent_keepalive":25}
 c["trusted_networks"]=["192.168.1.0/24","10.6.0.0/24"]
@@ -339,6 +381,39 @@ print(json.dumps(c))')"
 
 curl -sk --max-time 120 -b "$COOKIE" -X PUT "$MR_API/api/v1/config" \
   -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" -d "$BODY" > "$STATE/config-put.json"
+
+CONFIG_ERR="$(python3 - "$STATE/config-put.json" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception as exc:
+    print(f"invalid config response: {exc}")
+    raise SystemExit
+print(data.get("error", ""))
+PY
+)"
+if [[ -n "$CONFIG_ERR" ]]; then
+  echo "MinimalRouter config apply failed immediately: $CONFIG_ERR" >&2
+  mr_exec "set +e
+echo '=== interfaces ==='
+ip -brief link
+ip -4 addr show
+ip -4 route show
+echo '=== pppoe service ==='
+rc-service pppoe-wan status
+ps w | grep '[p]ppd'
+echo '=== discovery retry ==='
+timeout 8 /usr/sbin/pppoe-discovery -I '$MR_WAN_IF' 2>&1 || true
+echo '=== router logs ==='
+tail -120 /var/log/routerd.log 2>/dev/null || true
+tail -120 /var/log/routerd.err 2>/dev/null || true
+" > "$STATE/logs/mr-apply-failure.log" 2>&1 || true
+  aux_exec 2250 'echo "=== ISP ==="; ip -brief link; ip -4 addr show; ps aux | grep "[p]ppoe-server"; cat /tmp/pppoe-server.log 2>/dev/null || true; cat /tmp/pppoe-server.console 2>/dev/null || true' \
+    > "$STATE/logs/isp-apply-failure.log" 2>&1 || true
+  cat "$STATE/logs/mr-apply-failure.log" >&2 || true
+  cat "$STATE/logs/isp-apply-failure.log" >&2 || true
+  exit 1
+fi
 
 for _ in $(seq 1 15); do
   PEND="$(curl -sk --max-time 10 -b "$COOKIE" "$MR_API/api/v1/transactions/pending" || true)"
@@ -353,7 +428,7 @@ done
 # The apply can transiently replace routes/rules; restore the lab host route and
 # wait for the real PPPoE session.
 for _ in $(seq 1 90); do
-  mr_exec 'ip route replace 192.168.1.254/32 dev eth1 2>/dev/null || true' >/dev/null 2>&1 || true
+  mr_exec "ip route replace 192.168.1.254/32 dev '$MR_LAN_IF' 2>/dev/null || true" >/dev/null 2>&1 || true
   if mr_exec 'ip -4 -o addr show ppp0 2>/dev/null' | grep -q '10.250.0.50'; then break; fi
   sleep 2
 done
