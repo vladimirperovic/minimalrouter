@@ -27,12 +27,19 @@ logfile /var/log/pppoe-server.log
 mtu 1492
 mru 1492
 EOF
-if [ ! -f /etc/ppp/chap-secrets ]; then
-  cat > /etc/ppp/chap-secrets <<EOF
-# client  server  secret                 fixed-ip
+# Debian's ppp package creates /etc/ppp/chap-secrets during installation, so
+# testing only for file existence silently leaves the lab with no mr-test
+# credential. Seed the lab credential unconditionally and make its permissions
+# explicit; this file belongs solely to the disposable ISP VM.
+cat > /etc/ppp/chap-secrets <<'EOF'
+# client  server  secret                  fixed-ip
 mr-test   *       minimalrouter-lab-pppoe 10.250.0.50
 EOF
-fi
+chmod 0600 /etc/ppp/chap-secrets
+grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+minimalrouter-lab-pppoe[[:space:]]+10\.250\.0\.50([[:space:]]|$)' /etc/ppp/chap-secrets || {
+  echo "ERROR: ISP-LAB CHAP credential was not seeded" >&2
+  exit 1
+}
 cat > /etc/systemd/system/pppoe-server.service <<EOF
 [Unit]
 Description=Lab PPPoE access concentrator (rp-pppoe)
@@ -180,6 +187,7 @@ EOF
 mr-test   *       wrong-password-123      10.250.0.50
 EOF
   fi
+  chmod 0600 /etc/ppp/chap-secrets
   echo "auth=$1"
 }
 carrier() { ip link set "$IFACE" "$1"; echo "carrier=$1"; }
@@ -267,7 +275,13 @@ status() {
   echo "iface=$IFACE carrier=$(cat /sys/class/net/$IFACE/carrier 2>/dev/null || echo down)"
   echo "pppoe=$(systemctl is-active pppoe-server 2>/dev/null || echo inactive)"
   echo "dns=$(systemctl is-active dnsmasq 2>/dev/null || echo inactive)"
-  echo "auth=$(grep -q wrong-password /etc/ppp/chap-secrets && echo bad || echo good)"
+  if grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+minimalrouter-lab-pppoe[[:space:]]+10\.250\.0\.50([[:space:]]|$)' /etc/ppp/chap-secrets; then
+    echo "auth=good"
+  elif grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+wrong-password-123([[:space:]]|$)' /etc/ppp/chap-secrets; then
+    echo "auth=bad"
+  else
+    echo "auth=missing"
+  fi
   echo "mtu=$(grep '^mtu' /etc/ppp/pppoe-server-options | awk '{print $2}')"
   for i in "$tc_nic" "$tc_ppp"; do
     s=$(tc qdisc show dev "$i" 2>/dev/null | grep -o 'netem [^ ]*' | head -1 || true)
@@ -285,4 +299,9 @@ FAULTEOF
 chmod 755 /usr/local/sbin/lab-fault
 
 echo "== ISP-LAB ready =="
-/usr/local/sbin/lab-fault status
+status_output="$(/usr/local/sbin/lab-fault status)"
+printf '%s\n' "$status_output"
+printf '%s\n' "$status_output" | grep -qx 'auth=good' || {
+  echo "ERROR: ISP-LAB authentication state is not good" >&2
+  exit 1
+}
