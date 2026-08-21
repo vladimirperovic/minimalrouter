@@ -316,6 +316,21 @@ rc-service routerd restart
 rc-service router-applyd restart
 '
 
+# The Golden image must be able to load PPP before the first configuration
+# apply. Keep this explicit lab preflight next to the QEMU target, so a missing
+# target-kernel module cannot be mistaken for an ISP or Ethernet failure.
+mr_exec 'set -e
+for module in ppp_generic pppox pppoe; do
+  modprobe "$module"
+done
+if [ ! -c /dev/ppp ]; then
+  rm -f /dev/ppp
+  mknod -m 0600 /dev/ppp c 108 0
+fi
+[ -c /dev/ppp ]
+echo "PPP_RUNTIME_OK"
+'
+
 MR_WG0_KEY="$(mr_exec 'cat /root/lab-wg-keys/mr_wg0.key')"
 MR_WG1_KEY="$(mr_exec 'cat /root/lab-wg-keys/mr_wg1.key')"
 MR_WG0_PUB="$(mr_exec 'cat /root/lab-wg-keys/mr_wg0.pub')"
@@ -402,6 +417,11 @@ ip -4 route show
 echo '=== pppoe service ==='
 rc-service pppoe-wan status
 ps w | grep '[p]ppd'
+echo '=== PPP runtime ==='
+uname -r
+lsmod 2>/dev/null || true
+grep -E '(^| )ppp(_generic|ox|oe)( |$)' /proc/modules 2>/dev/null || true
+stat /dev/ppp 2>/dev/null || true
 echo '=== discovery retry ==='
 timeout 8 /usr/sbin/pppoe-discovery -I '$MR_WAN_IF' 2>&1 || true
 echo '=== router logs ==='
