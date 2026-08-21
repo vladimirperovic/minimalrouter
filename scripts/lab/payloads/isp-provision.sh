@@ -49,7 +49,7 @@ After=network-online.target
 # the real server instead of repeatedly restarting after the parent exits.
 # Keep address allocation in pppoe-server itself; pppd's options file is only
 # for PPP options and must not contain pseudo-options such as local-ip/remote-ip.
-ExecStart=/usr/sbin/pppoe-server -F -I $(cat /etc/lab-iface) -L 10.250.0.1 -R 10.250.0.50 -N 71 -T 60 -C lab-isp -S lab-isp
+ExecStart=/usr/sbin/pppoe-server -F -I $(cat /etc/lab-iface) -L 10.250.0.1 -R 10.250.0.50 -N 1 -T 60 -C lab-isp -S lab-isp
 Restart=always
 RestartSec=2
 [Install]

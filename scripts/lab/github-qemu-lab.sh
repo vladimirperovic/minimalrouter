@@ -408,7 +408,7 @@ echo '=== router logs ==='
 tail -120 /var/log/routerd.log 2>/dev/null || true
 tail -120 /var/log/routerd.err 2>/dev/null || true
 " > "$STATE/logs/mr-apply-failure.log" 2>&1 || true
-  aux_exec 2250 'echo "=== ISP ==="; ip -brief link; ip -4 addr show; ps aux | grep "[p]ppoe-server"; cat /tmp/pppoe-server.log 2>/dev/null || true; cat /tmp/pppoe-server.console 2>/dev/null || true' \
+  aux_exec 2250 'echo "=== ISP ==="; ip -brief link; ip -4 addr show; ps aux | grep "[p]ppoe-server"; cat /var/log/pppoe-server.log 2>/dev/null || true; cat /tmp/pppoe-server.log 2>/dev/null || true; cat /tmp/pppoe-server.console 2>/dev/null || true' \
     > "$STATE/logs/isp-apply-failure.log" 2>&1 || true
   cat "$STATE/logs/mr-apply-failure.log" >&2 || true
   cat "$STATE/logs/isp-apply-failure.log" >&2 || true
