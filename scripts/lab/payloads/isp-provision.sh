@@ -18,6 +18,23 @@ IFACE=$(ip -4 -o addr show | awk '$4 ~ /^10\.250\.0\.1\// {sub(/:.*/,"",$2); pri
 echo "$IFACE" > /etc/lab-iface
 echo "lab-wan iface: $IFACE"
 
+echo "== PPP runtime =="
+# The disposable Debian ISP runs pppd for every PPPoE session. Ensure the
+# kernel endpoint exists before starting rp-pppoe; otherwise the daemon can
+# appear healthy while every incoming session fails with a missing /dev/ppp.
+for module in ppp_generic pppox pppoe; do
+  modprobe "$module" 2>/dev/null || true
+done
+if [ ! -c /dev/ppp ]; then
+  rm -f /dev/ppp
+  mknod -m 0600 /dev/ppp c 108 0 2>/dev/null || true
+fi
+[ -c /dev/ppp ] || {
+  echo "ERROR: ISP-LAB PPP runtime is missing /dev/ppp" >&2
+  lsmod 2>/dev/null || true
+  exit 1
+}
+
 echo "== pppoe-server =="
 cat > /etc/ppp/pppoe-server-options <<'EOF'
 require-chap
