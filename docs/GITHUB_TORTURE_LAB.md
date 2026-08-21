@@ -48,24 +48,14 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 ## Current result
 
-Last recorded run:
+Latest recorded run:
 
-- Run: [32454297997](https://github.com/vladimirperovic/minimalrouter/actions/runs/32454297997)
-- Commit: `6fd3d27f516ce621aa6650bf1635a57d00d87c9b`
+- Run: [32457183474](https://github.com/vladimirperovic/minimalrouter/actions/runs/32457183474)
+- Workflow checkout: merge commit `7236e0a0a7dd37308b7b2dc2b65da59e01091cd4` (PR head `3a6279a3abf549f334cc7c4cfacdbc1be68ff265`)
 - Result: **failed before scenario execution**
-- Flash and firstboot passed. The target MinimalRouter VM had
-  `ppp_generic`, `pppox`, `pppoe` and a correct `/dev/ppp) device.
-- Failure: the disposable Debian ISP VM had no `/lib/modules) tree for its
-  running kernel. Its `pppoe-server` could discover the router, but every
-  spawned `pppd` failed with `/dev/ppp: No such device or address`.
-  No scenario result files were produced.
-- All other checks on the PR head passed, including the focused PPPoE smoke,
-  OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan, CodeQL,
-  Service supervision and Performance.
+- Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
+- Failure: ISP provisioning stopped with `ERROR: ISP-LAB kernel did not load ppp_generic`. The running ISP kernel was `6.12.101+deb13-cloud-amd64`; a `/lib/modules` directory existed, but the usable `ppp_generic` module was not available to the payload's suppressed `modprobe` attempts. PPPoE discovery therefore never reached the lab ISP and no scenario result files were produced.
+- Fix: the ISP payload now installs `kmod`, and the QEMU bootstrap checks for both `modprobe` and an actually discoverable `ppp_generic` module with `modprobe -n` before deciding that no kernel preparation is needed.
+- Fix commits: `28fc020da8b59ab7d271855d40b76a8db3301476` and `ee1ae55647dc3d2a8e57827772a241223a08add2`.
 
-The next fix installs a Debian cloud kernel/module package in the ISP VM,
-reboots it once, waits for SSH to return, then runs the idempotent ISP
-provisioning. The payload now also fails early unless `ppp_generic) is loaded.
-It is queued in commit
-`8edc6437d070a8af7a652167260f81a8ccf47417`; replace this section with that
-run's exact link and summary when it completes.
+The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.
