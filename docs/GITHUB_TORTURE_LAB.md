@@ -50,20 +50,22 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Last recorded run:
 
-- Run: [32451362970](https://github.com/vladimirperovic/minimalrouter/actions/runs/32451362970)
-- Commit: `0fe3cf879e7790774470da1ec432caf029732ceb`
+- Run: [32454297997](https://github.com/vladimirperovic/minimalrouter/actions/runs/32454297997)
+- Commit: `6fd3d27f516ce621aa6650bf1635a57d00d87c9b`
 - Result: **failed before scenario execution**
-- Failure: the target MinimalRouter VM completed ISO installation and PPPoE
-  discovery, but `pppd` reported `/dev/ppp: No such device or address` and
-  requested the `ppp_generic` kernel module. No scenario result files were
-  produced.
-- The disposable ISP-side PPP runtime was initialized successfully in this
-  run. All other checks on the PR head passed, including the focused PPPoE
-  smoke, OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan,
-  CodeQL, Service supervision and Performance.
+- Flash and firstboot passed. The target MinimalRouter VM had
+  `ppp_generic`, `pppox`, `pppoe` and a correct `/dev/ppp) device.
+- Failure: the disposable Debian ISP VM had no `/lib/modules) tree for its
+  running kernel. Its `pppoe-server` could discover the router, but every
+  spawned `pppd` failed with `/dev/ppp: No such device or address`.
+  No scenario result files were produced.
+- All other checks on the PR head passed, including the focused PPPoE smoke,
+  OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan, CodeQL,
+  Service supervision and Performance.
 
-The next lab fix adds an explicit target-side preflight that loads
-`ppp_generic`, `pppox` and `pppoe`, verifies `/dev/ppp`, and retains
-module evidence on failure. It is queued in commit
-`37667a0cd2ee0036c79496c35bacabf21a44f084`; replace this section with that
+The next fix installs a Debian cloud kernel/module package in the ISP VM,
+reboots it once, waits for SSH to return, then runs the idempotent ISP
+provisioning. The payload now also fails early unless `ppp_generic) is loaded.
+It is queued in commit
+`8edc6437d070a8af7a652167260f81a8ccf47417`; replace this section with that
 run's exact link and summary when it completes.
