@@ -280,11 +280,12 @@ MR_EXTRA_IF="$(mr_if_for_mac "$MR_EXTRA_MAC")"
 } > "$STATE/logs/mr-topology.log"
 echo "MinimalRouter interfaces: WAN=$MR_WAN_IF LAN=$MR_LAN_IF EXTRA=$MR_EXTRA_IF"
 
-# The Debian cloud image can boot without a matching /lib/modules tree.
-# Install a guest kernel before starting rp-pppoe; pppd needs the guest's
-# ppp_generic driver, not the GitHub runner's host kernel. Reboot once, then
-# continue with the idempotent payload after the new kernel is active.
-if ! aux_exec 2250 'test -d "/lib/modules/$(uname -r)"'; then
+# The Debian cloud image can have a kernel modules directory without
+# kmod/modprobe or the PPP module itself. Verify the actual loadable module
+# before starting rp-pppoe; pppd needs the guest's ppp_generic driver, not the
+# GitHub runner's host kernel. Reboot once after installing the cloud kernel
+# and kmod, then continue with the idempotent payload.
+if ! aux_exec 2250 'command -v modprobe >/dev/null 2>&1 && modprobe -n ppp_generic >/dev/null 2>&1'; then
   echo "ISP-LAB has no modules for its running kernel; installing cloud kernel"
   aux_exec 2250 'set -eu
 export DEBIAN_FRONTEND=noninteractive
