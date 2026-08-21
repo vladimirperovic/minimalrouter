@@ -279,6 +279,10 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 	var provisionResponse struct {
 		ClientConfig string `json:"client_config"`
 		QRCodeData   string `json:"qr_code_data"`
+		Peer         struct {
+			ID        string `json:"id"`
+			PublicKey string `json:"public_key"`
+		} `json:"peer"`
 	}
 	if err := json.Unmarshal(provisionW.Body.Bytes(), &provisionResponse); err != nil {
 		t.Fatal(err)
@@ -302,6 +306,63 @@ func TestWireGuardPeerProvisioningReturnsOneTimeRealQR(t *testing.T) {
 	}
 	if !cfg.WireGuard.Enabled || len(cfg.WireGuard.Peers) != 1 || cfg.WireGuard.Peers[0].PresharedKey == "" {
 		t.Fatal("public peer configuration was not committed")
+	}
+	disabledCfg := server.engine.GetCurrentConfig()
+	disabledCfg.WireGuard.Peers[0].Enabled = false
+	if _, err := server.engine.ProcessTransaction("disable-peer-before-dashboard-actions", disabledCfg); err != nil {
+		t.Fatalf("disable peer before dashboard actions: %v", err)
+	}
+
+	reissueBody, _ := json.Marshal(map[string]string{"server_endpoint": "vpn.example.net:51820"})
+	reissueReq := httptest.NewRequest(http.MethodPost, "/api/v1/wireguard/peers/"+provisionResponse.Peer.ID+"/configuration", bytes.NewReader(reissueBody))
+	reissueReq.Header.Set("Content-Type", "application/json")
+	reissueReq.Header.Set(auth.CSRFHeaderName, setupResponse.CSRFToken)
+	reissueReq.AddCookie(cookies[0])
+	reissueW := httptest.NewRecorder()
+	handler.ServeHTTP(reissueW, reissueReq)
+	if reissueW.Code != http.StatusOK {
+		t.Fatalf("peer configuration reissue failed: %d %s", reissueW.Code, reissueW.Body.String())
+	}
+	var reissueResponse struct {
+		ClientConfig string `json:"client_config"`
+		QRCodeData   string `json:"qr_code_data"`
+		Peer         struct {
+			ID        string `json:"id"`
+			PublicKey string `json:"public_key"`
+		} `json:"peer"`
+	}
+	if err := json.Unmarshal(reissueW.Body.Bytes(), &reissueResponse); err != nil {
+		t.Fatal(err)
+	}
+	if reissueResponse.Peer.ID != provisionResponse.Peer.ID || reissueResponse.Peer.PublicKey == provisionResponse.Peer.PublicKey {
+		t.Fatal("peer reissue did not preserve identity and rotate the public key")
+	}
+	if !strings.HasPrefix(reissueResponse.QRCodeData, "data:image/png;base64,") || !strings.Contains(reissueResponse.ClientConfig, "PrivateKey = ") {
+		t.Fatal("peer reissue did not return a complete one-time client configuration")
+	}
+	reissuedPrivate := strings.Split(strings.Split(reissueResponse.ClientConfig, "PrivateKey = ")[1], "\n")[0]
+	reissuedCfg := server.engine.GetCurrentConfig()
+	reissuedSerialized, err := json.Marshal(reissuedCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(reissuedSerialized, []byte(reissuedPrivate)) {
+		t.Fatal("reissued client private key was persisted")
+	}
+	if len(reissuedCfg.WireGuard.Peers) != 1 || reissuedCfg.WireGuard.Peers[0].ID != provisionResponse.Peer.ID || reissuedCfg.WireGuard.Peers[0].PublicKey != reissueResponse.Peer.PublicKey || reissuedCfg.WireGuard.Peers[0].Enabled {
+		t.Fatal("reissued peer was not committed under the existing disabled peer identity")
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/wireguard/peers/"+provisionResponse.Peer.ID, nil)
+	deleteReq.Header.Set(auth.CSRFHeaderName, setupResponse.CSRFToken)
+	deleteReq.AddCookie(cookies[0])
+	deleteW := httptest.NewRecorder()
+	handler.ServeHTTP(deleteW, deleteReq)
+	if deleteW.Code != http.StatusOK {
+		t.Fatalf("peer deletion failed: %d %s", deleteW.Code, deleteW.Body.String())
+	}
+	if peers := server.engine.GetCurrentConfig().WireGuard.Peers; len(peers) != 0 {
+		t.Fatalf("peer deletion left %d peers in canonical configuration", len(peers))
 	}
 }
 

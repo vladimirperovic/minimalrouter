@@ -1544,7 +1544,8 @@
 .wg-peer-details dd span { white-space: nowrap; }
 .wg-peer-details dd .is-rx { color: var(--classic-green); }
 
-.wg-peer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.wg-peer-actions { display: flex; max-width: 330px; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.wg-peer-config,
 .wg-peer-toggle,
 .wg-peer-delete {
   min-height: 36px;
@@ -1557,13 +1558,15 @@
   transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
 }
 
+.wg-peer-config,
 .wg-peer-toggle { padding: 0 11px; font-size: 9px; font-weight: 700; }
 .wg-peer-delete { display: grid; width: 36px; place-items: center; color: var(--classic-muted); }
 .wg-peer-delete svg { width: 16px; height: 16px; }
+.wg-peer-config:hover,
 .wg-peer-toggle:hover { border-color: color-mix(in srgb, var(--classic-blue) 30%, var(--classic-border)); background: color-mix(in srgb, var(--classic-blue) 5%, var(--classic-panel)); }
 .wg-peer-delete:hover { border-color: color-mix(in srgb, #d54848 30%, var(--classic-border)); background: color-mix(in srgb, #d54848 6%, var(--classic-panel)); color: #c83a3a; }
-.wg-peer-toggle:active, .wg-peer-delete:active { transform: translateY(1px); }
-.wg-peer-toggle:focus-visible, .wg-peer-delete:focus-visible { outline: 2px solid var(--classic-blue); outline-offset: 2px; }
+.wg-peer-config:active, .wg-peer-toggle:active, .wg-peer-delete:active { transform: translateY(1px); }
+.wg-peer-config:focus-visible, .wg-peer-toggle:focus-visible, .wg-peer-delete:focus-visible { outline: 2px solid var(--classic-blue); outline-offset: 2px; }
 
 .wg-peer-empty { display: flex; min-height: 150px; align-items: center; justify-content: center; gap: 13px; padding: 30px; text-align: left; }
 .wg-peer-empty > span { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--classic-soft); color: var(--classic-muted); }
@@ -1608,7 +1611,8 @@
   .wg-peer-row { grid-template-columns: 1fr; gap: 14px; }
   .wg-peer-state { justify-items: start; }
   .wg-peer-details { grid-column: auto; grid-template-columns: 1fr; gap: 12px; }
-  .wg-peer-actions { grid-column: auto; justify-content: flex-start; }
+  .wg-peer-actions { max-width: none; grid-column: auto; justify-content: flex-start; }
+  .wg-peer-config { flex: 1 1 135px; }
   .wg-add-form { gap: 18px; }
 }
 

@@ -85,6 +85,34 @@ function endpointFor(config: { cloudflare: { domain: string }; wireguard: { list
   return host ? `${host}:${config.wireguard.listen_port}` : "Configure Dynamic DNS first";
 }
 
+type WireGuardClientArtifact = {
+  peerId?: string;
+  name: string;
+  config: string;
+  qr?: string;
+};
+
+async function apiErrorMessage(response: Response, fallback: string) {
+  const text = await response.text().catch(() => "");
+  if (!text) return fallback;
+  try {
+    const body = JSON.parse(text) as { error?: string };
+    return body.error || fallback;
+  } catch {
+    return text.trim() || fallback;
+  }
+}
+
+function downloadWireGuardConfig(artifact: WireGuardClientArtifact) {
+  const blob = new Blob([artifact.config], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${artifact.name.replace(/[^a-zA-Z0-9]/g, "_")}.conf`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 type WGClientConfigShape = {
   enabled: boolean;
   endpoint: string;
@@ -304,9 +332,11 @@ export default function DashboardSections({
   const configuredProvider = config.cloudflare.ddns_provider || "noip";
   const configuredProviderLabel = configuredProvider === "noip" ? "No-IP" : "Cloudflare";
   const viewingOtherProvider = ddnsTab !== configuredProvider;
-  const [wgConfig, setWgConfig] = useState<{name: string, config: string, qr?: string} | null>(null);
+  const [wgConfig, setWgConfig] = useState<WireGuardClientArtifact | null>(null);
   const [addingPeer, setAddingPeer] = useState(false);
   const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
+  const [peerActionID, setPeerActionID] = useState<string | null>(null);
+  const [peerActionError, setPeerActionError] = useState("");
   const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
 
   // Authoritative allocation preview from the backend (MR-AUD-005): the UI
@@ -343,16 +373,68 @@ export default function DashboardSections({
       });
       if (res.ok) {
         const body = await res.json();
-        setWgConfig({name: body.peer.name, config: body.client_config, qr: body.qr_code_data});
-        void load();
+        const artifact = {peerId: body.peer.id, name: body.peer.name, config: body.client_config, qr: body.qr_code_data};
+        setWgConfig(artifact);
+        downloadWireGuardConfig(artifact);
+        if (body.tx?.state === "AwaitingConfirmation") void load();
       } else {
-        const err = await res.json().catch(()=>({}));
-        setError(err.error || "Failed to add peer");
+        setError(await apiErrorMessage(res, "Failed to add peer"));
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to add peer");
     } finally {
       setAddingPeer(false);
+    }
+  };
+
+  const showWireGuardArtifact = (artifact: WireGuardClientArtifact) => {
+    setWgConfig(artifact);
+    window.requestAnimationFrame(() => document.getElementById("wg-client-artifact")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  };
+
+  const handlePeerConfiguration = async (peer: WireGuardPeer, download: boolean) => {
+    if (wgConfig?.peerId === peer.id) {
+      if (download) downloadWireGuardConfig(wgConfig);
+      else showWireGuardArtifact(wgConfig);
+      return;
+    }
+    if (!window.confirm(`Generate a new configuration for ${peer.name}? The previous configuration for this peer will stop working.`)) return;
+    setPeerActionID(peer.id);
+    setError("");
+    try {
+      const response = await apiFetch(`/api/v1/wireguard/peers/${encodeURIComponent(peer.id)}/configuration`, {
+        method: "POST",
+        body: JSON.stringify({ server_endpoint: wgPreview?.server_endpoint || "" }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, "Failed to generate peer configuration"));
+      const body = await response.json();
+      const artifact = {peerId: body.peer.id, name: body.peer.name, config: body.client_config, qr: body.qr_code_data};
+      showWireGuardArtifact(artifact);
+      if (download) downloadWireGuardConfig(artifact);
+      if (body.tx?.state === "AwaitingConfirmation") void load();
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "Failed to generate peer configuration");
+    } finally {
+      setPeerActionID(null);
+    }
+  };
+
+  const handleDeletePeer = async () => {
+    if (!confirmDeletePeer) return;
+    setPeerActionID(confirmDeletePeer.id);
+    setPeerActionError("");
+    setError("");
+    try {
+      const response = await apiFetch(`/api/v1/wireguard/peers/${encodeURIComponent(confirmDeletePeer.id)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, "Failed to delete peer"));
+      setConfirmDeletePeer(null);
+      await load();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete peer";
+      setPeerActionError(message);
+      setError(message);
+    } finally {
+      setPeerActionID(null);
     }
   };
 
@@ -503,11 +585,13 @@ export default function DashboardSections({
               <div><dt>Transfer</dt><dd><span className="is-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span>↑ {formatBytes(live?.tx_bytes || 0)}</span></dd></div>
             </dl>
             <div className="wg-peer-actions">
-              <button className="wg-peer-toggle" disabled={busy} onClick={() => void applyConfig((next) => {
+              <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, false)} type="button">QR code</button>
+              <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, true)} type="button">Download settings</button>
+              <button className="wg-peer-toggle" disabled={busy || peerActionID !== null} onClick={() => void applyConfig((next) => {
                 const selected = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === peer.id);
                 if (selected) selected.enabled = !selected.enabled;
               }, `Peer ${peer.name} ${peer.enabled ? "disabled" : "enabled"}.`)} type="button">{peer.enabled ? "Disable" : "Enable"}</button>
-              <button className="wg-peer-delete" disabled={busy} onClick={() => setConfirmDeletePeer({ id: peer.id, name: peer.name })} type="button" aria-label={`Delete peer ${peer.name}`} title={`Delete ${peer.name}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l.7 13h9.6l.7-13M10 11v5M14 11v5" /></svg></button>
+              <button className="wg-peer-delete" disabled={busy || peerActionID !== null} onClick={() => { setPeerActionError(""); setConfirmDeletePeer({ id: peer.id, name: peer.name }); }} type="button" aria-label={`Delete peer ${peer.name}`} title={`Delete ${peer.name}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l.7 13h9.6l.7-13M10 11v5M14 11v5" /></svg></button>
             </div>
           </article>
         );
@@ -521,18 +605,17 @@ export default function DashboardSections({
         <button className="modal-close" aria-label="Close" onClick={() => setConfirmDeletePeer(null)} type="button">✕</button>
         <h2 id="delete-peer-title">Delete {confirmDeletePeer.name}?</h2>
         <p className="modal-copy">This permanently removes the peer <strong>{confirmDeletePeer.name}</strong> from the WireGuard configuration. Its client config and QR code will no longer work, and this cannot be undone.</p>
+        {peerActionError && <p className="form-note is-error" role="alert">{peerActionError}</p>}
         <div className="modal-actions">
-          <button className="button secondary" onClick={() => setConfirmDeletePeer(null)} type="button">Cancel</button>
-          <button className="button danger" disabled={busy} type="button" onClick={() => void applyConfig((next) => {
-            next.wireguard.peers = (next.wireguard.peers || []).filter((x: WireGuardPeer) => x.id !== confirmDeletePeer.id);
-          }, `Peer ${confirmDeletePeer.name} deleted.`).then(() => setConfirmDeletePeer(null))}>Delete</button>
+          <button className="button secondary" disabled={peerActionID !== null} onClick={() => setConfirmDeletePeer(null)} type="button">Cancel</button>
+          <button className="button danger" disabled={busy || peerActionID !== null} type="button" onClick={() => void handleDeletePeer()}>{peerActionID === confirmDeletePeer.id ? "Deleting…" : "Delete"}</button>
         </div>
       </div>
     </div>
   )}
 
   {wgConfig ? (
-    <div className="dashboard-callout wg-callout">
+    <div className="dashboard-callout wg-callout" id="wg-client-artifact">
       {wgConfig.qr && (
         <div className="wg-qr">
           <img src={wgConfig.qr} alt="QR Code" />
@@ -542,15 +625,8 @@ export default function DashboardSections({
         <strong className="wg-success-title">Success! Configuration generated for {wgConfig.name}.</strong>
         <p>WireGuard does not store your private key for security reasons. You MUST download this file or scan the QR code now, as it cannot be retrieved later.</p>
         <div className="wg-actions">
-          <button className="button primary" onClick={() => {
-            const blob = new Blob([wgConfig.config], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${wgConfig.name.replace(/[^a-zA-Z0-9]/g, "_")}.conf`;
-            a.click();
-          }}>Download .conf file</button>
-          <button className="button secondary" onClick={() => setWgConfig(null)}>Done</button>
+          <button className="button primary" onClick={() => downloadWireGuardConfig(wgConfig)}>Download .conf file</button>
+          <button className="button secondary" onClick={() => { setWgConfig(null); void load(); }}>Done</button>
         </div>
       </div>
     </div>
