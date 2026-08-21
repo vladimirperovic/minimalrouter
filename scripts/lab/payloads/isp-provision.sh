@@ -25,6 +25,12 @@ echo "== PPP runtime =="
 for module in ppp_generic pppox pppoe; do
   modprobe "$module" 2>/dev/null || true
 done
+if [ ! -d /sys/module/ppp_generic ]; then
+  echo "ERROR: ISP-LAB kernel did not load ppp_generic" >&2
+  uname -a >&2 || true
+  ls -la /lib/modules 2>&1 >&2 || true
+  exit 1
+fi
 if [ ! -c /dev/ppp ]; then
   rm -f /dev/ppp
   mknod -m 0600 /dev/ppp c 108 0 2>/dev/null || true

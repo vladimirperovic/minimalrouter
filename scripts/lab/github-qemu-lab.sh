@@ -280,7 +280,20 @@ MR_EXTRA_IF="$(mr_if_for_mac "$MR_EXTRA_MAC")"
 } > "$STATE/logs/mr-topology.log"
 echo "MinimalRouter interfaces: WAN=$MR_WAN_IF LAN=$MR_LAN_IF EXTRA=$MR_EXTRA_IF"
 
-# Provision the three Debian peers using the same payloads as the Proxmox lab.
+# The Debian cloud image can boot without a matching /lib/modules tree.
+# Install a guest kernel before starting rp-pppoe; pppd needs the guest's
+# ppp_generic driver, not the GitHub runner's host kernel. Reboot once, then
+# continue with the idempotent payload after the new kernel is active.
+if ! aux_exec 2250 'test -d "/lib/modules/$(uname -r)"'; then
+  echo "ISP-LAB has no modules for its running kernel; installing cloud kernel"
+  aux_exec 2250 'set -eu
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq linux-image-cloud-amd64 kmod >/dev/null
+( sleep 2; systemctl reboot ) >/tmp/lab-kernel-reboot.log 2>&1 &
+' || true
+  wait_aux 150 2250
+fi
 aux_copy_run 2250 scripts/lab/payloads/isp-provision.sh
 aux_copy_run 2253 scripts/lab/payloads/sim-provision.sh
 aux_copy_run 2254 scripts/lab/payloads/client-provision.sh
