@@ -48,19 +48,18 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 ## Current result
 
-Last recorded run before the transport fix:
+Last recorded run:
 
-- Run: [32415073385](https://github.com/vladimirperovic/minimalrouter/actions/runs/32415073385)
-- Commit: `25cfd45f64df2c3404451e4c81f6ae43c40a444d`
+- Run: [32446983083](https://github.com/vladimirperovic/minimalrouter/actions/runs/32446983083)
+- Commit: `eae63d24fe528b095489cba6cc0afd97f39849f0`
 - Result: **failed before scenario execution**
-- Failure: the router reached the PPPoE access concentrator, but the first
-  configuration apply could not obtain IPv4 on `ppp0`; the service stopped
-  after its 20-second readiness window.
+- Failure: the disposable Debian ISP's `pppoe-server` spawned `pppd`, but
+  `pppd` could not open `/dev/ppp`. No scenario result files were produced.
 - Other checks on the same PR head passed, including the focused PPPoE smoke,
   OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan, CodeQL,
   Service supervision and Performance.
 
-The lab fix uses a single-address PPPoE pool for the single router under test,
-matching the passing focused smoke setup, and retains the ISP PPPoE log in the
-failure evidence. The result above must be replaced with the next completed
-run's exact link and summary.
+The next fix initializes the PPP kernel modules and creates `/dev/ppp` in the
+disposable ISP before starting `pppoe-server`. It is queued in commit
+`f50dc4898b9f84b9968707b11c3c90c3a62c4a29`; the result above should be replaced
+with that run's exact link and summary when it completes.
