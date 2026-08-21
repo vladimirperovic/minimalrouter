@@ -50,16 +50,20 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Last recorded run:
 
-- Run: [32446983083](https://github.com/vladimirperovic/minimalrouter/actions/runs/32446983083)
-- Commit: `eae63d24fe528b095489cba6cc0afd97f39849f0`
+- Run: [32451362970](https://github.com/vladimirperovic/minimalrouter/actions/runs/32451362970)
+- Commit: `0fe3cf879e7790774470da1ec432caf029732ceb`
 - Result: **failed before scenario execution**
-- Failure: the disposable Debian ISP's `pppoe-server` spawned `pppd`, but
-  `pppd` could not open `/dev/ppp`. No scenario result files were produced.
-- Other checks on the same PR head passed, including the focused PPPoE smoke,
-  OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan, CodeQL,
-  Service supervision and Performance.
+- Failure: the target MinimalRouter VM completed ISO installation and PPPoE
+  discovery, but `pppd` reported `/dev/ppp: No such device or address` and
+  requested the `ppp_generic` kernel module. No scenario result files were
+  produced.
+- The disposable ISP-side PPP runtime was initialized successfully in this
+  run. All other checks on the PR head passed, including the focused PPPoE
+  smoke, OpenRC PPPoE smoke, CI, Deep validation, Appliance ISO, Secret scan,
+  CodeQL, Service supervision and Performance.
 
-The next fix initializes the PPP kernel modules and creates `/dev/ppp` in the
-disposable ISP before starting `pppoe-server`. It is queued in commit
-`f50dc4898b9f84b9968707b11c3c90c3a62c4a29`; the result above should be replaced
-with that run's exact link and summary when it completes.
+The next lab fix adds an explicit target-side preflight that loads
+`ppp_generic`, `pppox` and `pppoe`, verifies `/dev/ppp`, and retains
+module evidence on failure. It is queued in commit
+`37667a0cd2ee0036c79496c35bacabf21a44f084`; replace this section with that
+run's exact link and summary when it completes.
