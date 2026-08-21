@@ -468,6 +468,65 @@ paths:
         '422':
           description: Invalid or duplicate peer settings
 
+  /wireguard/peers/{id}:
+    delete:
+      summary: Delete an existing WireGuard peer
+      description: Removes the peer through the normal validated and rollback-capable configuration transaction.
+      operationId: deleteWireGuardPeer
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Peer deleted and configuration committed
+        '202':
+          description: Peer provisionally deleted; connectivity confirmation required
+        '404':
+          description: Peer not found
+        '422':
+          description: Deletion rejected by configuration safety validation
+
+  /wireguard/peers/{id}/configuration:
+    post:
+      summary: Issue a new one-time client configuration for an existing peer
+      description: Replaces the peer key material, invalidates the old client configuration, and returns the new private client configuration only in this no-store response.
+      operationId: reissueWireGuardPeerConfiguration
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                server_endpoint:
+                  type: string
+                  description: Optional endpoint override; Dynamic DNS is used when omitted.
+                  example: router.example.net:51820
+      responses:
+        '200':
+          description: Peer key replaced; one-time client .conf and PNG QR returned
+        '202':
+          description: Peer key provisionally replaced; connectivity confirmation required
+        '404':
+          description: Peer not found
+        '422':
+          description: Reissue rejected by validation or transaction safety
+
   /wireguard/provisioning-preview:
     get:
       summary: Report the client IP and endpoint the backend will assign to the next peer

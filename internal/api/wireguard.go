@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
@@ -23,6 +24,10 @@ type wireGuardProvisionRequest struct {
 	Name            string `json:"name"`
 	ClientIPAddress string `json:"client_ip_address"`
 	ServerEndpoint  string `json:"server_endpoint"`
+}
+
+type wireGuardPeerConfigurationRequest struct {
+	ServerEndpoint string `json:"server_endpoint"`
 }
 
 func validateWireGuardEndpoint(value string) error {
@@ -45,6 +50,22 @@ func validateWireGuardEndpoint(value string) error {
 		return fmt.Errorf("server_endpoint port must be between 1024 and 65535")
 	}
 	return nil
+}
+
+func resolveWireGuardServerEndpoint(candidate config.SystemConfig, requested string) (string, error) {
+	endpoint := strings.TrimSpace(requested)
+	if endpoint == "" {
+		if domain := strings.TrimSpace(candidate.Cloudflare.Domain); domain != "" {
+			endpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
+		}
+	}
+	if endpoint == "" {
+		return "", fmt.Errorf("configure Dynamic DNS or provide a server_endpoint")
+	}
+	if err := validateWireGuardEndpoint(endpoint); err != nil {
+		return "", err
+	}
+	return endpoint, nil
 }
 
 func ipv4Uint32(ip net.IP) (uint32, bool) {
@@ -172,16 +193,8 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 	}
 
 	// Auto-fill the server endpoint from the DDNS domain when left blank.
-	if req.ServerEndpoint == "" {
-		if domain := strings.TrimSpace(candidate.Cloudflare.Domain); domain != "" {
-			req.ServerEndpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
-		}
-	}
-	if req.ServerEndpoint == "" {
-		http.Error(w, "Configure Dynamic DNS or provide a server_endpoint", http.StatusUnprocessableEntity)
-		return
-	}
-	if err := validateWireGuardEndpoint(req.ServerEndpoint); err != nil {
+	req.ServerEndpoint, err = resolveWireGuardServerEndpoint(candidate, req.ServerEndpoint)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
@@ -285,6 +298,159 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 		"client_config": clientBundle.ConfigText,
 		"qr_code_data":  clientBundle.QRCodeData,
 		"tx":            redactTransaction(tx),
+	})
+}
+
+// handleReissueWireGuardPeerConfiguration replaces an existing peer's client
+// key material and returns a new importable configuration exactly once. The
+// old client configuration stops working after this transaction is applied;
+// private client keys are never persisted by the router.
+func (s *Server) handleReissueWireGuardPeerConfiguration(w http.ResponseWriter, r *http.Request) {
+	var req wireGuardPeerConfigurationRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	candidate := s.engine.GetCurrentConfig()
+	peerIndex := -1
+	for i := range candidate.WireGuard.Peers {
+		if candidate.WireGuard.Peers[i].ID == r.PathValue("id") {
+			peerIndex = i
+			break
+		}
+	}
+	if peerIndex < 0 {
+		http.Error(w, "WireGuard peer not found", http.StatusNotFound)
+		return
+	}
+
+	serverIP, wgNetwork, err := net.ParseCIDR(candidate.WireGuard.Address)
+	if err != nil {
+		http.Error(w, "WireGuard subnet is invalid", http.StatusUnprocessableEntity)
+		return
+	}
+	peer := candidate.WireGuard.Peers[peerIndex]
+	if len(peer.AllowedIPs) != 1 {
+		http.Error(w, "WireGuard peer must have exactly one client IPv4 address", http.StatusUnprocessableEntity)
+		return
+	}
+	clientIP, clientNetwork, err := net.ParseCIDR(strings.TrimSpace(peer.AllowedIPs[0]))
+	ones, bits := 0, 0
+	if err == nil {
+		ones, bits = clientNetwork.Mask.Size()
+	}
+	if err != nil || clientIP.To4() == nil || bits != 32 || ones != 32 || !wgNetwork.Contains(clientIP) || clientIP.Equal(serverIP) {
+		http.Error(w, "WireGuard peer client address is invalid", http.StatusUnprocessableEntity)
+		return
+	}
+	clientCIDR := clientIP.String() + "/32"
+	endpoint, err := resolveWireGuardServerEndpoint(candidate, req.ServerEndpoint)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	clientPrivate, clientPublic, err := services.GenerateWireGuardKeypair()
+	if err != nil {
+		http.Error(w, "Could not generate WireGuard client key", http.StatusInternalServerError)
+		return
+	}
+	presharedKey, err := services.GenerateWireGuardPresharedKey()
+	if err != nil {
+		http.Error(w, "Could not generate WireGuard preshared key", http.StatusInternalServerError)
+		return
+	}
+	serverPublic, err := services.WireGuardPublicKey(candidate.WireGuard.PrivateKey)
+	if err != nil {
+		http.Error(w, "Stored WireGuard server key is invalid", http.StatusInternalServerError)
+		return
+	}
+
+	candidate.WireGuard.Peers[peerIndex].PublicKey = clientPublic
+	candidate.WireGuard.Peers[peerIndex].PresharedKey = presharedKey
+	if err := candidate.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	clientBundle, err := services.GenerateClientConfig(
+		clientPrivate,
+		clientCIDR,
+		serverPublic,
+		endpoint,
+		presharedKey,
+		strings.Join(candidate.DHCP.DNSServers, ", "),
+		candidate.WireGuard.Address,
+		candidate.LAN.CIDR,
+	)
+	if err != nil {
+		http.Error(w, "Could not generate WireGuard client configuration", http.StatusInternalServerError)
+		return
+	}
+
+	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-reissue-%d", time.Now().UnixNano()), candidate)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "tx": redactTransaction(tx)})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	if tx.CurrentState == apply.StateAwaitingConfirmation {
+		w.WriteHeader(http.StatusAccepted)
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"peer": map[string]any{
+			"id":         peer.ID,
+			"name":       peer.Name,
+			"client_ip":  clientCIDR,
+			"public_key": clientPublic,
+		},
+		"client_config": clientBundle.ConfigText,
+		"qr_code_data":  clientBundle.QRCodeData,
+		"tx":            redactTransaction(tx),
+	})
+}
+
+func (s *Server) handleDeleteWireGuardPeer(w http.ResponseWriter, r *http.Request) {
+	candidate := s.engine.GetCurrentConfig()
+	peerIndex := -1
+	var removed config.WireGuardPeer
+	for i, peer := range candidate.WireGuard.Peers {
+		if peer.ID == r.PathValue("id") {
+			peerIndex = i
+			removed = peer
+			break
+		}
+	}
+	if peerIndex < 0 {
+		http.Error(w, "WireGuard peer not found", http.StatusNotFound)
+		return
+	}
+	candidate.WireGuard.Peers = append(candidate.WireGuard.Peers[:peerIndex], candidate.WireGuard.Peers[peerIndex+1:]...)
+	if err := candidate.Validate(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-delete-%d", time.Now().UnixNano()), candidate)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "tx": redactTransaction(tx)})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if tx.CurrentState == apply.StateAwaitingConfirmation {
+		w.WriteHeader(http.StatusAccepted)
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"peer": map[string]string{"id": removed.ID, "name": removed.Name},
+		"tx":   redactTransaction(tx),
 	})
 }
 

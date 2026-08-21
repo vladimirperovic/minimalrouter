@@ -178,7 +178,24 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     return json({ created: true });
   }
   if (path === "/api/v1/wireguard/client/keys" && method === "POST") return json({ private_key: "DEMO_PRIVATE_KEY_NOT_REAL=", public_key: "DEMO_PUBLIC_KEY_NOT_REAL=" });
-  if (path === "/api/v1/wireguard/peers" && method === "POST") return json({ peer: { id: "demo-peer", name: String(parseBody(init)?.name ?? "Demo device") }, client_config: "# Demo-only WireGuard configuration\n[Interface]\nAddress = 10.8.0.5/32", qr_code_data: "" });
+  if (path === "/api/v1/wireguard/peers" && method === "POST") {
+    const peer = { id: `demo-${Date.now()}`, name: String(parseBody(init)?.name ?? "Demo device"), public_key: "DEMO_PUBLIC_KEY_NOT_REAL=", allowed_ips: ["10.8.0.5/32"], enabled: true };
+    config.wireguard.peers = [...config.wireguard.peers, peer];
+    config.revision += 1;
+    return json({ peer, client_config: "# Demo-only WireGuard configuration\n[Interface]\nAddress = 10.8.0.5/32", qr_code_data: "", tx: { state: "Committed" } });
+  }
+  const peerConfigurationMatch = path.match(/^\/api\/v1\/wireguard\/peers\/([^/]+)\/configuration$/);
+  if (peerConfigurationMatch && method === "POST") {
+    const peer = config.wireguard.peers.find((item) => item.id === decodeURIComponent(peerConfigurationMatch[1]));
+    if (!peer) return json({ error: "WireGuard peer not found" }, 404);
+    return json({ peer, client_config: `# Demo-only regenerated WireGuard configuration\n[Interface]\nAddress = ${peer.allowed_ips[0]}`, qr_code_data: "", tx: { state: "Committed" } });
+  }
+  const peerDeleteMatch = path.match(/^\/api\/v1\/wireguard\/peers\/([^/]+)$/);
+  if (peerDeleteMatch && method === "DELETE") {
+    config.wireguard.peers = config.wireguard.peers.filter((item) => item.id !== decodeURIComponent(peerDeleteMatch[1]));
+    config.revision += 1;
+    return json({ tx: { state: "Committed" } });
+  }
   if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", provisioning_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
   if (path === "/api/v1/backup/import/preview" && method === "POST") return json({ import_id: "demo-backup", expires_in_seconds: 600, candidate: config });
   if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
