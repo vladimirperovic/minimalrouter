@@ -8,8 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "== packages =="
 apt-get update -qq
-apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl openssl >/dev/null 2>&1 || \
-  apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl >/dev/null
+apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl openssl kmod >/dev/null 2>&1 || \
+  apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl kmod >/dev/null
 systemctl enable --now qemu-guest-agent >/dev/null 2>&1 || true
 
 echo "== interface detection =="
