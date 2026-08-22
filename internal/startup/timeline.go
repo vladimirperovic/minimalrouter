@@ -18,7 +18,7 @@ import (
 const (
 	Window         = 10 * time.Minute
 	CheckInterval  = 1 * time.Second
-	SampleInterval = 30 * time.Second
+	SampleInterval = 1 * time.Second
 	MaxBoots       = 5
 )
 

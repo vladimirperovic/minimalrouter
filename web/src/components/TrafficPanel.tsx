@@ -67,6 +67,11 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
 
   const months = snapshot?.months ?? [];
   const active = months.find((month) => month.month === selectedMonth) ?? months[0];
+  const activeIndex = months.findIndex((month) => month.month === active?.month);
+  const previous = activeIndex >= 0 ? months[activeIndex + 1] : undefined;
+  const delta = active && previous && previous.total_bytes > 0
+    ? ((active.total_bytes - previous.total_bytes) / previous.total_bytes) * 100
+    : null;
 
   return (
     <section className="dashboard-section" id="traffic">
@@ -114,7 +119,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
             <div className="card-title-row">
               <div>
                 <h3>{monthLabel(active.month)}</h3>
-                <p>{active.devices.length} devices · {formatBytes(active.total_bytes)} total</p>
+                <p>{active.devices.length} devices · {formatBytes(active.total_bytes)} total{previous && delta !== null ? <span title={`Previous month: ${formatBytes(previous.total_bytes)}`}> · {delta >= 0 ? "+" : ""}{delta.toFixed(0)}% vs {monthLabel(previous.month)}</span> : ""}</p>
               </div>
               <button className="button secondary small" disabled={busy} onClick={() => void load()} type="button">Refresh</button>
             </div>

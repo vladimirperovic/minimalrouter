@@ -379,6 +379,22 @@ func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	return snapshots, nil
 }
 
+// DeleteSnapshot removes a single restore point. Restore points are signed and
+// immutable, so deletion is the only mutation besides pruning.
+func (s *SQLiteStore) DeleteSnapshot(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec("DELETE FROM snapshots WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete snapshot: %w", err)
+	}
+	if deleted, _ := result.RowsAffected(); deleted == 0 {
+		return fmt.Errorf("snapshot not found: %s", id)
+	}
+	return nil
+}
+
 // GetSnapshot retrieves a specific snapshot by ID including its full config JSON.
 func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 	s.mu.RLock()

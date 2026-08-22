@@ -53,6 +53,7 @@ type Props = {
   speedTesting: boolean;
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
+  deleteSnapshot: (id: string) => Promise<void>;
   setError: (message: string) => void;
   onNavigate: (id: SectionID) => void;
 };
@@ -324,7 +325,7 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
 export default function DashboardSections({
   active, config, gatewaySummary, gatewaySettings, runtime, leases, snapshots, busy,
   load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError, onNavigate }: Props) {
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, deleteSnapshot, setError, onNavigate }: Props) {
   const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   // The status card reports the provider the router is actually running, which
@@ -337,7 +338,18 @@ export default function DashboardSections({
   const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
   const [peerActionID, setPeerActionID] = useState<string | null>(null);
   const [peerActionError, setPeerActionError] = useState("");
+  const [renamingPeer, setRenamingPeer] = useState<{ id: string; name: string } | null>(null);
   const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
+
+  const submitPeerRename = () => {
+    if (!renamingPeer) return;
+    const name = renamingPeer.name.trim();
+    applyConfig((next) => {
+      const selected = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === renamingPeer.id);
+      if (selected && name) selected.name = name;
+    }, `Peer renamed to ${name}.`);
+    setRenamingPeer(null);
+  };
 
   // Authoritative allocation preview from the backend (MR-AUD-005): the UI
   // never re-implements next-free-IP or endpoint resolution.
@@ -576,7 +588,7 @@ export default function DashboardSections({
           <article className={`wg-peer-row ${peerState}`} key={peer.id}>
             <div className="wg-peer-identity">
               <span className="wg-peer-device" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M9 17h6M9 7h6" /></svg></span>
-              <div><strong>{peer.name}</strong><code>{peer.public_key.slice(0, 18)}…</code></div>
+              <div>{renamingPeer?.id === peer.id ? <form onSubmit={(event) => { event.preventDefault(); submitPeerRename(); }} style={{ display: "flex", gap: 6, alignItems: "center" }}><input aria-label="Peer name" autoFocus onChange={(event) => setRenamingPeer({ id: peer.id, name: event.target.value })} value={renamingPeer.name} /></form> : <strong>{peer.name}</strong>}<code>{peer.public_key.slice(0, 18)}…</code></div>
             </div>
             <div className="wg-peer-state"><span><i aria-hidden="true" />{!peer.enabled ? "Disabled" : online ? "Connected" : "Awaiting handshake"}</span><small>{handshake ? formatHandshake(handshake) : "Not connected yet"}</small></div>
             <dl className="wg-peer-details">
@@ -585,6 +597,14 @@ export default function DashboardSections({
               <div><dt>Transfer</dt><dd><span className="is-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span>↑ {formatBytes(live?.tx_bytes || 0)}</span></dd></div>
             </dl>
             <div className="wg-peer-actions">
+              {renamingPeer?.id === peer.id ? (
+                <>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null || !renamingPeer.name.trim()} onClick={() => void submitPeerRename()} type="button">Save</button>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer(null)} type="button">Cancel</button>
+                </>
+              ) : (
+                <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer({ id: peer.id, name: peer.name })} type="button">Rename</button>
+              )}
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, false)} type="button">QR code</button>
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, true)} type="button">Download settings</button>
               <button className="wg-peer-toggle" disabled={busy || peerActionID !== null} onClick={() => void applyConfig((next) => {
@@ -745,7 +765,7 @@ export default function DashboardSections({
 {active === "recovery" && <section className="dashboard-section" id="recovery">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2><p className="section-copy">Create verified configuration restore points and keep destructive recovery operations on the physical console.</p></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><dl className="subpage-hero-facts"><div><dt>Snapshots</dt><dd>{snapshots.length}</dd><small>verified restore points</small></div><div><dt>Current revision</dt><dd>{config.revision}</dd><small>active configuration</small></div><div><dt>Network recovery</dt><dd>Console only</dd><small>no remote endpoint</small></div><div><dt>Rollback</dt><dd>Automatic</dd><small>critical changes protected</small></div></dl></div>
   <div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div>
-  <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Signed local restore points retained by the appliance.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article>
+  <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Signed local restore points retained by the appliance.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td className="device-row-actions"><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button><button className="button secondary small danger" disabled={busy} onClick={() => void deleteSnapshot(snapshot.id)} type="button">Delete</button></td></tr>)}</tbody></table></div></article>
 </section>}
 
 {active === "logs" && <AuditLogPanel />}

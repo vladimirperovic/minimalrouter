@@ -77,7 +77,7 @@ export function gridToDayWindows(grid: HourGrid): DayWindows {
   return Object.fromEntries(scheduleDays.map(([day]) => [day, slotsToWindows(grid[day])])) as unknown as DayWindows;
 }
 
-function normalizeDayWindows(schedule: DeviceProfile["schedule"]): DayWindows {
+export function normalizeDayWindows(schedule: DeviceProfile["schedule"]): DayWindows {
   if (schedule.day_windows && Object.keys(schedule.day_windows).length > 0) {
     return Object.fromEntries(scheduleDays.map(([day]) => [day, schedule.day_windows?.[day] ?? []])) as unknown as DayWindows;
   }

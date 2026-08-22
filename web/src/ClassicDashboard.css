@@ -1520,13 +1520,13 @@
   white-space: nowrap;
 }
 
-.wg-peer-identity strong { font-size: 13px; font-weight: 720; }
-.wg-peer-identity code { margin-top: 4px; color: var(--classic-muted); font-size: 8px; }
+.wg-peer-identity strong { font-size: 16px; font-weight: 720; }
+.wg-peer-identity code { margin-top: 4px; color: var(--classic-muted); font-size: 11px; }
 
 .wg-peer-state { display: grid; min-width: 0; gap: 5px; }
-.wg-peer-state > span { display: flex; align-items: center; gap: 7px; color: var(--classic-orange); font-size: 9px; font-weight: 730; white-space: nowrap; }
-.wg-peer-state > span i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent); }
-.wg-peer-state small { overflow: hidden; color: var(--classic-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.wg-peer-state > span { display: flex; align-items: center; gap: 7px; color: var(--classic-orange); font-size: 13px; font-weight: 700; white-space: nowrap; }
+.wg-peer-state > span i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent); }
+.wg-peer-state small { overflow: hidden; color: var(--classic-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .wg-peer-row.is-connected .wg-peer-state > span { color: var(--classic-green); }
 .wg-peer-row.is-disabled .wg-peer-state > span { color: var(--classic-muted); }
 
@@ -1539,8 +1539,8 @@
 }
 
 .wg-peer-details > div { min-width: 0; }
-.wg-peer-details dt { color: var(--classic-muted); font-size: 7px; font-weight: 750; letter-spacing: .045em; text-transform: uppercase; }
-.wg-peer-details dd { display: flex; min-width: 0; gap: 8px; margin: 5px 0 0; overflow: hidden; color: color-mix(in srgb, var(--classic-text) 85%, var(--classic-muted)); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.wg-peer-details dt { color: var(--classic-muted); font-size: 10px; font-weight: 750; letter-spacing: .045em; text-transform: uppercase; }
+.wg-peer-details dd { display: flex; min-width: 0; gap: 8px; margin: 5px 0 0; overflow: hidden; color: color-mix(in srgb, var(--classic-text) 85%, var(--classic-muted)); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .wg-peer-details dd span { white-space: nowrap; }
 .wg-peer-details dd .is-rx { color: var(--classic-green); }
 
@@ -3235,10 +3235,6 @@
 
 /* DHCP reservations — search, veca slova, kompaktnija tabela */
 .static-lease-search{margin:.9rem 0 .3rem;max-width:360px}
-.static-leases table{font-size:.92rem}
-.static-leases thead th{padding:.55rem .9rem;font-size:.68rem}
-.static-leases tbody td{padding:.38rem .9rem}
-.static-leases tbody td code{font-size:.85rem}
 .static-leases .empty-state{padding:1rem}
 @media(max-width:640px){.static-lease-search{max-width:none}}
 

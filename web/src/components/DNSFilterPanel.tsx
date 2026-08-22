@@ -9,6 +9,7 @@ import {
   gridToDayWindows,
   HourGrid,
   managedServices,
+  normalizeDayWindows,
   scheduleDays,
   ScheduleDay,
 } from "../lib/deviceProfiles";
@@ -27,7 +28,21 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [addresses, setAddresses] = useState("");
   const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
   const [grid, setGrid] = useState<HourGrid>(() => createDefaultKidsGrid());
+  const [editingId, setEditingId] = useState<string | null>(null);
   const dragValue = useRef<boolean | null>(null);
+
+  const gridFromProfile = (profile: DeviceProfile): HourGrid => {
+    const windows = normalizeDayWindows(profile.schedule);
+    return Object.fromEntries(scheduleDays.map(([day]) => {
+      const slots = Array<boolean>(24).fill(false);
+      for (const item of windows[day] ?? []) {
+        const from = Number(item.start.slice(0, 2));
+        const to = item.end === "23:59" ? 24 : Number(item.end.slice(0, 2));
+        for (let hour = from; hour < Math.min(to, 24); hour += 1) slots[hour] = true;
+      }
+      return [day, slots];
+    })) as unknown as HourGrid;
+  };
 
   useEffect(() => {
     if (!apiConnected) return;
@@ -73,10 +88,29 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const closeModal = () => {
     setModalOpen(false);
+    setEditingId(null);
     setName("Kids");
     setAddresses("");
     setServices(["youtube", "steam", "wiki"]);
     setGrid(createDefaultKidsGrid());
+  };
+
+  const openAdd = () => {
+    setEditingId(null);
+    setName("Kids");
+    setAddresses("");
+    setServices(["youtube", "steam", "wiki"]);
+    setGrid(createDefaultKidsGrid());
+    setModalOpen(true);
+  };
+
+  const startEditProfile = (profile: DeviceProfile) => {
+    setEditingId(profile.id);
+    setName(profile.name);
+    setAddresses(profile.ip_addresses.join(", "));
+    setServices([...profile.services]);
+    setGrid(gridFromProfile(profile));
+    setModalOpen(true);
   };
 
   const toggleGlobal = async () => {
@@ -96,12 +130,20 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
     setSaving(true);
     try {
       const profile = createKidsProfile({
+        id: editingId ?? undefined,
         name,
         addresses: addresses.split(","),
         services,
         dayWindows: gridToDayWindows(grid),
       });
-      await persist(true, [...profiles, profile]);
+      if (editingId) {
+        const existing = profiles.find((item) => item.id === editingId);
+        await persist(true, profiles.map((item) => (
+          item.id === editingId ? { ...profile, enabled: existing?.enabled ?? true } : item
+        )));
+      } else {
+        await persist(true, [...profiles, profile]);
+      }
       closeModal();
       onError("");
     } catch (error) {
@@ -166,7 +208,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   return (
     <section className="section-block dns-filter" id="adguard">
       <div className="section-heading dns-filter-heading has-facts">
-        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>Scheduled service access</h2><p className="dns-filter-intro">Devices use static LAN addresses. DNS answers populate nftables sets, and the firewall applies service schedules per device.</p></div><div className="dns-filter-actions"><button className="button secondary" disabled={!apiConnected || saving} onClick={toggleGlobal} type="button">{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button><button className="button primary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Add device profile</button></div></div>
+        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>Scheduled service access</h2><p className="dns-filter-intro">Devices use static LAN addresses. DNS answers populate nftables sets, and the firewall applies service schedules per device.</p></div><div className="dns-filter-actions"><button className="button secondary" disabled={!apiConnected || saving} onClick={toggleGlobal} type="button">{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Add device profile</button></div></div>
         <dl className="subpage-hero-facts"><div><dt>Filtering</dt><dd>{enabled ? "Active" : "Disabled"}</dd><small>DNS and firewall policy</small></div><div><dt>Profiles</dt><dd>{profiles.length}</dd><small>configured devices</small></div><div><dt>Active profiles</dt><dd>{profiles.filter((profile) => profile.enabled).length}</dd><small>scheduled policies</small></div><div><dt>Services</dt><dd>{new Set(profiles.flatMap((profile) => profile.services)).size}</dd><small>unique service groups</small></div></dl>
       </div>
 
@@ -197,7 +239,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                       {profile.enabled ? "Active" : "Paused"}
                     </button>
                   </td>
-                  <td><button className="icon-danger" disabled={saving} onClick={() => removeProfile(profile.id)} title="Remove profile" type="button">✕</button></td>
+                  <td><button className="button secondary small" disabled={saving} onClick={() => startEditProfile(profile)} type="button">Edit</button> <button className="icon-danger" disabled={saving} onClick={() => removeProfile(profile.id)} title="Remove profile" type="button">✕</button></td>
                 </tr>
               ))}
             </tbody>
@@ -209,7 +251,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="modal-backdrop" role="presentation">
           <section aria-labelledby="profile-title" aria-modal="true" className="modal-panel dns-profile-modal" role="dialog">
             <div className="modal-heading">
-              <div className="dns-profile-modal-title"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 4.4 3 7.3 8 9 5-1.7 8-4.6 8-9V7z" /><path d="M9 12h6M12 9v6" /></svg></span><div><p className="eyebrow">Parental control</p><h2 id="profile-title">Add device profile</h2><p>Choose the devices, managed services and the hours when access is allowed.</p></div></div>
+              <div className="dns-profile-modal-title"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3 4 7v5c0 4.4 3 7.3 8 9 5-1.7 8-4.6 8-9V7z" /><path d="M9 12h6M12 9v6" /></svg></span><div><p className="eyebrow">Parental control</p><h2 id="profile-title">{editingId ? "Edit device profile" : "Add device profile"}</h2><p>Choose the devices, managed services and the hours when access is allowed.</p></div></div>
               <button aria-label="Close profile dialog" className="modal-close" onClick={closeModal} type="button">✕</button>
             </div>
             <form className="form-grid dns-profile-form" onSubmit={submitProfile}>
