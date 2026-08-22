@@ -1,0 +1,7 @@
+/* Skin layer. Imported last so skin rules win ties against the base sheets.
+   "classic" ships no stylesheet: with no data-skin override in play the
+   dashboard renders exactly as it did before skins existed. */
+@import "./console.css";
+@import "./atelier.css";
+@import "./inspector.css";
+@import "./topology.css";

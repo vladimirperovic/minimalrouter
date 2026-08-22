@@ -1,0 +1,462 @@
+/* ============================================================
+   SKIN 03 · INSPECTOR
+   Structured workspace. Dark navigation rail against a light
+   working surface, bordered cards with visible section state,
+   indigo accent. Reads as auditable rather than decorative.
+   ============================================================ */
+
+:root[data-skin="inspector"] {
+  --classic-bg: #fafafa;
+  --classic-panel: #ffffff;
+  --classic-soft: #f4f4f5;
+  --classic-border: #e4e4e7;
+  --classic-text: #18181b;
+  --classic-muted: #6c6c76;
+  --classic-blue: #4f46e5;
+  --classic-purple: #7c3aed;
+  --classic-green: #077d55;
+  --classic-orange: #96590a;
+
+  --canvas: #fafafa;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-muted: #f4f4f5;
+  --surface-subtle: #fafafa;
+  --text: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #8b8b94;
+  --separator: #e4e4e7;
+  --accent: #4f46e5;
+
+  --skin-rail: #18181b;
+  --skin-rail-fg: #a1a1aa;
+  --skin-rail-fg-on: #ffffff;
+  --skin-rail-hover: rgba(255, 255, 255, 0.07);
+  --skin-rail-active: rgba(255, 255, 255, 0.11);
+  /* Desktop frame. FinalPolish.css reads these two from :root and applies
+     them with !important, so this is the supported way to change the rail. */
+  --v015-sidebar-width: 244px;
+  --v015-frame-gutter: 0px;
+
+  --skin-radius: 10px;
+  --skin-radius-sm: 7px;
+}
+
+:root[data-skin="inspector"][data-theme="dark"] {
+  --classic-bg: #09090b;
+  --classic-panel: #121215;
+  --classic-soft: #17171b;
+  --classic-border: #26262c;
+  --classic-text: #fafafa;
+  --classic-muted: #9494a0;
+  --classic-blue: #8b8cf9;
+  --classic-purple: #a78bfa;
+  --classic-green: #34d399;
+  --classic-orange: #f0b45f;
+
+  --canvas: #09090b;
+  --surface: #121215;
+  --surface-raised: #17171b;
+  --surface-muted: #17171b;
+  --surface-subtle: #0d0d10;
+  --text: #fafafa;
+  --text-secondary: #a3a3ad;
+  --text-tertiary: #71717f;
+  --separator: #26262c;
+  --accent: #8b8cf9;
+
+  --skin-rail: #060608;
+  --skin-rail-fg: #7a7a85;
+}
+
+/* ---- ground -------------------------------------------------- */
+:root[data-skin="inspector"] .dashboard-app {
+  background: var(--classic-bg);
+  background-attachment: initial;
+  font-family: Inter, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---- dark navigation rail ------------------------------------ */
+:root[data-skin="inspector"] .dashboard-sidebar {
+  width: 244px;
+  padding: 0 0 14px;
+  border-right: 0;
+  background: var(--skin-rail);
+}
+
+:root[data-skin="inspector"] .dashboard-brand {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+:root[data-skin="inspector"] .dashboard-brand .dashboard-brand-title strong {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.022em;
+  color: var(--skin-rail-fg-on);
+}
+
+:root[data-skin="inspector"] .dashboard-sidebar nav.dashboard-navigation { padding: 14px 10px 0; }
+:root[data-skin="inspector"] .dashboard-nav-group + .dashboard-nav-group { margin-top: 18px; }
+
+:root[data-skin="inspector"] .dashboard-nav-group h2 {
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #6b6b76;
+}
+
+:root[data-skin="inspector"] .dashboard-nav-group > div { gap: 1px; }
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a {
+  min-height: 34px;
+  gap: 11px;
+  padding: 0 10px;
+  border-radius: var(--skin-radius-sm);
+  font-size: 13.5px;
+  font-weight: 450;
+  color: var(--skin-rail-fg);
+}
+
+:root[data-skin="inspector"] .dashboard-nav-icon { width: 17px; height: 17px; color: var(--skin-rail-fg); stroke-width: 1.7; }
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a:hover {
+  background: var(--skin-rail-hover);
+  color: var(--skin-rail-fg-on);
+}
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a:hover .dashboard-nav-icon { color: var(--skin-rail-fg-on); }
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a.is-active {
+  position: relative;
+  background: var(--skin-rail-active);
+  color: var(--skin-rail-fg-on);
+  font-weight: 600;
+}
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a.is-active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: #7c7cf7;
+}
+
+:root[data-skin="inspector"] .dashboard-sidebar nav a.is-active .dashboard-nav-icon { color: #a5a5fb; }
+
+:root[data-skin="inspector"] .dashboard-sidebar-footer {
+  padding: 12px 18px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+:root[data-skin="inspector"] .dashboard-brand-revision { padding: 0; font-size: 11px; color: #6b6b76; }
+:root[data-skin="inspector"] .dashboard-brand-revision span { color: #a1a1aa; }
+
+/* ---- topbar -------------------------------------------------- */
+:root[data-skin="inspector"] .dashboard-main { margin-left: 244px; padding: 0 24px 96px; }
+
+:root[data-skin="inspector"] .dashboard-topbar.classic-topbar {
+  top: 0;
+  min-height: 58px;
+  margin: 0 -24px 20px;
+  border: 0;
+  border-bottom: 1px solid var(--classic-border);
+  border-radius: 0;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--classic-panel) 94%, transparent);
+  box-shadow: none;
+}
+
+:root[data-skin="inspector"] .classic-page-heading h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+:root[data-skin="inspector"] .classic-live-sync { min-height: 34px; padding-right: 16px; }
+:root[data-skin="inspector"] .classic-live-sync strong { font-size: 12.5px; }
+
+:root[data-skin="inspector"] .classic-topbar-button,
+:root[data-skin="inspector"] .classic-account-button,
+:root[data-skin="inspector"] .classic-setup-pill {
+  min-height: 32px;
+  border-radius: var(--skin-radius-sm);
+  background: var(--classic-panel);
+  box-shadow: none;
+}
+
+:root[data-skin="inspector"] .classic-topbar-button { width: 32px; }
+:root[data-skin="inspector"] .classic-topbar-button svg { width: 16px; height: 16px; }
+:root[data-skin="inspector"] .skin-menu-trigger.classic-topbar-button { width: auto; padding: 0 11px; }
+:root[data-skin="inspector"] .skin-menu-label { font-size: 12.5px; font-weight: 550; }
+
+/* ---- section hero -------------------------------------------- */
+:root[data-skin="inspector"] .dashboard-section-heading,
+:root[data-skin="inspector"] .dns-filter-heading {
+  min-height: 0;
+  gap: 0;
+  border: 1px solid var(--classic-border);
+  border-radius: var(--skin-radius);
+  padding: 0;
+  background: var(--classic-panel);
+  box-shadow: none;
+}
+
+:root[data-skin="inspector"] .dashboard-section-heading::after,
+:root[data-skin="inspector"] .dns-filter-heading::after { display: none; }
+
+:root[data-skin="inspector"] .subpage-hero-head {
+  align-items: flex-start;
+  gap: 20px;
+  padding: 17px 20px;
+}
+
+:root[data-skin="inspector"] .dashboard-section-heading .eyebrow,
+:root[data-skin="inspector"] .dns-filter-heading .eyebrow {
+  margin: 0 0 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .dashboard-section-heading h2,
+:root[data-skin="inspector"] .dns-filter-heading h2 {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.026em;
+  line-height: 1.18;
+  color: var(--classic-text);
+}
+
+:root[data-skin="inspector"] .dashboard-section-heading .section-copy,
+:root[data-skin="inspector"] .dashboard-section-heading .dns-filter-intro,
+:root[data-skin="inspector"] .dashboard-section-heading .ddns-lead,
+:root[data-skin="inspector"] .dns-filter-heading .dns-filter-intro {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .subpage-hero-facts {
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 20px 20px;
+  background: transparent;
+}
+
+:root[data-skin="inspector"] .subpage-hero-facts > div {
+  padding: 13px 15px;
+  border: 1px solid var(--classic-border);
+  border-radius: 9px;
+  background: var(--classic-soft);
+}
+
+:root[data-skin="inspector"] .subpage-hero-facts dt {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .subpage-hero-facts dd {
+  margin: 6px 0 3px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+  color: var(--classic-text);
+}
+
+:root[data-skin="inspector"] .subpage-hero-facts small { font-size: 11.5px; color: var(--classic-muted); }
+
+/* ---- panels and forms ---------------------------------------- */
+:root[data-skin="inspector"] .dashboard-app .card,
+:root[data-skin="inspector"] .settings-form,
+:root[data-skin="inspector"] .status-list,
+:root[data-skin="inspector"] .dashboard-callout,
+:root[data-skin="inspector"] .speedtest-block,
+:root[data-skin="inspector"] .ddns-status,
+:root[data-skin="inspector"] .modern-device-section {
+  border: 1px solid var(--classic-border);
+  border-radius: var(--skin-radius);
+  background: var(--classic-panel);
+  box-shadow: none;
+}
+
+:root[data-skin="inspector"] .settings-form { gap: 16px; padding: 16px 18px; }
+
+:root[data-skin="inspector"] .settings-form fieldset,
+:root[data-skin="inspector"] .dns-records-fieldset {
+  gap: 16px;
+  border: 1px solid var(--classic-border);
+  border-radius: var(--skin-radius-sm);
+  padding: 16px 18px 18px;
+  background: var(--classic-panel);
+}
+
+:root[data-skin="inspector"] .settings-form legend,
+:root[data-skin="inspector"] .dns-records-fieldset legend,
+:root[data-skin="inspector"] .settings-form .fieldset-title,
+:root[data-skin="inspector"] .dns-records-fieldset .fieldset-title {
+  padding: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  text-transform: none;
+  color: var(--classic-text);
+}
+
+:root[data-skin="inspector"] .dashboard-app .field > span {
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .dashboard-app input,
+:root[data-skin="inspector"] .dashboard-app select {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: var(--skin-radius-sm);
+  background: var(--classic-panel);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-skin="inspector"] .dashboard-section .checkbox-row,
+:root[data-skin="inspector"] .dns-filter .checkbox-row,
+:root[data-skin="inspector"] .classic-security-card .checkbox-row {
+  width: 100%;
+  border-radius: var(--skin-radius-sm);
+  padding: 11px 14px;
+  background: var(--classic-soft);
+  font-size: 13px;
+}
+
+:root[data-skin="inspector"] .form-actions { padding-top: 16px; }
+
+:root[data-skin="inspector"] .dashboard-section .button,
+:root[data-skin="inspector"] .dns-filter .button {
+  min-height: 32px;
+  border-radius: var(--skin-radius-sm);
+  font-size: 13px;
+  font-weight: 550;
+}
+
+:root[data-skin="inspector"] .form-note { font-size: 11.5px; }
+
+/* ---- chips and tables ---------------------------------------- */
+:root[data-skin="inspector"] .classic-status-chip {
+  min-height: 22px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+:root[data-skin="inspector"] .elegant-table-container {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-skin="inspector"] .elegant-device-table thead th {
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--classic-border);
+  background: var(--classic-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.045em;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .elegant-device-table tbody td {
+  height: auto;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--classic-border);
+  font-size: 13px;
+}
+
+:root[data-skin="inspector"] .elegant-device-table tbody tr:hover td { background: var(--classic-soft); }
+
+:root[data-skin="inspector"] .elegant-cell-mac,
+:root[data-skin="inspector"] .elegant-device-table code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="inspector"] .modern-section-heading h2 {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.018em;
+  text-transform: none;
+  color: var(--classic-text);
+}
+
+:root[data-skin="inspector"] .dashboard-app .modern-search-input {
+  min-height: 32px;
+  border-radius: var(--skin-radius-sm);
+  font-size: 13px;
+}
+
+:root[data-skin="inspector"] .card-title-row h3 { font-size: 14.5px; font-weight: 600; letter-spacing: -0.018em; }
+
+/* ---- shared command surfaces --------------------------------- */
+:root[data-skin="inspector"] .overview-status-hero,
+:root[data-skin="inspector"] .wg-page-hero,
+:root[data-skin="inspector"] .classic-security-command {
+  border-radius: var(--skin-radius);
+  background: linear-gradient(118deg, #18181b 0%, #232329 55%, #18181b 100%);
+}
+
+/* ---- desktop frame ------------------------------------------------ */
+/* The rail runs flush to the viewport edge in this skin rather than floating
+   inset. The gutter token is 0, so the page padding is set here instead. */
+@media (min-width: 901px) {
+  :root[data-skin="inspector"] .dashboard-sidebar {
+    inset-block: 0;
+    border-radius: 0;
+  }
+
+  :root[data-skin="inspector"] .dashboard-main {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+  }
+
+  :root[data-skin="inspector"] .dashboard-topbar.classic-topbar {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+  }
+}
+
+@media (min-width: 901px) {
+  :root[data-skin="inspector"] .dashboard-topbar.classic-topbar {
+    top: 0;
+    min-height: 58px;
+    margin: 0 -24px 20px;
+    border: 0;
+    border-bottom: 1px solid var(--classic-border);
+    border-radius: 0;
+    padding: 0 24px;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 900px) {
+  :root[data-skin="inspector"] .dashboard-main { margin-left: 0; }
+}
