@@ -459,6 +459,16 @@ body,
   letter-spacing: -.015em;
 }
 
+/* Inside-card headings: refactored fieldsets use <div class="fieldset-title"> so the
+   heading lives in normal flow inside the card and the fieldset border stays continuous. */
+.fieldset-title {
+  margin: 0 0 14px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
 /* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
 #network .demo-015-hidden-wan-toggle {
   display: none !important;
@@ -1232,6 +1242,15 @@ body {
   margin-left: 12px;
   background: var(--classic-panel);
   border-radius: 999px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+.settings-form > fieldset .fieldset-title,
+.dns-records-fieldset .fieldset-title {
+  margin: 0 0 14px;
   color: var(--classic-text);
   font-size: 13px;
   font-weight: 770;

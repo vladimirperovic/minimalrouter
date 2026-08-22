@@ -261,7 +261,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                   <label className="field"><span>Device IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
               </div>
                   <fieldset className="field service-picker">
-                    <legend>Managed services</legend>
+                    <div className="fieldset-title">Managed services</div>
                     <p>Select the services controlled by this schedule.</p>
                     <div className="service-checkboxes">
                       {managedServices.map(([value, label]) => (
@@ -271,7 +271,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                   </fieldset>
 
                   <fieldset className="weekly-scheduler">
-                    <legend>Allowed time</legend>
+                    <div className="fieldset-title">Allowed time</div>
                     <div className="scheduler-toolbar">
                       <p>Coloured hours are allowed. Click or drag across the cells to change the schedule.</p>
                       <div>

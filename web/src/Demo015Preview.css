@@ -521,6 +521,14 @@ html.demo-015-preview #security .settings-form > fieldset legend {
   letter-spacing: -.015em;
 }
 
+html.demo-015-preview .fieldset-title {
+  margin: 0 0 14px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
 /* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
 html.demo-015-preview #network .demo-015-hidden-wan-toggle {
   display: none !important;
@@ -1373,6 +1381,16 @@ html.demo-015-preview .demo-unified-form > fieldset legend {
   margin-left: 12px;
   background: var(--classic-panel);
   border-radius: 999px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+html.demo-015-preview .settings-form > fieldset .fieldset-title,
+html.demo-015-preview .demo-unified-form > fieldset .fieldset-title,
+html.demo-015-preview .dns-records-fieldset .fieldset-title {
+  margin: 0 0 14px;
   color: var(--classic-text);
   font-size: 13px;
   font-weight: 770;
