@@ -34,6 +34,9 @@
   --v015-sidebar-width: 238px;
   --v015-frame-gutter: 0px;
 
+  --demo-hero-ink: var(--classic-text);
+  --demo-hero-ink-muted: var(--classic-muted);
+  --skin-danger: #bc2a2a;
   --skin-radius: 12px;
   --skin-radius-sm: 8px;
   --skin-shadow: 0 1px 2px rgba(13, 26, 33, 0.05), 0 12px 32px -18px rgba(13, 26, 33, 0.28);
@@ -62,6 +65,7 @@
   --separator: #21313a;
   --accent: #34c6dd;
 
+  --skin-danger: #ff7b7b;
   --skin-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 18px 44px -24px rgba(0, 0, 0, 0.9);
 }
 
@@ -424,16 +428,136 @@
 :root[data-skin="topology"] .card-title-row h3 { font-size: 15px; font-weight: 650; letter-spacing: -0.022em; }
 
 /* ---- shared command surfaces --------------------------------- */
+/* Overview, WireGuard and Security carry their own hero, hardcoded
+   light-on-dark. This skin has one header treatment, so those heroes are
+   turned light like the section headings and their contents recoloured to
+   match. Anything left dark here reads as a different theme bleeding in. */
 :root[data-skin="topology"] .overview-status-hero,
 :root[data-skin="topology"] .wg-page-hero,
 :root[data-skin="topology"] .classic-security-command {
+  border: 1px solid var(--classic-border);
+  border-left: 3px solid var(--classic-blue);
   border-radius: var(--skin-radius);
-  background: linear-gradient(118deg, #0c1e26 0%, #123039 55%, #0c1e26 100%);
+  background: var(--classic-panel);
+  color: var(--classic-text);
+  box-shadow: var(--skin-shadow);
 }
 
-/* ---- desktop frame ------------------------------------------------ */
-/* The rail runs flush to the viewport edge in this skin rather than floating
-   inset. The gutter token is 0, so the page padding is set here instead. */
+:root[data-skin="topology"] .overview-status-hero::after,
+:root[data-skin="topology"] .wg-page-hero::after,
+:root[data-skin="topology"] .classic-security-command::after { display: none; }
+
+/* Hero contents. The three heroes above ship a hardcoded light-on-dark
+   palette; every colour below is re-expressed as a token so the same rules
+   read correctly once the tokens flip in dark mode. */
+:root[data-skin="topology"] .overview-hero-kicker,
+:root[data-skin="topology"] .overview-hero-summary > p,
+:root[data-skin="topology"] .overview-summary-meta small,
+:root[data-skin="topology"] .overview-wan-card header,
+:root[data-skin="topology"] .overview-wan-main div small,
+:root[data-skin="topology"] .overview-wan-main p small,
+:root[data-skin="topology"] .overview-wan-quality small,
+:root[data-skin="topology"] .overview-assurance small,
+:root[data-skin="topology"] .overview-assurance em,
+:root[data-skin="topology"] .overview-technical-facts span,
+:root[data-skin="topology"] .overview-availability-summary,
+:root[data-skin="topology"] .wg-hero-copy p,
+:root[data-skin="topology"] .wg-hero-metrics dt,
+:root[data-skin="topology"] .wg-hero-metrics dd span,
+:root[data-skin="topology"] .wg-hero-metrics small,
+:root[data-skin="topology"] .classic-security-command > .classic-security-intro,
+:root[data-skin="topology"] .classic-security-command-facts dt,
+:root[data-skin="topology"] .classic-security-command-facts small { color: var(--classic-muted); }
+
+:root[data-skin="topology"] .overview-summary-meta strong,
+:root[data-skin="topology"] .overview-assurance strong,
+:root[data-skin="topology"] .overview-technical-facts strong,
+:root[data-skin="topology"] .overview-wan-quality strong,
+:root[data-skin="topology"] .wg-hero-metrics dd,
+:root[data-skin="topology"] .classic-security-command-facts dd { color: var(--classic-text); }
+
+:root[data-skin="topology"] .overview-request-state svg,
+:root[data-skin="topology"] .overview-request-state strong,
+:root[data-skin="topology"] .overview-wan-card header b.is-good,
+:root[data-skin="topology"] .classic-security-command-facts dd.is-good { color: var(--classic-green); }
+
+:root[data-skin="topology"] .classic-security-command-facts dd.is-warn { color: var(--classic-orange); }
+
+:root[data-skin="topology"] .overview-wan-card header b.is-bad,
+:root[data-skin="topology"] .classic-security-command-facts dd.is-bad { color: var(--skin-danger); }
+
+/* Inset panels inside the heroes were translucent white or translucent navy,
+   both of which vanish on a light ground. */
+:root[data-skin="topology"] .overview-wan-card,
+:root[data-skin="topology"] .overview-assurance > div,
+:root[data-skin="topology"] .overview-technical-facts {
+  border: 1px solid var(--classic-border);
+  background: var(--classic-soft);
+  box-shadow: none;
+}
+
+:root[data-skin="topology"] .overview-wan-quality span,
+:root[data-skin="topology"] .wg-hero-metrics > div,
+:root[data-skin="topology"] .classic-security-command-facts > div {
+  background: var(--classic-panel);
+}
+
+:root[data-skin="topology"] .wg-hero-metrics,
+:root[data-skin="topology"] .classic-security-command-facts {
+  border-color: var(--classic-border);
+  background: var(--classic-border);
+}
+
+:root[data-skin="topology"] .overview-assurance > div > span {
+  background: color-mix(in srgb, var(--classic-green) 13%, transparent);
+  color: var(--classic-green);
+}
+
+:root[data-skin="topology"] .overview-hero-kicker i {
+  border-color: var(--classic-green);
+  background: color-mix(in srgb, var(--classic-green) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-green) 10%, transparent);
+}
+
+/* The health variants only swapped one dark ground for another. */
+:root[data-skin="topology"] .overview-status-hero.is-warning,
+:root[data-skin="topology"] .overview-status-hero.is-bad { background: var(--classic-panel); }
+
+:root[data-skin="topology"] .overview-status-hero.is-warning .overview-hero-kicker i {
+  border-color: var(--classic-orange);
+  background: color-mix(in srgb, var(--classic-orange) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-orange) 10%, transparent);
+}
+
+:root[data-skin="topology"] .overview-status-hero.is-bad .overview-hero-kicker i {
+  border-color: var(--skin-danger);
+  background: color-mix(in srgb, var(--skin-danger) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--skin-danger) 10%, transparent);
+}
+
+:root[data-skin="topology"] .wg-hero-icon {
+  background: color-mix(in srgb, var(--classic-blue) 12%, transparent);
+  color: var(--classic-blue);
+}
+
+:root[data-skin="topology"] .wg-hero-copy .eyebrow { color: var(--classic-blue); }
+
+:root[data-skin="topology"] .wg-interface-state,
+:root[data-skin="topology"] .wg-interface-toggle {
+  border-color: var(--classic-border);
+  background: var(--classic-soft);
+  color: var(--classic-muted);
+}
+
+:root[data-skin="topology"] .wg-interface-toggle { color: var(--classic-text); }
+
+:root[data-skin="topology"] .wg-interface-state.is-active {
+  border-color: color-mix(in srgb, var(--classic-green) 30%, transparent);
+  background: color-mix(in srgb, var(--classic-green) 12%, transparent);
+  color: var(--classic-green);
+}
+
+
 @media (min-width: 901px) {
   :root[data-skin="topology"] .dashboard-sidebar {
     inset-block: 0;

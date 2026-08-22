@@ -3,5 +3,4 @@
    dashboard renders exactly as it did before skins existed. */
 @import "./console.css";
 @import "./atelier.css";
-@import "./inspector.css";
 @import "./topology.css";

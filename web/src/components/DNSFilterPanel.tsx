@@ -222,7 +222,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="elegant-table-container">
           <table className="elegant-device-table">
             <caption className="sr-only">DNS Filter device profiles</caption>
-            <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-expires" /><col style={{ width: 120 }} /><col className="elegant-col-actions" /></colgroup>
+            <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-expires" /><col className="elegant-col-w120" /><col className="elegant-col-actions" /></colgroup>
             <thead>
               <tr><th>Profile</th><th>Devices</th><th>Services</th><th>Schedule</th><th>Status</th><th className="elegant-th-actions">Action</th></tr>
             </thead>
@@ -260,8 +260,8 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                   <label className="field"><span>Profile name</span><input onChange={(event) => setName(event.target.value)} placeholder="Kids" required value={name} /></label>
                   <label className="field"><span>Device IP addresses</span><input onChange={(event) => setAddresses(event.target.value)} placeholder="192.168.1.50, 192.168.1.51" required value={addresses} /></label>
               </div>
-                  <fieldset className="field service-picker">
-                    <div className="fieldset-title">Managed services</div>
+                  <fieldset className="field service-picker" aria-labelledby="dns-filter-services-title">
+                    <div className="fieldset-title" id="dns-filter-services-title">Managed services</div>
                     <p>Select the services controlled by this schedule.</p>
                     <div className="service-checkboxes">
                       {managedServices.map(([value, label]) => (
@@ -270,8 +270,8 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                     </div>
                   </fieldset>
 
-                  <fieldset className="weekly-scheduler">
-                    <div className="fieldset-title">Allowed time</div>
+                  <fieldset className="weekly-scheduler" aria-labelledby="dns-filter-schedule-title">
+                    <div className="fieldset-title" id="dns-filter-schedule-title">Allowed time</div>
                     <div className="scheduler-toolbar">
                       <p>Coloured hours are allowed. Click or drag across the cells to change the schedule.</p>
                       <div>

@@ -3,10 +3,10 @@
 // A skin is a pure CSS layer keyed off `data-skin` on the document element. It
 // remaps the `--classic-*` design tokens the shell already reads and then
 // applies a focused set of structural overrides on top. "classic" is the
-// shipped v0.1.5 look and deliberately ships no stylesheet at all, so the
+// appliance default look and deliberately ships no stylesheet at all, so the
 // default rendering path is byte-for-byte what it was before skins existed.
 
-export type SkinID = "classic" | "console" | "atelier" | "inspector" | "topology";
+export type SkinID = "classic" | "console" | "atelier" | "topology";
 
 export type SkinDefinition = {
   id: SkinID;
@@ -15,10 +15,9 @@ export type SkinDefinition = {
 };
 
 export const SKINS: readonly SkinDefinition[] = [
-  { id: "classic", label: "Classic", summary: "The shipped v0.1.5 appliance look" },
+  { id: "classic", label: "Classic", summary: "The default appliance look" },
   { id: "console", label: "Console", summary: "Dense operator console with monospaced figures" },
   { id: "atelier", label: "Atelier", summary: "Calm and spacious, settings-app rows" },
-  { id: "inspector", label: "Inspector", summary: "Structured cards with per-section state" },
   { id: "topology", label: "Topology", summary: "Network-first, teal and technical" },
 ];
 

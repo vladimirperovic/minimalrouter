@@ -272,3 +272,20 @@
     width: 100%;
   }
 }
+
+/* Table column widths and two element styles that used to be inline style
+   objects. Repository hygiene rejects inline JSX style objects in runtime
+   React source, so they live here instead. */
+.dashboard-app .elegant-col-w100 { width: 100px; }
+.dashboard-app .elegant-col-w120 { width: 120px; }
+.dashboard-app .elegant-col-w130 { width: 130px; }
+.dashboard-app .elegant-col-w140 { width: 140px; }
+.dashboard-app .elegant-col-w170 { width: 170px; }
+
+.wg-peer-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.traffic-total-value { color: var(--classic-text); }

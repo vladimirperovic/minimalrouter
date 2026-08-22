@@ -6,7 +6,54 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.6**.
+Next development version: **v0.1.7**.
+
+## [v0.1.6] — 2026-08-22
+
+### Highlights
+
+- Added a selectable dashboard appearance. Alongside the default look the
+  topbar offers **Console** (dense operator console, monospaced figures,
+  hairline grid), **Atelier** (spacious, settings-app rows, soft elevation) and
+  **Topology** (network-first, teal, addressing in mono). The choice is stored
+  per browser and is independent of the light/dark control, so each appearance
+  has both a light and a dark form.
+- Implemented appearances as a CSS layer keyed off `data-skin`, remapping the
+  `--classic-*` tokens the shell already reads. The default appearance ships no
+  stylesheet, so an appliance with nothing selected renders as v0.1.5 did.
+- Unified the table standard across the remaining pages so connected devices,
+  reservations, port forwards, firewall rules, WireGuard peers, snapshots and
+  audit events share one row, header and action presentation.
+- Applied a compact form standard across all pages and grouped LAN & DHCP into
+  labelled WAN / LAN / DHCP / DNS sections with per-section save actions.
+- Added Wake-on-LAN for offline devices, plus in-place editing of firewall
+  rules, WireGuard peers and DHCP reservations.
+- Added a per-device traffic column to connected devices, and service recovery
+  action tiles with public-IP history to Gateway Health.
+- Reported application memory separately from reclaimable file cache.
+- Added snapshot deletion from the dashboard and one-second boot sampling.
+- Published a standalone LAN & DHCP design gallery at `/design/` on the GitHub
+  Pages site, alongside the unchanged demo at the site root.
+
+### Fixes
+
+- Fixed the WAN / PPPoE field grid collapsing to zero width. The floated
+  fieldset heading was cleared by the element immediately after it, which in the
+  demo build is the hidden WAN toggle and therefore cleared nothing. Headings
+  now sit in normal flow inside the card and the float is removed.
+- Restored accessible names on fieldset groups whose `<legend>` became a heading
+  element; each group is now named with `aria-labelledby`.
+- Restored the `Online` state on connected devices, which the unified table work
+  had replaced with the lease countdown alone.
+- Kept device tables inside their containers.
+- Moved inline style objects out of runtime React source into stylesheets.
+- Preserved executable bits for distribution integration files.
+
+### Compatibility
+
+No routing, firewall, DHCP, WireGuard or update-trust behaviour changed in this
+release. An appliance qualified on v0.1.5 does not need to repeat the full
+network validation matrix.
 
 ## [v0.1.5] — 2026-08-19
 
