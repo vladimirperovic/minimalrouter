@@ -138,6 +138,7 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 			status.MemoryUsedBytes = (totalKB - availableKB) * 1024
 		}
 	}
+	status.AppMemoryBytes = readProcessMemoryBytes()
 	status.Storage = storage.Inspect(dataDir)
 	status.DiskTotalBytes = status.Storage.TotalBytes
 	status.DiskUsedBytes = status.Storage.UsedBytes
@@ -380,4 +381,47 @@ func readWireGuardClientStatus() *WireGuardClientStatus {
 		TXBytes:       peer.TXBytes,
 		Online:        peer.Online,
 	}
+}
+
+// readProcessMemoryBytes sums the resident memory of every userspace process
+// from /proc/<pid>/stat (field 24, resident pages). Top-level /proc entries are
+// thread-group leaders only, so threads are never counted twice. This separates
+// real application footprint from the kernel file cache that inflates the
+// MemTotal-minus-MemAvailable figure on a quiet appliance.
+func readProcessMemoryBytes() uint64 {
+	pageSize := uint64(os.Getpagesize())
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+	var total uint64
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid := entry.Name()
+		if pid[0] < '0' || pid[0] > '9' {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join("/proc", pid, "stat"))
+		if err != nil {
+			continue
+		}
+		// The comm field may contain spaces; everything after the final ')'
+		// starts at field 3 (state), so RSS is field 24 = offset 21 from there.
+		closing := strings.LastIndex(string(data), ")")
+		if closing < 0 {
+			continue
+		}
+		fields := strings.Fields(string(data[closing+1:]))
+		if len(fields) <= 21 {
+			continue
+		}
+		pages, parseErr := strconv.ParseUint(fields[21], 10, 64)
+		if parseErr != nil {
+			continue
+		}
+		total += pages * pageSize
+	}
+	return total
 }
