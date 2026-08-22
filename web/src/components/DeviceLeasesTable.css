@@ -1,0 +1,281 @@
+.dashboard-app .modern-device-section .elegant-table-container {
+  overflow-x: auto;
+}
+
+.dashboard-app .modern-device-section .elegant-device-table {
+  min-width: 1160px;
+}
+
+.dashboard-app .modern-device-section .elegant-col-expires {
+  width: 230px;
+}
+
+.dashboard-app .modern-device-section .elegant-col-actions {
+  width: 270px;
+}
+
+.dashboard-app .modern-device-section .elegant-device-table th,
+.dashboard-app .modern-device-section .elegant-device-table td {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+.dashboard-app .modern-device-section .device-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.dashboard-app .modern-device-section .device-row-actions > * {
+  flex: 0 0 auto;
+}
+
+.device-reserve-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--classic-blue) 28%, var(--classic-border));
+  border-radius: 10px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--classic-blue) 7%, var(--classic-panel));
+  color: var(--classic-blue);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 720;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.device-reserve-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.device-reserve-button:hover {
+  border-color: color-mix(in srgb, var(--classic-blue) 48%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 11%, var(--classic-panel));
+}
+
+.device-reserve-button:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 2px;
+}
+
+.device-reservation-backdrop {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 18, 28, 0.42);
+  backdrop-filter: blur(7px);
+}
+
+.device-reservation-dialog {
+  width: min(100%, 600px);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--classic-border) 88%, transparent);
+  border-radius: 20px;
+  background: var(--classic-panel);
+  color: var(--classic-text);
+  box-shadow: 0 30px 90px rgba(12, 24, 40, 0.24), 0 2px 8px rgba(12, 24, 40, 0.08);
+}
+
+.device-reservation-dialog form {
+  padding: 26px;
+}
+
+.device-reservation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.device-reservation-kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--classic-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.device-reservation-header h3 {
+  margin: 0;
+  color: var(--classic-text);
+  font-size: 24px;
+  font-weight: 720;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.device-reservation-header p {
+  max-width: 480px;
+  margin: 9px 0 0;
+  color: var(--classic-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.device-reservation-close {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--classic-border);
+  border-radius: 10px;
+  background: var(--classic-panel);
+  color: var(--classic-muted);
+  font: inherit;
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.device-reservation-close:hover:not(:disabled) {
+  background: var(--classic-soft);
+  color: var(--classic-text);
+}
+
+.device-reservation-close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.device-reservation-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.device-reservation-field {
+  display: grid;
+  gap: 7px;
+}
+
+.device-reservation-field > span {
+  color: var(--classic-muted);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.device-reservation-field input {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--classic-border);
+  border-radius: 11px;
+  padding: 0 13px;
+  outline: none;
+  background: var(--classic-panel);
+  color: var(--classic-text);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  box-sizing: border-box;
+}
+
+.device-reservation-field input[readonly] {
+  background: var(--classic-soft);
+  color: var(--classic-muted);
+}
+
+.device-reservation-field input:focus {
+  border-color: color-mix(in srgb, var(--classic-blue) 58%, var(--classic-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--classic-blue) 10%, transparent);
+}
+
+.device-reservation-field input[aria-invalid="true"] {
+  border-color: #c93c3c;
+}
+
+.device-reservation-message {
+  margin: 14px 0 0;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.device-reservation-message.is-warning {
+  border: 1px solid color-mix(in srgb, var(--classic-orange) 30%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-orange) 7%, var(--classic-panel));
+  color: var(--classic-orange);
+}
+
+.device-reservation-message.is-error {
+  border: 1px solid color-mix(in srgb, #c93c3c 30%, var(--classic-border));
+  background: color-mix(in srgb, #c93c3c 7%, var(--classic-panel));
+  color: #b62f2f;
+}
+
+:root[data-theme="dark"] .device-reservation-message.is-error {
+  color: #ff8d8d;
+}
+
+.device-reservation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--classic-border);
+}
+
+.device-reservation-actions > span {
+  color: var(--classic-muted);
+  font-size: 10px;
+}
+
+.device-reservation-actions > span strong {
+  color: var(--classic-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.device-reservation-actions > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .device-reservation-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .device-reservation-dialog {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    border-radius: 18px;
+  }
+
+  .device-reservation-dialog form {
+    padding: 20px;
+  }
+
+  .device-reservation-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .device-reservation-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .device-reservation-actions > div {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
