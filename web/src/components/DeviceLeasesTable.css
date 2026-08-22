@@ -3,11 +3,15 @@
 }
 
 .dashboard-app .modern-device-section .elegant-device-table {
-  min-width: 560px;
+  min-width: 640px;
 }
 
 .dashboard-app .modern-device-section .elegant-col-expires {
   width: 170px;
+}
+
+.dashboard-app .modern-device-section .elegant-col-data {
+  width: 110px;
 }
 
 .dashboard-app .modern-device-section .elegant-col-actions {
@@ -34,6 +38,12 @@
 
 .dashboard-app .modern-device-section .elegant-cell-name {
   overflow-wrap: anywhere;
+}
+
+.dashboard-app .modern-device-section .elegant-cell-data {
+  color: var(--classic-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .device-reserve-button {

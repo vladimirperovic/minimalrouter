@@ -16,6 +16,7 @@ type DeviceRow = {
   last_seen_epoch?: number;
   is_new: boolean;
   liveLease?: Lease;
+  monthBytes?: number;
 };
 
 type Props = {
@@ -57,6 +58,18 @@ function pauseLabel(pause?: DevicePause) {
   const remaining = Math.max(0, pause.until_unix * 1000 - Date.now());
   const minutes = Math.max(1, Math.ceil(remaining / 60000));
   return `Paused · ${minutes} min left`;
+}
+
+function formatBytes(bytes: number) {
+  if (!bytes) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${unit > 0 && value < 100 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
 function deviceIdentity(device: { mac?: string; address?: string }) {
@@ -198,6 +211,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
         last_seen_epoch: lastSeen,
         is_new: Boolean(config.accounting?.enabled && usage && newEnough && !previousIdentities.has(deviceIdentity(usage))),
         liveLease: lease,
+        monthBytes: usage?.total_bytes,
       };
     });
 
@@ -213,6 +227,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
         online: false,
         last_seen_epoch: device.last_seen_epoch,
         is_new: false,
+        monthBytes: device.total_bytes,
       });
     });
 
@@ -233,6 +248,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
   }, [rows, searchQuery]);
 
   const onlineCount = rows.filter((row) => row.online).length;
+  const showData = Boolean(accounting?.available);
 
   const reservationConflict = useMemo(() => {
     if (!reservationTarget) return "";
@@ -342,11 +358,11 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
       <div className="elegant-table-container">
         <table className="elegant-device-table">
-          <colgroup><col className="elegant-col-num" /><col /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" /><col className="elegant-col-actions" /></colgroup>
-          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Activity</th><th className="elegant-th-actions">Actions</th></tr></thead>
+          <colgroup><col className="elegant-col-num" /><col /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
+          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{searchQuery ? "No devices match your search." : "No devices connected yet."}</span></td></tr>
+              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{searchQuery ? "No devices match your search." : "No devices connected yet."}</span></td></tr>
             ) : filteredRows.map((row, index) => {
               const isStatic = Boolean(row.mac && staticMacs.has(row.mac.toLowerCase()));
               const pause = pauseByIP.get(row.ip_address);
@@ -357,9 +373,10 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                   <td className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
                   <td className="elegant-cell-ip">{row.ip_address}</td>
                   <td className="elegant-cell-mac">{row.mac || "Unknown"}</td>
-                  <td className="elegant-cell-expires">
-                    {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />{row.expires_at ? <>lease {formatRelativeFuture(row.expires_at)}</> : "connected"}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
-                  </td>
+                    <td className="elegant-cell-expires">
+                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />{row.expires_at ? <>lease {formatRelativeFuture(row.expires_at)}</> : "connected"}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
+                    </td>
+                    {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
                   <td className="elegant-cell-actions">
                     <div className="device-row-actions">
                       {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog(row.liveLease!)} className="device-reserve-button" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
