@@ -1,30 +1,30 @@
-.dashboard-app .modern-device-section .elegant-table-container {
+.dashboard-app .elegant-table-container {
   overflow-x: auto;
 }
 
-.dashboard-app .modern-device-section .elegant-device-table {
+.dashboard-app .elegant-device-table {
   min-width: 640px;
 }
 
-.dashboard-app .modern-device-section .elegant-col-expires {
+.dashboard-app .elegant-col-expires {
   width: 170px;
 }
 
-.dashboard-app .modern-device-section .elegant-col-data {
+.dashboard-app .elegant-col-data {
   width: 110px;
 }
 
-.dashboard-app .modern-device-section .elegant-col-actions {
+.dashboard-app .elegant-col-actions {
   width: 220px;
 }
 
-.dashboard-app .modern-device-section .elegant-device-table th,
-.dashboard-app .modern-device-section .elegant-device-table td {
+.dashboard-app .elegant-device-table th,
+.dashboard-app .elegant-device-table td {
   padding-left: 18px;
   padding-right: 18px;
 }
 
-.dashboard-app .modern-device-section .device-row-actions {
+.dashboard-app .device-row-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -32,15 +32,15 @@
   flex-wrap: nowrap;
 }
 
-.dashboard-app .modern-device-section .device-row-actions > * {
+.dashboard-app .device-row-actions > * {
   flex: 0 0 auto;
 }
 
-.dashboard-app .modern-device-section .elegant-cell-name {
+.dashboard-app .elegant-cell-name {
   overflow-wrap: anywhere;
 }
 
-.dashboard-app .modern-device-section .elegant-cell-data {
+.dashboard-app .elegant-cell-data {
   color: var(--classic-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

@@ -153,10 +153,11 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
         <span className="quiet-meta">{rules.filter((rule) => rule.enabled).length} active</span>
       </div>
 
-      <div className="table-scroll">
-        <table>
+      <div className="elegant-table-container">
+        <table className="elegant-device-table">
+          <colgroup><col /><col className="elegant-col-expires" /><col className="elegant-col-data" /><col /><col className="elegant-col-data" /><col className="elegant-col-actions" /></colgroup>
           <thead>
-            <tr><th>Name</th><th>Direction</th><th>Action</th><th>Match</th><th>State</th><th>Actions</th></tr>
+            <tr><th>Name</th><th>Direction</th><th>Action</th><th>Match</th><th>State</th><th className="elegant-th-actions">Actions</th></tr>
           </thead>
           <tbody>
             {rules.length === 0 ? (
@@ -164,7 +165,7 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
             ) : (
               rules.map((rule) => (
                 <tr className={rule.enabled ? "" : "is-paused"} key={rule.id}>
-                  <td>{rule.name}</td>
+                  <td className="elegant-cell-name">{rule.name}</td>
                   <td>{rule.direction === "forward" ? "Through router" : "To router"}</td>
                   <td className={rule.action === "deny" ? "is-bad" : "is-good"}>{rule.action}</td>
                   <td>
@@ -175,16 +176,18 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
                     </code>
                   </td>
                   <td>{rule.enabled ? "Enabled" : "Paused"}</td>
-                  <td className="firewall-rule-actions">
-                    <button className="button secondary small" disabled={busy} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">
-                      {editingId === rule.id ? "Cancel" : "Edit"}
-                    </button>
-                    <button className="button secondary small" disabled={busy} onClick={() => toggle(rule.id)} type="button">
-                      {rule.enabled ? "Pause" : "Enable"}
-                    </button>
-                    <button className="button secondary small" disabled={busy} onClick={() => remove(rule.id)} type="button">
-                      Remove
-                    </button>
+                  <td className="elegant-cell-actions">
+                    <div className="device-row-actions">
+                      <button className="button secondary small" disabled={busy} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">
+                        {editingId === rule.id ? "Cancel" : "Edit"}
+                      </button>
+                      <button className="button secondary small" disabled={busy} onClick={() => toggle(rule.id)} type="button">
+                        {rule.enabled ? "Pause" : "Enable"}
+                      </button>
+                      <button className="button secondary small danger" disabled={busy} onClick={() => remove(rule.id)} type="button">
+                        Remove
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

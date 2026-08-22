@@ -237,10 +237,10 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     </article>
 
     <article className="card gateway-ip-history">
-      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div></div>
+      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div>{insights?.public_ip_changes?.length ? <span className="quiet-meta">{insights.public_ip_changes.length} change{insights.public_ip_changes.length === 1 ? "" : "s"}</span> : null}</div>
       {insights?.public_ip_changes?.length ? (
-        <div className="gateway-ip-events">
-          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code>{change.old_ip}</code><span aria-hidden="true">→</span><code>{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
+        <div className="gateway-ip-scroll">
+          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code className="is-old">{change.old_ip}</code><span aria-hidden="true">→</span><code className="is-new">{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
         </div>
       ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
     </article>

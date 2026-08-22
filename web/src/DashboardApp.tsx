@@ -533,6 +533,22 @@ function Dashboard() {
     }
   };
 
+  const deleteSnapshot = async (id: string) => {
+    if (!window.confirm(`Delete snapshot ${id}? This restore point cannot be recovered.`)) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Delete failed (${response.status})`);
+      setNotice("Snapshot deleted.");
+      await load();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restoreSnapshot = async (id: string) => {
     if (!window.confirm("Restore this snapshot? A current undo snapshot will be retained.")) return;
     setBusy(true);
@@ -657,6 +673,7 @@ function Dashboard() {
             leases={leases}
             load={load}
             restoreSnapshot={restoreSnapshot}
+            deleteSnapshot={deleteSnapshot}
             setError={setError}
             snapshots={snapshots}
             submitCloudflare={submitCloudflare}

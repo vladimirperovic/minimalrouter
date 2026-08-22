@@ -164,10 +164,11 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         />
       </div>
 
-      <div className="table-scroll">
-        <table>
+      <div className="elegant-table-container">
+        <table className="elegant-device-table">
+          <colgroup><col className="elegant-col-num" /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-actions" /></colgroup>
           <thead>
-            <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th>Action</th></tr>
+            <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th className="elegant-th-actions">Action</th></tr>
           </thead>
           <tbody>
             {filteredLeases.length === 0 ? (
@@ -175,13 +176,15 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             ) : (
               filteredLeases.map((lease) => (
                 <tr key={lease.id}>
-                  <td>{lease.hostname || "Unnamed device"}</td>
-                  <td><code>{lease.mac}</code></td>
-                  <td><code>{lease.ip_address}</code></td>
-                  <td className="static-actions">
-                    <button className="button secondary small" disabled={busy} onClick={() => startEdit(lease)} type="button">Edit</button>
-                    <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
-                    <button className="button secondary small danger" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
+                  <td className="elegant-cell-name">{lease.hostname || "Unnamed device"}</td>
+                  <td className="elegant-cell-mac"><code>{lease.mac}</code></td>
+                  <td className="elegant-cell-ip"><code>{lease.ip_address}</code></td>
+                  <td className="elegant-cell-actions">
+                    <div className="device-row-actions">
+                      <button className="button secondary small" disabled={busy} onClick={() => startEdit(lease)} type="button">Edit</button>
+                      <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
+                      <button className="button secondary small danger" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
+                    </div>
                   </td>
                 </tr>
               ))
