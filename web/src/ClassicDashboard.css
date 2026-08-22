@@ -930,10 +930,21 @@
 .settings-form legend,
 .dns-records-fieldset legend {
   padding: 0 8px;
-  color: var(--classic-text);
-  font-size: 13px;
+  color: var(--classic-muted);
+  font-size: 10.5px;
   font-weight: 760;
-  letter-spacing: -.01em;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media(max-width: 860px) {
+  .form-grid.three {
+    grid-template-columns: 1fr;
+  }
 }
 
 .dashboard-app .field {
