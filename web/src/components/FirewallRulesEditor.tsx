@@ -43,9 +43,32 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
   const [protocol, setProtocol] = useState("tcp");
   const [srcIP, setSrcIP] = useState("");
   const [dstPort, setDstPort] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const needsPort = protocol === "tcp" || protocol === "udp";
+
+  const startEdit = (rule: FirewallCustomRule) => {
+    setEditingId(rule.id);
+    setName(rule.name);
+    setDirection(rule.direction);
+    setAction(rule.action);
+    setProtocol(rule.protocol);
+    setSrcIP(rule.src_ip || "");
+    setDstPort(rule.dst_port ? String(rule.dst_port) : "");
+    setError("");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setName("");
+    setDirection("input");
+    setAction("allow");
+    setProtocol("tcp");
+    setSrcIP("");
+    setDstPort("");
+    setError("");
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -61,6 +84,20 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
     const port = Number(dstPort);
     if (needsPort && (!Number.isInteger(port) || port < 1 || port > 65535)) {
       setError("Destination port must be between 1 and 65535 for TCP and UDP rules.");
+      return;
+    }
+    if (editingId) {
+      applyConfig((next) => {
+        next.firewall = {
+          ...next.firewall,
+          custom_rules: (next.firewall.custom_rules || []).map((rule) => (
+            rule.id === editingId
+              ? { ...rule, name: name.trim(), action, direction, protocol, src_ip: srcIP.trim(), dst_port: needsPort ? port : 0 }
+              : rule
+          )),
+        };
+      }, "Firewall rule updated.");
+      cancelEdit();
       return;
     }
     applyConfig((next) => {
@@ -139,6 +176,9 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
                   </td>
                   <td>{rule.enabled ? "Enabled" : "Paused"}</td>
                   <td className="firewall-rule-actions">
+                    <button className="button secondary small" disabled={busy} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">
+                      {editingId === rule.id ? "Cancel" : "Edit"}
+                    </button>
                     <button className="button secondary small" disabled={busy} onClick={() => toggle(rule.id)} type="button">
                       {rule.enabled ? "Pause" : "Enable"}
                     </button>
@@ -198,7 +238,8 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
         </p>
         {error && <p className="form-note is-error" role="alert">{error}</p>}
         <div className="form-actions">
-          <button className="button primary" disabled={busy} type="submit">Add rule</button>
+          {editingId && <button className="button secondary" disabled={busy} onClick={cancelEdit} type="button">Cancel edit</button>}
+          <button className="button primary" disabled={busy} type="submit">{editingId ? "Save changes" : "Add rule"}</button>
         </div>
       </form>
     </article>

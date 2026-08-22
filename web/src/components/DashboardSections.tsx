@@ -337,7 +337,18 @@ export default function DashboardSections({
   const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
   const [peerActionID, setPeerActionID] = useState<string | null>(null);
   const [peerActionError, setPeerActionError] = useState("");
+  const [renamingPeer, setRenamingPeer] = useState<{ id: string; name: string } | null>(null);
   const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
+
+  const submitPeerRename = () => {
+    if (!renamingPeer) return;
+    const name = renamingPeer.name.trim();
+    applyConfig((next) => {
+      const selected = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === renamingPeer.id);
+      if (selected && name) selected.name = name;
+    }, `Peer renamed to ${name}.`);
+    setRenamingPeer(null);
+  };
 
   // Authoritative allocation preview from the backend (MR-AUD-005): the UI
   // never re-implements next-free-IP or endpoint resolution.
@@ -576,7 +587,7 @@ export default function DashboardSections({
           <article className={`wg-peer-row ${peerState}`} key={peer.id}>
             <div className="wg-peer-identity">
               <span className="wg-peer-device" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M9 17h6M9 7h6" /></svg></span>
-              <div><strong>{peer.name}</strong><code>{peer.public_key.slice(0, 18)}…</code></div>
+              <div>{renamingPeer?.id === peer.id ? <form onSubmit={(event) => { event.preventDefault(); submitPeerRename(); }} style={{ display: "flex", gap: 6, alignItems: "center" }}><input aria-label="Peer name" autoFocus onChange={(event) => setRenamingPeer({ id: peer.id, name: event.target.value })} value={renamingPeer.name} /></form> : <strong>{peer.name}</strong>}<code>{peer.public_key.slice(0, 18)}…</code></div>
             </div>
             <div className="wg-peer-state"><span><i aria-hidden="true" />{!peer.enabled ? "Disabled" : online ? "Connected" : "Awaiting handshake"}</span><small>{handshake ? formatHandshake(handshake) : "Not connected yet"}</small></div>
             <dl className="wg-peer-details">
@@ -585,6 +596,14 @@ export default function DashboardSections({
               <div><dt>Transfer</dt><dd><span className="is-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span>↑ {formatBytes(live?.tx_bytes || 0)}</span></dd></div>
             </dl>
             <div className="wg-peer-actions">
+              {renamingPeer?.id === peer.id ? (
+                <>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null || !renamingPeer.name.trim()} onClick={() => void submitPeerRename()} type="button">Save</button>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer(null)} type="button">Cancel</button>
+                </>
+              ) : (
+                <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer({ id: peer.id, name: peer.name })} type="button">Rename</button>
+              )}
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, false)} type="button">QR code</button>
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, true)} type="button">Download settings</button>
               <button className="wg-peer-toggle" disabled={busy || peerActionID !== null} onClick={() => void applyConfig((next) => {

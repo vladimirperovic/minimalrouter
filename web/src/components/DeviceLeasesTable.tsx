@@ -88,6 +88,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
   const [reservationIP, setReservationIP] = useState("");
   const [reservationBusy, setReservationBusy] = useState(false);
   const [reservationError, setReservationError] = useState("");
+  const [wakeBusyMac, setWakeBusyMac] = useState<string | null>(null);
 
   const loadActivity = useCallback(async (signal?: AbortSignal) => {
     if (!config.accounting?.enabled) {
@@ -176,6 +177,23 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       setPauseError(error instanceof Error ? error.message : "Resume failed");
     } finally {
       setPauseBusyIP(null);
+    }
+  };
+
+  const wakeDevice = async (mac: string) => {
+    setWakeBusyMac(mac);
+    try {
+      const response = await apiFetch("/api/v1/network/wol", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Wake-on-LAN failed (${response.status})`);
+      }
+    } finally {
+      setWakeBusyMac(null);
     }
   };
 
@@ -379,6 +397,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                     {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
                   <td className="elegant-cell-actions">
                     <div className="device-row-actions">
+                      {!row.online && row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
                       {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog(row.liveLease!)} className="device-reserve-button" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
                       {pause ? (
                         <button className="device-pause-button is-resume" disabled={busy} onClick={() => void resumeDevice(row.ip_address)} type="button">{busy ? "Working…" : "Resume"}</button>
