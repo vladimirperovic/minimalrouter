@@ -228,10 +228,19 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
 
     <article className="card gateway-service-controls">
       <div className="card-title-row"><div><h3>Service recovery</h3><p>Fixed, allowlisted recovery actions through router-applyd. They do not expose arbitrary service or shell execution.</p></div></div>
-      <div className="gateway-service-actions">
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</button>
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</button>
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</button>
+      <div className="gateway-service-grid">
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</strong><small>Renegotiate the PPPoE session on ppp0</small></span>
+        </button>
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="7" rx="2" /><rect x="2" y="13" width="20" height="7" rx="2" /><path d="M6 7.5h.01M6 16.5h.01" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</strong><small>Reload dnsmasq; leases are kept</small></span>
+        </button>
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</strong><small>Bring wg0 down and re-key the tunnel</small></span>
+        </button>
       </div>
       {serviceNotice && <p className="gateway-service-notice" role="status">{serviceNotice}</p>}
     </article>
