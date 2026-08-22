@@ -219,19 +219,20 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
             <p>For a Kids profile you choose the allowed hours separately for each day of the week.</p>
           </div>
         </div>
-        <div className="table-scroll">
-          <table>
+        <div className="elegant-table-container">
+          <table className="elegant-device-table">
             <caption className="sr-only">DNS Filter device profiles</caption>
+            <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-expires" /><col style={{ width: 120 }} /><col className="elegant-col-actions" /></colgroup>
             <thead>
-              <tr><th>Profile</th><th>Devices</th><th>Services</th><th>Schedule</th><th>Status</th><th>Action</th></tr>
+              <tr><th>Profile</th><th>Devices</th><th>Services</th><th>Schedule</th><th>Status</th><th className="elegant-th-actions">Action</th></tr>
             </thead>
             <tbody>
               {profiles.length === 0 ? (
                 <tr><td className="empty-state dns-profile-empty-cell" colSpan={6}><div className="dns-profile-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4" /><circle cx="12" cy="12" r="9" /></svg><strong>No device profiles yet</strong><span>Create a profile to schedule service access for selected devices.</span><button className="button secondary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Create first profile</button></div></td></tr>
               ) : profiles.map((profile) => (
                 <tr key={profile.id}>
-                  <td><strong>{profile.name}</strong></td>
-                  <td><code>{profile.ip_addresses.join(", ")}</code></td>
+                  <td className="elegant-cell-name"><strong>{profile.name}</strong></td>
+                  <td className="elegant-cell-ip"><code>{profile.ip_addresses.join(", ")}</code></td>
                   <td><div className="service-tags">{profile.services.map((service) => <span key={service}>{service}</span>)}</div></td>
                   <td>{describeSchedule(profile)}</td>
                   <td>
@@ -239,7 +240,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                       {profile.enabled ? "Active" : "Paused"}
                     </button>
                   </td>
-                  <td><button className="button secondary small" disabled={saving} onClick={() => startEditProfile(profile)} type="button">Edit</button> <button className="icon-danger" disabled={saving} onClick={() => removeProfile(profile.id)} title="Remove profile" type="button">✕</button></td>
+                  <td className="elegant-cell-actions"><div className="device-row-actions"><button className="button secondary small" disabled={saving} onClick={() => startEditProfile(profile)} type="button">Edit</button><button className="icon-danger" disabled={saving} onClick={() => removeProfile(profile.id)} title="Remove profile" type="button">✕</button></div></td>
                 </tr>
               ))}
             </tbody>

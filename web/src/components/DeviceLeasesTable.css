@@ -40,6 +40,27 @@
   overflow-wrap: anywhere;
 }
 
+/* Unified table standard: quiet hover, tabular figures, consistent code cells. */
+.dashboard-app .elegant-device-table tbody tr {
+  transition: background 140ms ease;
+}
+
+.dashboard-app .elegant-device-table tbody tr:hover {
+  background: color-mix(in srgb, var(--classic-blue) 3.5%, transparent);
+}
+
+.dashboard-app .elegant-cell-mac code,
+.dashboard-app .elegant-cell-ip code,
+.dashboard-app .elegant-device-table td code {
+  font-size: 12.5px;
+  letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-app .elegant-device-table thead th {
+  color: var(--classic-muted);
+}
+
 .dashboard-app .elegant-cell-data {
   color: var(--classic-muted);
   font-variant-numeric: tabular-nums;
