@@ -3237,8 +3237,8 @@
 .static-lease-search{margin:.9rem 0 .3rem;max-width:360px}
 .static-leases table{font-size:.92rem}
 .static-leases thead th{padding:.55rem .9rem;font-size:.68rem}
-.static-leases tbody td{padding:.38rem .9rem}
-.static-leases tbody td code{font-size:.85rem}
+.static-leases tbody td{padding:.38rem .9rem;overflow-wrap:anywhere}
+.static-leases tbody td code{font-size:.85rem;white-space:nowrap}
 .static-leases .empty-state{padding:1rem}
 @media(max-width:640px){.static-lease-search{max-width:none}}
 
