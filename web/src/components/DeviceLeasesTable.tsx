@@ -21,7 +21,10 @@ type DeviceRow = {
 type Props = {
   leases: Lease[];
   config: RouterConfig;
-  onReservationSaved: () => Promise<void>;
+  // Kept for compatibility with the existing dashboard callers. The reserve
+  // action now stays in-place and opens the dialog instead of navigating away.
+  onAddStatic?: (lease: Lease) => void;
+  onReservationSaved?: () => Promise<void>;
 };
 
 function formatRelativeFuture(timestamp: number) {
@@ -305,9 +308,13 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       const body = await applyResponse.json().catch(() => ({}));
       if (!applyResponse.ok) throw new Error(body.error || `Reservation failed (${applyResponse.status})`);
 
-      await onReservationSaved();
       setReservationTarget(null);
       setReservationIP("");
+      if (onReservationSaved) {
+        await onReservationSaved();
+      } else {
+        window.location.reload();
+      }
     } catch (error) {
       setReservationError(error instanceof Error ? error.message : "Reservation failed");
     } finally {
