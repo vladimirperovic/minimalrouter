@@ -1,10 +1,10 @@
 # Support
 
 Minimal Router OS is a **Beta** community project. The current release line is
-v0.1.5. There is no commercial support, guaranteed response time, production SLA
+v0.1.6. There is no commercial support, guaranteed response time, production SLA
 or warranty.
 
-v0.1.5 is intended for controlled pilots with console access and a known-good
+v0.1.6 is intended for controlled pilots with console access and a known-good
 router available for rollback. It is not supported as an unattended production
 firewall.
 
@@ -14,7 +14,7 @@ firewall.
    and `docs/GOLDEN-IMAGE.md` first.
 2. Read `docs/TROUBLESHOOTING.md` for safe diagnostics.
 3. Search existing issues and pull requests.
-4. Confirm the exact release or commit. Prefer the published v0.1.5 release over
+4. Confirm the exact release or commit. Prefer the published v0.1.6 release over
    an arbitrary Actions artifact when reproducing a user install problem.
 5. Restore the known-good router first when the test network is exposed or unavailable.
 6. Remove credentials, tokens, keys, public IP addresses, hostnames, device names,
@@ -22,7 +22,7 @@ firewall.
 
 ## Installation reports
 
-For v0.1.5 Golden ISO problems, include:
+For v0.1.6 Golden ISO problems, include:
 
 - exact ISO filename and SHA-256 result;
 - BIOS/UEFI mode;

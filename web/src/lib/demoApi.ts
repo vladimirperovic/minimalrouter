@@ -116,7 +116,7 @@ function liveSystem() {
   trafficTick += 1;
   return {
     status: "Connected",
-    version: "v0.1.5-demo",
+    version: "v0.1.6-demo",
     revision: config.revision,
     update_trust_configured: true,
     recovery_required: false,

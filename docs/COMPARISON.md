@@ -3,7 +3,7 @@
 This document is a scope and resource comparison, not a claim of security,
 feature, or support parity.
 
-Minimal Router OS is **Beta (v0.1.5)** software with limited deployment history.
+Minimal Router OS is **Beta (v0.1.6)** software with limited deployment history.
 pfSense and OpenWrt are mature projects used on a wide range of production
 networks. A smaller code and service footprint can reduce complexity, but it
 does not by itself prove that a system is safer, faster, or more reliable.
@@ -61,7 +61,7 @@ Official pfSense package references:
 
 ## Feature comparison
 
-| Capability | Minimal Router OS — v0.1.5 Beta | pfSense |
+| Capability | Minimal Router OS — v0.1.6 Beta | pfSense |
 |---|---|---|
 | Stateful firewall and NAT | Focused generated nftables policy | Comprehensive and mature |
 | PPPoE | Implemented; first real owner-Proxmox pilot passed, repeatability testing remains | Mature |

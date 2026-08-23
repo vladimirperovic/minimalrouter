@@ -13,14 +13,14 @@ an **SSH-signed annotated tag** whose signer appears in the protected
 `MINIMALROUTER_RELEASE_ALLOWED_SIGNERS` secret. The tag version must exactly match
 `VERSION` before any release artifact is built.
 
-## v0.1.5 release artifacts
+## v0.1.6 release artifacts
 
 The Beta release publishes:
 
 ### Golden installer
 
-- `minimalrouter-0.1.5-amd64.iso`
-- `minimalrouter-0.1.5-amd64.iso.sha256`
+- `minimalrouter-0.1.6-amd64.iso`
+- `minimalrouter-0.1.6-amd64.iso.sha256`
 
 ### Signed update/install distributions
 
@@ -106,7 +106,7 @@ The appliance verifies A/B update payloads with the 32-byte Ed25519 public key a
 This root-controlled file is the local update trust anchor. A key carried inside
 a downloaded manifest is informational and is never accepted as a new trust root.
 
-The v0.1.5 release Golden ISO is required to install this trust anchor from the
+The v0.1.6 release Golden ISO is required to install this trust anchor from the
 signed release payload.
 
 ## Verify a downloaded release
@@ -114,7 +114,7 @@ signed release payload.
 At minimum, verify the checksum before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.1.5-amd64.iso.sha256
+sha256sum -c minimalrouter-0.1.6-amd64.iso.sha256
 ```
 
 For the complete downloaded release set:
@@ -127,7 +127,7 @@ With GitHub CLI, verify provenance/attestation for the selected artifact, for
 example:
 
 ```sh
-gh attestation verify minimalrouter-0.1.5-amd64.iso \
+gh attestation verify minimalrouter-0.1.6-amd64.iso \
   -R vladimirperovic/minimalrouter
 
 gh attestation verify minimalrouter-linux-amd64.tar.gz \
@@ -166,7 +166,7 @@ Staging does not change the active version. Review and activate explicitly:
 
 ```sh
 router-update status
-router-update activate --version 0.1.5 --confirm ACTIVATE-UPDATE
+router-update activate --version 0.1.6 --confirm ACTIVATE-UPDATE
 ```
 
 After activation, verify router services, LAN management, WAN, DHCP/DNS,

@@ -125,7 +125,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
             </div>
             <div className="elegant-table-container traffic-table-scroll">
               <table className="elegant-device-table">
-                <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col style={{ width: 170 }} /></colgroup>
+                <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-w170" /></colgroup>
                 <thead>
                   <tr><th>Device</th><th>Address</th><th>Download</th><th>Upload</th><th>Total</th><th>Share</th></tr>
                 </thead>
@@ -138,7 +138,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
                         <td className="elegant-cell-ip"><code>{device.address}</code></td>
                         <td className="elegant-cell-data">{formatBytes(device.rx_bytes)}</td>
                         <td className="elegant-cell-data">{formatBytes(device.tx_bytes)}</td>
-                        <td className="elegant-cell-data"><strong style={{ color: "var(--classic-text)" }}>{formatBytes(device.total_bytes)}</strong></td>
+                        <td className="elegant-cell-data"><strong className="traffic-total-value">{formatBytes(device.total_bytes)}</strong></td>
                         <td className="traffic-share">
                           <progress max="100" value={share} />
                           <small>{share.toFixed(1)}%</small>

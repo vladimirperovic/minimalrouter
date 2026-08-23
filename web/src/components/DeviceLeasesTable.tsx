@@ -392,7 +392,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                   <td className="elegant-cell-ip">{row.ip_address}</td>
                   <td className="elegant-cell-mac">{row.mac || "Unknown"}</td>
                     <td className="elegant-cell-expires">
-                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />{row.expires_at ? <>lease {formatRelativeFuture(row.expires_at)}</> : "connected"}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
+                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />Online{row.expires_at ? <small> &middot; lease {formatRelativeFuture(row.expires_at)}</small> : null}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
                     </td>
                     {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
                   <td className="elegant-cell-actions">
