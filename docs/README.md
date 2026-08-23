@@ -11,6 +11,7 @@ first-install path is the Golden Appliance ISO.
 - [`GOLDEN-IMAGE.md`](GOLDEN-IMAGE.md) — exact build/flasher/firstboot design; mandatory for installer changes
 - [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md) — what is proven and what is not
 - [`INSTALLATION.md`](INSTALLATION.md) — installation index plus advanced archive install
+- [`SEEDING.md`](SEEDING.md) — restoring your own settings onto a fresh install
 - [`RECOVERY.md`](RECOVERY.md) — recovery and rollback
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — safe diagnostics
 
