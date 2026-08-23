@@ -107,6 +107,49 @@ Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
 > **installed Golden target** that is fully exercised end-to-end is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
+## If the ISO gives you trouble: build it yourself onto an Alpine VM
+
+Attaching and booting an ISO is the part of this that most often goes wrong —
+upload limits, storage that will not take an ISO, a hypervisor that boots the
+wrong device, a console you cannot reach. If you hit that wall, you do not have
+to fight it. There is a second, fully supported path: build the distribution
+archive from this repository and install it on an ordinary Alpine VM you create
+yourself.
+
+This is a good task to hand to an AI coding agent. It is mechanical, every step
+is a documented command, and the agent can read the repository while it works.
+Paste something like this:
+
+```text
+Clone https://github.com/vladimirperovic/minimalrouter and read
+docs/INSTALLATION.md and docs/PROXMOX.md.
+
+1. Build the x86-64 distribution archive from source with `make dist-amd64`.
+2. Walk me through creating the Proxmox VM: SeaBIOS, 1+ vCPU, 1+ GiB RAM, one
+   VirtIO disk of 8 GiB or more, two VirtIO NICs (WAN and an isolated LAN).
+3. I will install Alpine Linux 3.22 with the linux-lts kernel on it.
+4. Copy build/minimalrouter-linux-amd64.tar.gz to the VM, extract it, and run
+   `sudo sh install.sh`.
+5. Verify the result using the checks in docs/INSTALLATION.md.
+```
+
+Building needs Go 1.25+ and Node 22.13+ with pnpm; the VM needs Alpine 3.22 with
+a kernel that has the PPPoE module. `make dist-amd64` writes
+`build/minimalrouter-linux-amd64.tar.gz`, the same archive layout the release
+publishes, including its `install.sh`.
+
+Two honest caveats. An archive you build locally is **not signed**, so it does
+not carry the Ed25519 manifest the release archives use and it does not install
+the firmware-update trust anchor the way the release ISO does; see
+[`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md). And the Golden ISO is
+the path that CI installs and cold-boots end-to-end on every release, so it
+remains the qualified one. Treat this route as the practical fallback, not as an
+equally validated install.
+
+Details: [`docs/INSTALLATION.md`](docs/INSTALLATION.md) (see *Alternative:
+signed distribution archive on an existing Alpine system*) and
+[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
 ## What it does
 
 - PPPoE WAN, DHCP/DNS, NAT and a default-deny firewall
