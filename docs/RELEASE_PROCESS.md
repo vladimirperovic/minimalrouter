@@ -90,7 +90,7 @@ only according to the project's versioning policy; never bypass the failed gate.
 
 ## 4. Expected v0.1.6 release assets
 
-The public v0.1.6 prerelease must contain exactly the intended user-download and
+The public v0.1.6 release must contain exactly the intended user-download and
 verification set:
 
 ```text
@@ -112,15 +112,19 @@ the Golden ISO. GitHub Attestations provide provenance/attestation for the
 release archives/SBOMs, manifests/checksums and tested Golden ISO rather than a
 separate hand-written provenance file.
 
-The release is created draft-first and is made public as a **Beta prerelease**
-only after all assets are attached.
+The release is created draft-first and is published as a normal release, marked
+**latest**, only after all assets are attached. The GitHub prerelease flag is
+no longer used: it kept older full releases showing as *Latest* on the
+repository page, which misdirected downloads. Beta maturity is communicated by
+the release title and by the status statements in the README, `SECURITY.md`
+and `SUPPORT.md`, not by the prerelease flag.
 
 ## 5. Post-publication verification
 
 After the workflow finishes successfully:
 
-1. Confirm the release title identifies `Minimal Router OS v0.1.6 (Beta)` and the
-   release is marked prerelease, not stable.
+1. Confirm the release title identifies `Minimal Router OS v0.1.6 (Beta)` and
+   that the release is published, not draft, and is marked latest.
 2. Confirm every expected asset above exists once and has a non-zero size.
 3. Download/inspect `SHA256SUMS` and verify that it lists both archives, both
    manifests, both SBOMs and the Golden ISO.
