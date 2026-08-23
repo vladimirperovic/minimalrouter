@@ -86,6 +86,57 @@ func (ve ValidationErrors) Error() string {
 	return strings.Join(msgs, "; ")
 }
 
+// ValidateChangesFrom reports only the problems this configuration introduces
+// relative to previous.
+//
+// Plain Validate answers "is this configuration correct". That is the wrong
+// question for an incoming edit, because the stored configuration is not always
+// correct: an appliance upgraded from an older release can be carrying values
+// that a newer, stricter rule now rejects. Validate then fails for every write,
+// including writes that have nothing to do with the offending field, and the
+// dashboard becomes read-only with no way out of the state through the UI --
+// even the edit that would fix the field is refused, because the request
+// carries the whole configuration and the other stale fields still fail.
+//
+// So an error is fatal only when this change is what caused it. A fault that
+// was already stored stays reported by GET /config and by the health surface,
+// but it no longer blocks unrelated work. Anything the change actually breaks
+// is still rejected, and the scenario-safety and transition-safety gates run
+// unconditionally either way.
+func (c *SystemConfig) ValidateChangesFrom(previous *SystemConfig) error {
+	err := c.Validate()
+	if err == nil || previous == nil {
+		return err
+	}
+	candidate, ok := err.(ValidationErrors)
+	if !ok {
+		return err
+	}
+
+	stored := map[ValidationError]bool{}
+	if previousErr := previous.Validate(); previousErr != nil {
+		if previousErrs, ok := previousErr.(ValidationErrors); ok {
+			for _, item := range previousErrs {
+				stored[item] = true
+			}
+		}
+	}
+	if len(stored) == 0 {
+		return err
+	}
+
+	var introduced ValidationErrors
+	for _, item := range candidate {
+		if !stored[item] {
+			introduced = append(introduced, item)
+		}
+	}
+	if len(introduced) == 0 {
+		return nil
+	}
+	return introduced
+}
+
 // Validate checks the complete SystemConfig for syntax and cross-field invariant errors.
 func (c *SystemConfig) Validate() error {
 	var errs ValidationErrors
@@ -616,9 +667,9 @@ func (c *SystemConfig) Validate() error {
 		if !credentialNamePattern.MatchString(c.SquidProxy.Username) {
 			appendFieldError(&errs, "squid_proxy.username", "must contain only letters, numbers, dot, underscore, or hyphen")
 		}
-		if len([]rune(c.SquidProxy.Password)) < 12 || len(c.SquidProxy.Password) > 1024 ||
+		if len([]rune(c.SquidProxy.Password)) < 8 || len(c.SquidProxy.Password) > 1024 ||
 			c.SquidProxy.Password == "[REDACTED]" {
-			appendFieldError(&errs, "squid_proxy.password", "must contain 12-1024 characters")
+			appendFieldError(&errs, "squid_proxy.password", "must contain 8-1024 characters")
 		}
 	}
 	for i, item := range c.SquidProxy.RestrictedIPs {

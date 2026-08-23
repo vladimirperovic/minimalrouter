@@ -216,7 +216,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		tx.Error = "enable and verify WireGuard in a separate transaction before restricting management access"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
-	if err := newCfg.Validate(); err != nil {
+	// Judge the change, not the whole stored state: a configuration written by
+	// an older release can already violate a newer rule, and that must not make
+	// every later edit impossible. Scenario and transition safety below still
+	// see the complete candidate.
+	if err := newCfg.ValidateChangesFrom(&e.currentConfig); err != nil {
 		tx.CurrentState = StateRejected
 		tx.Error = fmt.Sprintf("Validation failed: %v", err)
 		return tx, err

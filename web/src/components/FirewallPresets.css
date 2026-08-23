@@ -1,0 +1,118 @@
+/* Suggested firewall rules. Reuses the shared table shell so the card reads as
+   part of the same page as the rules editor above it. */
+
+.firewall-presets-note {
+  margin: 0 20px 14px;
+}
+
+.firewall-presets-table th,
+.firewall-presets-table td {
+  vertical-align: top;
+}
+
+.firewall-presets-col-select {
+  width: 46px;
+}
+
+.firewall-presets-col-state {
+  width: 108px;
+}
+
+.firewall-presets-select {
+  padding-top: 15px;
+}
+
+.firewall-presets-select input {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  accent-color: var(--classic-blue);
+  cursor: pointer;
+}
+
+.firewall-presets-select input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.firewall-presets-rule {
+  white-space: normal;
+}
+
+.firewall-presets-rule strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+}
+
+.firewall-presets-rule small {
+  display: block;
+  max-width: 62ch;
+  margin-top: 4px;
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.firewall-presets-rule .firewall-presets-caution {
+  color: var(--classic-orange);
+}
+
+.firewall-presets-table .elegant-cell-mac small {
+  display: block;
+  margin-top: 4px;
+  color: var(--classic-muted);
+  font-size: 10.5px;
+}
+
+.preset-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--classic-muted);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.preset-state i {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--classic-muted) 55%, transparent);
+}
+
+.preset-state.is-on {
+  color: var(--classic-green);
+}
+
+.preset-state.is-on i {
+  background: var(--classic-green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--classic-green) 18%, transparent);
+}
+
+.firewall-presets-table tr.is-preset-on {
+  background: color-mix(in srgb, var(--classic-green) 4%, transparent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .firewall-presets-note {
+    margin: 0 16px 12px;
+  }
+
+  .firewall-presets-rule small {
+    max-width: none;
+  }
+}

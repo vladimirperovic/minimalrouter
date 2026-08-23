@@ -61,12 +61,6 @@ function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
 
-function netmaskForPrefix(prefix: number): string {
-  const bounded = Math.min(32, Math.max(0, Math.trunc(prefix)));
-  const mask = bounded === 0 ? 0 : (0xffffffff << (32 - bounded)) >>> 0;
-  return [24, 16, 8, 0].map((shift) => (mask >>> shift) & 0xff).join(".");
-}
-
 const REQUIRED_CONFIG_SECTIONS = [
   "wan", "lan", "dhcp", "firewall", "wireguard",
   "cloudflare", "squid_proxy", "adguard", "qos", "wifi",
@@ -93,6 +87,11 @@ function Dashboard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(initialTheme);
   const [skin, setSkin] = useState<SkinID>(initialSkin);
+  // A successful apply bumps config.revision, which remounts DashboardSections.
+  // The per-section "Saved" confirmation therefore has to live here, above the
+  // remount, or it is destroyed the moment the save it reports succeeds.
+  const [savedSection, setSavedSection] = useState("");
+  const savedSectionTimer = useRef(0);
   const [skinOpen, setSkinOpen] = useState(false);
   const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
   const [countdown, setCountdown] = useState(0);
@@ -231,6 +230,14 @@ function Dashboard() {
     applySkin(skin);
   }, [skin]);
 
+  useEffect(() => () => window.clearTimeout(savedSectionTimer.current), []);
+
+  const markSectionSaved = (section: string) => {
+    window.clearTimeout(savedSectionTimer.current);
+    setSavedSection(section);
+    savedSectionTimer.current = window.setTimeout(() => setSavedSection(""), 4000);
+  };
+
   const dashboardReady = Boolean(config);
 
   useEffect(() => {
@@ -260,7 +267,9 @@ function Dashboard() {
     showSection(id);
   };
 
-  const applyConfig = async (mutate: (next: RouterConfig) => void, success: string) => {
+  // Returns whether the apply succeeded so callers can show a per-section
+  // confirmation only when the write actually landed.
+  const applyConfig = async (mutate: (next: RouterConfig) => void, success: string): Promise<boolean> => {
     setBusy(true);
     setNotice("");
     setError("");
@@ -279,8 +288,10 @@ function Dashboard() {
       if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
       setNotice(body.state === "AwaitingConfirmation" ? "Change is provisionally active and is waiting for access confirmation." : success);
       await load();
+      return true;
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Configuration apply failed");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -300,45 +311,6 @@ function Dashboard() {
     } finally {
       setBusy(false);
     }
-  };
-
-  const submitNetwork = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void applyConfig((next) => {
-      const currentPrefix = Number(String(next.lan.cidr || "").split("/")[1]) || 24;
-      next.wan = {
-        ...next.wan,
-        interface: field(form, "wan_interface"),
-        enabled: next.wan.enabled,
-        username: field(form, "pppoe_username"),
-        password: field(form, "pppoe_password") || next.wan.password,
-        mtu: Number(field(form, "wan_mtu")) || 1492,
-      };
-      next.lan = {
-        ...next.lan,
-        interface: field(form, "lan_interface"),
-        ip_address: field(form, "lan_ip"),
-        cidr: `${field(form, "lan_ip")}/${currentPrefix}`,
-        netmask: netmaskForPrefix(currentPrefix),
-      };
-      next.dhcp = {
-        ...next.dhcp,
-        enabled: next.dhcp.enabled,
-        range_start: field(form, "dhcp_start"),
-        range_end: field(form, "dhcp_end"),
-        lease_time: field(form, "lease_time"),
-        dns_servers: field(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean),
-      };
-      const records: Array<{ name: string; ip: string }> = [];
-      for (const [key, value] of Array.from(form.entries())) {
-        if (!key.startsWith("dns_record_name_")) continue;
-        const name = String(value).trim();
-        const ip = String(form.get(key.replace("dns_record_name_", "dns_record_ip_")) || "").trim();
-        if (name || ip) records.push({ name, ip });
-      }
-      next.dns = { ...next.dns, records };
-    }, "Network configuration applied.");
   };
 
   const submitWireGuardClient = (event: FormEvent<HTMLFormElement>) => {
@@ -673,6 +645,8 @@ function Dashboard() {
             key={`dashboard-sections-${config.revision}`}
             active={active}
             applyConfig={applyConfig}
+            markSectionSaved={markSectionSaved}
+            savedSection={savedSection}
             applyGatewayMonitoring={applyGatewayMonitoring}
             busy={busy}
             config={config}
@@ -686,7 +660,6 @@ function Dashboard() {
             setError={setError}
             snapshots={snapshots}
             submitCloudflare={submitCloudflare}
-            submitNetwork={submitNetwork}
             submitSquid={submitSquid}
             submitWiFi={submitWiFi}
             submitQoS={submitQoS}

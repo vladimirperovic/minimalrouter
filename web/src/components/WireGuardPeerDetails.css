@@ -1,0 +1,136 @@
+/* Peer detail dialog. Mirrors the DHCP reservation dialog's shell so the two
+   modals on the dashboard read as the same component. */
+
+.wg-details-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(9, 18, 31, 0.52);
+  backdrop-filter: blur(3px);
+}
+
+.wg-details-dialog {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  border: 1px solid var(--classic-border);
+  border-radius: 18px;
+  background: var(--classic-panel);
+  box-shadow: 0 28px 70px -24px rgba(15, 28, 45, 0.55);
+}
+
+.wg-details-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--classic-border);
+}
+
+.wg-details-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--classic-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.wg-details-header h3 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 730;
+  letter-spacing: -0.03em;
+}
+
+.wg-details-close {
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  flex: none;
+  border: 1px solid var(--classic-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--classic-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wg-details-close:hover {
+  color: var(--classic-text);
+  background: var(--classic-soft);
+}
+
+.wg-details-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 4px 22px 8px;
+}
+
+.wg-details-list > div {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 4px 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 60%, transparent);
+}
+
+.wg-details-list > div:last-child {
+  border-bottom: 0;
+}
+
+.wg-details-list dt {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.wg-details-list dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.wg-details-list dd.is-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.wg-details-list p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.wg-details-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 22px 20px;
+}
+
+@media (max-width: 560px) {
+  .wg-details-backdrop {
+    padding: 12px;
+    align-items: end;
+  }
+
+  .wg-details-list > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .wg-details-list p {
+    grid-column: 1;
+  }
+}
