@@ -53,6 +53,7 @@ type Props = {
   speedTesting: boolean;
   createSnapshot: () => Promise<void>;
   restoreSnapshot: (id: string) => Promise<void>;
+  deleteSnapshot: (id: string) => Promise<void>;
   setError: (message: string) => void;
   onNavigate: (id: SectionID) => void;
 };
@@ -258,8 +259,8 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
   const update = (index: number, patch: Partial<DNSRecordRow>) =>
     setRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   return (
-    <fieldset className="dns-records-fieldset">
-      <legend>Static DNS records</legend>
+    <fieldset className="dns-records-fieldset" aria-labelledby="dns-records-title">
+      <div className="fieldset-title" id="dns-records-title">Static DNS records</div>
       <p className="form-note">Names resolved by the router itself (host-record), useful for fixed devices and local services — e.g. <code>immich.home.arpa → 10.20.30.10</code>.</p>
       {rows.length === 0 ? (
         <div className="dns-records-empty">
@@ -324,7 +325,7 @@ function StaticDNSRecordsEditor({ records, disabled }: { records: DNSRecordRow[]
 export default function DashboardSections({
   active, config, gatewaySummary, gatewaySettings, runtime, leases, snapshots, busy,
   load, applyConfig, applyGatewayMonitoring, submitNetwork, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, setError, onNavigate }: Props) {
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, deleteSnapshot, setError, onNavigate }: Props) {
   const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   // The status card reports the provider the router is actually running, which
@@ -337,7 +338,18 @@ export default function DashboardSections({
   const [confirmDeletePeer, setConfirmDeletePeer] = useState<{ id: string, name: string } | null>(null);
   const [peerActionID, setPeerActionID] = useState<string | null>(null);
   const [peerActionError, setPeerActionError] = useState("");
+  const [renamingPeer, setRenamingPeer] = useState<{ id: string; name: string } | null>(null);
   const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
+
+  const submitPeerRename = () => {
+    if (!renamingPeer) return;
+    const name = renamingPeer.name.trim();
+    applyConfig((next) => {
+      const selected = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === renamingPeer.id);
+      if (selected && name) selected.name = name;
+    }, `Peer renamed to ${name}.`);
+    setRenamingPeer(null);
+  };
 
   // Authoritative allocation preview from the backend (MR-AUD-005): the UI
   // never re-implements next-free-IP or endpoint resolution.
@@ -456,8 +468,10 @@ export default function DashboardSections({
 {active === "network" && <section className="dashboard-section" id="network">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2><p className="section-copy">Configure the uplink, local gateway, address allocation and local DNS records from one controlled network workspace.</p></div><span className={`classic-status-chip ${config.wan.enabled ? "" : "is-off"}`}>WAN {config.wan.enabled ? "Connected" : "Disabled"}</span></div><dl className="subpage-hero-facts"><div><dt>Uplink</dt><dd>{config.wan.enabled ? "PPPoE" : "Off"}</dd><small>{config.wan.interface || "No interface"}</small></div><div><dt>LAN gateway</dt><dd>{config.lan.ip_address}</dd><small>{config.lan.interface}</small></div><div><dt>DHCP</dt><dd>{config.dhcp.enabled ? "Active" : "Disabled"}</dd><small>{config.dhcp.range_start} – {config.dhcp.range_end}</small></div><div><dt>DNS resolvers</dt><dd>{config.dhcp.dns_servers?.length || 0}</dd><small>{config.dhcp.dns_enabled ? "local DNS enabled" : "upstream only"}</small></div></dl></div>
   <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetwork}>
-    <fieldset><legend>WAN / PPPoE</legend><label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => changeWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
-    <fieldset><legend>LAN and DHCP</legend><div className="form-grid two"><label className="field"><span>LAN interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><input defaultValue={`/${String(config.lan.cidr || "").split("/")[1] || "24"}`} disabled name="lan_prefix_display" title="Changing the LAN subnet requires the local recovery console" /></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label><label className="field"><span>DHCP start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>DHCP end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field form-span"><span>Upstream DNS, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div>    <label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => changeDHCP(e.target.checked)} /><span>Enable DHCP server</span></label></fieldset>
+    <fieldset aria-labelledby="network-wan-title"><div className="fieldset-title" id="network-wan-title">WAN / PPPoE</div><label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => changeWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label><div className="form-grid two"><label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label><label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label><label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label><label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label></div></fieldset>
+    <fieldset aria-labelledby="network-lan-title"><div className="fieldset-title" id="network-lan-title">LAN interface</div><div className="form-grid three"><label className="field"><span>Interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label><label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label><label className="field"><span>Prefix</span><input defaultValue={`/${String(config.lan.cidr || "").split("/")[1] || "24"}`} disabled name="lan_prefix_display" title="Changing the LAN subnet requires the local recovery console" /></label></div></fieldset>
+    <fieldset aria-labelledby="network-dhcp-title"><div className="fieldset-title" id="network-dhcp-title">DHCP server</div><label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => changeDHCP(e.target.checked)} /><span>Enable DHCP server</span></label><div className="form-grid three"><label className="field"><span>Range start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label><label className="field"><span>Range end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label><label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" required /></label></div></fieldset>
+    <fieldset aria-labelledby="network-dns-title"><div className="fieldset-title" id="network-dns-title">DNS</div><div className="form-grid"><label className="field"><span>Upstream resolvers, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label></div></fieldset>
     <StaticDNSRecordsEditor disabled={busy} key={config.revision} records={config.dns?.records || []} />
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div>
   </form>
@@ -576,7 +590,7 @@ export default function DashboardSections({
           <article className={`wg-peer-row ${peerState}`} key={peer.id}>
             <div className="wg-peer-identity">
               <span className="wg-peer-device" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="3" width="16" height="18" rx="3" /><path d="M9 17h6M9 7h6" /></svg></span>
-              <div><strong>{peer.name}</strong><code>{peer.public_key.slice(0, 18)}…</code></div>
+              <div>{renamingPeer?.id === peer.id ? <form onSubmit={(event) => { event.preventDefault(); submitPeerRename(); }} className="wg-peer-rename-form"><input aria-label="Peer name" autoFocus onChange={(event) => setRenamingPeer({ id: peer.id, name: event.target.value })} value={renamingPeer.name} /></form> : <strong>{peer.name}</strong>}<code>{peer.public_key.slice(0, 18)}…</code></div>
             </div>
             <div className="wg-peer-state"><span><i aria-hidden="true" />{!peer.enabled ? "Disabled" : online ? "Connected" : "Awaiting handshake"}</span><small>{handshake ? formatHandshake(handshake) : "Not connected yet"}</small></div>
             <dl className="wg-peer-details">
@@ -585,6 +599,14 @@ export default function DashboardSections({
               <div><dt>Transfer</dt><dd><span className="is-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span>↑ {formatBytes(live?.tx_bytes || 0)}</span></dd></div>
             </dl>
             <div className="wg-peer-actions">
+              {renamingPeer?.id === peer.id ? (
+                <>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null || !renamingPeer.name.trim()} onClick={() => void submitPeerRename()} type="button">Save</button>
+                  <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer(null)} type="button">Cancel</button>
+                </>
+              ) : (
+                <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => setRenamingPeer({ id: peer.id, name: peer.name })} type="button">Rename</button>
+              )}
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, false)} type="button">QR code</button>
               <button className="wg-peer-config" disabled={busy || peerActionID !== null} onClick={() => void handlePeerConfiguration(peer, true)} type="button">Download settings</button>
               <button className="wg-peer-toggle" disabled={busy || peerActionID !== null} onClick={() => void applyConfig((next) => {
@@ -745,7 +767,7 @@ export default function DashboardSections({
 {active === "recovery" && <section className="dashboard-section" id="recovery">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2><p className="section-copy">Create verified configuration restore points and keep destructive recovery operations on the physical console.</p></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><dl className="subpage-hero-facts"><div><dt>Snapshots</dt><dd>{snapshots.length}</dd><small>verified restore points</small></div><div><dt>Current revision</dt><dd>{config.revision}</dd><small>active configuration</small></div><div><dt>Network recovery</dt><dd>Console only</dd><small>no remote endpoint</small></div><div><dt>Rollback</dt><dd>Automatic</dd><small>critical changes protected</small></div></dl></div>
   <div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div>
-  <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Signed local restore points retained by the appliance.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="table-scroll"><table><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th>Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td>{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td><code>{snapshot.checksum.slice(0, 16)}…</code></td><td><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button></td></tr>)}</tbody></table></div></article>
+  <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Signed local restore points retained by the appliance.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="elegant-table-container"><table className="elegant-device-table"><colgroup><col className="elegant-col-expires" /><col className="elegant-col-w100" /><col /><col className="elegant-col-actions" /></colgroup><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th className="elegant-th-actions">Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td className="elegant-cell-data">{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td className="elegant-cell-ip"><code>{snapshot.checksum.slice(0, 16)}…</code></td><td className="elegant-cell-actions"><div className="device-row-actions"><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button><button className="button secondary small danger" disabled={busy} onClick={() => void deleteSnapshot(snapshot.id)} type="button">Delete</button></div></td></tr>)}</tbody></table></div></article>
 </section>}
 
 {active === "logs" && <AuditLogPanel />}

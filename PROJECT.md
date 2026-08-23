@@ -4,7 +4,7 @@ Minimal Router OS is a focused Alpine Linux router appliance for home and
 small-office networks. It combines proven Linux networking components with a
 small Go control plane, transactional configuration and a clear web UI.
 
-> **Status: Beta — v0.1.5.** The preferred AMD64/Proxmox install is the
+> **Status: Beta — v0.1.6.** The preferred AMD64/Proxmox install is the
 > CI-built Golden Appliance ISO. Current evidence and remaining production gates
 > are tracked in [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
@@ -45,7 +45,7 @@ kernel/modules/initramfs, MinimalRouter runtime and bootable disk image. The liv
 ISO verifies and raw-copies that disk image, then the installed appliance collects
 WAN/LAN and credentials on first boot.
 
-v0.1.5 keeps that architecture and expands its release evidence with installed
+v0.1.6 keeps that architecture and expands its release evidence with installed
 cold boot, firstboot non-reentry, service-supervision recovery, warm reboot and
 destructive installer-safety checks.
 
@@ -86,7 +86,7 @@ Advanced details remain available without dominating the default view.
 
 ## Platform direction
 
-Current evidence is centered on x86-64 in Proxmox/KVM. The v0.1.5 Golden target
+Current evidence is centered on x86-64 in Proxmox/KVM. The v0.1.6 Golden target
 is fully exercised end-to-end on the SeaBIOS/MBR + VirtIO path. The installer
 media retains BIOS/UEFI boot metadata, but UEFI installed-disk qualification is a
 separate future gate. ARM64 distribution builds and QEMU smoke tests remain

@@ -116,14 +116,14 @@ function liveSystem() {
   trafficTick += 1;
   return {
     status: "Connected",
-    version: "v0.1.5-demo",
+    version: "v0.1.6-demo",
     revision: config.revision,
     update_trust_configured: true,
     recovery_required: false,
     runtime: {
       available: true, wan_connected: true, public_ip: "203.0.113.9", wan_mac: "02:D4:7A:31:8C:10", lan_mac: "02:6B:92:4F:E1:20",
       uptime_seconds: 691200 + Math.floor((Date.now() - startedAt) / 1000), cpu_count: 2, cpu_load_percent: 6 + trafficTick % 4,
-      load_average: [0.14, 0.11, 0.09], memory_used_bytes: 151000000, memory_total_bytes: 536870912,
+      load_average: [0.14, 0.11, 0.09], memory_used_bytes: 151000000, memory_total_bytes: 536870912, app_memory_bytes: 96000000,
       disk_used_bytes: 2400000000, disk_total_bytes: 8000000000,
       storage: { available: true, total_bytes: 8000000000, used_bytes: 2400000000, free_bytes: 5600000000, usage_percent: 30, level: "normal", nonessential_writes_allowed: true, durable_writes_allowed: true },
       time_synchronized: true, conntrack_count: 1284, conntrack_max: 131072, conntrack_usage_percent: 1,

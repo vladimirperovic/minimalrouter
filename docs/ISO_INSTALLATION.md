@@ -1,8 +1,8 @@
-# Minimal Router OS v0.1.5 — Golden ISO installation
+# Minimal Router OS v0.1.6 — Golden ISO installation
 
 This is the preferred AMD64/x86-64 first-install path for Proxmox/KVM.
 
-The v0.1.5 ISO is **not a traditional Alpine installer**. It contains a complete,
+The v0.1.6 ISO is **not a traditional Alpine installer**. It contains a complete,
 CI-built bootable MinimalRouter disk image plus a tiny live flasher. The user VM
 does not install packages, build an initramfs, partition a target filesystem or
 rerun the MinimalRouter installer.
@@ -12,17 +12,17 @@ For the architecture and rebuild rules, read
 
 ## Release assets
 
-From the v0.1.5 GitHub release download:
+From the v0.1.6 GitHub release download:
 
 ```text
-minimalrouter-0.1.5-amd64.iso
-minimalrouter-0.1.5-amd64.iso.sha256
+minimalrouter-0.1.6-amd64.iso
+minimalrouter-0.1.6-amd64.iso.sha256
 ```
 
 Verify before use:
 
 ```sh
-sha256sum -c minimalrouter-0.1.5-amd64.iso.sha256
+sha256sum -c minimalrouter-0.1.6-amd64.iso.sha256
 ```
 
 The release also publishes `SHA256SUMS`, signed AMD64/ARM64 manifests, SPDX SBOMs
@@ -32,7 +32,7 @@ and GitHub attestations for the tested artifacts.
 
 Use a QEMU/KVM VM, not LXC:
 
-- **Firmware:** SeaBIOS for the fully tested v0.1.5 installed-disk path
+- **Firmware:** SeaBIOS for the fully tested v0.1.6 installed-disk path
 - **CPU:** 1 vCPU or more
 - **RAM:** 1 GiB or more
 - **Disk:** one virtual disk, 8 GiB or larger; VirtIO Block is the exact CI target
@@ -46,7 +46,7 @@ Do not put the candidate LAN on the same broadcast domain as another active DHCP
 server.
 
 The ISO media itself contains BIOS and UEFI boot metadata. However, the Golden
-disk image installed by v0.1.5 is currently qualified end-to-end as an MBR +
+disk image installed by v0.1.6 is currently qualified end-to-end as an MBR +
 ExtLinux + SeaBIOS appliance. Do not treat installer-media UEFI bootability as
 proof of an installed UEFI target.
 

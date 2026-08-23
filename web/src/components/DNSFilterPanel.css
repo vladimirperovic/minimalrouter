@@ -221,7 +221,9 @@
 }
 
 .service-picker legend,
-.weekly-scheduler legend {
+.weekly-scheduler legend,
+.service-picker .fieldset-title,
+.weekly-scheduler .fieldset-title {
   font-size: 13px;
   font-weight: 650;
   margin-bottom: 10px;

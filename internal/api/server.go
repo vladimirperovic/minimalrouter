@@ -401,6 +401,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/recovery/reconcile", gate(s.authMiddleware(s.handleRecoveryReconcile)))
 	mux.HandleFunc("GET /api/v1/snapshots", gate(s.authMiddleware(s.handleGetSnapshots)))
 	mux.HandleFunc("POST /api/v1/snapshots", gate(s.authMiddleware(s.handleCreateSnapshot)))
+	mux.HandleFunc("DELETE /api/v1/snapshots/{id}", gate(s.authMiddleware(s.handleDeleteSnapshot)))
 	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", gate(s.authMiddleware(s.handleRestoreSnapshot)))
 	mux.HandleFunc("POST /api/v1/import/pfsense/preview", gate(s.authMiddleware(s.handlePfSenseImportPreview)))
 	mux.HandleFunc("POST /api/v1/import/pfsense/{id}/apply", gate(s.authMiddleware(s.handlePfSenseImportApply)))
@@ -856,6 +857,27 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		"success":  true,
 		"snapshot": snap,
 	})
+}
+
+func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
+	snapID := r.PathValue("id")
+	log.Printf("[API] DELETE /api/v1/snapshots/%s from %s\n", snapID, r.RemoteAddr)
+
+	store := s.engine.GetStore()
+	if store == nil {
+		http.Error(w, "Snapshot store unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	if err := store.DeleteSnapshot(snapID); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // managementContinuityErr is the single anti-lockout policy for every

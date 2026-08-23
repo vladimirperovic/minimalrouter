@@ -39,6 +39,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
   const [hostname, setHostname] = useState(prefill?.hostname ?? "");
   const [mac, setMac] = useState(prefill?.mac ?? "");
   const [ip, setIp] = useState(prefill?.ip ?? "");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -56,6 +57,22 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
 
   const poolWarning = ip && insidePool(ip, config.dhcp.range_start, config.dhcp.range_end);
 
+  const startEdit = (lease: StaticLease) => {
+    setEditingId(lease.id);
+    setHostname(lease.hostname || "");
+    setMac(lease.mac);
+    setIp(lease.ip_address);
+    setError("");
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setHostname("");
+    setMac("");
+    setIp("");
+    setError("");
+  };
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -68,12 +85,26 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
       setError("Reserved address must be a valid IPv4 address.");
       return;
     }
-    if (leases.some((lease) => lease.mac.toLowerCase() === normalisedMac)) {
+    if (leases.some((lease) => lease.id !== editingId && lease.mac.toLowerCase() === normalisedMac)) {
       setError("That MAC address already has a reservation.");
       return;
     }
-    if (leases.some((lease) => lease.ip_address === ip.trim())) {
+    if (leases.some((lease) => lease.id !== editingId && lease.ip_address === ip.trim())) {
       setError("That address is already reserved for another device.");
+      return;
+    }
+    if (editingId) {
+      applyConfig((next) => {
+        next.dhcp = {
+          ...next.dhcp,
+          static_leases: (next.dhcp.static_leases || []).map((lease) =>
+            lease.id === editingId
+              ? { ...lease, hostname: hostname.trim(), mac: normalisedMac, ip_address: ip.trim() }
+              : lease,
+          ),
+        };
+      }, "DHCP reservation updated.");
+      cancelEdit();
       return;
     }
     applyConfig((next) => {
@@ -133,10 +164,11 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         />
       </div>
 
-      <div className="table-scroll">
-        <table>
+      <div className="elegant-table-container">
+        <table className="elegant-device-table">
+          <colgroup><col className="elegant-col-num" /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-actions" /></colgroup>
           <thead>
-            <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th>Action</th></tr>
+            <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th className="elegant-th-actions">Action</th></tr>
           </thead>
           <tbody>
             {filteredLeases.length === 0 ? (
@@ -144,12 +176,15 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             ) : (
               filteredLeases.map((lease) => (
                 <tr key={lease.id}>
-                  <td>{lease.hostname || "Unnamed device"}</td>
-                  <td><code>{lease.mac}</code></td>
-                  <td><code>{lease.ip_address}</code></td>
-                  <td className="static-actions">
-                    <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
-                    <button className="button secondary small" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
+                  <td className="elegant-cell-name">{lease.hostname || "Unnamed device"}</td>
+                  <td className="elegant-cell-mac"><code>{lease.mac}</code></td>
+                  <td className="elegant-cell-ip"><code>{lease.ip_address}</code></td>
+                  <td className="elegant-cell-actions">
+                    <div className="device-row-actions">
+                      <button className="button secondary small" disabled={busy} onClick={() => startEdit(lease)} type="button">Edit</button>
+                      <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
+                      <button className="button secondary small danger" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -181,7 +216,8 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         )}
         {error && <p className="form-note is-error" role="alert">{error}</p>}
         <div className="form-actions">
-          <button className="button primary" disabled={busy} type="submit">Reserve address</button>
+          {editingId && <button className="button secondary" disabled={busy} onClick={cancelEdit} type="button">Cancel edit</button>}
+          <button className="button primary" disabled={busy} type="submit">{editingId ? "Save changes" : "Reserve address"}</button>
         </div>
       </form>
     </article>

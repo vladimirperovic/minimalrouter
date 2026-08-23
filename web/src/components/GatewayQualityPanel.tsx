@@ -228,19 +228,28 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
 
     <article className="card gateway-service-controls">
       <div className="card-title-row"><div><h3>Service recovery</h3><p>Fixed, allowlisted recovery actions through router-applyd. They do not expose arbitrary service or shell execution.</p></div></div>
-      <div className="gateway-service-actions">
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</button>
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</button>
-        <button className="button secondary" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</button>
+      <div className="gateway-service-grid">
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</strong><small>Renegotiate the PPPoE session on ppp0</small></span>
+        </button>
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="7" rx="2" /><rect x="2" y="13" width="20" height="7" rx="2" /><path d="M6 7.5h.01M6 16.5h.01" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</strong><small>Reload dnsmasq; leases are kept</small></span>
+        </button>
+        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">
+          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg></span>
+          <span className="gateway-action-text"><strong>{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</strong><small>Bring wg0 down and re-key the tunnel</small></span>
+        </button>
       </div>
       {serviceNotice && <p className="gateway-service-notice" role="status">{serviceNotice}</p>}
     </article>
 
     <article className="card gateway-ip-history">
-      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div></div>
+      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div>{insights?.public_ip_changes?.length ? <span className="quiet-meta">{insights.public_ip_changes.length} change{insights.public_ip_changes.length === 1 ? "" : "s"}</span> : null}</div>
       {insights?.public_ip_changes?.length ? (
-        <div className="gateway-ip-events">
-          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code>{change.old_ip}</code><span aria-hidden="true">→</span><code>{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
+        <div className="gateway-ip-scroll">
+          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code className="is-old">{change.old_ip}</code><span aria-hidden="true">→</span><code className="is-new">{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
         </div>
       ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
     </article>
@@ -254,7 +263,7 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     </article>
 
     <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
-      <fieldset><legend>Monitoring targets</legend><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
+      <fieldset aria-labelledby="gateway-targets-title"><div className="fieldset-title" id="gateway-targets-title">Monitoring targets</div><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
       <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply monitoring settings</button></div>
     </form>
   </section>;

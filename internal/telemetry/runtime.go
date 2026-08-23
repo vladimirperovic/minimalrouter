@@ -29,6 +29,7 @@ type RuntimeStatus struct {
 	LoadAverage           []float64              `json:"load_average,omitempty"`
 	MemoryUsedBytes       uint64                 `json:"memory_used_bytes,omitempty"`
 	MemoryTotalBytes      uint64                 `json:"memory_total_bytes,omitempty"`
+	AppMemoryBytes        uint64                 `json:"app_memory_bytes,omitempty"`
 	DiskUsedBytes         uint64                 `json:"disk_used_bytes,omitempty"`
 	DiskTotalBytes        uint64                 `json:"disk_total_bytes,omitempty"`
 	Storage               storage.Status         `json:"storage"`

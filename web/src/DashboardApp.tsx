@@ -3,6 +3,8 @@ import AuthGate from "./components/AuthGate";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
+import SkinMenu from "./components/SkinMenu";
+import { applySkin, initialSkin, type SkinID } from "./skins/skins";
 import { apiFetch } from "./lib/api";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
@@ -90,6 +92,8 @@ function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(initialTheme);
+  const [skin, setSkin] = useState<SkinID>(initialSkin);
+  const [skinOpen, setSkinOpen] = useState(false);
   const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
   const [countdown, setCountdown] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -222,6 +226,10 @@ function Dashboard() {
       // break the dashboard.
     }
   }, [dark]);
+
+  useEffect(() => {
+    applySkin(skin);
+  }, [skin]);
 
   const dashboardReady = Boolean(config);
 
@@ -533,6 +541,22 @@ function Dashboard() {
     }
   };
 
+  const deleteSnapshot = async (id: string) => {
+    if (!window.confirm(`Delete snapshot ${id}? This restore point cannot be recovered.`)) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Delete failed (${response.status})`);
+      setNotice("Snapshot deleted.");
+      await load();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const restoreSnapshot = async (id: string) => {
     if (!window.confirm("Restore this snapshot? A current undo snapshot will be retained.")) return;
     setBusy(true);
@@ -622,6 +646,7 @@ function Dashboard() {
           <div className="classic-page-heading"><h1>{activeLabel}</h1></div>
           <div className="classic-topbar-actions">
             <div className="classic-live-sync"><i aria-hidden="true" /><span><strong>Live</strong><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Connecting"}</small></span></div>
+            <SkinMenu onSelect={setSkin} open={skinOpen} setOpen={setSkinOpen} skin={skin} />
             <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
               {dark
                 ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
@@ -657,6 +682,7 @@ function Dashboard() {
             leases={leases}
             load={load}
             restoreSnapshot={restoreSnapshot}
+            deleteSnapshot={deleteSnapshot}
             setError={setError}
             snapshots={snapshots}
             submitCloudflare={submitCloudflare}

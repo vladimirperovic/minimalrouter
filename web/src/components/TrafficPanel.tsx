@@ -67,6 +67,11 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
 
   const months = snapshot?.months ?? [];
   const active = months.find((month) => month.month === selectedMonth) ?? months[0];
+  const activeIndex = months.findIndex((month) => month.month === active?.month);
+  const previous = activeIndex >= 0 ? months[activeIndex + 1] : undefined;
+  const delta = active && previous && previous.total_bytes > 0
+    ? ((active.total_bytes - previous.total_bytes) / previous.total_bytes) * 100
+    : null;
 
   return (
     <section className="dashboard-section" id="traffic">
@@ -114,12 +119,13 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
             <div className="card-title-row">
               <div>
                 <h3>{monthLabel(active.month)}</h3>
-                <p>{active.devices.length} devices · {formatBytes(active.total_bytes)} total</p>
+                <p>{active.devices.length} devices · {formatBytes(active.total_bytes)} total{previous && delta !== null ? <span title={`Previous month: ${formatBytes(previous.total_bytes)}`}> · {delta >= 0 ? "+" : ""}{delta.toFixed(0)}% vs {monthLabel(previous.month)}</span> : ""}</p>
               </div>
               <button className="button secondary small" disabled={busy} onClick={() => void load()} type="button">Refresh</button>
             </div>
-            <div className="table-scroll traffic-table-scroll">
-              <table>
+            <div className="elegant-table-container traffic-table-scroll">
+              <table className="elegant-device-table">
+                <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-w170" /></colgroup>
                 <thead>
                   <tr><th>Device</th><th>Address</th><th>Download</th><th>Upload</th><th>Total</th><th>Share</th></tr>
                 </thead>
@@ -128,11 +134,11 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
                     const share = active.total_bytes > 0 ? (device.total_bytes / active.total_bytes) * 100 : 0;
                     return (
                       <tr key={device.address}>
-                        <td>{device.hostname || "Unknown device"}</td>
-                        <td><code>{device.address}</code></td>
-                        <td>{formatBytes(device.rx_bytes)}</td>
-                        <td>{formatBytes(device.tx_bytes)}</td>
-                        <td><strong>{formatBytes(device.total_bytes)}</strong></td>
+                        <td className="elegant-cell-name">{device.hostname || "Unknown device"}</td>
+                        <td className="elegant-cell-ip"><code>{device.address}</code></td>
+                        <td className="elegant-cell-data">{formatBytes(device.rx_bytes)}</td>
+                        <td className="elegant-cell-data">{formatBytes(device.tx_bytes)}</td>
+                        <td className="elegant-cell-data"><strong className="traffic-total-value">{formatBytes(device.total_bytes)}</strong></td>
                         <td className="traffic-share">
                           <progress max="100" value={share} />
                           <small>{share.toFixed(1)}%</small>

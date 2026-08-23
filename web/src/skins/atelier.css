@@ -1,0 +1,446 @@
+/* ============================================================
+   SKIN 02 · ATELIER
+   Refined minimal. Generous whitespace, soft elevation, quiet
+   blue accent, larger and calmer type. Nothing shouts.
+   ============================================================ */
+
+:root[data-skin="atelier"] {
+  --classic-bg: #f7f7f8;
+  --classic-panel: #ffffff;
+  --classic-soft: #f0f0f2;
+  --classic-border: #e6e6e9;
+  --classic-text: #111114;
+  --classic-muted: #6b7079;
+  --classic-blue: #3559e0;
+  --classic-purple: #6f4fd8;
+  --classic-green: #17845a;
+  --classic-orange: #9a5b00;
+
+  --canvas: #f7f7f8;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-muted: #f0f0f2;
+  --surface-subtle: #fafafa;
+  --text: #111114;
+  --text-secondary: #5f6470;
+  --text-tertiary: #92979f;
+  --separator: #e6e6e9;
+  --accent: #3559e0;
+
+  /* Desktop frame. FinalPolish.css reads these two from :root and applies
+     them with !important, so this is the supported way to change the rail. */
+  --v015-sidebar-width: 250px;
+  --v015-frame-gutter: 0px;
+
+  --skin-radius: 14px;
+  --skin-radius-sm: 10px;
+  --skin-shadow: 0 1px 2px rgba(17, 17, 20, 0.04), 0 8px 24px -12px rgba(17, 17, 20, 0.12);
+}
+
+:root[data-skin="atelier"][data-theme="dark"] {
+  --classic-bg: #0c0c0e;
+  --classic-panel: #151518;
+  --classic-soft: #1d1d21;
+  --classic-border: #26262b;
+  --classic-text: #f2f2f4;
+  --classic-muted: #9498a1;
+  --classic-blue: #7b9cff;
+  --classic-purple: #a98cff;
+  --classic-green: #3ddc97;
+  --classic-orange: #f2b45c;
+
+  --canvas: #0c0c0e;
+  --surface: #151518;
+  --surface-raised: #1a1a1e;
+  --surface-muted: #1d1d21;
+  --surface-subtle: #101013;
+  --text: #f2f2f4;
+  --text-secondary: #a1a5ae;
+  --text-tertiary: #71757e;
+  --separator: #26262b;
+  --accent: #7b9cff;
+
+  --skin-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- ground -------------------------------------------------- */
+:root[data-skin="atelier"] .dashboard-app {
+  background: var(--classic-bg);
+  background-attachment: initial;
+  font-family: Inter, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.011em;
+}
+
+/* ---- sidebar ------------------------------------------------- */
+:root[data-skin="atelier"] .dashboard-sidebar {
+  width: 250px;
+  padding: 26px 16px 18px;
+  border-right: 0;
+  background: var(--classic-bg);
+}
+
+:root[data-skin="atelier"] .dashboard-brand { padding: 4px 10px 26px; }
+
+:root[data-skin="atelier"] .dashboard-brand .dashboard-brand-title strong {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+:root[data-skin="atelier"] .dashboard-nav-group + .dashboard-nav-group { margin-top: 22px; }
+
+:root[data-skin="atelier"] .dashboard-nav-group h2 {
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="atelier"] .dashboard-nav-group > div { gap: 2px; }
+
+:root[data-skin="atelier"] .dashboard-sidebar nav a {
+  min-height: 34px;
+  gap: 11px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="atelier"] .dashboard-nav-icon { width: 17px; height: 17px; stroke-width: 1.7; }
+
+:root[data-skin="atelier"] .dashboard-sidebar nav a:hover {
+  background: color-mix(in srgb, var(--classic-text) 5%, transparent);
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .dashboard-sidebar nav a.is-active {
+  background: var(--classic-panel);
+  box-shadow: var(--skin-shadow);
+  color: var(--classic-text);
+  font-weight: 550;
+}
+
+:root[data-skin="atelier"] .dashboard-sidebar nav a.is-active .dashboard-nav-icon { color: var(--classic-blue); }
+
+:root[data-skin="atelier"] .dashboard-sidebar-footer { border-top: 0; padding-top: 14px; }
+:root[data-skin="atelier"] .dashboard-brand-revision { font-size: 12px; font-weight: 400; }
+
+/* ---- topbar -------------------------------------------------- */
+:root[data-skin="atelier"] .dashboard-main { margin-left: 250px; padding: 0 34px 110px; }
+
+:root[data-skin="atelier"] .dashboard-topbar.classic-topbar {
+  top: 0;
+  min-height: 66px;
+  margin: 0 -34px 12px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 34px;
+  background: color-mix(in srgb, var(--classic-bg) 88%, transparent);
+  box-shadow: none;
+}
+
+:root[data-skin="atelier"] .classic-page-heading h1 {
+  font-size: 15px;
+  font-weight: 550;
+  letter-spacing: -0.018em;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="atelier"] .classic-live-sync { border-right: 0; padding-right: 8px; }
+:root[data-skin="atelier"] .classic-live-sync strong { font-size: 12.5px; font-weight: 500; }
+
+:root[data-skin="atelier"] .classic-topbar-button,
+:root[data-skin="atelier"] .classic-account-button,
+:root[data-skin="atelier"] .classic-setup-pill {
+  min-height: 36px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-skin="atelier"] .classic-topbar-button { width: 36px; }
+:root[data-skin="atelier"] .classic-topbar-button svg { width: 18px; height: 18px; }
+:root[data-skin="atelier"] .classic-topbar-button:hover,
+:root[data-skin="atelier"] .classic-account-button:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--classic-text) 6%, transparent);
+}
+:root[data-skin="atelier"] .skin-menu-trigger.classic-topbar-button { width: auto; padding: 0 12px; }
+
+/* ---- section hero -------------------------------------------- */
+:root[data-skin="atelier"] .dashboard-section-heading,
+:root[data-skin="atelier"] .dns-filter-heading {
+  min-height: 0;
+  gap: 26px;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 0 4px;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-skin="atelier"] .dashboard-section-heading::after,
+:root[data-skin="atelier"] .dns-filter-heading::after { display: none; }
+
+:root[data-skin="atelier"] .subpage-hero-head { align-items: flex-start; gap: 24px; }
+
+:root[data-skin="atelier"] .dashboard-section-heading .eyebrow,
+:root[data-skin="atelier"] .dns-filter-heading .eyebrow {
+  margin: 0 0 9px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--classic-blue);
+}
+
+:root[data-skin="atelier"] .dashboard-section-heading h2,
+:root[data-skin="atelier"] .dns-filter-heading h2 {
+  font-size: clamp(27px, 2.4vw, 34px);
+  font-weight: 600;
+  letter-spacing: -0.032em;
+  line-height: 1.15;
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .dashboard-section-heading .section-copy,
+:root[data-skin="atelier"] .dashboard-section-heading .dns-filter-intro,
+:root[data-skin="atelier"] .dashboard-section-heading .ddns-lead,
+:root[data-skin="atelier"] .dns-filter-heading .dns-filter-intro {
+  max-width: 62ch;
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--classic-muted);
+}
+
+/* Facts read as quiet cells on the page ground, not a dark slab. */
+:root[data-skin="atelier"] .subpage-hero-facts {
+  gap: 1px;
+  border: 0;
+  border-radius: var(--skin-radius);
+  background: var(--classic-border);
+  overflow: hidden;
+}
+
+:root[data-skin="atelier"] .subpage-hero-facts > div {
+  padding: 16px 18px;
+  background: var(--classic-bg);
+}
+
+:root[data-skin="atelier"] .subpage-hero-facts dt {
+  font-size: 12.5px;
+  font-weight: 450;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="atelier"] .subpage-hero-facts dd {
+  margin: 7px 0 4px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  font-variant-numeric: tabular-nums;
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .subpage-hero-facts small { font-size: 12px; color: var(--classic-muted); }
+
+/* ---- panels and forms ---------------------------------------- */
+:root[data-skin="atelier"] .dashboard-app .card,
+:root[data-skin="atelier"] .settings-form,
+:root[data-skin="atelier"] .status-list,
+:root[data-skin="atelier"] .dashboard-callout,
+:root[data-skin="atelier"] .speedtest-block,
+:root[data-skin="atelier"] .ddns-status,
+:root[data-skin="atelier"] .modern-device-section {
+  border: 0;
+  border-radius: var(--skin-radius);
+  background: var(--classic-panel);
+  box-shadow: var(--skin-shadow);
+}
+
+:root[data-skin="atelier"] .settings-form { gap: 20px; padding: 8px; }
+
+:root[data-skin="atelier"] .settings-form fieldset,
+:root[data-skin="atelier"] .dns-records-fieldset {
+  gap: 18px;
+  border: 0;
+  border-radius: var(--skin-radius-sm);
+  padding: 18px 20px 22px;
+  background: transparent;
+}
+
+:root[data-skin="atelier"] .settings-form > fieldset + fieldset {
+  border-top: 1px solid var(--classic-border);
+  border-radius: 0;
+}
+
+:root[data-skin="atelier"] .settings-form legend,
+:root[data-skin="atelier"] .dns-records-fieldset legend,
+:root[data-skin="atelier"] .settings-form .fieldset-title,
+:root[data-skin="atelier"] .dns-records-fieldset .fieldset-title {
+  padding: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  text-transform: none;
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .dashboard-app .field { gap: 7px; }
+
+:root[data-skin="atelier"] .dashboard-app .field > span {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .dashboard-app input,
+:root[data-skin="atelier"] .dashboard-app select {
+  min-height: 40px;
+  padding: 0 13px;
+  border-radius: var(--skin-radius-sm);
+  background: var(--classic-bg);
+  font-size: 14.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-skin="atelier"] .dashboard-app input:focus,
+:root[data-skin="atelier"] .dashboard-app select:focus {
+  background: var(--classic-panel);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-blue) 12%, transparent);
+}
+
+:root[data-skin="atelier"] .dashboard-section .checkbox-row,
+:root[data-skin="atelier"] .dns-filter .checkbox-row,
+:root[data-skin="atelier"] .classic-security-card .checkbox-row {
+  width: 100%;
+  border: 0;
+  border-radius: var(--skin-radius-sm);
+  padding: 13px 15px;
+  background: var(--classic-bg);
+  font-size: 14px;
+}
+
+:root[data-skin="atelier"] .form-actions { border-top: 1px solid var(--classic-border); padding-top: 20px; }
+
+:root[data-skin="atelier"] .dashboard-section .button,
+:root[data-skin="atelier"] .dns-filter .button {
+  min-height: 38px;
+  border-radius: var(--skin-radius-sm);
+  font-size: 14px;
+  font-weight: 550;
+}
+
+:root[data-skin="atelier"] .form-note { font-size: 12.5px; line-height: 1.55; }
+
+/* ---- chips and tables ---------------------------------------- */
+:root[data-skin="atelier"] .classic-status-chip {
+  min-height: 26px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 550;
+}
+
+:root[data-skin="atelier"] .elegant-table-container {
+  border: 0;
+  border-radius: var(--skin-radius);
+  background: var(--classic-panel);
+  box-shadow: none;
+}
+
+:root[data-skin="atelier"] .elegant-device-table thead th {
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--classic-border);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--classic-muted);
+}
+
+:root[data-skin="atelier"] .elegant-device-table tbody td {
+  height: 56px;
+  padding: 0 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 62%, transparent);
+  font-size: 14px;
+}
+
+:root[data-skin="atelier"] .elegant-device-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--classic-text) 3%, transparent);
+}
+
+:root[data-skin="atelier"] .modern-section-heading h2 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  text-transform: none;
+  color: var(--classic-text);
+}
+
+:root[data-skin="atelier"] .dashboard-app .modern-search-input {
+  min-height: 36px;
+  border-radius: var(--skin-radius-sm);
+  font-size: 13.5px;
+}
+
+:root[data-skin="atelier"] .card-title-row h3 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+}
+
+/* ---- shared command surfaces --------------------------------- */
+:root[data-skin="atelier"] .overview-status-hero,
+:root[data-skin="atelier"] .wg-page-hero,
+:root[data-skin="atelier"] .classic-security-command {
+  border-radius: var(--skin-radius);
+  background: linear-gradient(118deg, #17171b 0%, #1f1f25 55%, #17171b 100%);
+}
+
+/* ---- desktop frame ------------------------------------------------ */
+/* The rail runs flush to the viewport edge in this skin rather than floating
+   inset. The gutter token is 0, so the page padding is set here instead. */
+@media (min-width: 901px) {
+  :root[data-skin="atelier"] .dashboard-sidebar {
+    inset-block: 0;
+    border-radius: 0;
+  }
+
+  :root[data-skin="atelier"] .dashboard-main {
+    padding-left: 34px !important;
+    padding-right: 34px !important;
+  }
+
+  :root[data-skin="atelier"] .dashboard-topbar.classic-topbar {
+    padding-left: 34px !important;
+    padding-right: 34px !important;
+  }
+}
+
+@media (min-width: 901px) {
+  :root[data-skin="atelier"] .dashboard-topbar.classic-topbar {
+    top: 0;
+    min-height: 66px;
+    margin: 0 -34px 12px;
+    border: 0;
+    border-radius: 0;
+    padding: 0 34px;
+    box-shadow: none;
+  }
+}
+
+@media (max-width: 900px) {
+  :root[data-skin="atelier"] .dashboard-main { margin-left: 0; padding-left: 18px; padding-right: 18px; }
+  :root[data-skin="atelier"] .dashboard-topbar.classic-topbar { margin-left: -18px; margin-right: -18px; padding: 0 18px; }
+}

@@ -169,6 +169,7 @@ export type SystemStatus = {
     load_average?: number[];
     memory_used_bytes?: number;
     memory_total_bytes?: number;
+    app_memory_bytes?: number;
     rx_bytes?: number;
     tx_bytes?: number;
     disk_used_bytes?: number;

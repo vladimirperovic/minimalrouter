@@ -454,7 +454,7 @@ export default function ClassicOverview({
         <header className="overview-panel-header"><div><h2 id="resources-title">Appliance resources</h2><p>Live system utilization</p></div></header>
         <div className="overview-resource-list">
           <article><div><span>CPU</span><small>{runtime.cpu_count || 0} logical cores</small></div><strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
-          <article><div><span>Memory</span><small>{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}</small></div><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} /></article>
+          <article><div><span>Memory</span><small title="Used includes reclaimable kernel file cache">{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}{runtime.app_memory_bytes ? ` · apps ${formatBytes(runtime.app_memory_bytes)}` : ""}</small></div><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} /></article>
           <article><div><span>Disk</span><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small></div><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} /></article>
         </div>
         <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>

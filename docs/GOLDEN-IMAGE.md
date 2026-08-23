@@ -1,4 +1,4 @@
-# MinimalRouter v0.1.5 Golden Appliance ISO — source of truth
+# MinimalRouter v0.1.6 Golden Appliance ISO — source of truth
 
 This document records **how and why** the current Golden ISO is built. It exists so
 a future maintainer or AI agent does not accidentally return to the fragile
@@ -173,7 +173,7 @@ Package installation happens here, never in the user's live flasher.
 
 `packaging/alpine/build-golden-image.sh` creates a logical 8 GiB raw image.
 
-Current v0.1.5 layout:
+Current v0.1.6 layout:
 
 ```text
 DOS/MBR partition table
@@ -302,7 +302,7 @@ marker in the post-MBR gap, with filesystem-label fallback for older images.
 
 If detected, the ISO stops before overwrite.
 
-v0.1.5 CI adds destructive-safety regressions that explicitly prove an existing
+v0.1.6 CI adds destructive-safety regressions that explicitly prove an existing
 MinimalRouter target is refused and a 4 GiB undersized disk is rejected before
 destructive writes begin.
 
@@ -367,7 +367,7 @@ ttyS0 @ 115200
 CI changes only the ISO boot-menu default to the existing serial entry so Expect
 can drive the same production flasher.
 
-The v0.1.5 gate proves:
+The v0.1.6 gate proves:
 
 - Golden checksum/gzip verification;
 - safe VM disk auto-selection;
@@ -399,11 +399,11 @@ ISO after firmware signing and before publication.
 
 ## Release artifacts
 
-v0.1.5 release publication includes the production ISO and verification material:
+v0.1.6 release publication includes the production ISO and verification material:
 
 ```text
-minimalrouter-0.1.5-amd64.iso
-minimalrouter-0.1.5-amd64.iso.sha256
+minimalrouter-0.1.6-amd64.iso
+minimalrouter-0.1.6-amd64.iso.sha256
 SHA256SUMS
 ```
 
@@ -414,7 +414,7 @@ trust anchor used by `router-update`.
 
 ## What CI does not prove
 
-Do not turn automated evidence into a broader claim. v0.1.5 still needs separate
+Do not turn automated evidence into a broader claim. v0.1.6 still needs separate
 real evidence for:
 
 - real ISP PPPoE authentication/reconnect behavior;

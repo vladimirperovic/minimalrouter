@@ -43,8 +43,8 @@ html.demo-015-preview .dashboard-app {
 }
 
 html.demo-015-preview {
-  --demo-card-radius: 18px;
-  --demo-control-radius: 11px;
+  --demo-card-radius: 12px;
+  --demo-control-radius: 8px;
   --demo-shadow: 0 14px 38px rgba(20, 34, 51, .055);
   --demo-shadow-soft: 0 8px 24px rgba(20, 34, 51, .035);
   --demo-soft-border: color-mix(in srgb, var(--classic-border) 86%, transparent);
@@ -498,7 +498,7 @@ html.demo-015-preview #wifi .settings-form > fieldset,
 html.demo-015-preview #security .settings-form > fieldset {
   margin: 0 0 18px;
   border: 1px solid var(--classic-border);
-  border-radius: 16px;
+  border-radius: var(--demo-card-radius);
   padding: 22px 24px 24px;
   background: var(--classic-panel);
   box-shadow: var(--demo-shadow-soft);
@@ -511,9 +511,20 @@ html.demo-015-preview #cloudflare .settings-form > fieldset legend,
 html.demo-015-preview #squid .settings-form > fieldset legend,
 html.demo-015-preview #wifi .settings-form > fieldset legend,
 html.demo-015-preview #security .settings-form > fieldset legend {
-  padding: 0 8px;
+  padding: 0 10px;
+  margin-left: 12px;
+  background: var(--classic-panel);
+  border-radius: 999px;
   color: var(--classic-text);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+html.demo-015-preview .fieldset-title {
+  margin: 0 0 14px;
+  color: var(--classic-text);
+  font-size: 13px;
   font-weight: 770;
   letter-spacing: -.015em;
 }
@@ -1359,16 +1370,29 @@ html.demo-015-preview .demo-015-quick-card strong {
 html.demo-015-preview .demo-unified-form > fieldset {
   margin: 0 0 18px;
   border: 1px solid var(--classic-border);
-  border-radius: 16px;
+  border-radius: var(--demo-card-radius);
   padding: 22px 24px 24px;
   background: var(--classic-panel);
   box-shadow: var(--demo-shadow-soft);
 }
 
 html.demo-015-preview .demo-unified-form > fieldset legend {
-  padding: 0 8px;
+  padding: 0 10px;
+  margin-left: 12px;
+  background: var(--classic-panel);
+  border-radius: 999px;
   color: var(--classic-text);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+html.demo-015-preview .settings-form > fieldset .fieldset-title,
+html.demo-015-preview .demo-unified-form > fieldset .fieldset-title,
+html.demo-015-preview .dns-records-fieldset .fieldset-title {
+  margin: 0 0 14px;
+  color: var(--classic-text);
+  font-size: 13px;
   font-weight: 770;
   letter-spacing: -.015em;
 }
