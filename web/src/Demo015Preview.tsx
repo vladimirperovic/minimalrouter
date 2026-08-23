@@ -50,43 +50,6 @@ if (isDemoMode && typeof window !== "undefined") {
   }
 }
 
-function addSaveButton(fieldset: HTMLFieldSetElement, label: string, marker: string) {
-  if (fieldset.querySelector(`.${marker}`)) return;
-  const actions = document.createElement("div");
-  actions.className = `form-actions demo-015-fieldset-actions ${marker}`;
-  const button = document.createElement("button");
-  button.className = "button primary";
-  button.type = "submit";
-  button.textContent = label;
-  actions.appendChild(button);
-  fieldset.appendChild(actions);
-}
-
-function patchNetworkPage() {
-  const network = document.getElementById("network");
-  const form = network?.querySelector<HTMLFormElement>("form.settings-form");
-  if (!network || !form) return;
-
-  const fieldsets = Array.from(form.children).filter((child): child is HTMLFieldSetElement => child instanceof HTMLFieldSetElement);
-  const wan = fieldsets.find((fieldset) => fieldset.querySelector("legend")?.textContent?.includes("WAN / PPPoE"));
-  const lan = fieldsets.find((fieldset) => fieldset.querySelector("legend")?.textContent?.includes("LAN and DHCP"));
-
-  if (wan) {
-    const wanToggle = wan.querySelector<HTMLInputElement>('input[type="checkbox"]')?.closest("label");
-    wanToggle?.classList.add("demo-015-hidden-wan-toggle");
-    const password = wan.querySelector<HTMLInputElement>('input[name="pppoe_password"]');
-    if (password && password.placeholder !== "Enter a new PPPoE password (optional)") {
-      password.placeholder = "Enter a new PPPoE password (optional)";
-    }
-    addSaveButton(wan, "Save WAN", "demo-015-save-wan");
-  }
-
-  if (lan) addSaveButton(lan, "Save LAN & DHCP", "demo-015-save-lan");
-
-  const directActions = Array.from(form.children).filter((child) => child.classList.contains("form-actions"));
-  directActions.at(-1)?.classList.add("demo-015-original-network-save");
-}
-
 function patchOverview() {
   // The "~ 600 Mb / 400 Mb" line pass 2 wrote under the PPPoE session is gone:
   // the Line estimate tile in the same card already carries that number, and
@@ -500,8 +463,7 @@ export default function Demo015Preview() {
     document.documentElement.classList.add("demo-015-preview");
 
     const sync = () => {
-      patchNetworkPage();
-      patchOverview();
+          patchOverview();
       patchOverviewDiagnostics();
       patchOverviewFacts();
       patchMetricTips();

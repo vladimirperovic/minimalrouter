@@ -289,3 +289,51 @@
 }
 
 .traffic-total-value { color: var(--classic-text); }
+
+/* Per-section save. Each fieldset on LAN & DHCP writes only its own slice of
+   the configuration, so the action row sits inside the fieldset and reports
+   the result next to the button rather than only in the page-level banner. */
+.settings-form fieldset > .form-actions.section-actions,
+.dns-records-fieldset > .form-actions.section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 4px;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.section-saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  color: var(--classic-green);
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.section-saved.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.section-saved svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-saved { transition: none; }
+}
+
+@media (max-width: 640px) {
+  .settings-form fieldset > .form-actions.section-actions,
+  .dns-records-fieldset > .form-actions.section-actions {
+    justify-content: space-between;
+  }
+}
