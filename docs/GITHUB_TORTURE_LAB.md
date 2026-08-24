@@ -59,8 +59,13 @@ Latest complete-suite run:
 - Flash and firstboot passed before scenario execution.
 - The first failure was `13-mtu-issues`: PPPoE recovered and LAN/DNS traffic
   passed at the reduced MTU, but the assertion inspected the client-side PPP
-  interface even though the ISP peer advertises the reduced receive MTU. The
-  focused fix checks the server-side negotiated interface instead.
+  interface even though Linux does not expose the peer's MRU through that
+  interface MTU field. Focused run
+  [32782438366](https://github.com/vladimirperovic/minimalrouter/actions/runs/32782438366)
+  (artifact `9541582145`) proved the same for the server-side PPP interface.
+  The corrected assertion now verifies the ISP's active `mtu 1400` and
+  `mru 1400` options while retaining the real PPPoE, LAN-internet and DNS
+  checks.
 - Scenario `22-service-crash` subsequently left `routerd` unhealthy, so the
   baseline gate correctly refused scenarios `23` through `153` without
   injecting further faults. Artifact `9534511144` retains the summary,
