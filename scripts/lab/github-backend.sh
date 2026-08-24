@@ -17,6 +17,7 @@ SIM_VMID=153
 LAN_VMID=154
 MR_LAN_IF=eth1
 MR_WAN_IF=eth0
+LAN_CLIENT_IF=eth1
 
 _gh_aux_port() {
   case "$1" in

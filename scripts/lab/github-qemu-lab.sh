@@ -545,7 +545,7 @@ EOF
 chmod 755 /usr/local/sbin/lab-udhcpc
 if ! command -v dhclient >/dev/null 2>&1; then cat > /usr/local/sbin/dhclient <<"EOF"
 #!/bin/sh
-iface="${@: -1}"
+for iface do :; done
 exec busybox udhcpc -i "$iface" -s /usr/local/sbin/lab-udhcpc -n -q -t 8 -T 2
 EOF
 chmod 755 /usr/local/sbin/dhclient; fi

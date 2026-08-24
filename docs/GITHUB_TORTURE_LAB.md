@@ -71,6 +71,19 @@ Latest complete-suite run:
   injecting further faults. Artifact `9534511144` retains the summary,
   scenario log and per-failure postmortems.
 
+Latest passing MTU regression:
+
+- Run: [32786645766](https://github.com/vladimirperovic/minimalrouter/actions/runs/32786645766)
+- Workflow checkout: PR head `3d32ee5587c7f9114178d5df38a019cd9d595e2f`
+- Selection: focused `13-mtu-issues`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9542788032` proves the active `mtu 1400`/`mru 1400` ISP fault,
+  PPPoE recovery, working LAN internet and DNS, and restoration to MTU 1492.
+- The next complete-suite failure, `15-dns-dhcp`, exposed a missing shared LAN
+  client-interface/lease-renewal contract: the hosted client uses `eth1`, not
+  the Proxmox client's `eth0`, and its compatibility DHCP shim must use
+  POSIX-shell argument handling.
+
 Latest passing focused regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)

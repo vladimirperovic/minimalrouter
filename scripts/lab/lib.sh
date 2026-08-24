@@ -17,6 +17,7 @@ MR_WAN_PPP="10.250.0.50"
 SIM_INET="11.255.0.2"
 ISP_DNS="10.250.0.1"
 PROD_GW="192.168.1.1"
+LAN_CLIENT_IF="${LAB_LAN_CLIENT_IF:-eth0}"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
 # --- result bookkeeping -----------------------------------------------------
@@ -166,6 +167,13 @@ check_fw_not_fail_open() {
 check_lan_up() {
   H "ping -c1 -W2 192.168.1.1 >/dev/null 2>&1" && \
   lan 'ip -4 -o addr show' | grep -q "192.168.1."
+}
+lan_client_ipv4() {
+  lan "ip -4 -o addr show '$LAN_CLIENT_IF' | awk '\$4 ~ /^192\\.168\\.1\\./ {sub(/\\/.*/, \"\", \$4); print \$4; exit}'" | tr -d '\r\n'
+}
+lan_dhcp_renew() {
+  lan "ip -4 addr flush dev '$LAN_CLIENT_IF'; dhclient '$LAN_CLIENT_IF' >/dev/null 2>&1" || return 1
+  retry 30 lan "ip -4 -o addr show '$LAN_CLIENT_IF' | grep -q '192.168.1.'"
 }
 # Local DNS records resolve through MR dnsmasq even with WAN down.
 check_local_dns() {
