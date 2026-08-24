@@ -234,6 +234,18 @@ wait_aux() {
   tail -100 "$STATE/logs/$log_name-serial.log" >&2 || true
   return 1
 }
+wait_aux_down() {
+  local port="$1" i=0
+  while (( i < 120 )); do
+    if ! ssh -i "$LAB_GITHUB_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=2 \
+      -p "$port" lab@127.0.0.1 true >/dev/null 2>&1; then return 0; fi
+    sleep 2
+    i=$((i+2))
+  done
+  echo "aux VM on port $port did not go down for reboot" >&2
+  return 1
+}
 wait_aux 150 2250
 wait_aux 153 2253
 wait_aux 154 2254
@@ -293,9 +305,14 @@ apt-get update -qq
 apt-get install -y -qq linux-image-cloud-amd64 kmod >/dev/null
 ( sleep 2; systemctl reboot ) >/tmp/lab-kernel-reboot.log 2>&1 &
 ' || true
+  # A readiness probe can still succeed during systemd's reboot delay. Observe
+  # the SSH endpoint disappear before waiting for the new kernel to come up.
+  wait_aux_down 2250
   wait_aux 150 2250
+  aux_exec 2250 'cloud-init status --wait >/dev/null; modprobe -n ppp_generic >/dev/null'
 fi
 aux_copy_run 2250 scripts/lab/payloads/isp-provision.sh
+aux_exec 2250 'systemctl is-active --quiet pppoe-server; /usr/local/sbin/lab-fault status | grep -qx auth=good'
 aux_copy_run 2253 scripts/lab/payloads/sim-provision.sh
 aux_copy_run 2254 scripts/lab/payloads/client-provision.sh
 

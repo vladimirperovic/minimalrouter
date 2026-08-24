@@ -50,12 +50,11 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32457183474](https://github.com/vladimirperovic/minimalrouter/actions/runs/32457183474)
-- Workflow checkout: merge commit `7236e0a0a7dd37308b7b2dc2b65da59e01091cd4` (PR head `3a6279a3abf549f334cc7c4cfacdbc1be68ff265`)
+- Run: [32460091098](https://github.com/vladimirperovic/minimalrouter/actions/runs/32460091098)
+- Workflow checkout: merge commit `25190e9cfffbae569c444d715e5985867b0c030e` (PR head `3f30eda984f8670817b2651ba12dc76152e8ef31`)
 - Result: **failed before scenario execution**
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- Failure: ISP provisioning stopped with `ERROR: ISP-LAB kernel did not load ppp_generic`. The running ISP kernel was `6.12.101+deb13-cloud-amd64`; a `/lib/modules` directory existed, but the usable `ppp_generic` module was not available to the payload's suppressed `modprobe` attempts. PPPoE discovery therefore never reached the lab ISP and no scenario result files were produced.
-- Fix: the ISP payload now installs `kmod`, and the QEMU bootstrap checks for both `modprobe` and an actually discoverable `ppp_generic` module with `modprobe -n` before deciding that no kernel preparation is needed.
-- Fix commits: `28fc020da8b59ab7d271855d40b76a8db3301476` and `ee1ae55647dc3d2a8e57827772a241223a08add2`.
+- Failure: the ISP needed a cloud-kernel reboot. The job scheduled that reboot and immediately used an SSH readiness probe, which could succeed during systemd's reboot delay. Provisioning then printed only `== packages ==`; none of the `interface detection`, `PPP runtime`, `pppoe-server` or `ISP-LAB ready` markers appeared. The later router-side discovery timed out waiting for PADO and no scenario result files were produced. Artifact `9439380509` retains the topology, discovery and serial evidence.
+- Fix: the bootstrap now requires the ISP SSH endpoint to disappear before waiting for it to return, verifies the new kernel exposes `ppp_generic`, and checks the active PPPoE service plus `auth=good` immediately after provisioning.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.
