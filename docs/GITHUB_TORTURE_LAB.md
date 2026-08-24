@@ -50,11 +50,11 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32695044359](https://github.com/vladimirperovic/minimalrouter/actions/runs/32695044359)
-- Workflow checkout: merge commit `725332f0c61dceafe24abd1075f1e8427f54d9b4` (PR head `ebe22fbe8a7dfd56dd78965b49f869994dc6ba2b`)
+- Run: [32697795226](https://github.com/vladimirperovic/minimalrouter/actions/runs/32697795226)
+- Workflow checkout: merge commit `2647f644f071bd127a450b4e1ecb41ea86f55ea5` (PR head `9a28edac6a834441698eef93bb33359400887948`)
 - Result: **failed before scenario execution**
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- Failure: reboot synchronization worked, but Debian's `6.12.101+deb13-cloud-amd64` kernel still had no loadable `ppp_generic`; the preflight and ISP payload both recorded that exact failure. The harness nevertheless continued because its initial `cleanup` call ran `set +e` in the parent shell, unintentionally disabling fail-fast behavior for the remainder of the job. PPPoE discovery later timed out waiting for PADO. No scenarios ran. Artifact `9509276093` retains the evidence.
-- Fix: install Debian's generic `linux-image-amd64` kernel for the disposable PPPoE ISP and run cleanup in a subshell so its relaxed error handling cannot leak into the harness.
+- Failure: the generic `linux-image-amd64` package installed successfully, but GRUB still selected the lexically newer-named `6.12.101+deb13-cloud-amd64` entry. The corrected fail-fast behavior stopped immediately when `modprobe -n ppp_generic` proved the reboot was still on the cloud kernel. No scenarios ran. Artifact `9509979295` retains the evidence.
+- Fix: after installing the generic kernel, the bootstrap now resolves its exact version, verifies the corresponding GRUB menu entry, saves that entry as the boot default and checks the saved value before rebooting.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

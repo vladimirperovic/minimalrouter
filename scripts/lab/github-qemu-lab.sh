@@ -303,6 +303,19 @@ if ! aux_exec 2250 'command -v modprobe >/dev/null 2>&1 && modprobe -n ppp_gener
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq linux-image-amd64 kmod >/dev/null
+generic_kernel="$(find /boot -maxdepth 1 -type f -name "vmlinuz-*-amd64" ! -name "*-cloud-amd64" | sort -V | tail -1)"
+[ -n "$generic_kernel" ]
+generic_version="${generic_kernel##*/vmlinuz-}"
+entry="Advanced options for Debian GNU/Linux>Debian GNU/Linux, with Linux $generic_version"
+if grep -q "^GRUB_DEFAULT=" /etc/default/grub; then
+  sed -i "s/^GRUB_DEFAULT=.*/GRUB_DEFAULT=saved/" /etc/default/grub
+else
+  echo "GRUB_DEFAULT=saved" >> /etc/default/grub
+fi
+update-grub >/dev/null
+grep -F "with Linux $generic_version" /boot/grub/grub.cfg >/dev/null
+grub-set-default "$entry"
+grub-editenv list | grep -Fx "saved_entry=$entry"
 ( sleep 2; systemctl reboot ) >/tmp/lab-kernel-reboot.log 2>&1 &
 ' || true
   # A readiness probe can still succeed during systemd's reboot delay. Observe
