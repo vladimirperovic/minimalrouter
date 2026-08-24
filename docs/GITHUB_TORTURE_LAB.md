@@ -3,8 +3,8 @@
 This document describes the GitHub-hosted lab used by PR #115. It runs the
 existing 153 scenario scripts against a real Golden ISO appliance booted in
 QEMU TCG, with disposable Debian ISP/PPPoE, simulator and LAN-client peers.
-The scenario scripts remain unchanged; only the transport is replaced inside a
-temporary shadow worktree.
+The scenarios run through a hosted-QEMU transport inside a temporary shadow
+worktree, with lab-specific assertions kept alongside the shared scenarios.
 
 ## Run it on GitHub
 
@@ -50,7 +50,23 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 ## Current result
 
-Latest recorded run:
+Latest complete-suite run:
+
+- Run: [32735068105](https://github.com/vladimirperovic/minimalrouter/actions/runs/32735068105)
+- Workflow checkout: PR head `5b58931d64722855e59dbf1a565cebae42b8fdda`
+- Selection: complete `all` inventory (`153` expected)
+- Result: **failed** (`14` passes, `8` failures, `22` result files, runner exit `1`)
+- Flash and firstboot passed before scenario execution.
+- The first failure was `13-mtu-issues`: PPPoE recovered and LAN/DNS traffic
+  passed at the reduced MTU, but the assertion inspected the client-side PPP
+  interface even though the ISP peer advertises the reduced receive MTU. The
+  focused fix checks the server-side negotiated interface instead.
+- Scenario `22-service-crash` subsequently left `routerd` unhealthy, so the
+  baseline gate correctly refused scenarios `23` through `153` without
+  injecting further faults. Artifact `9534511144` retains the summary,
+  scenario log and per-failure postmortems.
+
+Latest passing focused regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
 - Workflow checkout: PR head `025ba00a6fdd57d5ac9cf2c86ec1a17995a87939`
@@ -60,4 +76,5 @@ Latest recorded run:
 - Scenario `03-wan-carrier` proved carrier loss, PPPoE loss and automatic recovery, restored LAN-to-simulator HTTP, canonical/last-good convergence and the production isolation invariant. Artifact `9522676847` retains the passing evidence.
 - The fix restores the hosted-only simulator routes after carrier restoration and lab reset; the generic reset also raises the ISP access interface so an interrupted carrier scenario cannot poison later tests.
 
-The focused regression is green. A complete 153-scenario run is still required before the lab is considered green.
+The carrier regression is green. The complete lab remains red while the
+focused failures from run `32735068105` are repaired and rerun.

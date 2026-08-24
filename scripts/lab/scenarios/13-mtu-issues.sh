@@ -9,7 +9,7 @@ require "fault: server MTU forced to 1400" ispfault mtu 1400
 
 phase "4-5-runtime"
 require "PPPoE renegotiates with MTU 1400" wait_pppoe 120
-check "negotiated MTU is 1400" mr "ip link show ppp0 | grep -o 'mtu 1400'"
+check "server-side negotiated MTU is 1400" isp "ip link show ppp0 | grep -o 'mtu 1400'"
 check "LAN client internet works with small MTU" check_lan_internet
 check "local DNS works" check_local_dns
 
