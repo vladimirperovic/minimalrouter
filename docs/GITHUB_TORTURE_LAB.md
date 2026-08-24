@@ -11,7 +11,9 @@ temporary shadow worktree.
 1. Open the repository's **Actions** tab.
 2. Select **GitHub QEMU torture lab**.
 3. Select **Run workflow**, choose the branch to test (normally
-   `audit/github-torture-lab` or the PR branch), and start it.
+   `audit/github-torture-lab` or the PR branch), leave **scenario** as `all`
+   for the complete suite (or enter one scenario name/number for a focused
+   diagnostic run), and start it.
 4. Wait for the job **153-scenario QEMU torture lab**.
 5. Download the `github-qemu-torture-<commit>` artifact if the job fails. It
    contains `summary.json`, `torture.log`, per-scenario results/logs and the
@@ -50,12 +52,12 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32703554600](https://github.com/vladimirperovic/minimalrouter/actions/runs/32703554600)
-- Workflow checkout: merge commit `a4afbd2396a7334b9e00d66dbe2807ec21d6b827` (PR head `3dddf05a7b4914ca0839012d05db05fe1f7cd83a`)
-- Result: **failed before scenario execution**
+- Run: [32707894559](https://github.com/vladimirperovic/minimalrouter/actions/runs/32707894559)
+- Workflow checkout: merge commit `d7c6e428419a78b250000f2f30cec799329d86c9` (PR head `f869fb5eb12b914e8d15a61d43ede97ff7c8e9e0`)
+- Result: **failed in scenario 03** (`2` passes, `1` failure, `3` result files, runner exit `1`)
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- The generic ISP kernel, PPP runtime, real PPPoE session and LAN DHCP lease all passed.
-- Failure: `config-confirm.json` records `Transaction confirmation failed`. The baseline enables the outbound WireGuard tunnel, whose confirmation requires a completed handshake. The simulator's return route to the appliance PPP address was installed only after confirmation, so the handshake could not complete. The ignored HTTP conflict allowed the 90-second safety timer to roll the candidate back before topology smoke. No scenarios ran. Artifact `9512682056` retains the evidence.
-- Fix: the simulator return route is now installed before configuration apply. Bootstrap waits for the outbound tunnel handshake and accepts confirmation only after an HTTP 200 response with a committed transaction; otherwise it fails immediately with retained diagnostics.
+- Bootstrap, topology smoke, scenarios `01-pppoe-stop-start` and `02-pppoe-auth-failure` passed.
+- Failure: after scenario `03-wan-carrier` lowered and restored the disposable ISP access NIC, the appliance recreated `ppp0` with `10.250.0.50` and its default route, but LAN-to-simulator HTTP never recovered. Every later scenario was correctly refused by the unhealthy baseline. Artifact `9517516613` retains the summary, scenario evidence and postmortem.
+- Fix: carrier restoration now restarts the disposable ISP's PPPoE server so rp-pppoe reopens its raw discovery socket after the QEMU link flap. Manual dispatch also accepts one scenario name/number, allowing scenario `03` to be proved before another full run.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

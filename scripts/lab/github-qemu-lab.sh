@@ -600,13 +600,14 @@ p.write_text(s.replace(needle, insert, 1))
 PY
 
 set +e
+selected_scenario="${LAB_SCENARIO:-all}"
 (
   cd "$WORK"
   LAB_GITHUB_STATE="$STATE" LAB_GITHUB_KEY="$LAB_GITHUB_KEY" \
   LAB_RECOVERY_PW="$LAB_RECOVERY_PW" LAB_ADMIN_PW="$LAB_ADMIN_PW" \
   LAB_BACKEND=github LAB_RESULTS="$STATE/results" LAB_SIGNED_ROOT="$LAB_SIGNED_ROOT" \
   PATH="$STATE/bin:$PATH" \
-  sh scripts/lab/lab-run.sh all
+  sh scripts/lab/lab-run.sh "$selected_scenario"
 ) 2>&1 | tee "$STATE/torture.log"
 rc=${PIPESTATUS[0]}
 set -e
@@ -614,11 +615,15 @@ set -e
 pass="$(grep -Ec 'scenario [^ ]+ PASS$' "$STATE/torture.log" || true)"
 fail="$(grep -Ec 'scenario [^ ]+ FAILED' "$STATE/torture.log" || true)"
 result_files="$(find "$STATE/results" -name result.txt -type f | wc -l | tr -d ' ')"
+expected="$scenario_count"
+[ "$selected_scenario" = all ] || expected=1
 jq -n \
-  --argjson inventory "$scenario_count" --argjson pass "$pass" --argjson fail "$fail" \
+  --arg selected "$selected_scenario" \
+  --argjson inventory "$scenario_count" --argjson expected "$expected" \
+  --argjson pass "$pass" --argjson fail "$fail" \
   --argjson result_files "$result_files" --argjson runner_rc "$rc" \
-  '{inventory:$inventory,scenario_passes:$pass,scenario_failures:$fail,result_files:$result_files,runner_rc:$runner_rc}' \
+  '{inventory:$inventory,selected:$selected,expected:$expected,scenario_passes:$pass,scenario_failures:$fail,result_files:$result_files,runner_rc:$runner_rc}' \
   > "$STATE/summary.json"
 cat "$STATE/summary.json"
 
-[[ "$rc" -eq 0 && "$pass" -eq "$scenario_count" && "$fail" -eq 0 ]] || exit 1
+[[ "$rc" -eq 0 && "$pass" -eq "$expected" && "$fail" -eq 0 ]] || exit 1

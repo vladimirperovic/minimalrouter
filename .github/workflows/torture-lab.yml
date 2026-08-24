@@ -28,6 +28,11 @@ on:
       - 'go.sum'
       - 'VERSION'
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Scenario name/number, or all'
+        required: false
+        default: all
 
 permissions:
   contents: read
@@ -107,11 +112,14 @@ jobs:
           grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-torture-install.log
           grep -F 'INSTALLED_SSH_OK' build/iso/qemu-torture-install.log
 
-      - name: Run all 153 existing torture scenarios on GitHub QEMU
+      - name: Run selected torture scenarios on GitHub QEMU
+        env:
+          LAB_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           sudo env \
             PATH="$PATH" \
             HOME="$HOME" \
+            LAB_SCENARIO="$LAB_SCENARIO" \
             LAB_GITHUB_STATE="$GITHUB_WORKSPACE/build/github-torture" \
             LAB_ADMIN_PW='MinimalRouterCI-2026!' \
             LAB_RECOVERY_PW='MRciRecovery-2026!' \

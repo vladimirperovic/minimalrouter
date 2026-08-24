@@ -213,7 +213,20 @@ EOF
   chmod 0600 /etc/ppp/chap-secrets
   echo "auth=$1"
 }
-carrier() { ip link set "$IFACE" "$1"; echo "carrier=$1"; }
+carrier() {
+  case "$1" in
+    down) ip link set "$IFACE" down ;;
+    up)
+      ip link set "$IFACE" up
+      # rp-pppoe keeps its raw discovery socket across a link flap, but that
+      # socket is not reliably usable after the QEMU NIC returns. Reopen it so
+      # the restored access concentrator can accept the router's reconnect.
+      systemctl restart pppoe-server
+      ;;
+    *) echo "usage: carrier down|up"; return 1 ;;
+  esac
+  echo "carrier=$1"
+}
 loss() {  # 0|1|5|20|100
   if [ "$1" = 0 ]; then qdisc "$tc_nic" off; qdisc "$tc_ppp" off
   else qdisc "$tc_nic" on loss "$1"; qdisc "$tc_ppp" on loss "$1"; fi
