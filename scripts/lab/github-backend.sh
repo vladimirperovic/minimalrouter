@@ -66,7 +66,18 @@ gx() {
   esac
 }
 
-ispfault() { gx 150 "lab-fault $* 2>&1"; }
+ispfault() {
+  fault_args="$*"
+  gx 150 "lab-fault $fault_args 2>&1" || return
+  case "$fault_args" in
+    "carrier up"|reset)
+      # The public internet aliases are hosted-only routes injected after
+      # cloud-init. systemd-networkd removes them when eth1 loses carrier, so
+      # restore them with the hosted topology before recovery is evaluated.
+      gx 150 "ip route replace 11.250.0.10/32 dev eth1; ip route replace 11.255.0.2/32 dev eth1" >/dev/null
+      ;;
+  esac
+}
 isp() { gx 150 "$* 2>&1"; }
 sim() { gx 153 "$* 2>&1"; }
 lan() { gx 154 "$* 2>&1"; }

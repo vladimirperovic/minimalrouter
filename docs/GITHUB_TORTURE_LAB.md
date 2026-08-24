@@ -52,12 +52,13 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32721026199](https://github.com/vladimirperovic/minimalrouter/actions/runs/32721026199)
-- Workflow checkout: PR head `2127fc50ce5c64011c90c0066257ba06d5596eb9`
+- Run: [32725133168](https://github.com/vladimirperovic/minimalrouter/actions/runs/32725133168)
+- Workflow checkout: PR head `9919906370670c25bd386f0825f7e154f3ecab17`
 - Selection: focused `03-wan-carrier`
 - Result: **failed** (`0` passes, `1` failure, `1` result file, runner exit `1`)
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- The focused baseline and all checks through PPPoE recovery passed. LAN-to-simulator HTTP alone remained broken after the carrier cycle. Artifact `9518978722` retains the summary, scenario evidence and postmortem.
-- Refinement: carrier restoration restarts the disposable ISP's PPPoE server, and the ISP now installs an explicit host route for every negotiated PPP peer. This prevents replies from selecting the overlapping Ethernet `10.250.0.0/24` access route when `ppp0` is recreated. Failure captures now include ISP routes/PPPoE logs, simulator routes/neighbors and a verbose client HTTP probe.
+- The focused baseline and all checks through PPPoE recovery passed. LAN-to-simulator HTTP alone remained broken after the carrier cycle. Artifact `9520752321` retains the expanded route, neighbor, PPP and HTTP evidence.
+- Evidence: the recreated ISP `ppp0` had the correct `10.250.0.50/32` peer route, but the hosted-only `11.250.0.10/32` and `11.255.0.2/32` simulator routes were absent after `eth1` lost carrier. Traffic therefore followed the ISP's default route instead of the isolated simulator segment.
+- Fix: the GitHub transport now restores those two hosted-only routes after carrier restoration and lab reset. The generic reset also raises the ISP access interface so an interrupted carrier scenario cannot poison later tests.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

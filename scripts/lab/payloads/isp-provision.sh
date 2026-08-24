@@ -49,18 +49,7 @@ lcp-echo-failure 4
 logfile /var/log/pppoe-server.log
 mtu 1492
 mru 1492
-ip-up-script /usr/local/sbin/lab-ppp-up
 EOF
-# The access segment and PPP pool intentionally share the historical
-# 10.250.0.0/24 lab range. Pin each negotiated peer to its point-to-point
-# device so replies cannot fall back to ARP on the Ethernet access segment
-# after a carrier flap recreates the PPP interface.
-cat > /usr/local/sbin/lab-ppp-up <<'EOF'
-#!/bin/sh
-[ "$#" -ge 5 ] || exit 1
-ip route replace "$5/32" dev "$1"
-EOF
-chmod 0755 /usr/local/sbin/lab-ppp-up
 # Debian's ppp package creates /etc/ppp/chap-secrets during installation, so
 # testing only for file existence silently leaves the lab with no mr-test
 # credential. Seed the lab credential unconditionally and make its permissions
@@ -226,14 +215,7 @@ EOF
 }
 carrier() {
   case "$1" in
-    down) ip link set "$IFACE" down ;;
-    up)
-      ip link set "$IFACE" up
-      # rp-pppoe keeps its raw discovery socket across a link flap, but that
-      # socket is not reliably usable after the QEMU NIC returns. Reopen it so
-      # the restored access concentrator can accept the router's reconnect.
-      systemctl restart pppoe-server
-      ;;
+    down|up) ip link set "$IFACE" "$1" ;;
     *) echo "usage: carrier down|up"; return 1 ;;
   esac
   echo "carrier=$1"
@@ -309,6 +291,7 @@ outage() {  # short|long|stop — composite ISP outage (pppoe stop + restart)
 reset() {
   qdisc "$tc_nic" off; qdisc "$tc_ppp" off
   nft flush chain inet labfw blackhole 2>/dev/null || true
+  ip link set "$IFACE" up
   ip link set "$IFACE" mtu 1500
   sed -i 's/^mtu .*/mtu 1492/;s/^mru .*/mru 1492/' /etc/ppp/pppoe-server-options
   auth good
