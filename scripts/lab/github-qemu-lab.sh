@@ -538,11 +538,11 @@ PUB_B64="$(base64 -w0 "$LAB_SIGNED_ROOT/release.pub")"
 mr_exec "mkdir -p /etc/minimalrouter; echo '$PUB_B64' | base64 -d > /etc/minimalrouter/firmware-signing.pub; chmod 0644 /etc/minimalrouter/firmware-signing.pub"
 
 # Smoke the topology before handing it to the unchanged torture suite.
-mr_exec 'nft list ruleset' | grep -q 'policy drop'
-mr_exec 'ip -4 -o addr show ppp0' | grep -q '10.250.0.50'
-aux_exec 2254 'ip -4 -o addr show eth1' | grep -q '192.168.1.'
-aux_exec 2254 'host router.home.arpa 192.168.1.1' | grep -q '192.168.1.1'
-aux_exec 2254 'curl -s --max-time 8 http://11.255.0.2/marker.txt' | grep -q torture-lab
+mr_exec 'nft list ruleset' | grep 'policy drop' >/dev/null
+mr_exec 'ip -4 -o addr show ppp0' | grep '10.250.0.50' >/dev/null
+aux_exec 2254 'ip -4 -o addr show eth1' | grep '192.168.1.' >/dev/null
+aux_exec 2254 'host router.home.arpa 192.168.1.1' | grep '192.168.1.1' >/dev/null
+aux_exec 2254 'curl -s --max-time 8 http://11.255.0.2/marker.txt' | grep torture-lab >/dev/null
 
 # Shadow copy: scenarios remain byte-for-byte identical; only lib.sh gains the
 # GitHub transport overrides.

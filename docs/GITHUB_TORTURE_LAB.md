@@ -50,11 +50,12 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32697795226](https://github.com/vladimirperovic/minimalrouter/actions/runs/32697795226)
-- Workflow checkout: merge commit `2647f644f071bd127a450b4e1ecb41ea86f55ea5` (PR head `9a28edac6a834441698eef93bb33359400887948`)
+- Run: [32699979265](https://github.com/vladimirperovic/minimalrouter/actions/runs/32699979265)
+- Workflow checkout: merge commit `950f85efd1edbe862febc6659f5170415f70497b` (PR head `918eaf0e4575223cc240db5a5f0b683b51984cd0`)
 - Result: **failed before scenario execution**
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- Failure: the generic `linux-image-amd64` package installed successfully, but GRUB still selected the lexically newer-named `6.12.101+deb13-cloud-amd64` entry. The corrected fail-fast behavior stopped immediately when `modprobe -n ppp_generic` proved the reboot was still on the cloud kernel. No scenarios ran. Artifact `9509979295` retains the evidence.
-- Fix: after installing the generic kernel, the bootstrap now resolves its exact version, verifies the corresponding GRUB menu entry, saves that entry as the boot default and checks the saved value before rebooting.
+- The ISP booted the selected generic kernel, loaded the PPP modules and completed provisioning. The appliance established the real PPPoE session, accepted the configuration transaction and gave the LAN client a DHCP lease.
+- Failure: the first topology smoke assertion exited with status 141. Its local `grep -q` stopped reading as soon as it found `policy drop`, closing the SSH output stream early; with `pipefail`, the resulting upstream SIGPIPE failed the job. No scenarios ran. Artifact `9511255393` retains the serial, topology, PPPoE discovery and configuration evidence.
+- Fix: the five topology smoke assertions now consume their complete SSH output before returning the match status, preserving `pipefail` without generating a false SIGPIPE failure.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.
