@@ -50,12 +50,12 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32699979265](https://github.com/vladimirperovic/minimalrouter/actions/runs/32699979265)
-- Workflow checkout: merge commit `950f85efd1edbe862febc6659f5170415f70497b` (PR head `918eaf0e4575223cc240db5a5f0b683b51984cd0`)
+- Run: [32703554600](https://github.com/vladimirperovic/minimalrouter/actions/runs/32703554600)
+- Workflow checkout: merge commit `a4afbd2396a7334b9e00d66dbe2807ec21d6b827` (PR head `3dddf05a7b4914ca0839012d05db05fe1f7cd83a`)
 - Result: **failed before scenario execution**
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- The ISP booted the selected generic kernel, loaded the PPP modules and completed provisioning. The appliance established the real PPPoE session, accepted the configuration transaction and gave the LAN client a DHCP lease.
-- Failure: the first topology smoke assertion exited with status 141. Its local `grep -q` stopped reading as soon as it found `policy drop`, closing the SSH output stream early; with `pipefail`, the resulting upstream SIGPIPE failed the job. No scenarios ran. Artifact `9511255393` retains the serial, topology, PPPoE discovery and configuration evidence.
-- Fix: the five topology smoke assertions now consume their complete SSH output before returning the match status, preserving `pipefail` without generating a false SIGPIPE failure.
+- The generic ISP kernel, PPP runtime, real PPPoE session and LAN DHCP lease all passed.
+- Failure: `config-confirm.json` records `Transaction confirmation failed`. The baseline enables the outbound WireGuard tunnel, whose confirmation requires a completed handshake. The simulator's return route to the appliance PPP address was installed only after confirmation, so the handshake could not complete. The ignored HTTP conflict allowed the 90-second safety timer to roll the candidate back before topology smoke. No scenarios ran. Artifact `9512682056` retains the evidence.
+- Fix: the simulator return route is now installed before configuration apply. Bootstrap waits for the outbound tunnel handshake and accepts confirmation only after an HTTP 200 response with a committed transaction; otherwise it fails immediately with retained diagnostics.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

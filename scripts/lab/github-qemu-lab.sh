@@ -344,6 +344,10 @@ echo "PPPoE discovery reached lab-isp on $MR_WAN_IF"
 # Add simulator aliases used by the historical torture suite.
 aux_exec 2253 'ip addr add 11.250.0.10/32 dev eth1 2>/dev/null || true; ip addr add 11.255.0.2/32 dev eth1 2>/dev/null || true; sed -i "/listen 10.250.0.10:80/a\\    listen 11.255.0.2:80;" /etc/nginx/sites-available/lab; systemctl restart nginx'
 aux_exec 2250 'ip route replace 11.250.0.10/32 dev eth1; ip route replace 11.255.0.2/32 dev eth1'
+# The outbound WireGuard tunnel must handshake before routerd will confirm the
+# candidate. Install the simulator's return route before applying that candidate;
+# the PPP address becomes reachable through this route as soon as ppp0 appears.
+aux_exec 2253 'ip route replace 10.250.0.50/32 via 10.250.0.1 dev eth1'
 
 # Lab-only bootstrap on the installed ISO: fault hooks and fresh WG keys.
 mr_exec 'set -e
@@ -479,15 +483,44 @@ tail -120 /var/log/routerd.err 2>/dev/null || true
   exit 1
 fi
 
-for _ in $(seq 1 15); do
-  PEND="$(curl -sk --max-time 10 -b "$COOKIE" "$MR_API/api/v1/transactions/pending" || true)"
-  if printf '%s' "$PEND" | grep -q '"pending"[[:space:]]*:[[:space:]]*true'; then
-    TXID="$(printf '%s' "$PEND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-    curl -sk --max-time 120 -b "$COOKIE" -X POST "$MR_API/api/v1/transactions/$TXID/confirm" -H "X-CSRF-Token: $CSRF" > "$STATE/config-confirm.json" || true
+WG1_READY=0
+for _ in $(seq 1 30); do
+  if mr_exec "wg show wg1 latest-handshakes 2>/dev/null | grep -Eq '[[:space:]][1-9][0-9]*$'"; then
+    WG1_READY=1
     break
   fi
   sleep 2
 done
+[[ "$WG1_READY" -eq 1 ]] || {
+  echo "outbound WireGuard tunnel did not handshake before confirmation" >&2
+  mr_exec 'wg show wg1 2>/dev/null || true; ip route show' >&2 || true
+  exit 1
+}
+
+CONFIRMED=0
+for _ in $(seq 1 10); do
+  PEND="$(curl -sk --max-time 10 -b "$COOKIE" "$MR_API/api/v1/transactions/pending" || true)"
+  if printf '%s' "$PEND" | grep -q '"pending"[[:space:]]*:[[:space:]]*true'; then
+    TXID="$(printf '%s' "$PEND" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+    CONFIRM_CODE="$(curl -sk --max-time 30 -o "$STATE/config-confirm.json" -w '%{http_code}' -b "$COOKIE" -X POST "$MR_API/api/v1/transactions/$TXID/confirm" -H "X-CSRF-Token: $CSRF" || true)"
+    if [[ "$CONFIRM_CODE" == 200 ]] && python3 - "$STATE/config-confirm.json" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+raise SystemExit(0 if data.get("state") == "Committed" else 1)
+PY
+    then
+      CONFIRMED=1
+      break
+    fi
+  fi
+  sleep 2
+done
+[[ "$CONFIRMED" -eq 1 ]] || {
+  echo "MinimalRouter baseline transaction was not confirmed" >&2
+  cat "$STATE/config-confirm.json" >&2 2>/dev/null || true
+  exit 1
+}
 
 # The apply can transiently replace routes/rules; restore the lab host route and
 # wait for the real PPPoE session.
@@ -497,7 +530,6 @@ for _ in $(seq 1 90); do
   sleep 2
 done
 mr_exec 'ip -4 -o addr show ppp0' | grep -q '10.250.0.50' || { echo "PPPoE did not come up" >&2; exit 1; }
-aux_exec 2253 'ip route replace 10.250.0.50/32 via 10.250.0.1 dev eth1'
 
 # Give the LAN client a real DHCP lease from MinimalRouter.
 aux_exec 2254 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq busybox >/dev/null; cat > /usr/local/sbin/lab-udhcpc <<"EOF"
