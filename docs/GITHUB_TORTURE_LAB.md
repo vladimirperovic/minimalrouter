@@ -52,12 +52,12 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32707894559](https://github.com/vladimirperovic/minimalrouter/actions/runs/32707894559)
-- Workflow checkout: merge commit `d7c6e428419a78b250000f2f30cec799329d86c9` (PR head `f869fb5eb12b914e8d15a61d43ede97ff7c8e9e0`)
-- Result: **failed in scenario 03** (`2` passes, `1` failure, `3` result files, runner exit `1`)
+- Run: [32721026199](https://github.com/vladimirperovic/minimalrouter/actions/runs/32721026199)
+- Workflow checkout: PR head `2127fc50ce5c64011c90c0066257ba06d5596eb9`
+- Selection: focused `03-wan-carrier`
+- Result: **failed** (`0` passes, `1` failure, `1` result file, runner exit `1`)
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- Bootstrap, topology smoke, scenarios `01-pppoe-stop-start` and `02-pppoe-auth-failure` passed.
-- Failure: after scenario `03-wan-carrier` lowered and restored the disposable ISP access NIC, the appliance recreated `ppp0` with `10.250.0.50` and its default route, but LAN-to-simulator HTTP never recovered. Every later scenario was correctly refused by the unhealthy baseline. Artifact `9517516613` retains the summary, scenario evidence and postmortem.
-- Fix: carrier restoration now restarts the disposable ISP's PPPoE server so rp-pppoe reopens its raw discovery socket after the QEMU link flap. Manual dispatch also accepts one scenario name/number, allowing scenario `03` to be proved before another full run.
+- The focused baseline and all checks through PPPoE recovery passed. LAN-to-simulator HTTP alone remained broken after the carrier cycle. Artifact `9518978722` retains the summary, scenario evidence and postmortem.
+- Refinement: carrier restoration restarts the disposable ISP's PPPoE server, and the ISP now installs an explicit host route for every negotiated PPP peer. This prevents replies from selecting the overlapping Ethernet `10.250.0.0/24` access route when `ppp0` is recreated. Failure captures now include ISP routes/PPPoE logs, simulator routes/neighbors and a verbose client HTTP probe.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

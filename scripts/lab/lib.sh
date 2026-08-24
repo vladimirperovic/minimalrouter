@@ -244,8 +244,11 @@ capture_state() {  # capture_state <label>
     mr 'tail -30 /var/log/routerd.log 2>/dev/null; tail -30 /var/log/router-applyd.log 2>/dev/null'
     echo "--- isp fault state ---"
     ispfault status
+    isp 'ip -4 -brief addr show ppp0 2>/dev/null; ip -4 route show; nft list ruleset 2>/dev/null; tail -40 /var/log/pppoe-server.log 2>/dev/null'
+    echo "--- simulator return path ---"
+    sim 'ip -4 route show; ip neigh show dev eth1; ping -c1 -W2 10.250.0.1 2>&1; ping -c1 -W2 10.250.0.50 2>&1'
     echo "--- lan client ---"
-    lan 'ip -4 -o addr show; ip route; tail -5 /var/log/syslog 2>/dev/null'
+    lan 'ip -4 -o addr show; ip route; curl -v --max-time 6 http://11.255.0.2/marker.txt 2>&1; tail -5 /var/log/syslog 2>/dev/null'
   } > "$RESULTS_DIR/$CURRENT_SCENARIO/$lbl.txt" 2>/dev/null || true
 }
 
