@@ -50,11 +50,11 @@ claim of physical NIC, ISP, Proxmox, hardware or long-term soak validation.
 
 Latest recorded run:
 
-- Run: [32460091098](https://github.com/vladimirperovic/minimalrouter/actions/runs/32460091098)
-- Workflow checkout: merge commit `25190e9cfffbae569c444d715e5985867b0c030e` (PR head `3f30eda984f8670817b2651ba12dc76152e8ef31`)
+- Run: [32695044359](https://github.com/vladimirperovic/minimalrouter/actions/runs/32695044359)
+- Workflow checkout: merge commit `725332f0c61dceafe24abd1075f1e8427f54d9b4` (PR head `ebe22fbe8a7dfd56dd78965b49f869994dc6ba2b`)
 - Result: **failed before scenario execution**
 - Flash and firstboot passed: `FULL_ISO_INSTALL_OK` and `INSTALLED_SSH_OK`.
-- Failure: the ISP needed a cloud-kernel reboot. The job scheduled that reboot and immediately used an SSH readiness probe, which could succeed during systemd's reboot delay. Provisioning then printed only `== packages ==`; none of the `interface detection`, `PPP runtime`, `pppoe-server` or `ISP-LAB ready` markers appeared. The later router-side discovery timed out waiting for PADO and no scenario result files were produced. Artifact `9439380509` retains the topology, discovery and serial evidence.
-- Fix: the bootstrap now requires the ISP SSH endpoint to disappear before waiting for it to return, verifies the new kernel exposes `ppp_generic`, and checks the active PPPoE service plus `auth=good` immediately after provisioning.
+- Failure: reboot synchronization worked, but Debian's `6.12.101+deb13-cloud-amd64` kernel still had no loadable `ppp_generic`; the preflight and ISP payload both recorded that exact failure. The harness nevertheless continued because its initial `cleanup` call ran `set +e` in the parent shell, unintentionally disabling fail-fast behavior for the remainder of the job. PPPoE discovery later timed out waiting for PADO. No scenarios ran. Artifact `9509276093` retains the evidence.
+- Fix: install Debian's generic `linux-image-amd64` kernel for the disposable PPPoE ISP and run cleanup in a subshell so its relaxed error handling cannot leak into the harness.
 
 The next run is expected to start automatically from the PR branch update. It must again pass flash/firstboot before the 153 scenarios are attempted.

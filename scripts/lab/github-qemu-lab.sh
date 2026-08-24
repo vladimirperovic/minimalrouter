@@ -44,7 +44,7 @@ PUBKEY="$(cat "$LAB_GITHUB_KEY.pub")"
 # Install the qm compatibility command used by a handful of existing scenarios.
 install -m 0755 scripts/lab/github-qm.sh "$STATE/bin/qm"
 
-cleanup() {
+cleanup() (
   set +e
   for vm in 150 151 153 154; do
     LAB_GITHUB_STATE="$STATE" LAB_GITHUB_KEY="$LAB_GITHUB_KEY" LAB_RECOVERY_PW="$LAB_RECOVERY_PW" PATH="$STATE/bin:$PATH" qm stop "$vm" >/dev/null 2>&1 || true
@@ -55,7 +55,7 @@ cleanup() {
   for br in br-lab-wan br-lab-lan br-lab-extra; do
     ip link del "$br" >/dev/null 2>&1 || true
   done
-}
+)
 trap cleanup EXIT INT TERM
 cleanup
 
@@ -295,14 +295,14 @@ echo "MinimalRouter interfaces: WAN=$MR_WAN_IF LAN=$MR_LAN_IF EXTRA=$MR_EXTRA_IF
 # The Debian cloud image can have a kernel modules directory without
 # kmod/modprobe or the PPP module itself. Verify the actual loadable module
 # before starting rp-pppoe; pppd needs the guest's ppp_generic driver, not the
-# GitHub runner's host kernel. Reboot once after installing the cloud kernel
+# GitHub runner's host kernel. Reboot once after installing the generic kernel
 # and kmod, then continue with the idempotent payload.
 if ! aux_exec 2250 'command -v modprobe >/dev/null 2>&1 && modprobe -n ppp_generic >/dev/null 2>&1'; then
-  echo "ISP-LAB has no modules for its running kernel; installing cloud kernel"
+  echo "ISP-LAB cloud kernel lacks PPP; installing generic kernel"
   aux_exec 2250 'set -eu
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq linux-image-cloud-amd64 kmod >/dev/null
+apt-get install -y -qq linux-image-amd64 kmod >/dev/null
 ( sleep 2; systemctl reboot ) >/tmp/lab-kernel-reboot.log 2>&1 &
 ' || true
   # A readiness probe can still succeed during systemd's reboot delay. Observe
