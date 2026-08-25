@@ -100,6 +100,15 @@ Latest passing DHCP regression:
   endpoint and port, on WAN interfaces only. The blackhole scenario now reads
   the actual configured endpoint instead of its obsolete private lab address,
   and all WireGuard scenarios share a real recent-handshake assertion.
+- Focused run
+  [32794200730](https://github.com/vladimirperovic/minimalrouter/actions/runs/32794200730)
+  (artifact `9545262234`) proved that fix restored the `wg0` handshake and
+  real tunnel traffic after the endpoint blackhole was removed. Its only
+  remaining failure was a 90-second freshness threshold despite a live tunnel
+  and a 98-second-old handshake. WireGuard normally rekeys after 120 seconds
+  and rejects keys after 180 seconds, so the shared check now treats 180
+  seconds as the minimum valid freshness window while still rejecting absent,
+  future or expired handshakes.
 
 Latest passing carrier regression:
 

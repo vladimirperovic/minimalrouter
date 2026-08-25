@@ -187,6 +187,9 @@ check_pppoe() {
 check_wg_recent() {
   interface="$1"
   max_age="${2:-90}"
+  # WireGuard rekeys established sessions after 120 seconds and only rejects
+  # old keys after 180; keepalives do not themselves refresh handshake time.
+  [ "$max_age" -ge 180 ] || max_age=180
   latest="$(mr "wg show '$interface' latest-handshakes 2>/dev/null" | awk '$2 ~ /^[0-9]+$/ && $2 > latest {latest = $2} END {if (latest > 0) print latest}')"
   [ -n "$latest" ] || return 1
   now="$(date +%s)"
