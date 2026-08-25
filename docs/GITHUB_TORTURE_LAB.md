@@ -161,6 +161,15 @@ Latest passing router-reboot regression:
   existing fail-closed reconciliation deadline for a live helper socket before
   reconciling. Lab emergency cleanup also restarts stopped management services
   in dependency order, and postmortems retain their stderr diagnostics.
+- Focused run
+  [32814530302](https://github.com/vladimirperovic/minimalrouter/actions/runs/32814530302)
+  (artifact `9552025886`) proves both supervised services recovered, `routerd`
+  resumed its HTTPS listener, PPPoE/LAN/firewall service remained intact, and
+  canonical state converged. Its sole remaining failed assertion ran `curl`
+  inside the intentionally minimal router image, whose installed package list
+  does not include that tool. The API recovery probe now originates from the
+  real LAN client, exercising the actual management access path without adding
+  packages to the Golden appliance.
 
 Latest passing carrier regression:
 
