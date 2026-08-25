@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,13 @@ import (
 func createSupportBundle(output string) (string, error) {
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	if output == "" {
-		output = filepath.Join("/tmp", "minimalrouter-support-"+stamp+".tar.gz")
+		// A second-resolution stamp is guessable, so add entropy: the name a
+		// planted symlink would have to match cannot be predicted in advance.
+		var suffix [4]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return "", fmt.Errorf("generate support bundle name: %w", err)
+		}
+		output = filepath.Join("/tmp", fmt.Sprintf("minimalrouter-support-%s-%x.tar.gz", stamp, suffix))
 	}
 	work, err := os.MkdirTemp("", "minimalrouter-support-")
 	if err != nil {
@@ -86,9 +93,13 @@ func createSupportBundle(output string) (string, error) {
 }
 
 func tarGzipDirectory(dir, output string) (retErr error) {
-	file, err := os.OpenFile(output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	// O_EXCL refuses an existing path, including a symlink. The default
+	// destination is a predictable name in a world-writable /tmp and this runs
+	// as root, so without it an unprivileged service on the appliance could
+	// plant a link and have root truncate whatever it pointed at.
+	file, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("create support bundle at %s: %w", output, err)
 	}
 	defer func() {
 		if err := file.Close(); retErr == nil && err != nil {
