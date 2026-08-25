@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,13 @@ func TestBundleRefusesToFollowASymlink(t *testing.T) {
 	}
 	link := filepath.Join(dir, "bundle.tar.gz")
 	if err := os.Symlink(victim, link); err != nil {
-		t.Skipf("this environment cannot create symlinks: %v", err)
+		// The appliance is Linux, so this case must never be quietly skipped
+		// where it actually applies. Windows needs a privilege for symlinks and
+		// is only a development host.
+		if runtime.GOOS == "windows" {
+			t.Skipf("creating a symlink needs a privilege this Windows host lacks: %v", err)
+		}
+		t.Fatalf("could not create the symlink this test exists to exercise: %v", err)
 	}
 
 	if err := tarGzipDirectory(sourceDirectory(t), link); err == nil {
