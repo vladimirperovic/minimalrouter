@@ -182,6 +182,23 @@ Latest passing service-crash regression:
   firewall policy remained default-drop, canonical/last-good state converged,
   and the production-isolation invariant held.
 
+Latest complete-suite follow-up:
+
+- Run: [32822283716](https://github.com/vladimirperovic/minimalrouter/actions/runs/32822283716)
+- Workflow checkout: PR head `b2e0af34bfc25382f527f493cd609b6825a0b533`
+- Selection: complete `all` inventory (`153` expected)
+- Result: **cancelled at the six-hour GitHub job limit**; artifact `9565495982`
+  retained the partial scenario log but no completed `summary.json`.
+- Scenarios `01` through `22`, including every previously repaired regression,
+  passed in sequence. The first new failure, `23-power-loss-hooks`, never cut
+  power because `arm_hook` transformed `$(id -u)` into `\$(id -u)` before
+  writing it; the router log records `/bin/sh: syntax error: unexpected "("`.
+  The fault command is now written verbatim under existing guest-side shell
+  quoting, preserving deferred command substitution and the real power cut.
+- Additional failures in scenarios `24`–`36` remain unverified individually;
+  scenario `36-corrupt-metadata` subsequently left the router unreachable, and
+  repeated unhealthy-baseline retries consumed the remaining job budget.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)

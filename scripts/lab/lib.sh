@@ -275,10 +275,10 @@ capture_state() {  # capture_state <label>
 # arm_hook <phase> <command>  — arm a fault hook on MR-TEST
 # routerd reads the hook dir as an unprivileged user, so the dir must be
 # world-readable and hook files 0644 (root-created 0700 files are invisible).
-# The command is stored verbatim: $ and backticks are escaped so nothing is
-# evaluated when the hook file is written, only when the hook runs.
+# The guest-side single quotes already prevent expansion while the command is
+# written. Preserve substitutions verbatim so they run only when triggered.
 arm_hook() {
-  cmd="$(printf '%s' "$2" | sed 's/[$`]/\\&/g')"
+  cmd="$2"
   mr "mkdir -p /run/minimalrouter-fault && chmod 0755 /run/minimalrouter-fault && printf '%s' '$cmd' > /run/minimalrouter-fault/$1 && chmod 0644 /run/minimalrouter-fault/$1 && cat /run/minimalrouter-fault/$1" >/dev/null
 }
 disarm_hooks() { mr 'rm -rf /run/minimalrouter-fault 2>/dev/null; true' >/dev/null; }
