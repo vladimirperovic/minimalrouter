@@ -91,7 +91,13 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 		if rule.SrcIP != "" {
 			match = append(match, "ip saddr "+rule.SrcIP)
 		}
-		if rule.Protocol != "any" {
+		// nft needs the network-layer qualifier for ICMP: a bare `icmp` keyword
+		// starts a header expression that the parser expects a field after, so
+		// the rule was rejected at preflight. Every other site in this generator
+		// already writes the qualified form.
+		if rule.Protocol == "icmp" {
+			match = append(match, "ip protocol icmp")
+		} else if rule.Protocol != "any" {
 			match = append(match, rule.Protocol)
 		}
 		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
