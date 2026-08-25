@@ -171,6 +171,17 @@ Latest passing router-reboot regression:
   real LAN client, exercising the actual management access path without adding
   packages to the Golden appliance.
 
+Latest passing service-crash regression:
+
+- Run: [32818244490](https://github.com/vladimirperovic/minimalrouter/actions/runs/32818244490)
+- Workflow checkout: PR head `a2f11ef56d8d4c6a35719eab70659f0dd14f9f3c`
+- Selection: focused `22-service-crash`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9553401713` proves both management services recovered under OpenRC,
+  the API answered through the real LAN path, PPPoE and LAN Internet survived,
+  firewall policy remained default-drop, canonical/last-good state converged,
+  and the production-isolation invariant held.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
