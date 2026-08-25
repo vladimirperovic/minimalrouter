@@ -1,0 +1,167 @@
+name: PPPoE smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/pppoe-smoke.yml'
+      - 'internal/services/pppd.go'
+      - 'internal/config/**'
+      - 'scripts/lab/payloads/isp-provision.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pppoe-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alpine-debian-pppoe:
+    name: Alpine 3.22 client → Debian 13 concentrator
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run focused PPPoE handshake
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p build/pppoe-smoke
+
+          cleanup() {
+            set +e
+            sudo ip link del mr-pppoe-veth >/dev/null 2>&1 || true
+            docker rm -f mr-pppoe-client mr-pppoe-isp >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          cleanup
+
+          # PPP is a host-kernel facility even when pppd runs in a privileged
+          # container. Make the same kernel prerequisites explicit as the
+          # appliance does at boot.
+          sudo modprobe ppp_generic
+          sudo modprobe pppoe
+          if [ ! -c /dev/ppp ]; then
+            sudo mknod /dev/ppp c 108 0
+            sudo chmod 600 /dev/ppp
+          fi
+
+          docker run -d --name mr-pppoe-client --privileged alpine:3.22 sleep infinity
+          docker run -d --name mr-pppoe-isp --privileged debian:trixie-slim sleep infinity
+
+          docker exec mr-pppoe-client sh -ec 'apk add --no-cache ppp ppp-pppoe iproute2 >/dev/null'
+          docker exec mr-pppoe-isp sh -ec 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq ppp pppoe iproute2 >/dev/null'
+
+          CLIENT_PID="$(docker inspect -f '{{.State.Pid}}' mr-pppoe-client)"
+          ISP_PID="$(docker inspect -f '{{.State.Pid}}' mr-pppoe-isp)"
+          sudo ip link add mr-pppoe-veth type veth peer name isp-pppoe-veth
+          sudo ip link set mr-pppoe-veth netns "$CLIENT_PID"
+          sudo ip link set isp-pppoe-veth netns "$ISP_PID"
+          docker exec mr-pppoe-client ip link set mr-pppoe-veth name labwan
+          docker exec mr-pppoe-client ip link set labwan up
+          docker exec mr-pppoe-isp ip link set isp-pppoe-veth name labwan
+          docker exec mr-pppoe-isp ip link set labwan up
+
+          # Reproduce the disposable Debian 13 access concentrator exactly.
+          docker exec mr-pppoe-isp sh -ec 'cat > /etc/ppp/pppoe-server-options <<"EOF"
+          require-chap
+          lcp-echo-interval 3
+          lcp-echo-failure 4
+          logfile /tmp/pppoe-server.log
+          mtu 1492
+          mru 1492
+          EOF
+          cat > /etc/ppp/chap-secrets <<"EOF"
+          mr-test   *       minimalrouter-lab-pppoe 10.250.0.50
+          EOF
+          chmod 0600 /etc/ppp/chap-secrets
+          grep -Eq "^mr-test[[:space:]]+\\*[[:space:]]+minimalrouter-lab-pppoe[[:space:]]+10\\.250\\.0\\.50([[:space:]]|$)" /etc/ppp/chap-secrets'
+
+          # Render the client files through the production Go generator rather
+          # than duplicating its options in CI.
+          cat > ./pppoe-smoke-gen.go <<'EOF'
+          package main
+
+          import (
+            "os"
+            "github.com/vladimirperovic/minimalrouter/internal/config"
+            "github.com/vladimirperovic/minimalrouter/internal/services"
+          )
+
+          func main() {
+            cfg := config.DefaultConfig()
+            cfg.WAN.Enabled = true
+            cfg.WAN.Interface = "labwan"
+            cfg.WAN.Username = "mr-test"
+            cfg.WAN.Password = "minimalrouter-lab-pppoe"
+            cfg.WAN.MTU = 1492
+            bundle, err := services.GeneratePPPoE(&cfg)
+            if err != nil { panic(err) }
+            if err := os.WriteFile("build/pppoe-smoke/wan", []byte(bundle.PeerConfig), 0600); err != nil { panic(err) }
+            if err := os.WriteFile("build/pppoe-smoke/chap-secrets", []byte(bundle.ChapSecrets), 0600); err != nil { panic(err) }
+            if err := os.WriteFile("build/pppoe-smoke/pap-secrets", []byte(bundle.PapSecrets), 0600); err != nil { panic(err) }
+          }
+          EOF
+          go run ./pppoe-smoke-gen.go
+          rm -f ./pppoe-smoke-gen.go
+
+          docker exec mr-pppoe-client mkdir -p /etc/ppp/peers
+          docker cp build/pppoe-smoke/wan mr-pppoe-client:/etc/ppp/peers/wan
+          docker cp build/pppoe-smoke/chap-secrets mr-pppoe-client:/etc/ppp/chap-secrets
+          docker cp build/pppoe-smoke/pap-secrets mr-pppoe-client:/etc/ppp/pap-secrets
+          docker exec mr-pppoe-client chmod 0600 /etc/ppp/peers/wan /etc/ppp/chap-secrets /etc/ppp/pap-secrets
+
+          docker exec -d mr-pppoe-isp sh -c 'exec pppoe-server -F -I labwan -L 10.250.0.1 -R 10.250.0.50 -N 1 -T 60 -C lab-isp -S lab-isp >/tmp/pppoe-server.console 2>&1'
+          sleep 1
+          docker exec mr-pppoe-isp pgrep -x pppoe-server >/dev/null
+
+          docker exec -d mr-pppoe-client sh -c 'exec pppd call wan nodetach debug logfile /tmp/pppd.log >/tmp/pppd.console 2>&1'
+
+          ok=0
+          for _ in $(seq 1 60); do
+            if docker exec mr-pppoe-client sh -c "ip -4 -o addr show ppp0 2>/dev/null | grep -q '10.250.0.50'"; then
+              ok=1
+              break
+            fi
+            sleep 0.5
+          done
+
+          {
+            echo '=== CLIENT ==='
+            docker exec mr-pppoe-client ip -brief link || true
+            docker exec mr-pppoe-client ip -4 addr show || true
+            docker exec mr-pppoe-client ip -4 route show || true
+            docker exec mr-pppoe-client sh -c 'cat /tmp/pppd.log 2>/dev/null || true'
+            docker exec mr-pppoe-client sh -c 'cat /tmp/pppd.console 2>/dev/null || true'
+            echo '=== ISP ==='
+            docker exec mr-pppoe-isp ip -brief link || true
+            docker exec mr-pppoe-isp ip -4 addr show || true
+            docker exec mr-pppoe-isp sh -c 'cat /tmp/pppoe-server.log 2>/dev/null || true'
+            docker exec mr-pppoe-isp sh -c 'cat /tmp/pppoe-server.console 2>/dev/null || true'
+          } | tee build/pppoe-smoke/evidence.log
+
+          if [ "$ok" -ne 1 ]; then
+            echo 'PPPOE_SMOKE_FAILED: client never received 10.250.0.50 on ppp0' >&2
+            exit 1
+          fi
+          docker exec mr-pppoe-client ip -4 route show default dev ppp0 | grep -q .
+          echo 'PPPOE_SMOKE_OK: CHAP + IPCP + ppp0 address + default route verified'
+
+      - name: Upload PPPoE evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pppoe-smoke-${{ github.sha }}
+          path: build/pppoe-smoke
+          if-no-files-found: warn
+          retention-days: 14

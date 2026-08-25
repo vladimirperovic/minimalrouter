@@ -17,6 +17,7 @@ MR_WAN_PPP="10.250.0.50"
 SIM_INET="11.255.0.2"
 ISP_DNS="10.250.0.1"
 PROD_GW="192.168.1.1"
+LAN_CLIENT_IF="${LAB_LAN_CLIENT_IF:-eth0}"
 ADMIN_PW="${LAB_ADMIN_PW:-MinimalRouter-Lab-Test!2026}"
 
 # --- result bookkeeping -----------------------------------------------------
@@ -167,6 +168,13 @@ check_lan_up() {
   H "ping -c1 -W2 192.168.1.1 >/dev/null 2>&1" && \
   lan 'ip -4 -o addr show' | grep -q "192.168.1."
 }
+lan_client_ipv4() {
+  lan "ip -4 -o addr show '$LAN_CLIENT_IF' | awk '\$4 ~ /^192\\.168\\.1\\./ {sub(/\\/.*/, \"\", \$4); print \$4; exit}'" | tr -d '\r\n'
+}
+lan_dhcp_renew() {
+  lan "ip -4 addr flush dev '$LAN_CLIENT_IF'; dhclient '$LAN_CLIENT_IF' >/dev/null 2>&1" || return 1
+  retry 30 lan "ip -4 -o addr show '$LAN_CLIENT_IF' | grep -q '192.168.1.'"
+}
 # Local DNS records resolve through MR dnsmasq even with WAN down.
 check_local_dns() {
   lan 'host router.home.arpa 192.168.1.1 2>/dev/null' | grep -q "192.168.1.1"
@@ -174,6 +182,18 @@ check_local_dns() {
 # PPPoE session up with the fixed lab address.
 check_pppoe() {
   mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$MR_WAN_PPP"
+}
+# At least one configured peer must have completed a recent real handshake.
+check_wg_recent() {
+  interface="$1"
+  max_age="${2:-90}"
+  # WireGuard rekeys established sessions after 120 seconds and only rejects
+  # old keys after 180; keepalives do not themselves refresh handshake time.
+  [ "$max_age" -ge 180 ] || max_age=180
+  latest="$(mr "wg show '$interface' latest-handshakes 2>/dev/null" | awk '$2 ~ /^[0-9]+$/ && $2 > latest {latest = $2} END {if (latest > 0) print latest}')"
+  [ -n "$latest" ] || return 1
+  now="$(date +%s)"
+  [ "$latest" -le "$now" ] && [ $((now - latest)) -le "$max_age" ]
 }
 # Health API reports the DNS/DHCP check (loopback is firewalled off, so query
 # the authenticated LAN endpoint like the dashboard does).
@@ -241,21 +261,24 @@ capture_state() {  # capture_state <label>
     echo "--- mr runtime ($(date)) ---"
     mr 'ip -brief addr; echo; ip -brief link; echo; ip route; echo; nft list ruleset 2>/dev/null | head -60'
     mr 'rc-service routerd status; rc-service router-applyd status; rc-service pppoe-wan status 2>/dev/null; wg show 2>/dev/null'
-    mr 'tail -30 /var/log/routerd.log 2>/dev/null; tail -30 /var/log/router-applyd.log 2>/dev/null'
+    mr 'tail -30 /var/log/routerd.log /var/log/routerd.err /var/log/router-applyd.log /var/log/router-applyd.err 2>/dev/null'
     echo "--- isp fault state ---"
     ispfault status
+    isp 'ip -4 -brief addr show ppp0 2>/dev/null; ip -4 route show; nft list ruleset 2>/dev/null; tail -40 /var/log/pppoe-server.log 2>/dev/null'
+    echo "--- simulator return path ---"
+    sim 'ip -4 route show; ip neigh show dev eth1; ping -c1 -W2 10.250.0.1 2>&1; ping -c1 -W2 10.250.0.50 2>&1'
     echo "--- lan client ---"
-    lan 'ip -4 -o addr show; ip route; tail -5 /var/log/syslog 2>/dev/null'
+    lan 'ip -4 -o addr show; ip route; curl -v --max-time 6 http://11.255.0.2/marker.txt 2>&1; tail -5 /var/log/syslog 2>/dev/null'
   } > "$RESULTS_DIR/$CURRENT_SCENARIO/$lbl.txt" 2>/dev/null || true
 }
 
 # arm_hook <phase> <command>  — arm a fault hook on MR-TEST
 # routerd reads the hook dir as an unprivileged user, so the dir must be
 # world-readable and hook files 0644 (root-created 0700 files are invisible).
-# The command is stored verbatim: $ and backticks are escaped so nothing is
-# evaluated when the hook file is written, only when the hook runs.
+# The guest-side single quotes already prevent expansion while the command is
+# written. Preserve substitutions verbatim so they run only when triggered.
 arm_hook() {
-  cmd="$(printf '%s' "$2" | sed 's/[$`]/\\&/g')"
+  cmd="$2"
   mr "mkdir -p /run/minimalrouter-fault && chmod 0755 /run/minimalrouter-fault && printf '%s' '$cmd' > /run/minimalrouter-fault/$1 && chmod 0644 /run/minimalrouter-fault/$1 && cat /run/minimalrouter-fault/$1" >/dev/null
 }
 disarm_hooks() { mr 'rm -rf /run/minimalrouter-fault 2>/dev/null; true' >/dev/null; }

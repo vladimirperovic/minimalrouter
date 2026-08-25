@@ -82,6 +82,29 @@ $SUDO ln -sf /etc/init.d/minimalrouter-firstboot "$MNT/etc/runlevels/default/min
 $SUDO install -m 0755 "build/dist/minimalrouter-linux-amd64/bin/router-setup-amd64" "$MNT/usr/sbin/router-setup"
 $SUDO rm -f "$MNT/etc/minimalrouter/firstboot-complete"
 
+# apk --root creates the module loader and the required kernel modules, but it
+# does not populate the normal setup-alpine boot runlevel. /etc/modules alone is
+# therefore insufficient in the prebuilt golden appliance: ppp_generic/pppoe
+# never load, /dev/ppp never appears, and router-applyd rejects every PPPoE WAN
+# configuration. Explicitly enable Alpine's modules service in the boot runlevel
+# and prove the PPP stack is requested before sealing the image.
+[ -x "$MNT/etc/init.d/modules" ] || {
+    echo "ERROR: golden image is missing Alpine OpenRC modules service" >&2
+    exit 1
+}
+$SUDO mkdir -p "$MNT/etc/runlevels/boot"
+$SUDO ln -sf /etc/init.d/modules "$MNT/etc/runlevels/boot/modules"
+for module in ppp_generic pppox pppoe; do
+    grep -qxF "$module" "$MNT/etc/modules" || {
+        echo "ERROR: golden image is missing required PPP boot module: $module" >&2
+        exit 1
+    }
+done
+[ "$(readlink "$MNT/etc/runlevels/boot/modules")" = "/etc/init.d/modules" ] || {
+    echo "ERROR: golden image modules service is not enabled in boot runlevel" >&2
+    exit 1
+}
+
 cat > "$BUILD_DIR/golden-fstab" <<EOF
 UUID=$ROOT_UUID / ext4 defaults,noatime 0 1
 EOF

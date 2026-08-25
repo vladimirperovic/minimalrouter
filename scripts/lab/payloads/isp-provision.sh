@@ -8,8 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "== packages =="
 apt-get update -qq
-apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl openssl >/dev/null 2>&1 || \
-  apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl >/dev/null
+apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl openssl kmod >/dev/null 2>&1 || \
+  apt-get install -y -qq pppoe dnsmasq nftables iproute2 qemu-guest-agent curl kmod >/dev/null
 systemctl enable --now qemu-guest-agent >/dev/null 2>&1 || true
 
 echo "== interface detection =="
@@ -18,29 +18,61 @@ IFACE=$(ip -4 -o addr show | awk '$4 ~ /^10\.250\.0\.1\// {sub(/:.*/,"",$2); pri
 echo "$IFACE" > /etc/lab-iface
 echo "lab-wan iface: $IFACE"
 
+echo "== PPP runtime =="
+# The disposable Debian ISP runs pppd for every PPPoE session. Ensure the
+# kernel endpoint exists before starting rp-pppoe; otherwise the daemon can
+# appear healthy while every incoming session fails with a missing /dev/ppp.
+for module in ppp_generic pppox pppoe; do
+  modprobe "$module" 2>/dev/null || true
+done
+if [ ! -d /sys/module/ppp_generic ]; then
+  echo "ERROR: ISP-LAB kernel did not load ppp_generic" >&2
+  uname -a >&2 || true
+  ls -la /lib/modules 2>&1 >&2 || true
+  exit 1
+fi
+if [ ! -c /dev/ppp ]; then
+  rm -f /dev/ppp
+  mknod -m 0600 /dev/ppp c 108 0 2>/dev/null || true
+fi
+[ -c /dev/ppp ] || {
+  echo "ERROR: ISP-LAB PPP runtime is missing /dev/ppp" >&2
+  lsmod 2>/dev/null || true
+  exit 1
+}
+
 echo "== pppoe-server =="
 cat > /etc/ppp/pppoe-server-options <<'EOF'
 require-chap
 lcp-echo-interval 3
 lcp-echo-failure 4
-local-ip 10.250.0.1
-remote-ip 10.250.0.50-10.250.0.120
 logfile /var/log/pppoe-server.log
 mtu 1492
 mru 1492
 EOF
-if [ ! -f /etc/ppp/chap-secrets ]; then
-  cat > /etc/ppp/chap-secrets <<EOF
-# client  server  secret                 fixed-ip
+# Debian's ppp package creates /etc/ppp/chap-secrets during installation, so
+# testing only for file existence silently leaves the lab with no mr-test
+# credential. Seed the lab credential unconditionally and make its permissions
+# explicit; this file belongs solely to the disposable ISP VM.
+cat > /etc/ppp/chap-secrets <<'EOF'
+# client  server  secret                  fixed-ip
 mr-test   *       minimalrouter-lab-pppoe 10.250.0.50
 EOF
-fi
+chmod 0600 /etc/ppp/chap-secrets
+grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+minimalrouter-lab-pppoe[[:space:]]+10\.250\.0\.50([[:space:]]|$)' /etc/ppp/chap-secrets || {
+  echo "ERROR: ISP-LAB CHAP credential was not seeded" >&2
+  exit 1
+}
 cat > /etc/systemd/system/pppoe-server.service <<EOF
 [Unit]
 Description=Lab PPPoE access concentrator (rp-pppoe)
 After=network-online.target
 [Service]
-ExecStart=/usr/sbin/pppoe-server -I $(cat /etc/lab-iface) -T 60 -C lab-isp -S lab-isp
+# rp-pppoe daemonizes by default; -F keeps the process attached so systemd owns
+# the real server instead of repeatedly restarting after the parent exits.
+# Keep address allocation in pppoe-server itself; pppd's options file is only
+# for PPP options and must not contain pseudo-options such as local-ip/remote-ip.
+ExecStart=/usr/sbin/pppoe-server -F -I $(cat /etc/lab-iface) -L 10.250.0.1 -R 10.250.0.50 -N 1 -T 60 -C lab-isp -S lab-isp
 Restart=always
 RestartSec=2
 [Install]
@@ -49,6 +81,7 @@ EOF
 systemctl daemon-reload
 systemctl enable pppoe-server >/dev/null 2>&1
 systemctl restart pppoe-server
+systemctl is-active --quiet pppoe-server
 
 echo "== dnsmasq =="
 cat > /etc/dnsmasq.d/lab.conf <<EOF
@@ -71,6 +104,7 @@ systemctl restart dnsmasq
 
 echo "== routing + NAT + modes =="
 sysctl -w net.ipv4.ip_forward=1 >/dev/null
+[ -f /etc/sysctl.conf ] || : > /etc/sysctl.conf
 grep -q 'net.ipv4.ip_forward=1' /etc/sysctl.conf || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 mkdir -p /etc/nftables.d
 echo real > /etc/lab-mode
@@ -80,8 +114,10 @@ cat > /usr/local/sbin/lab-nat <<'EOF'
 # mode sim: no upstream egress; only the lab segment (10.250.0.0/24) is reachable.
 IFACE=$(cat /etc/lab-iface)
 MODE=$(cat /etc/lab-mode)
+# Shell redirections are not valid nft batch syntax. Delete old tables from the
+# shell first, then feed only nft grammar to nft -f -.
+nft delete table inet labnat 2>/dev/null || true
 nft -f - <<NATEOF
-flush table inet labnat 2>/dev/null
 table inet labnat {
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
@@ -89,8 +125,8 @@ table inet labnat {
   }
 }
 NATEOF
+nft delete table inet labfw 2>/dev/null || true
 nft -f - <<FORWEOF
-flush table inet labfw 2>/dev/null
 table inet labfw {
   chain blackhole {
   }
@@ -174,9 +210,16 @@ EOF
 mr-test   *       wrong-password-123      10.250.0.50
 EOF
   fi
+  chmod 0600 /etc/ppp/chap-secrets
   echo "auth=$1"
 }
-carrier() { ip link set "$IFACE" "$1"; echo "carrier=$1"; }
+carrier() {
+  case "$1" in
+    down|up) ip link set "$IFACE" "$1" ;;
+    *) echo "usage: carrier down|up"; return 1 ;;
+  esac
+  echo "carrier=$1"
+}
 loss() {  # 0|1|5|20|100
   if [ "$1" = 0 ]; then qdisc "$tc_nic" off; qdisc "$tc_ppp" off
   else qdisc "$tc_nic" on loss "$1"; qdisc "$tc_ppp" on loss "$1"; fi
@@ -248,6 +291,7 @@ outage() {  # short|long|stop — composite ISP outage (pppoe stop + restart)
 reset() {
   qdisc "$tc_nic" off; qdisc "$tc_ppp" off
   nft flush chain inet labfw blackhole 2>/dev/null || true
+  ip link set "$IFACE" up
   ip link set "$IFACE" mtu 1500
   sed -i 's/^mtu .*/mtu 1492/;s/^mru .*/mru 1492/' /etc/ppp/pppoe-server-options
   auth good
@@ -261,7 +305,13 @@ status() {
   echo "iface=$IFACE carrier=$(cat /sys/class/net/$IFACE/carrier 2>/dev/null || echo down)"
   echo "pppoe=$(systemctl is-active pppoe-server 2>/dev/null || echo inactive)"
   echo "dns=$(systemctl is-active dnsmasq 2>/dev/null || echo inactive)"
-  echo "auth=$(grep -q wrong-password /etc/ppp/chap-secrets && echo bad || echo good)"
+  if grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+minimalrouter-lab-pppoe[[:space:]]+10\.250\.0\.50([[:space:]]|$)' /etc/ppp/chap-secrets; then
+    echo "auth=good"
+  elif grep -Eq '^mr-test[[:space:]]+\*[[:space:]]+wrong-password-123([[:space:]]|$)' /etc/ppp/chap-secrets; then
+    echo "auth=bad"
+  else
+    echo "auth=missing"
+  fi
   echo "mtu=$(grep '^mtu' /etc/ppp/pppoe-server-options | awk '{print $2}')"
   for i in "$tc_nic" "$tc_ppp"; do
     s=$(tc qdisc show dev "$i" 2>/dev/null | grep -o 'netem [^ ]*' | head -1 || true)
@@ -269,6 +319,8 @@ status() {
   done
   echo "blackhole_rules=$(nft list chain inet labfw blackhole 2>/dev/null | grep -c drop || echo 0)"
   echo "sessions=$(ls /var/run/ppp-* 2>/dev/null | wc -l) / ppp active: $(ip -o link show ppp0 2>/dev/null | wc -l)"
+  ip -4 -brief addr show ppp0 2>/dev/null || true
+  ip -4 route show 10.250.0.50/32 2>/dev/null || true
 }
 cmd="$1"; shift 2>/dev/null || true
 case "$cmd" in
@@ -279,4 +331,9 @@ FAULTEOF
 chmod 755 /usr/local/sbin/lab-fault
 
 echo "== ISP-LAB ready =="
-/usr/local/sbin/lab-fault status
+status_output="$(/usr/local/sbin/lab-fault status)"
+printf '%s\n' "$status_output"
+printf '%s\n' "$status_output" | grep -qx 'auth=good' || {
+  echo "ERROR: ISP-LAB authentication state is not good" >&2
+  exit 1
+}

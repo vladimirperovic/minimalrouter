@@ -85,7 +85,34 @@ DOAS_UPDATE
     chmod 0400 /etc/doas.d/51-minimalrouter-update.conf
 }
 
+ensure_ppp_runtime() {
+    # PPPoE is a core appliance feature, not an optional late-loaded plugin.
+    # Load the kernel stack before router-applyd exposes its socket so a fresh
+    # golden-image boot and every supervised/helper restart can safely preflight
+    # a PPPoE configuration. The OpenRC modules service is also enabled by the
+    # golden-image builder; this is a defensive runtime guarantee for recovery.
+    for module in ppp_generic pppox pppoe; do
+        if ! modprobe "$module" 2>/dev/null; then
+            eerror "required PPPoE kernel module '$module' could not be loaded"
+            return 1
+        fi
+    done
+
+    # Most kernels create /dev/ppp through devtmpfs when ppp_generic loads. Keep
+    # the documented PPP fallback for minimal device-manager environments so a
+    # valid kernel is not rejected merely because the node was not materialized.
+    if [ ! -c /dev/ppp ]; then
+        rm -f /dev/ppp
+        mknod -m 0600 /dev/ppp c 108 0 2>/dev/null || true
+    fi
+    if [ ! -c /dev/ppp ]; then
+        eerror "PPPoE kernel stack loaded but /dev/ppp is unavailable"
+        return 1
+    fi
+}
+
 start_pre() {
+    ensure_ppp_runtime || return 1
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
     # A startup verification hint is valid only for this helper start. Remove

@@ -39,6 +39,12 @@ phase "4.5-operator"
 require "dist tarball exists on runner" test -f "$DIST"
 require "baseline manifest prepared on runner" test -f "$SIGNED_ROOT/lab-update-${BASE_VERSION}.manifest.json"
 require "update manifest prepared on runner" test -f "$SIGNED_ROOT/lab-update-${UP_VERSION}.manifest.json"
+signing_key_matches() {
+  expected="$(sha256sum "$SIGNED_ROOT/release.pub" | awk '{print $1}')" || return 1
+  actual="$(mr 'sha256sum /etc/minimalrouter/firmware-signing.pub' | awk '{print $1}')" || return 1
+  [ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+require "pinned firmware signing key matches lab signer" signing_key_matches
 mkdir -p /tmp/lab-update-payload
 prepare_payload "$BASE_VERSION" "lab-update-${BASE_VERSION}.manifest.json" /tmp/lab-update-base.tgz
 require "baseline payload prepared on runner" test -s /tmp/lab-update-base.tgz
@@ -49,7 +55,14 @@ require "update payload prepared on runner" test -s /tmp/lab-update.tgz
 stage_activate() {
   tgz="$1"; ver="$2"
   require "push payload to router" mr_put "$tgz" /root/lab-update.tgz
-  require "router-update stage" mr "mkdir -p /root/lab-update && cd /root/lab-update && tar xzf /root/lab-update.tgz && cd minimalrouter-linux-amd64 && router-update stage --dir . --manifest manifest.json 2>&1 | grep -q staged"
+  stage_signed_payload() {
+    output="$(mr "mkdir -p /root/lab-update && cd /root/lab-update && tar xzf /root/lab-update.tgz && cd minimalrouter-linux-amd64 && router-update stage --dir . --manifest manifest.json 2>&1")"
+    stage_rc="$?"
+    printf '%s\n' "$output" > "$RESULTS_DIR/$CURRENT_SCENARIO/update-stage-$ver.log"
+    [ "$stage_rc" -eq 0 ] || return "$stage_rc"
+    printf '%s\n' "$output" | grep -q staged
+  }
+  require "router-update stage" stage_signed_payload
   require "activate staged image" mr "router-update activate --version $ver --confirm ACTIVATE-UPDATE 2>&1 | grep -qi activated"
   require "router reboots into new image" mr_wait 300
   require "PPPoE reconnects" wait_pppoe 180

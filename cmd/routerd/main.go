@@ -92,6 +92,12 @@ func main() {
 			// retry into a fatal start. Keep this above the helper budget, and keep
 			// routerd.initd start_post above this value.
 			reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), apply.ReconcileBudget)
+			if !previewMode {
+				if err := waitForPrivilegedHelper(reconcileCtx, apply.DefaultSocketPath); err != nil {
+					reconcileCancel()
+					log.Fatalf("Refusing startup because the privileged helper never became available: %v", err)
+				}
+			}
 			if err := engine.Reconcile(reconcileCtx); err != nil {
 				reconcileCancel()
 				// Serving the API after a failed canonical reconcile can create a
@@ -294,6 +300,28 @@ func main() {
 		drainCancel()
 		<-serveErr
 		log.Println("Management plane stopped cleanly")
+	}
+}
+
+// A supervised helper respawn rebuilds verified runtime before reopening its
+// Unix socket. Keep routerd alive but unavailable during that bounded interval;
+// otherwise immediate failed reconciliations exhaust OpenRC's crash limit.
+func waitForPrivilegedHelper(ctx context.Context, socketPath string) error {
+	dialer := net.Dialer{Timeout: time.Second}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		conn, err := dialer.DialContext(ctx, "unix", socketPath)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

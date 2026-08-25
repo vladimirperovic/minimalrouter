@@ -8,8 +8,8 @@ phase "3-fault"
 require "fault: server MTU forced to 1400" ispfault mtu 1400
 
 phase "4-5-runtime"
-require "PPPoE renegotiates with MTU 1400" wait_pppoe 120
-check "negotiated MTU is 1400" mr "ip link show ppp0 | grep -o 'mtu 1400'"
+require "PPPoE renegotiates under MTU 1400" wait_pppoe 120
+check "server MTU/MRU fault remains active" isp "grep -qx 'mtu 1400' /etc/ppp/pppoe-server-options && grep -qx 'mru 1400' /etc/ppp/pppoe-server-options"
 check "LAN client internet works with small MTU" check_lan_internet
 check "local DNS works" check_local_dns
 

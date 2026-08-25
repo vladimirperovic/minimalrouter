@@ -33,11 +33,12 @@ const emergencyNftables = `table inet minimalrouter {
 `
 
 type startupReconcileHooks struct {
-	loadLastGood    func() (*config.SystemConfig, error)
-	pendingExists   func() (bool, error)
-	restoreRuntime  func(config.SystemConfig) error
-	restoreFirstRun func() error
-	clearPending    func() error
+	loadLastGood       func() (*config.SystemConfig, error)
+	pendingExists      func() (bool, error)
+	restoreRuntime     func(config.SystemConfig) error
+	restoreFirstRun    func() error
+	clearPending       func() error
+	resolveTransaction func() error
 }
 
 // init runs only for the installed OpenRC service. Keeping the opt-in in the
@@ -52,11 +53,12 @@ func init() {
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
 	}
 	if err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:    loadLastGood,
-		pendingExists:   pendingConfirmationExists,
-		restoreRuntime:  restoreLastGoodRuntime,
-		restoreFirstRun: restoreFirstRunRuntime,
-		clearPending:    clearPendingConfirmation,
+		loadLastGood:       loadLastGood,
+		pendingExists:      pendingConfirmationExists,
+		restoreRuntime:     restoreLastGoodRuntime,
+		restoreFirstRun:    restoreFirstRunRuntime,
+		clearPending:       clearPendingConfirmation,
+		resolveTransaction: resolveStartupTransaction,
 	}); err != nil {
 		// Only failures of the security/core dataplane reach this point. Optional
 		// features are restored best-effort and reported as degraded instead of
@@ -92,6 +94,11 @@ func reconcileStartup(h startupReconcileHooks) error {
 					return fmt.Errorf("clear provisional first-run state: %w", err)
 				}
 			}
+			if h.resolveTransaction != nil {
+				if err := h.resolveTransaction(); err != nil {
+					return fmt.Errorf("resolve interrupted privileged transaction: %w", err)
+				}
+			}
 			return nil
 		}
 		if pending {
@@ -118,6 +125,42 @@ func reconcileStartup(h startupReconcileHooks) error {
 	if err := h.clearPending(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("clear stale pending confirmation: %w", err)
 	}
+	if h.resolveTransaction != nil {
+		if err := h.resolveTransaction(); err != nil {
+			return fmt.Errorf("resolve interrupted privileged transaction: %w", err)
+		}
+	}
+	return nil
+}
+
+func resolveStartupTransaction() error {
+	return resolveStartupTransactionWith(loadLastTransaction, saveLastTransaction)
+}
+
+func resolveStartupTransactionWith(load func() (*transactionRecord, error), save func(transactionRecord) error) error {
+	previous, err := load()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read transaction journal: %w", err)
+	}
+	if previous == nil {
+		return errors.New("transaction journal returned no record")
+	}
+	if !previous.CompletedAt.IsZero() && !previous.Response.RecoveryRequired {
+		return nil
+	}
+
+	previous.Response = failure(previous.ID, "interrupted transaction was rolled back during verified startup recovery", true)
+	previous.CompletedAt = time.Now()
+	if previous.CompletedAt.Before(previous.StartedAt) {
+		previous.CompletedAt = previous.StartedAt
+	}
+	if err := save(*previous); err != nil {
+		return fmt.Errorf("persist verified startup rollback: %w", err)
+	}
+	log.Printf("resolved interrupted privileged transaction %q after verified startup rollback", previous.ID)
 	return nil
 }
 

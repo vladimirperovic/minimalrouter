@@ -13,12 +13,7 @@ check "local record router.home.arpa resolves" check_local_dns
 
 phase "5-lan-client"
 check "client holds a 192.168.1.x lease" lan "ip -4 -o addr show | grep -q '192.168.1.'"
-refresh_lan_lease() {
-  lan "networkctl down '$LAN_CLIENT_IF' >/dev/null 2>&1 || true"
-  lan "networkctl up '$LAN_CLIENT_IF' >/dev/null 2>&1" || return 1
-  retry 30 lan "ip -4 -o addr show '$LAN_CLIENT_IF' | grep -q '192.168.1.'"
-}
-check "client obtains a fresh lease while WAN is down" refresh_lan_lease
+check "client obtains a fresh lease while WAN is down" lan_dhcp_renew
 check "dnsmasq durable lease file exists and is non-empty" retry 30 mr "test -s /var/lib/minimalrouter-dhcp/dnsmasq.leases"
 
 phase "6-revert"

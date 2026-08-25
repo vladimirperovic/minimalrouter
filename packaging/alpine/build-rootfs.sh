@@ -85,6 +85,17 @@ docker run --rm --platform linux/amd64 \
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
 
+    # install-core intentionally skips live modprobe/sysctl validation while the
+    # filesystem is assembled outside its target kernel. It must not skip the
+    # persistent boot request, though: OpenRC reads /etc/modules on the installed
+    # appliance. Without these entries PPPoE boots without ppp_generic/pppoe and
+    # /dev/ppp never appears, causing the router-applyd pppd preflight to fail.
+    touch "$ROOT/etc/modules"
+    while IFS= read -r module; do
+      case "$module" in ""|\#*) continue ;; esac
+      grep -qxF "$module" "$ROOT/etc/modules" || printf "%s\n" "$module" >> "$ROOT/etc/modules"
+    done < /work/packaging/alpine/minimalrouter.modules
+
     rm -rf "$ROOT/root/minimalrouter-installer" "$ROOT/var/cache/apk"/*
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
@@ -115,6 +126,16 @@ ISSUE
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }
+
+# The image-build path cannot modprobe against the target kernel, so verify the
+# exact generated rootfs will ask OpenRC to load every runtime-required module.
+while IFS= read -r module; do
+  case "$module" in ""|\#*) continue ;; esac
+  tar -xOf "$OUT" ./etc/modules | grep -qxF "$module" || {
+    echo "ERROR: installed rootfs is missing boot module request: $module" >&2
+    exit 1
+  }
+done < packaging/alpine/minimalrouter.modules
 
 # This text is part of the appliance UX, not optional documentation. Prove the
 # exact installed rootfs contains the address the user must open after reboot.

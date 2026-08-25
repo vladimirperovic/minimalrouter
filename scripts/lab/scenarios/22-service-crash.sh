@@ -16,7 +16,7 @@ require "routerd restarted by initd" retry 60 mr "rc-service routerd status | gr
 require "router-applyd restarted by initd" retry 60 mr "rc-service router-applyd status | grep -q started"
 
 phase "4-mr-runtime-3"
-check "API answers after crash-restart" retry 60 mr "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://192.168.1.1:8443/api/v1/auth/session | grep -qE '401|403|200'"
+check "API answers after crash-restart" retry 60 lan "curl -sk --max-time 5 -o /dev/null -w '%{http_code}' $MR_API/api/v1/auth/session | grep -qE '401|403|200'"
 check "PPPoE session survives daemon crash" check_pppoe
 check "LAN client internet survives daemon crash" check_lan_internet
 check "firewall still policy-drop" check_fw_not_fail_open
