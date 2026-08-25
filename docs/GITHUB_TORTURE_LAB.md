@@ -199,6 +199,25 @@ Latest complete-suite follow-up:
   scenario `36-corrupt-metadata` subsequently left the router unreachable, and
   repeated unhealthy-baseline retries consumed the remaining job budget.
 
+Latest power-loss recovery regression:
+
+- Run: [32855098716](https://github.com/vladimirperovic/minimalrouter/actions/runs/32855098716)
+- Workflow checkout: PR head `0a7ad267c15664a0c8523e5a8fcc08592f7e3934`
+- Selection: focused `23-power-loss-hooks`
+- Result: **failed** at `pre-sqlite-commit` after both earlier real power cuts
+  passed; artifact `9568042510` retains all three phase results and postmortem.
+- `pre-privileged-apply` and `post-provisional-apply` each proved an actual VM
+  halt, cold boot, recovered PPPoE/LAN/DNS/Internet, default-drop firewall and
+  canonical/last-good convergence. The second interruption left its durable
+  privileged transaction incomplete. Startup restored and verified last-good
+  runtime, but the one-shot startup fast path skipped canonical reconciliation,
+  leaving the next save rejected as `a previous privileged transaction remains
+  unresolved; canonical reconciliation is required` before its hook could fire.
+- The privileged helper now records the interrupted transaction as durably
+  rolled back only after confirmed runtime restoration and pending cleanup.
+  Existing completed outcomes remain untouched, and unreadable/unwritable
+  journals still fail closed before new configuration changes are accepted.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)

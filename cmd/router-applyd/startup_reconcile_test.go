@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
@@ -135,6 +137,102 @@ func TestReconcileStartupClearsUnconfirmedChangeOnlyAfterRestore(t *testing.T) {
 	}
 	if len(order) != 2 || order[0] != "restore" || order[1] != "clear" {
 		t.Fatalf("unexpected operation order: %v", order)
+	}
+}
+
+func TestReconcileStartupResolvesInterruptedTransactionAfterVerifiedRestore(t *testing.T) {
+	cfg := validStartupConfig()
+	order := make([]string, 0, 3)
+	err := reconcileStartup(startupReconcileHooks{
+		loadLastGood:  func() (*config.SystemConfig, error) { return &cfg, nil },
+		pendingExists: func() (bool, error) { return false, nil },
+		restoreRuntime: func(config.SystemConfig) error {
+			order = append(order, "restore")
+			return nil
+		},
+		clearPending: func() error {
+			order = append(order, "clear-pending")
+			return nil
+		},
+		resolveTransaction: func() error {
+			order = append(order, "resolve-transaction")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("reconciliation failed: %v", err)
+	}
+	if len(order) != 3 || order[0] != "restore" || order[1] != "clear-pending" || order[2] != "resolve-transaction" {
+		t.Fatalf("unsafe startup recovery order: %v", order)
+	}
+}
+
+func TestReconcileStartupFailsClosedWhenInterruptedTransactionCannotBeResolved(t *testing.T) {
+	cfg := validStartupConfig()
+	resolveErr := errors.New("transaction journal is read-only")
+	err := reconcileStartup(startupReconcileHooks{
+		loadLastGood:       func() (*config.SystemConfig, error) { return &cfg, nil },
+		pendingExists:      func() (bool, error) { return false, nil },
+		restoreRuntime:     func(config.SystemConfig) error { return nil },
+		clearPending:       func() error { return nil },
+		resolveTransaction: func() error { return resolveErr },
+	})
+	if !errors.Is(err, resolveErr) {
+		t.Fatalf("error = %v, want wrapped transaction journal error", err)
+	}
+}
+
+func TestResolveStartupTransactionPersistsVerifiedRollback(t *testing.T) {
+	previous := validTransactionRecordForTest()
+	previous.Response = apply.ApplyResponse{}
+	previous.CompletedAt = time.Time{}
+	var saved transactionRecord
+	err := resolveStartupTransactionWith(
+		func() (*transactionRecord, error) { return &previous, nil },
+		func(record transactionRecord) error {
+			saved = record
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolve startup transaction: %v", err)
+	}
+	if saved.CompletedAt.IsZero() || !saved.Response.RolledBack || saved.Response.RecoveryRequired {
+		t.Fatalf("unsafe recovered transaction outcome: %+v", saved)
+	}
+	if err := validateTransactionRecord(saved); err != nil {
+		t.Fatalf("recovered transaction record is invalid: %v", err)
+	}
+	if blocked, handled := replayTransactionResponseWithOverride("tx-next", "next-hash", &saved, nil, false); handled || blocked != nil {
+		t.Fatalf("verified rollback still blocks next mutation: handled=%v response=%+v", handled, blocked)
+	}
+}
+
+func TestResolveStartupTransactionPreservesCompletedOutcome(t *testing.T) {
+	previous := validTransactionRecordForTest()
+	err := resolveStartupTransactionWith(
+		func() (*transactionRecord, error) { return &previous, nil },
+		func(transactionRecord) error {
+			t.Fatal("completed transaction outcome must not be overwritten")
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolve completed startup transaction: %v", err)
+	}
+}
+
+func TestResolveStartupTransactionFailsClosedWhenPersistenceFails(t *testing.T) {
+	previous := validTransactionRecordForTest()
+	previous.Response = apply.ApplyResponse{}
+	previous.CompletedAt = time.Time{}
+	persistErr := errors.New("disk full")
+	err := resolveStartupTransactionWith(
+		func() (*transactionRecord, error) { return &previous, nil },
+		func(transactionRecord) error { return persistErr },
+	)
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("error = %v, want wrapped persistence error", err)
 	}
 }
 
