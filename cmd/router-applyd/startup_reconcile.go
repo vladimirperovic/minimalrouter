@@ -52,7 +52,7 @@ func init() {
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
 	}
 	if err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:    loadLastGoodRaw,
+		loadLastGood:    loadLastGood,
 		pendingExists:   pendingConfirmationExists,
 		restoreRuntime:  restoreLastGoodRuntime,
 		restoreFirstRun: restoreFirstRunRuntime,
@@ -105,17 +105,13 @@ func reconcileStartup(h startupReconcileHooks) error {
 	if cfg == nil {
 		return errors.New("last-good configuration loader returned no configuration")
 	}
-	// A last-good file is only ever written after a candidate was applied and
-	// verified, so a Validate failure here does not mean the stored runtime was
-	// unproven -- it means a newer release tightened a rule the running
-	// configuration predates. Failing closed on that took LAN, DNS, WAN and
-	// WireGuard down and stopped routerd, removing every path the operator had
-	// left to repair the field. Restore what was already running and say so.
-	// Nothing is weakened: preflightStartup still parses every generated
-	// artifact and restoreLastGoodRuntime still fails closed if activation
-	// cannot be proven.
+	// This gate is load-bearing and must stay fatal: the generators do not
+	// reject a structurally broken configuration -- a last-good carrying
+	// lan.cidr "invalid" still produces nftables, dnsmasq and pppd output and
+	// would reach activation -- so nothing downstream catches it. See
+	// TestReconcileStartupRejectsInvalidLastGood.
 	if err := cfg.Validate(); err != nil {
-		log.Printf("WARNING: last-good configuration does not satisfy the current validation rules and needs operator repair; restoring the verified runtime anyway: %v", err)
+		return fmt.Errorf("last-good configuration is invalid: %w", err)
 	}
 	if err := cfg.ValidateScenarioSafety(); err != nil {
 		return fmt.Errorf("last-good scenario safety is invalid: %w", err)

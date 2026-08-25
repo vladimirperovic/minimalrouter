@@ -23,59 +23,6 @@ func staleButVerifiedConfig(t *testing.T) config.SystemConfig {
 	return cfg
 }
 
-// A last-good file is only written after a candidate was applied and verified.
-// When a newer release tightens a rule, that file stops satisfying Validate
-// without the stored runtime ever having been unproven. Failing closed there
-// stopped routerd and tore down LAN, DNS, WAN and both WireGuard interfaces,
-// leaving the operator no way in to repair the field.
-func TestReconcileStartupRestoresLastGoodThatPredatesAStricterRule(t *testing.T) {
-	stale := staleButVerifiedConfig(t)
-	restored := false
-
-	err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:  func() (*config.SystemConfig, error) { return &stale, nil },
-		pendingExists: func() (bool, error) { return false, nil },
-		restoreRuntime: func(cfg config.SystemConfig) error {
-			restored = true
-			if cfg.WAN.Username != "isp-user" {
-				t.Errorf("restored a different configuration than last-good: %+v", cfg.WAN)
-			}
-			return nil
-		},
-		clearPending: func() error { return nil },
-	})
-	if err != nil {
-		t.Fatalf("a stale but verified last-good must still be restored: %v", err)
-	}
-	if !restored {
-		t.Fatal("the previously running runtime was not restored")
-	}
-}
-
-// Downgrading the Validate gate must not reach scenario safety, which is the
-// gate that encodes the actual security invariants rather than field syntax.
-func TestReconcileStartupStillFailsClosedOnScenarioUnsafeLastGood(t *testing.T) {
-	unsafe := config.DefaultConfig()
-	unsafe.System.Domain = "a..b"
-	if err := unsafe.ValidateScenarioSafety(); err == nil {
-		t.Fatal("fixture must be scenario-unsafe")
-	}
-
-	restored := false
-	err := reconcileStartup(startupReconcileHooks{
-		loadLastGood:   func() (*config.SystemConfig, error) { return &unsafe, nil },
-		pendingExists:  func() (bool, error) { return false, nil },
-		restoreRuntime: func(config.SystemConfig) error { restored = true; return nil },
-		clearPending:   func() error { return nil },
-	})
-	if err == nil {
-		t.Fatal("scenario-unsafe last-good must still fail closed")
-	}
-	if restored {
-		t.Fatal("scenario-unsafe last-good must never be activated")
-	}
-}
-
 // validatePrivilegedCandidate is the verdict applyAll reaches before it touches
 // anything. It must match the management plane's verdict on the same pair, or an
 // edit routerd accepted is refused here and the appliance cannot be saved.
