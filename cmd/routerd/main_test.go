@@ -5,7 +5,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -58,5 +60,40 @@ func TestManagementDestinationRejectsDNSRebindingHost(t *testing.T) {
 	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("DNS-rebinding Host was accepted: %d", recorder.Code)
+	}
+}
+
+func TestWaitForPrivilegedHelperSurvivesDelayedRestart(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "apply.sock")
+	ready := make(chan struct{})
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		listener, err := net.Listen("unix", socketPath)
+		if err != nil {
+			t.Errorf("start delayed helper: %v", err)
+			close(ready)
+			return
+		}
+		defer listener.Close()
+		close(ready)
+		conn, err := listener.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := waitForPrivilegedHelper(ctx, socketPath); err != nil {
+		t.Fatalf("delayed privileged helper was rejected: %v", err)
+	}
+	<-ready
+}
+
+func TestWaitForPrivilegedHelperRemainsBounded(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := waitForPrivilegedHelper(ctx, filepath.Join(t.TempDir(), "missing.sock")); err != context.DeadlineExceeded {
+		t.Fatalf("unavailable helper returned %v, want bounded deadline", err)
 	}
 }

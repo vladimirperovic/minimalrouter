@@ -140,9 +140,27 @@ Latest passing ExtraLAN regression:
 - The next complete-suite failure, `21-router-reboot`, completed the reboot and
   restored PPPoE, LAN, DNS, firewall and Internet service. Its only failed
   assertion was LAN lease renewal through the same missing hosted-client DHCP
-  helper already corrected and proven by focused scenario 15. Mixed UTC and
-  Europe/Podgorica timestamps made the reboot look two hours longer than its
-  actual roughly three-minute duration.
+  helper already corrected and proven by focused scenario 15. The hosted TCG
+  guest required roughly two hours to complete its actual reboot; runner and
+  guest logs also use different time zones, so durations must be compared
+  within the same clock source.
+
+Latest passing router-reboot regression:
+
+- Run: [32803749049](https://github.com/vladimirperovic/minimalrouter/actions/runs/32803749049)
+- Workflow checkout: PR head `c6e55777a7665f7fa3bc71f910d4fdbf3d859eef`
+- Selection: focused `21-router-reboot`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9550683337` proves a real router restart, recovered PPPoE, LAN,
+  DNS, firewall and Internet service, a renewed LAN-client DHCP lease,
+  canonical/last-good convergence, non-hybrid runtime and production isolation.
+- The next complete-suite failure, `22-service-crash`, killed both management
+  processes. The privileged helper rebuilds verified runtime before reopening
+  its IPC socket, but `routerd` immediately exhausted its bounded supervisor
+  retries while that socket was unavailable. Its startup now waits inside the
+  existing fail-closed reconciliation deadline for a live helper socket before
+  reconciling. Lab emergency cleanup also restarts stopped management services
+  in dependency order, and postmortems retain their stderr diagnostics.
 
 Latest passing carrier regression:
 

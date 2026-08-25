@@ -83,6 +83,9 @@ recover_failed_scenario() {
   isp "rm -f /etc/dnsmasq.d/rebind.conf; sed -i 's/10\\.250\\.0\\.99$/10.250.0.50/' /etc/ppp/chap-secrets /etc/ppp/pap-secrets 2>/dev/null || true; systemctl restart dnsmasq pppoe-server" >/dev/null 2>&1 || true
   sim "systemctl start wg-quick@wg1 2>/dev/null || true; rm -f /tmp/lab-wg.psk" >/dev/null 2>&1 || true
   mr "mount -o remount,rw / 2>/dev/null || true; mountpoint -q /var/lib/minimalrouter-applyd && umount /var/lib/minimalrouter-applyd || true; rm -f /root/.lab-enospc-fill /root/.lab-enospc-tail /root/.lab-last-good.json; if [ -f /run/lab-cpu-load.pids ]; then while read p; do kill \"\$p\" 2>/dev/null || true; done </run/lab-cpu-load.pids; rm -f /run/lab-cpu-load.pids; fi" >/dev/null 2>&1 || true
+  # Restore the privileged dependency first; a stopped management process must
+  # not poison every remaining scenario after an otherwise contained fault.
+  mr 'for service in router-applyd routerd; do if ! rc-service "$service" status 2>/dev/null | grep -q started; then rc-service "$service" restart >/dev/null 2>&1 || true; fi; done' >/dev/null 2>&1 || true
 }
 
 run_scenario() {

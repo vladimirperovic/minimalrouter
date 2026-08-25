@@ -261,7 +261,7 @@ capture_state() {  # capture_state <label>
     echo "--- mr runtime ($(date)) ---"
     mr 'ip -brief addr; echo; ip -brief link; echo; ip route; echo; nft list ruleset 2>/dev/null | head -60'
     mr 'rc-service routerd status; rc-service router-applyd status; rc-service pppoe-wan status 2>/dev/null; wg show 2>/dev/null'
-    mr 'tail -30 /var/log/routerd.log 2>/dev/null; tail -30 /var/log/router-applyd.log 2>/dev/null'
+    mr 'tail -30 /var/log/routerd.log /var/log/routerd.err /var/log/router-applyd.log /var/log/router-applyd.err 2>/dev/null'
     echo "--- isp fault state ---"
     ispfault status
     isp 'ip -4 -brief addr show ppp0 2>/dev/null; ip -4 route show; nft list ruleset 2>/dev/null; tail -40 /var/log/pppoe-server.log 2>/dev/null'
