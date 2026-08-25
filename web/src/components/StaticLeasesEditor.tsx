@@ -93,6 +93,10 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
       setError("That address is already reserved for another device.");
       return;
     }
+    if (insidePool(ip.trim(), config.dhcp.range_start, config.dhcp.range_end)) {
+      setError(`${ip.trim()} is inside the dynamic DHCP pool (${config.dhcp.range_start}–${config.dhcp.range_end}). The router refuses a reservation that overlaps the pool.`);
+      return;
+    }
     if (editingId) {
       applyConfig((next) => {
         next.dhcp = {
@@ -209,15 +213,15 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
           </label>
         </div>
         {poolWarning && (
-          <p className="form-note is-warning">
-            {ip} is inside the DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). Reserve an address outside the
-            pool, or shrink the pool, to avoid handing the same address to two devices.
+          <p className="form-note is-warning" role="alert">
+            {ip} is inside the DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). The router refuses a
+            reservation that overlaps the pool — choose an address outside it, or shrink the pool first.
           </p>
         )}
         {error && <p className="form-note is-error" role="alert">{error}</p>}
         <div className="form-actions">
           {editingId && <button className="button secondary" disabled={busy} onClick={cancelEdit} type="button">Cancel edit</button>}
-          <button className="button primary" disabled={busy} type="submit">{editingId ? "Save changes" : "Reserve address"}</button>
+          <button className="button primary" disabled={busy || Boolean(poolWarning)} type="submit">{editingId ? "Save changes" : "Reserve address"}</button>
         </div>
       </form>
     </article>

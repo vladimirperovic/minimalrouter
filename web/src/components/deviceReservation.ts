@@ -18,6 +18,30 @@ export function insidePool(ip: string, start: string, end: string): boolean {
   return target >= ipv4ToNumber(start.trim()) && target <= ipv4ToNumber(end.trim());
 }
 
+function numberToIPv4(value: number): string {
+  return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join(".");
+}
+
+// suggestReservationAddress finds the lowest address below the dynamic pool that
+// no reservation and no live lease is using. A device's current address always
+// comes from the pool, and the appliance refuses a reservation that overlaps it,
+// so offering that address back was offering a value that could never be saved.
+export function suggestReservationAddress(
+  lanIP: string,
+  poolStart: string,
+  takenIPs: readonly string[],
+): string {
+  if (!isValidIPv4(lanIP) || !isValidIPv4(poolStart)) return "";
+  const gateway = ipv4ToNumber(lanIP.trim());
+  const firstDynamic = ipv4ToNumber(poolStart.trim());
+  const taken = new Set(takenIPs.map((item) => item.trim()).filter(Boolean));
+  for (let candidate = gateway + 1; candidate < firstDynamic; candidate += 1) {
+    const address = numberToIPv4(candidate);
+    if (!taken.has(address)) return address;
+  }
+  return "";
+}
+
 export function reservationConflictMessage(ip: string, mac: string, leases: StaticLease[]): string {
   const normalisedIP = ip.trim();
   const normalisedMac = mac.trim().toLowerCase();
