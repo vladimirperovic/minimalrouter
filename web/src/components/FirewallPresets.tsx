@@ -15,7 +15,7 @@ import "./FirewallPresets.css";
 // ingress stays WireGuard-only by design, so that is a tunnel port forward
 // against a specific host, not a firewall rule. The card says so.
 
-type Preset = {
+export type Preset = {
   id: string;
   title: string;
   detail: string;
@@ -25,7 +25,7 @@ type Preset = {
   direction: "forward" | "input";
 };
 
-const PRESETS: readonly Preset[] = [
+export const PRESETS: readonly Preset[] = [
   {
     id: "smb",
     title: "Block Windows file sharing leaving the network",
@@ -77,7 +77,7 @@ const PRESETS: readonly Preset[] = [
   },
   {
     id: "dns",
-    title: "Force devices onto this router's DNS",
+    title: "Force devices onto the router DNS",
     detail: "Blocks devices from talking to outside resolvers directly, so smart TVs and phones with a hardcoded 8.8.8.8 fall back to the router. This is what makes DNS filtering actually apply.",
     caution: "A device that refuses to fall back will lose name resolution.",
     protocol: "udp",
@@ -114,14 +114,14 @@ const PRESETS: readonly Preset[] = [
 
 // The rule name is the link between a preset and the rule it created, so
 // turning a preset off never removes a rule the operator wrote by hand.
-function ruleNameFor(preset: Preset) {
+export function ruleNameFor(preset: Preset) {
   return `${preset.title} (preset)`;
 }
 
 type Props = {
   config: RouterConfig;
   busy: boolean;
-  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => void;
+  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
 };
 
 export default function FirewallPresets({ config, busy, applyConfig }: Props) {
@@ -131,8 +131,8 @@ export default function FirewallPresets({ config, busy, applyConfig }: Props) {
   const activeRule = (preset: Preset) =>
     rules.find((rule) => rule.name === ruleNameFor(preset) && rule.enabled);
 
-  const enablePreset = (preset: Preset) => {
-    applyConfig((next) => {
+  const enablePreset = async (preset: Preset) => {
+    const applied = await applyConfig((next) => {
       const name = ruleNameFor(preset);
       const existing = (next.firewall.custom_rules || []).find((rule) => rule.name === name);
       if (existing) {
@@ -161,7 +161,12 @@ export default function FirewallPresets({ config, busy, applyConfig }: Props) {
         ],
       };
     }, `${preset.title} is on.`);
-    setSelected((current) => ({ ...current, [preset.id]: false }));
+    // Keep the tick when the write did not land: the error banner sits at the
+    // top of the page, so silently clearing the row leaves no local trace of
+    // what the operator just tried.
+    if (applied) {
+      setSelected((current) => ({ ...current, [preset.id]: false }));
+    }
   };
 
   const disablePreset = (preset: Preset) => {
@@ -258,7 +263,7 @@ export default function FirewallPresets({ config, busy, applyConfig }: Props) {
                         <button
                           className="button primary small"
                           disabled={busy || !selected[preset.id]}
-                          onClick={() => enablePreset(preset)}
+                          onClick={() => void enablePreset(preset)}
                           title={selected[preset.id] ? undefined : "Tick the rule first"}
                           type="button"
                         >

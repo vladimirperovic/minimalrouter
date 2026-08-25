@@ -2,8 +2,10 @@ package config
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -125,16 +127,91 @@ func (c *SystemConfig) ValidateChangesFrom(previous *SystemConfig) error {
 		return err
 	}
 
+	// A stale fault is excused only while the operator leaves it alone. Once
+	// the offending field is edited, the new value is this change's
+	// responsibility and must satisfy the current rules -- otherwise one stored
+	// fault would permanently license every other bad value that happens to
+	// produce the same message.
+	candidateJSON, candidateErr := toFieldTree(c)
+	previousJSON, previousErr := toFieldTree(previous)
+	unchanged := func(field string) bool {
+		if candidateErr != nil || previousErr != nil {
+			return false
+		}
+		return sameFieldValue(candidateJSON, previousJSON, field)
+	}
+
 	var introduced ValidationErrors
 	for _, item := range candidate {
-		if !stored[item] {
-			introduced = append(introduced, item)
+		if stored[item] && unchanged(item.Field) {
+			continue
 		}
+		introduced = append(introduced, item)
 	}
 	if len(introduced) == 0 {
 		return nil
 	}
 	return introduced
+}
+
+// toFieldTree renders a configuration as generic JSON so a validation field
+// path can be resolved against it.
+func toFieldTree(cfg *SystemConfig) (any, error) {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var tree any
+	if err := json.Unmarshal(data, &tree); err != nil {
+		return nil, err
+	}
+	return tree, nil
+}
+
+var fieldPathSegment = regexp.MustCompile(`([^.\[\]]+)|\[(\d+)\]`)
+
+// resolveFieldPath walks a validation field path such as "wan.password" or
+// "firewall.custom_rules[0].name" through a decoded JSON tree.
+func resolveFieldPath(tree any, field string) (any, bool) {
+	node := tree
+	for _, match := range fieldPathSegment.FindAllStringSubmatch(field, -1) {
+		switch {
+		case match[1] != "":
+			object, ok := node.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			// An omitempty field is absent rather than unresolvable, and
+			// "absent on both sides" is exactly the unchanged case.
+			node = object[match[1]]
+		default:
+			array, ok := node.([]any)
+			if !ok {
+				return nil, false
+			}
+			index, convErr := strconv.Atoi(match[2])
+			if convErr != nil || index < 0 || index >= len(array) {
+				return nil, false
+			}
+			node = array[index]
+		}
+	}
+	return node, true
+}
+
+// sameFieldValue reports whether both configurations carry an identical value
+// at field. An unresolvable path is reported as changed, so an unknown shape
+// can never widen what a stale fault excuses.
+func sameFieldValue(candidate, previous any, field string) bool {
+	candidateValue, ok := resolveFieldPath(candidate, field)
+	if !ok {
+		return false
+	}
+	previousValue, ok := resolveFieldPath(previous, field)
+	if !ok {
+		return false
+	}
+	return reflect.DeepEqual(candidateValue, previousValue)
 }
 
 // Validate checks the complete SystemConfig for syntax and cross-field invariant errors.
@@ -395,8 +472,19 @@ func (c *SystemConfig) Validate() error {
 			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].protocol", i), "must be tcp, udp, icmp, or any")
 		}
 		if rule.SrcIP != "" {
-			if ip := parseIPv4(rule.SrcIP); ip == nil || (lanNetwork != nil && !lanNetwork.Contains(ip)) {
-				appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].src_ip", i), "must be a valid LAN source address")
+			// The dashboard editor offers an address or a CIDR and the
+			// generator emits either as a valid nftables `ip saddr` match, so
+			// accepting only a bare address made the editor promise a value the
+			// appliance then refused. Both forms must still stay inside the LAN.
+			field := fmt.Sprintf("firewall.custom_rules[%d].src_ip", i)
+			if ip := parseIPv4(rule.SrcIP); ip != nil {
+				if lanNetwork != nil && !lanNetwork.Contains(ip) {
+					appendFieldError(&errs, field, "must be a valid LAN source address")
+				}
+			} else if _, srcNetwork, err := net.ParseCIDR(rule.SrcIP); err != nil || srcNetwork.IP.To4() == nil {
+				appendFieldError(&errs, field, "must be a valid LAN source address or IPv4 CIDR")
+			} else if lanNetwork != nil && !lanNetwork.Contains(srcNetwork.IP) {
+				appendFieldError(&errs, field, "must be contained in the LAN network")
 			}
 		}
 		if c.System.ManagementAccess == "wireguard_only" && rule.Enabled &&

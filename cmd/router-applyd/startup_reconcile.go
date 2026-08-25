@@ -105,6 +105,11 @@ func reconcileStartup(h startupReconcileHooks) error {
 	if cfg == nil {
 		return errors.New("last-good configuration loader returned no configuration")
 	}
+	// This gate is load-bearing and must stay fatal: the generators do not
+	// reject a structurally broken configuration -- a last-good carrying
+	// lan.cidr "invalid" still produces nftables, dnsmasq and pppd output and
+	// would reach activation -- so nothing downstream catches it. See
+	// TestReconcileStartupRejectsInvalidLastGood.
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("last-good configuration is invalid: %w", err)
 	}

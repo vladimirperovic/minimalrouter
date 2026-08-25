@@ -154,6 +154,12 @@ func handleConnection(conn net.Conn) {
 	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		return
 	}
+	// The response side needs the same bound. writeResponse runs while applyMu
+	// is held, so a peer that never reads its reply would otherwise wedge every
+	// later privileged operation, rollback and reconciliation included.
+	if err := conn.SetWriteDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		return
+	}
 
 	if err := validatePeer(conn); err != nil {
 		writeResponse(conn, apply.ApplyResponse{Success: false, Error: "unauthorized local peer"})
@@ -344,8 +350,32 @@ func verificationPlan(op apply.OperationType, previous *config.SystemConfig, can
 	return plan
 }
 
+// validatePrivilegedCandidate is the helper's own verdict on an incoming
+// candidate. It judges what the change introduces relative to the last-good
+// record rather than re-judging the whole stored state, because the management
+// plane judges the same way: a value an older release wrote must not be fatal on
+// one side of the trust boundary and excused on the other, or the appliance can
+// never be saved again. Scenario safety carries the security invariants and is
+// therefore always evaluated against the complete candidate.
+func validatePrivilegedCandidate(candidate config.SystemConfig, previous *config.SystemConfig) error {
+	if err := candidate.ValidateChangesFrom(previous); err != nil {
+		return err
+	}
+	return candidate.ValidateScenarioSafety()
+}
+
 func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
-	if err := req.Config.Validate(); err != nil {
+	// The previous configuration comes from this helper's own last-good record,
+	// never from the request: the management plane must not be able to describe
+	// what came before. Judging the change rather than the whole stored state
+	// keeps the two planes at the same verdict, so a value an older release
+	// wrote cannot make every later edit impossible on one side only.
+	loadedPrevious, previousLoadErr := loadLastGoodRaw()
+	previousConfig, previousErr := normalizeLastGood(loadedPrevious, previousLoadErr)
+	if previousErr != nil {
+		return recoveryFailure(req.ID, "last-good configuration could not be read; canonical reconciliation is required")
+	}
+	if err := validatePrivilegedCandidate(req.Config, previousConfig); err != nil {
 		return failure(req.ID, "privileged validation rejected configuration", false)
 	}
 
@@ -372,11 +402,6 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	candidates, err := writeCandidates(candidateDir, generated)
 	if err != nil {
 		return failure(req.ID, "could not write candidate files", false)
-	}
-	loadedPrevious, previousErr := loadLastGood()
-	previousConfig, previousErr := normalizeLastGood(loadedPrevious, previousErr)
-	if previousErr != nil {
-		return recoveryFailure(req.ID, "last-good configuration could not be read; canonical reconciliation is required")
 	}
 	plan := verificationPlan(req.Op, previousConfig, req.Config)
 	if err := preflight(req.Config, candidates, plan); err != nil {
@@ -2151,7 +2176,12 @@ func safeError(err error) string {
 	return sanitizeOutput([]byte(err.Error()))
 }
 
-func loadLastGood() (*config.SystemConfig, error) {
+// loadLastGoodRaw reads and parses the last-good configuration without judging
+// it against the current validation rules. The file records what the appliance
+// was verified to be running; whether a newer release's rules still accept every
+// value in it is a separate question, and conflating the two turned a tightened
+// rule into an unreadable last-good and an unrecoverable appliance.
+func loadLastGoodRaw() (*config.SystemConfig, error) {
 	data, err := os.ReadFile(lastGoodPath)
 	if err != nil {
 		return nil, err
@@ -2161,7 +2191,15 @@ func loadLastGood() (*config.SystemConfig, error) {
 		return nil, err
 	}
 	cfg.MigrateLegacyFields()
-	return &cfg, cfg.Validate()
+	return &cfg, nil
+}
+
+func loadLastGood() (*config.SystemConfig, error) {
+	cfg, err := loadLastGoodRaw()
+	if err != nil {
+		return nil, err
+	}
+	return cfg, cfg.Validate()
 }
 
 func saveLastGood(cfg config.SystemConfig) error {
