@@ -283,6 +283,16 @@ Latest passing signed-update regression:
 - The next known complete-suite failure is `25-incomplete-update`, which now
   receives the same corrected signed payload and remains to be verified under
   its deliberate interruption sequence.
+- Focused run
+  [32896290806](https://github.com/vladimirperovic/minimalrouter/actions/runs/32896290806)
+  (artifact `9587002315`) successfully staged the signed update, proved the VM
+  halted during activation, cold-booted the appliance and restored PPPoE, LAN,
+  Internet, default-drop firewall, canonical/last-good state and production
+  isolation. Its sole failed assertion ran `curl` inside the intentionally
+  minimal appliance, even though postmortem logs prove `routerd` listening on
+  `192.168.1.1:8443`. The API liveness probe now runs from the LAN client, as
+  other API scenarios do, without changing appliance contents or recovery
+  behavior.
 
 Latest passing carrier regression:
 

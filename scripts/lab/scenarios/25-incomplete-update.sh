@@ -43,7 +43,7 @@ phase "4-mr-runtime-4"
 check "LAN up after interrupted update" check_lan_up
 check "internet works after interrupted update" check_lan_internet
 check "firewall policy-drop after interrupted update" check_fw_not_fail_open
-check "router not bricked — API answers" mr "curl -sk --max-time 5 https://127.0.0.1:8443/api/v1/health >/dev/null 2>&1"
+check "router not bricked — API answers" lan "curl -sk --max-time 5 -o /dev/null $MR_API/api/v1/health"
 
 phase "7-recovery"
 check "canonical + last-good converge" check_converge
