@@ -553,6 +553,9 @@ chmod 755 /usr/local/sbin/dhclient; fi
 ip addr flush dev eth1; busybox udhcpc -i eth1 -s /usr/local/sbin/lab-udhcpc -n -q -t 8 -T 2'
 
 # Prepare the exact signed payload shape expected by scenario 24.
+# build-iso appends VERSION after make dist-amd64 creates its archive. Refresh
+# that archive so scenario payloads contain every file their manifests sign.
+tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
 rm -rf "$LAB_SIGNED_ROOT"
 mkdir -p "$LAB_SIGNED_ROOT"
 go run ./cmd/firmware-keygen --private-key "$LAB_SIGNED_ROOT/release.key" --public-key "$LAB_SIGNED_ROOT/release.pub"

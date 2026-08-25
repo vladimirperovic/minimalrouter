@@ -249,6 +249,16 @@ Latest signed-update staging regression:
   and retains each updater's complete staging diagnostics in its result
   artifact; signature, architecture, anti-downgrade and rollback enforcement
   remain unchanged.
+- Focused rerun
+  [32875181171](https://github.com/vladimirperovic/minimalrouter/actions/runs/32875181171)
+  (artifact `9575572857`) confirmed that the pinned key exactly matches the
+  signer and captured the authoritative rejection:
+  `ERROR: verify release source: verify signed release: file missing or unsafe: VERSION`.
+  The ISO builder adds `VERSION` to the distribution directory after the
+  original archive was created; the lab signed the updated directory but
+  scenarios rebuilt their payloads from the older archive. Hosted bootstrap
+  now refreshes the archive before signing, keeping the signed source,
+  delivered payload and manifest byte-for-byte aligned for scenarios 24/25.
 
 Latest passing carrier regression:
 
