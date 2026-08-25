@@ -102,8 +102,8 @@ export default function PortForwardsPanel({ onError }: Props) {
       onError("Enable WireGuard first: port forwards are reachable only over the tunnel.");
       return;
     }
-    if (!name.trim() || !/^[a-zA-Z0-9 _-]{1,64}$/.test(name.trim())) {
-      onError("Name must be 1-64 characters (letters, digits, space, dash, underscore).");
+    if (!name.trim() || !/^[\p{L}\p{N}][\p{L}\p{N} ._()/-]{0,63}$/u.test(name.trim())) {
+      onError("Name must be 1-64 characters and start with a letter or digit (letters, digits, space, . _ ( ) / -).");
       return;
     }
     if (!isValidPort(externalPort)) {

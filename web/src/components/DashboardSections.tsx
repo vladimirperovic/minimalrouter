@@ -258,6 +258,45 @@ type DNSRecordRow = { name: string; ip: string };
 // the shared per-section handler picks them up; add/remove stays local state
 // until "Save records".
 // The key={config.revision} remount resets unsaved rows after every apply.
+// dhcp.dns_servers takes IPv4 addresses only.
+const IPV4_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+// WiFiRadioFields couples the channel control to the band. The appliance
+// accepts 1-11 on 2.4 GHz and exactly 36, 40, 44 or 48 on the portable 5 GHz
+// profile, so a free number input could only ever be a guess that the save
+// rejected. Band is controlled state purely so the channel list can follow it;
+// both still submit as ordinary named form fields.
+const WIFI_CHANNELS: Record<string, number[]> = {
+  "2.4ghz": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "5ghz": [36, 40, 44, 48],
+};
+
+function WiFiRadioFields({ band, channel }: { band: string; channel: number }) {
+  const initialBand = WIFI_CHANNELS[band] ? band : "2.4ghz";
+  const [selectedBand, setSelectedBand] = useState(initialBand);
+  const channels = WIFI_CHANNELS[selectedBand];
+  // Keep the stored channel when the band still offers it, otherwise fall back
+  // to the first legal channel rather than submitting one the band forbids.
+  const selectedChannel = channels.includes(channel) ? channel : channels[0];
+  return (
+    <>
+      <label className="field">
+        <span>Band</span>
+        <select name="band" onChange={(event) => setSelectedBand(event.target.value)} value={selectedBand}>
+          <option value="2.4ghz">2.4 GHz</option>
+          <option value="5ghz">5 GHz</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Channel</span>
+        <select key={selectedBand} defaultValue={String(selectedChannel)} name="channel">
+          {channels.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>
+    </>
+  );
+}
+
 // Each network section saves on its own. The submitter's value tells the
 // shared handler which slice of the configuration to write, which keeps every
 // fieldset a direct child of one form and leaves the existing CSS untouched.
@@ -441,11 +480,23 @@ export default function DashboardSections({
     }
 
     if (section === "dns") {
+      const resolvers = formValue(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean);
+      if (resolvers.length < 1 || resolvers.length > 3) {
+        setError("Enter between one and three upstream resolvers, separated by commas.");
+        return;
+      }
+      const badResolver = resolvers.find((item) => !IPV4_PATTERN.test(item));
+      if (badResolver) {
+        setError(`"${badResolver}" is not a valid IPv4 address.`);
+        return;
+      }
       const ok = await applyConfig((next) => {
         next.dhcp = {
           ...next.dhcp,
-          dns_enabled: form.get("dns_enabled") !== null,
-          dns_servers: formValue(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean),
+          // DNS-over-HTTPS stays off: the appliance refuses the flag until a
+          // verified local resolver ships, so the control is disabled above.
+          dns_enabled: false,
+          dns_servers: resolvers,
         };
       }, "DNS settings saved.");
       confirmSaved("dns", ok);
@@ -607,7 +658,7 @@ export default function DashboardSections({
 {active === "gateway" && <GatewayQualityPanel busy={busy} onApply={applyGatewayMonitoring} onError={setError} settings={gatewaySettings} summary={gatewaySummary} />}
 
 {active === "network" && <section className="dashboard-section" id="network">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2><p className="section-copy">Configure the uplink, local gateway, address allocation and local DNS records from one controlled network workspace.</p></div><span className={`classic-status-chip ${config.wan.enabled ? "" : "is-off"}`}>WAN {config.wan.enabled ? "Connected" : "Disabled"}</span></div><dl className="subpage-hero-facts"><div><dt>Uplink</dt><dd>{config.wan.enabled ? "PPPoE" : "Off"}</dd><small>{config.wan.interface || "No interface"}</small></div><div><dt>LAN gateway</dt><dd>{config.lan.ip_address}</dd><small>{config.lan.interface}</small></div><div><dt>DHCP</dt><dd>{config.dhcp.enabled ? "Active" : "Disabled"}</dd><small>{config.dhcp.range_start} – {config.dhcp.range_end}</small></div><div><dt>DNS resolvers</dt><dd>{config.dhcp.dns_servers?.length || 0}</dd><small>{config.dhcp.dns_enabled ? "local DNS enabled" : "upstream only"}</small></div></dl></div>
+  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2><p className="section-copy">Configure the uplink, local gateway, address allocation and local DNS records from one controlled network workspace.</p></div><span className={`classic-status-chip ${config.wan.enabled ? "" : "is-off"}`}>WAN {config.wan.enabled ? "Connected" : "Disabled"}</span></div><dl className="subpage-hero-facts"><div><dt>Uplink</dt><dd>{config.wan.enabled ? "PPPoE" : "Off"}</dd><small>{config.wan.interface || "No interface"}</small></div><div><dt>LAN gateway</dt><dd>{config.lan.ip_address}</dd><small>{config.lan.interface}</small></div><div><dt>DHCP</dt><dd>{config.dhcp.enabled ? "Active" : "Disabled"}</dd><small>{config.dhcp.range_start} – {config.dhcp.range_end}</small></div><div><dt>DNS resolvers</dt><dd>{config.dhcp.dns_servers?.length || 0}</dd><small>{config.dhcp.enabled ? "router answers DNS" : "upstream only"}</small></div></dl></div>
   <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetworkSection}>
     <fieldset aria-labelledby="network-wan-title">
       <div className="fieldset-title" id="network-wan-title">WAN / PPPoE</div>
@@ -638,10 +689,10 @@ export default function DashboardSections({
       <div className="form-grid three">
         <label className="field"><span>Range start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label>
         <label className="field"><span>Range end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label>
-        <label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" placeholder="12h" required /></label>
+        <label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" pattern="\s*\d+\s*[mh]\s*" placeholder="12h" required title="A duration between 1m and 168h, using minutes or hours, for example 30m, 12h or 168h" /></label>
       </div>
       <p className="form-note">
-        Lease time accepts <code>30m</code>, <code>12h</code> or <code>7d</code>.
+        Lease time accepts minutes or hours between <code>1m</code> and <code>168h</code>, for example <code>30m</code> or <code>12h</code>. Days are not a unit here.
         {poolSize > 0 && <> Pool holds <strong>{poolSize}</strong> address{poolSize === 1 ? "" : "es"}; <strong>{poolLeased}</strong> currently leased. Reservations outside the pool: <strong>{reservationsOutsidePool}</strong>.</>}
       </p>
       <SectionSave busy={busy} label="Save DHCP" saved={savedSection === "dhcp"} section="dhcp" />
@@ -649,7 +700,7 @@ export default function DashboardSections({
 
     <fieldset aria-labelledby="network-dns-title">
       <div className="fieldset-title" id="network-dns-title">DNS</div>
-      <label className="checkbox-row"><input defaultChecked={config.dhcp.dns_enabled} name="dns_enabled" type="checkbox" /><span>Answer DNS for LAN clients from this router</span></label>
+      <label className="checkbox-row is-unavailable"><input checked={false} disabled name="dns_enabled" readOnly type="checkbox" /><span>Encrypt upstream DNS (DNS-over-HTTPS)<small>Unavailable until a verified local resolver ships with the appliance. The router already answers DNS for LAN clients whenever DHCP is on; this would only encrypt the upstream hop.</small></span></label>
       <div className="form-grid">
         <label className="field"><span>Upstream resolvers, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label>
       </div>
@@ -905,14 +956,14 @@ export default function DashboardSections({
 
     {ddnsTab === "noip" ? (
       <div className="form-grid two">
-        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="router.example.net" /></label>
+        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" pattern="^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9][A-Za-z0-9.-]*$" placeholder="router.example.net" title="A fully qualified hostname, for example router.example.net" /></label>
         <label className="field"><span>No-IP username / DDNS Key username</span><input autoComplete="username" defaultValue={config.cloudflare.ddns_username || ""} name="username" /></label>
         <label className="field form-span"><span>Provider credential</span><input autoComplete="new-password" name="credential" placeholder="Configured — leave blank to keep" type="password" /></label>
       </div>
     ) : (
       <div className="form-grid two">
-        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" placeholder="router.example.com" /></label>
-        <label className="field"><span>Cloudflare zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" placeholder="example.com" /></label>
+        <label className="field"><span>Hostname / update target</span><input defaultValue={config.cloudflare.domain} name="domain" pattern="^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9][A-Za-z0-9.-]*$" placeholder="router.example.com" title="A fully qualified hostname, for example router.example.com" /></label>
+        <label className="field"><span>Cloudflare zone</span><input defaultValue={config.cloudflare.zone_name} name="zone" pattern="^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z0-9][A-Za-z0-9.-]*$" placeholder="example.com" title="The zone name, for example example.com" /></label>
         <label className="field form-span"><span>API token</span><input autoComplete="new-password" name="credential" placeholder="Configured — leave blank to keep" type="password" /></label>
       </div>
     )}
@@ -933,7 +984,7 @@ export default function DashboardSections({
       <div className="service-config-title"><span className="service-config-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M6 7v10a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M9 4h6M9 12h6" /></svg></span><div><p>Service controls</p><h3>Authenticated proxy listener</h3><span>One compact workspace for access, identity and the local listening port.</span></div></div>
       <label className="service-toggle"><input checked={config.squid_proxy.enabled} type="checkbox" onChange={(e) => toggleSquid(e.target.checked)} /><span><b>{config.squid_proxy.enabled ? "Enabled" : "Disabled"}</b><small>Non-caching proxy</small></span></label>
     </header>
-    <form className="settings-form" key={`squid-${config.revision}`} onSubmit={submitSquid}><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} name="username" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" name="password" placeholder="Leave blank to keep stored secret" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
+    <form className="settings-form" key={`squid-${config.revision}`} onSubmit={submitSquid}><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} max={65535} min={1} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} maxLength={64} name="username" pattern="^[A-Za-z0-9][A-Za-z0-9_.-]*$" title="Letters, numbers, dot, underscore or hyphen; must start with a letter or number" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" maxLength={1024} minLength={8} name="password" placeholder="Leave blank to keep stored secret" title="At least 8 characters" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
   </article>
 </section>}
 
@@ -946,7 +997,7 @@ export default function DashboardSections({
       <div className="service-config-title"><span className="service-config-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a11 11 0 0 1 14 0M8.5 16a6 6 0 0 1 7 0M12 20h.01M2 9a16 16 0 0 1 20 0" /></svg></span><div><p>Radio controls</p><h3>Local wireless network</h3><span>Identity, spectrum and access policy in a single card.</span></div></div>
       <label className="service-toggle"><input checked={config.wifi.enabled} type="checkbox" onChange={(e) => toggleWiFi(e.target.checked)} /><span><b>{config.wifi.enabled ? "Enabled" : "Disabled"}</b><small>Access point</small></span></label>
     </header>
-    <form className="settings-form" key={`wifi-${config.revision}`} onSubmit={submitWiFi}><div className="form-grid two"><label className="field"><span>Radio interface</span><input defaultValue={config.wifi.interface} name="interface" /></label><label className="field"><span>SSID</span><input defaultValue={config.wifi.ssid} name="ssid" /></label><label className="field"><span>Band</span><select defaultValue={config.wifi.band} name="band"><option value="2.4ghz">2.4 GHz</option><option value="5ghz">5 GHz</option></select></label><label className="field"><span>Channel</span><input defaultValue={config.wifi.channel} name="channel" type="number" /></label><label className="field form-span"><span>New passphrase</span><input autoComplete="new-password" name="passphrase" placeholder="Leave blank to keep stored secret" type="password" /></label></div><label className="checkbox-row"><input defaultChecked={config.wifi.hide_ssid} name="hide_ssid" type="checkbox" /><span>Hide SSID</span></label><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
+    <form className="settings-form" key={`wifi-${config.revision}`} onSubmit={submitWiFi}><div className="form-grid two"><label className="field"><span>Radio interface</span><input defaultValue={config.wifi.interface} name="interface" /></label><label className="field"><span>SSID</span><input defaultValue={config.wifi.ssid} maxLength={32} name="ssid" /></label><WiFiRadioFields band={config.wifi.band} channel={config.wifi.channel} /><label className="field form-span"><span>New passphrase</span><input autoComplete="new-password" maxLength={63} minLength={12} name="passphrase" placeholder="Leave blank to keep stored secret" title="12-63 characters" type="password" /></label></div><label className="checkbox-row"><input defaultChecked={config.wifi.hide_ssid} name="hide_ssid" type="checkbox" /><span>Hide SSID</span></label><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
   </article>
 </section>}
 

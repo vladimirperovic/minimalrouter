@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
-import { insidePool, reservationConflictMessage } from "./deviceReservation";
+import { insidePool, reservationConflictMessage, suggestReservationAddress } from "./deviceReservation";
 import "./DeviceLeasesTable.css";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
@@ -279,7 +279,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     return `${reservationIP.trim()} is currently leased to ${liveCollision.hostname || liveCollision.mac}. Choose another address.`;
   }, [config.dhcp.static_leases, leases, reservationIP, reservationTarget]);
 
-  const poolWarning = Boolean(
+  const poolConflict = Boolean(
     reservationTarget &&
     reservationIP &&
     insidePool(reservationIP, config.dhcp.range_start, config.dhcp.range_end),
@@ -287,7 +287,12 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
   const openReservationDialog = (lease: Lease) => {
     setReservationTarget(lease);
-    setReservationIP(lease.ip_address);
+    const taken = [
+      ...(config.dhcp.static_leases || []).map((item) => item.ip_address),
+      ...leases.filter((item) => item.mac.toLowerCase() !== lease.mac.toLowerCase()).map((item) => item.ip_address),
+    ];
+    const suggested = suggestReservationAddress(config.lan.ip_address, config.dhcp.range_start, taken);
+    setReservationIP(suggested || lease.ip_address);
     setReservationError("");
     setPauseMenuIP(null);
   };
@@ -301,7 +306,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
   const saveReservation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!reservationTarget || reservationConflict) return;
+    if (!reservationTarget || reservationConflict || poolConflict) return;
 
     const target = reservationTarget;
     const requestedIP = reservationIP.trim();
@@ -318,6 +323,10 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       const freshConflict = reservationConflictMessage(requestedIP, normalisedMac, next.dhcp.static_leases || []);
       if (freshConflict) {
         setReservationError(freshConflict);
+        return;
+      }
+      if (insidePool(requestedIP, next.dhcp.range_start, next.dhcp.range_end)) {
+        setReservationError(`${requestedIP} is inside the dynamic DHCP pool (${next.dhcp.range_start}–${next.dhcp.range_end}). Choose an address outside it.`);
         return;
       }
 
@@ -440,9 +449,9 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                 </label>
               </div>
 
-              {poolWarning && !reservationConflict && (
-                <p className="device-reservation-message is-warning">
-                  {reservationIP.trim()} is inside the dynamic DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). Prefer an address outside the pool, or shrink the pool first.
+              {poolConflict && !reservationConflict && (
+                <p className="device-reservation-message is-error" role="alert">
+                  {reservationIP.trim()} is inside the dynamic DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). The router refuses a reservation that overlaps the pool — choose an address outside it, or shrink the pool first.
                 </p>
               )}
               {reservationConflict && <p className="device-reservation-message is-error" role="alert">{reservationConflict}</p>}
@@ -452,7 +461,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                 <span>Current lease: <strong>{reservationTarget.ip_address}</strong></span>
                 <div>
                   <button type="button" className="button secondary" onClick={closeReservationDialog} disabled={reservationBusy}>Cancel</button>
-                  <button type="submit" className="button primary" disabled={reservationBusy || Boolean(reservationConflict)}>{reservationBusy ? "Saving…" : "Reserve IP"}</button>
+                  <button type="submit" className="button primary" disabled={reservationBusy || Boolean(reservationConflict) || poolConflict}>{reservationBusy ? "Saving…" : "Reserve IP"}</button>
                 </div>
               </div>
             </form>
