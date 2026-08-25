@@ -127,6 +127,23 @@ Latest passing WireGuard regression:
   verifies that unsolicited ExtraLAN-to-LAN and ExtraLAN-to-WAN traffic is
   denied.
 
+Latest passing ExtraLAN regression:
+
+- Run: [32800706746](https://github.com/vladimirperovic/minimalrouter/actions/runs/32800706746)
+- Workflow checkout: PR head `2905ce63591795b7d9e3882c50c9366f4a3fb199`
+- Selection: focused `20-extralan-isolation`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9547307398` proves the router can reach the service segment, the
+  allowed main-LAN client can reach the isolated HTTP service, ExtraLAN cannot
+  initiate traffic to either the real LAN client or WAN, and the firewall,
+  canonical-state and production-isolation invariants remain intact.
+- The next complete-suite failure, `21-router-reboot`, completed the reboot and
+  restored PPPoE, LAN, DNS, firewall and Internet service. Its only failed
+  assertion was LAN lease renewal through the same missing hosted-client DHCP
+  helper already corrected and proven by focused scenario 15. Mixed UTC and
+  Europe/Podgorica timestamps made the reboot look two hours longer than its
+  actual roughly three-minute duration.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
