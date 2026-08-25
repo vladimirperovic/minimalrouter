@@ -218,6 +218,23 @@ Latest power-loss recovery regression:
   Existing completed outcomes remain untouched, and unreadable/unwritable
   journals still fail closed before new configuration changes are accepted.
 
+Latest passing power-loss regression:
+
+- Run: [32861762246](https://github.com/vladimirperovic/minimalrouter/actions/runs/32861762246)
+- Workflow checkout: PR head `9e2e002335208b64858039a7edeeed368b660973`
+- Selection: focused `23-power-loss-hooks`
+- Result: **passed** (`1` scenario pass, `0` failures, `6` result files,
+  runner exit `0`); the result files contain five individual fault phases and
+  their aggregate scenario result.
+- Artifact `9571029167` proves real VM power cuts and successful recovery at
+  `pre-privileged-apply`, `post-provisional-apply`, `pre-sqlite-commit`,
+  `post-sqlite-commit` and `pre-canonical-ack`. Every phase independently
+  restored PPPoE, LAN, DNS and Internet service while preserving default-drop
+  firewall policy, canonical/last-good convergence and production isolation.
+- The next known complete-suite failure is `24-signed-update`, where signed
+  firmware staging must be investigated without weakening signature checks,
+  architecture validation, trusted keys or rollback guarantees.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
