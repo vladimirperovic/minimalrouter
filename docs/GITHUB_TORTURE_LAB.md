@@ -270,6 +270,20 @@ Latest signed-update staging regression:
   service executable before archiving or signing; strict executable-mode,
   signature, architecture and rollback checks remain intact.
 
+Latest passing signed-update regression:
+
+- Run: [32889336050](https://github.com/vladimirperovic/minimalrouter/actions/runs/32889336050)
+- Workflow checkout: PR head `e43c6a7f06503384ccb7d0681e7211c42165215f`
+- Selection: focused `24-signed-update`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9581159636` proves the pinned lab trust anchor, two independently
+  signed stages and activations, reboot into each image, PPPoE/LAN/Internet and
+  default-drop firewall recovery, signed rollback to the baseline version,
+  canonical/last-good convergence and production isolation.
+- The next known complete-suite failure is `25-incomplete-update`, which now
+  receives the same corrected signed payload and remains to be verified under
+  its deliberate interruption sequence.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
