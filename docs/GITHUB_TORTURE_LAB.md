@@ -110,6 +110,23 @@ Latest passing DHCP regression:
   seconds as the minimum valid freshness window while still rejecting absent,
   future or expired handshakes.
 
+Latest passing WireGuard regression:
+
+- Run: [32797536133](https://github.com/vladimirperovic/minimalrouter/actions/runs/32797536133)
+- Workflow checkout: PR head `af799ce096720054ae25c5b2e833e45c0bbd0a3a`
+- Selection: focused `17-endpoint-blackhole`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9546304727` proves the correctly targeted endpoint blackhole,
+  preserved PPPoE/LAN/DNS service, recovered `wg0` tunnel traffic, a valid
+  handshake, and production isolation.
+- The next complete-suite failure, `20-extralan-isolation`, reached the
+  isolated service segment from the router, but the simulator's recorded route
+  table had no return path for the main LAN. Its HTTP replies therefore took
+  the management default gateway. The hosted lab now routes `192.168.1.0/24`
+  back through `10.78.0.1` on the isolated interface; the scenario still
+  verifies that unsolicited ExtraLAN-to-LAN and ExtraLAN-to-WAN traffic is
+  denied.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)

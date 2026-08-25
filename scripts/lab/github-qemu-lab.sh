@@ -345,9 +345,10 @@ echo "PPPoE discovery reached lab-isp on $MR_WAN_IF"
 aux_exec 2253 'ip addr add 11.250.0.10/32 dev eth1 2>/dev/null || true; ip addr add 11.255.0.2/32 dev eth1 2>/dev/null || true; sed -i "/listen 10.250.0.10:80/a\\    listen 11.255.0.2:80;" /etc/nginx/sites-available/lab; systemctl restart nginx'
 aux_exec 2250 'ip route replace 11.250.0.10/32 dev eth1; ip route replace 11.255.0.2/32 dev eth1'
 # The outbound WireGuard tunnel must handshake before routerd will confirm the
-# candidate. Install the simulator's return route before applying that candidate;
-# the PPP address becomes reachable through this route as soon as ppp0 appears.
-aux_exec 2253 'ip route replace 10.250.0.50/32 via 10.250.0.1 dev eth1'
+# candidate. Install both simulator return paths before applying it: PPP becomes
+# reachable through the ISP, while allowed ExtraLAN service replies must return
+# to the main LAN through MinimalRouter instead of the management default route.
+aux_exec 2253 'ip route replace 10.250.0.50/32 via 10.250.0.1 dev eth1; ip route replace 192.168.1.0/24 via 10.78.0.1 dev eth2'
 
 # Lab-only bootstrap on the installed ISO: fault hooks and fresh WG keys.
 mr_exec 'set -e
