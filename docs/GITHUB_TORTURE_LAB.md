@@ -235,6 +235,21 @@ Latest passing power-loss regression:
   firmware staging must be investigated without weakening signature checks,
   architecture validation, trusted keys or rollback guarantees.
 
+Latest signed-update staging regression:
+
+- Run: [32868660131](https://github.com/vladimirperovic/minimalrouter/actions/runs/32868660131)
+- Workflow checkout: PR head `c964b22bb6277e6f921ff87e3955bd8560e0182c`
+- Selection: focused `24-signed-update`
+- Result: **failed** at the first `router-update stage`; artifact `9573220764`
+  proves the baseline and update manifests were generated and their payloads
+  assembled, but the existing quiet `grep` discarded the updater's rejection.
+- Early router logs also predate installation of the disposable lab trust
+  anchor and therefore cannot prove its state during staging. The scenario now
+  explicitly compares the installed pinned-key fingerprint with the lab signer
+  and retains each updater's complete staging diagnostics in its result
+  artifact; signature, architecture, anti-downgrade and rollback enforcement
+  remain unchanged.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
