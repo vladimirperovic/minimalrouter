@@ -259,6 +259,16 @@ Latest signed-update staging regression:
   scenarios rebuilt their payloads from the older archive. Hosted bootstrap
   now refreshes the archive before signing, keeping the signed source,
   delivered payload and manifest byte-for-byte aligned for scenarios 24/25.
+- Focused rerun
+  [32881112493](https://github.com/vladimirperovic/minimalrouter/actions/runs/32881112493)
+  (artifact `9577718696`) advanced past the missing `VERSION` rejection and
+  exposed the next real distribution defect:
+  `ERROR: verify release source: validate appliance layout: appliance executable bit is missing: init.d/pppoe-wan`.
+  The tracked PPPoE OpenRC source is non-executable, and both architecture
+  builders copied it into their archives without restoring its required mode.
+  AMD64 and ARM64 distributions now explicitly mark their packaged PPPoE
+  service executable before archiving or signing; strict executable-mode,
+  signature, architecture and rollback checks remain intact.
 
 Latest passing carrier regression:
 

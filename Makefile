@@ -127,7 +127,7 @@ dist-arm64: build-linux-arm64 web-build
 	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-arm64/ip-up.d-minimalrouter-qos
 	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-arm64/install.sh
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install-core.sh
-	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/install-core.sh build/dist/minimalrouter-linux-arm64/slot-exec
+	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/install-core.sh build/dist/minimalrouter-linux-arm64/slot-exec build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan
 	@tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
 	@sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
 	@echo "=== Distribution: build/minimalrouter-linux-arm64.tar.gz ==="
@@ -163,7 +163,7 @@ dist-amd64: build-linux-amd64 web-build
 	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-amd64/ip-up.d-minimalrouter-qos
 	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-amd64/install.sh
 	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install-core.sh
-	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/install-core.sh build/dist/minimalrouter-linux-amd64/slot-exec
+	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/install-core.sh build/dist/minimalrouter-linux-amd64/slot-exec build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan
 	@tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
 	@sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
 	@echo "=== Distribution: build/minimalrouter-linux-amd64.tar.gz ==="
