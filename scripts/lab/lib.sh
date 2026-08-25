@@ -183,6 +183,15 @@ check_local_dns() {
 check_pppoe() {
   mr "ip -4 -o addr show ppp0 2>/dev/null" | grep -q "$MR_WAN_PPP"
 }
+# At least one configured peer must have completed a recent real handshake.
+check_wg_recent() {
+  interface="$1"
+  max_age="${2:-90}"
+  latest="$(mr "wg show '$interface' latest-handshakes 2>/dev/null" | awk '$2 ~ /^[0-9]+$/ && $2 > latest {latest = $2} END {if (latest > 0) print latest}')"
+  [ -n "$latest" ] || return 1
+  now="$(date +%s)"
+  [ "$latest" -le "$now" ] && [ $((now - latest)) -le "$max_age" ]
+}
 # Health API reports the DNS/DHCP check (loopback is firewalled off, so query
 # the authenticated LAN endpoint like the dashboard does).
 check_health_reports_dns() {

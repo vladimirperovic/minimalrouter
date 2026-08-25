@@ -84,7 +84,24 @@ Latest passing MTU regression:
   the Proxmox client's `eth0`, and its compatibility DHCP shim must use
   POSIX-shell argument handling.
 
-Latest passing focused regression:
+Latest passing DHCP regression:
+
+- Run: [32790475202](https://github.com/vladimirperovic/minimalrouter/actions/runs/32790475202)
+- Workflow checkout: PR head `2451db77b6a4e2ceb993267a91b9c8f951d1fa8e`
+- Selection: focused `15-dns-dhcp`
+- Result: **passed** (`1` pass, `0` failures, `1` result file, runner exit `0`)
+- Artifact `9544038344` proves DNS/DHCP service recovery and a real renewed LAN
+  client lease through the shared interface-aware DHCP helper.
+- The next complete-suite failures, `17-endpoint-blackhole` and `18-wg0`,
+  recorded zero received bytes and no `wg0` handshake even while `wg1` worked.
+  The generated default-deny output chain allowed the `wg1` endpoint port but
+  omitted outbound `wg0` handshake packets entirely. The fix permits only UDP
+  from the configured `wg0` listen port to each enabled peer's exact IPv4
+  endpoint and port, on WAN interfaces only. The blackhole scenario now reads
+  the actual configured endpoint instead of its obsolete private lab address,
+  and all WireGuard scenarios share a real recent-handshake assertion.
+
+Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
 - Workflow checkout: PR head `025ba00a6fdd57d5ac9cf2c86ec1a17995a87939`

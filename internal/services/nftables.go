@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -62,6 +63,41 @@ func writeKnownWGPeerEndpointInputRules(buf *bytes.Buffer, cfg *config.SystemCon
 	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } ct state invalid drop\n", sources))
 	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } udp dport %d ct state new meter wg_known_ppp_rate { ip saddr timeout 10s limit rate over 20/second burst 40 packets } drop\n", sources, port))
 	buf.WriteString(fmt.Sprintf("    iifname \"ppp*\" ip saddr { %s } udp dport %d accept\n\n", sources, port))
+}
+
+// writeKnownWGPeerEndpointOutputRules lets the server initiate or refresh a
+// handshake only from its own UDP socket to an enabled peer's exact endpoint.
+// The default-deny output policy must not turn a configured server endpoint
+// into a broad destination, port, or interface exception.
+func writeKnownWGPeerEndpointOutputRules(buf *bytes.Buffer, cfg *config.SystemConfig) {
+	if !cfg.WireGuard.Enabled {
+		return
+	}
+	seen := make(map[string]bool)
+	for _, peer := range cfg.WireGuard.Peers {
+		if !peer.Enabled {
+			continue
+		}
+		host, portText, err := net.SplitHostPort(peer.Endpoint)
+		if err != nil {
+			continue
+		}
+		ip := net.ParseIP(host)
+		port, err := strconv.Atoi(portText)
+		if ip == nil || ip.To4() == nil || err != nil || port < 1 || port > 65535 {
+			continue
+		}
+		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(port))
+		if seen[endpoint] {
+			continue
+		}
+		seen[endpoint] = true
+		match := fmt.Sprintf("ip daddr %s udp sport %d udp dport %d", ip.String(), cfg.WireGuard.ListenPort, port)
+		if cfg.WAN.Interface != "" {
+			buf.WriteString(fmt.Sprintf("    oifname \"%s\" %s accept\n", cfg.WAN.Interface, match))
+		}
+		buf.WriteString(fmt.Sprintf("    oifname \"ppp*\" %s accept\n", match))
+	}
 }
 
 // lanBroadcastAddress computes the IPv4 broadcast address of a CIDR, or ""
@@ -620,6 +656,7 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" udp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.WireGuard.ListenPort))
 		buf.WriteString(fmt.Sprintf("    oifname \"%s\" tcp sport { 53, %d } accept\n", cfg.WireGuard.Interface, cfg.System.HTTPSPort))
 	}
+	writeKnownWGPeerEndpointOutputRules(&buf, cfg)
 	writeWGClientOutputRules(&buf, cfg)
 	if len(cfg.DHCP.DNSServers) > 0 {
 		buf.WriteString(fmt.Sprintf("    ip daddr { %s } udp dport 53 accept\n", strings.Join(cfg.DHCP.DNSServers, ", ")))

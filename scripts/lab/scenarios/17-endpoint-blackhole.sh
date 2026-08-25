@@ -1,12 +1,16 @@
 #!/bin/sh
-# 17 — endpoint-specific blackhole: only the wg0 peer (10.250.0.10:51820)
+# 17 — endpoint-specific blackhole: only the configured wg0 peer endpoint
 # becomes unreachable. Internet keeps working; WireGuard must recover when the
 # endpoint returns.
 . "$(dirname "$0")/../lib.sh"
 
 begin "17-endpoint-blackhole"
 phase "3-fault"
-require "fault: wg0 endpoint blackholed" isp 'nft flush chain inet labfw blackhole; nft add rule inet labfw blackhole iifname ppp0 ip daddr 10.250.0.10 udp dport 51820 drop; nft add rule inet labfw blackhole iifname ppp0 ip daddr 10.250.0.10 tcp dport 51820 drop'
+WG0_ENDPOINT="$(mr "wg show wg0 endpoints | awk 'NR == 1 {print \$2}'" | tr -d '\r\n')"
+require "wg0 peer has a configured endpoint" test -n "$WG0_ENDPOINT"
+WG0_ENDPOINT_HOST="${WG0_ENDPOINT%:*}"
+WG0_ENDPOINT_PORT="${WG0_ENDPOINT##*:}"
+require "fault: wg0 endpoint blackholed" isp "nft flush chain inet labfw blackhole; nft add rule inet labfw blackhole iifname ppp0 ip daddr $WG0_ENDPOINT_HOST udp dport $WG0_ENDPOINT_PORT drop; nft add rule inet labfw blackhole iifname ppp0 ip daddr $WG0_ENDPOINT_HOST tcp dport $WG0_ENDPOINT_PORT drop"
 sleep 3
 
 phase "4-mr-runtime"
