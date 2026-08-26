@@ -315,6 +315,20 @@ Latest passing incomplete-update regression:
   wrappers with the existing cookie, CSRF and content-type contracts; appliance
   behavior is unchanged.
 
+Latest passing ENOSPC regression:
+
+- Run: [32928109555](https://github.com/vladimirperovic/minimalrouter/actions/runs/32928109555)
+- Workflow checkout: PR head `dfd9d2fcc58d3f851a723bdda7ddb10fb03fe5f3`
+- Selection: focused `26-enospc`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9593245370` proves a root filesystem filled above 98% rejected a
+  configuration write without changing canonical revision, while routerd,
+  router-applyd, default-drop firewall, LAN and Internet remained healthy. Once
+  the exact lab fill files were removed, saves recovered, canonical/last-good
+  state converged and production isolation held.
+- Scenario 27 passed in the prior complete run; the next known failure is
+  `28-lan-ip-change`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
