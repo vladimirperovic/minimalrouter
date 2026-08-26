@@ -350,6 +350,15 @@ Latest passing LAN transition regression:
   address, client lease, Internet, canonical/last-good convergence and
   production isolation remained unchanged.
 - The next known complete-suite failure is `29-squid`.
+- Focused run
+  [32947988005](https://github.com/vladimirperovic/minimalrouter/actions/runs/32947988005)
+  (artifact `9600590079`) proved authenticated Squid startup, listener readiness,
+  proxied client traffic and access logging. Its revert request reused the
+  pre-enable configuration revision, so the API rejected that stale envelope;
+  the cleanup helper masked the error and the listener remained active. The
+  scenario now restores only the original Squid object inside the current
+  configuration envelope and propagates cleanup failures. Product shutdown
+  behavior is unchanged.
 
 Latest passing carrier regression:
 

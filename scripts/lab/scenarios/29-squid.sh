@@ -9,7 +9,21 @@ api_login
 original="$(api GET /api/v1/config)"
 enabled="$(echo "$original" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["squid_proxy"]["enabled"]).lower())')"
 require "scenario starts with Squid disabled" test "$enabled" = "false"
-restore_squid() { api PUT /api/v1/config "$original" >/dev/null 2>&1 && confirm_pending >/dev/null 2>&1 || true; }
+restore_squid() {
+	# PUT requires the current revision. Reuse the live envelope while restoring
+	# only the Squid object so the completed enable transaction cannot make this
+	# cleanup request stale.
+	current="$(api GET /api/v1/config 2>/dev/null)" || return 1
+	restore="$(printf '%s' "$current" | ORIGINAL_JSON="$original" python3 -c '
+import json,os,sys
+current=json.load(sys.stdin)
+original=json.loads(os.environ["ORIGINAL_JSON"])
+current["squid_proxy"] = original["squid_proxy"]
+print(json.dumps(current))
+')" || return 1
+	api PUT /api/v1/config "$restore" >/dev/null 2>&1 || return 1
+	confirm_pending >/dev/null 2>&1
+}
 trap restore_squid EXIT HUP INT TERM
 phase "4.5-operator"
 candidate="$(echo "$original" | python3 -c '
