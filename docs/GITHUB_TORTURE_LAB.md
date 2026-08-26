@@ -360,6 +360,18 @@ Latest passing LAN transition regression:
   configuration envelope and propagates cleanup failures. Product shutdown
   behavior is unchanged.
 
+Latest passing Squid regression:
+
+- Run: [32952739344](https://github.com/vladimirperovic/minimalrouter/actions/runs/32952739344)
+- Workflow checkout: PR head `1148fe2d70850dac6cead73a11bd632c31b1e36d`
+- Selection: focused `29-squid`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9602189339` proves authenticated Squid startup, proxied LAN traffic,
+  access logging, restoration to the disabled baseline, listener shutdown,
+  continued Internet access, canonical/last-good convergence and production
+  isolation.
+- The next known complete-suite failure is `30-ddns`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
