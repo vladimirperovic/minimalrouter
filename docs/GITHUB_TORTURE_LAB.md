@@ -394,6 +394,18 @@ Latest passing DDNS regression:
   though backup import IDs are session-bound; preview and apply now use one
   explicit LAN session. Product backup semantics are unchanged.
 
+Latest passing backup/restore regression:
+
+- Run: [32971917553](https://github.com/vladimirperovic/minimalrouter/actions/runs/32971917553)
+- Workflow checkout: PR head `616f116c8f34051d3a08541cd7c5f0e524b72c6e`
+- Selection: focused `31-backup-restore`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9609781047` proves encrypted export, binary transfer to the LAN
+  client, same-session import preview and apply, restoration of the exported
+  lease value, router survival, canonical/last-good convergence, default-drop
+  firewall, LAN and Internet health and production isolation.
+- The next known complete-suite failure is `32-inode-exhaustion`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
