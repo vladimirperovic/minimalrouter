@@ -130,6 +130,28 @@ api() {
     H "curl -sk --max-time 60 -b $API_COOKIE -X $method $hdr $MR_API$path" 2>/dev/null
   fi
 }
+# api_status <method> <path> [data] [content-type] — authenticated status only.
+api_status() {
+  method="$1"; path="$2"; data="${3:-}"; content_type="${4:-application/json}"
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  if [ -n "$data" ]; then
+    H "curl -sk --max-time 120 -o /dev/null -w '%{http_code}' -b $API_COOKIE -X $method $hdr -H 'Content-Type: $content_type' -d '$data' $MR_API$path" 2>/dev/null
+  else
+    H "curl -sk --max-time 60 -o /dev/null -w '%{http_code}' -b $API_COOKIE -X $method $hdr $MR_API$path" 2>/dev/null
+  fi
+}
+# api_unauth_status has the same transport contract without session material.
+api_unauth_status() {
+  method="$1"; path="$2"; data="${3:-}"; content_type="${4:-application/json}"
+  if [ -n "$data" ]; then
+    H "curl -sk --max-time 120 -o /dev/null -w '%{http_code}' -X $method -H 'Content-Type: $content_type' -d '$data' $MR_API$path" 2>/dev/null
+  else
+    H "curl -sk --max-time 60 -o /dev/null -w '%{http_code}' -X $method $MR_API$path" 2>/dev/null
+  fi
+}
 api_login() {
   # Reuse the existing session while the cookie still works: the API rate
   # limits logins to 5/min per source IP, and every check calls api_login.

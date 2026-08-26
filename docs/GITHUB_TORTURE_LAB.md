@@ -304,6 +304,16 @@ Latest passing incomplete-update regression:
   cold-boot recovery, restored PPPoE/LAN/Internet, default-drop firewall and API
   service, canonical/last-good convergence and production isolation.
 - The next known complete-suite failure is `26-enospc`.
+- Focused run
+  [32925648189](https://github.com/vladimirperovic/minimalrouter/actions/runs/32925648189)
+  (artifact `9592155772`) proved ENOSPC left the canonical revision unchanged,
+  kept both management services, default-drop firewall, LAN and Internet alive,
+  then recovered writes and canonical/last-good convergence after deleting only
+  the lab fill files. Its sole failure was `api_status: not found`: scenarios
+  referenced authenticated and unauthenticated status-only API helpers that the
+  shared library never defined. The library now provides those two narrow curl
+  wrappers with the existing cookie, CSRF and content-type contracts; appliance
+  behavior is unchanged.
 
 Latest passing carrier regression:
 
