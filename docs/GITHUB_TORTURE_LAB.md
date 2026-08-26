@@ -405,6 +405,14 @@ Latest passing backup/restore regression:
   lease value, router survival, canonical/last-good convergence, default-drop
   firewall, LAN and Internet health and production isolation.
 - The next known complete-suite failure is `32-inode-exhaustion`.
+- Focused run
+  [32977402342](https://github.com/vladimirperovic/minimalrouter/actions/runs/32977402342)
+  (artifact `9610753158`) completed Golden-image flash, reboot, firstboot, real
+  SSH login, service readiness and Dashboard listener checks, but never reached
+  scenario 32. The first read-only MAC-to-interface discovery query hit a
+  transient SSH banner timeout under TCG load; no topology log, torture log or
+  scenario result was created. That idempotent discovery probe now retries for
+  a bounded interval, while arbitrary appliance mutations remain single-shot.
 
 Latest passing carrier regression:
 

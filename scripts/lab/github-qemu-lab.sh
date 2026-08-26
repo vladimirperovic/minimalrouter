@@ -271,8 +271,21 @@ mr_exec() {
     -o LogLevel=ERROR -o ConnectTimeout=8 root@192.168.1.1 "echo '$b64' | base64 -d | sh"
 }
 mr_if_for_mac() {
-  local mac="$1"
-  mr_exec "grep -l '^$mac$' /sys/class/net/*/address 2>/dev/null | head -1 | cut -d/ -f5"
+  local mac="$1" ifname i=0
+  # Under TCG load the first SSH probe can succeed while the next connection
+  # still times out during banner exchange. Interface discovery is read-only,
+  # so retry this idempotent bootstrap query without retrying arbitrary
+  # appliance mutations performed through mr_exec later in the run.
+  while (( i < 90 )); do
+    if ifname="$(mr_exec "grep -l '^$mac$' /sys/class/net/*/address 2>/dev/null | head -1 | cut -d/ -f5" 2>/dev/null)" && [[ -n "$ifname" ]]; then
+      printf '%s\n' "$ifname"
+      return 0
+    fi
+    sleep 2
+    i=$((i+2))
+  done
+  echo "could not resolve MinimalRouter interface for MAC $mac after SSH became ready" >&2
+  return 1
 }
 
 # Resolve appliance interface names by the MACs assigned above. Linux interface
