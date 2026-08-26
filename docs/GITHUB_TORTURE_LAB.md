@@ -372,6 +372,19 @@ Latest passing Squid regression:
   isolation.
 - The next known complete-suite failure is `30-ddns`.
 
+Latest passing DDNS regression:
+
+- Run: [32962560753](https://github.com/vladimirperovic/minimalrouter/actions/runs/32962560753)
+- Workflow checkout: PR head `b014477cf1c227ccfa597b79f2224af26338040d`
+- Selection: focused `30-ddns`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9605987447` proves an unreachable DDNS provider rejects the save
+  without changing the canonical revision or starting inadyn, while the
+  default-drop firewall, LAN and Internet remain healthy. A following ordinary
+  save succeeded, canonical/last-good state converged and production isolation
+  held.
+- The next known complete-suite failure is `31-backup-restore`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
