@@ -384,6 +384,15 @@ Latest passing DDNS regression:
   save succeeded, canonical/last-good state converged and production isolation
   held.
 - The next known complete-suite failure is `31-backup-restore`.
+- Focused run
+  [32967301099](https://github.com/vladimirperovic/minimalrouter/actions/runs/32967301099)
+  (artifact `9607770982`) exported a non-empty encrypted backup, then stopped
+  at the harness call to an undefined `lan_put` helper before any mutation or
+  restore. The shared library now provides a binary-safe, mode-restricted LAN
+  upload transport. Static tracing also showed the preview used a host-only
+  cookie from the LAN guest and the apply switched to another session even
+  though backup import IDs are session-bound; preview and apply now use one
+  explicit LAN session. Product backup semantics are unchanged.
 
 Latest passing carrier regression:
 

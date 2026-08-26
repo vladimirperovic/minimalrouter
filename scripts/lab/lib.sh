@@ -336,6 +336,20 @@ mr_put() {
   mr "test -s '$dst' && chmod $mode '$dst'"
 }
 
+# lan_put <local-file> <remote-path> [mode] — binary-safe push to LAN-CLIENT.
+lan_put() {
+  src="$1"; dst="$2"; mode="${3:-0600}"
+  size=$(wc -c < "$src") || return 1
+  lan "rm -f '$dst'" >/dev/null 2>&1
+  pos=0
+  while [ $pos -lt "$size" ]; do
+    chunk=$(dd if="$src" bs=1 skip=$pos count=60000 2>/dev/null | base64 | tr -d '\n')
+    lan "echo '$chunk' | base64 -d >> '$dst'" >/dev/null || return 1
+    pos=$((pos+60000))
+  done
+  lan "test -s '$dst' && chmod $mode '$dst'"
+}
+
 # --- config save helpers -----------------------------------------------------
 # confirm_pending — confirm any pending (awaiting-confirmation) transaction so
 # the canonical revision and helper last-good converge. No-op when clean.

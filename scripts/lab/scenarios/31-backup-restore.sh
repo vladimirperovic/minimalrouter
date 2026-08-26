@@ -17,6 +17,7 @@ cfg="$(api GET /api/v1/config)" || { echo "[FAIL] cannot fetch config"; FAILED=$
 echo "$cfg" > /tmp/lab-backup-before.json
 original_lease="$(echo "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin)["dhcp"]["lease_time"])')"
 cleanup_backup_test() {
+  lan "rm -f /tmp/lab-backup-cookie.txt /tmp/lab-backup.mrbak" >/dev/null 2>&1 || true
   current="$(api GET /api/v1/config 2>/dev/null || true)"
   [ -n "$current" ] || return 0
   restored="$(echo "$current" | python3 -c "import json,sys; c=json.load(sys.stdin); c['dhcp']['lease_time']='$original_lease'; print(json.dumps(c))")"
@@ -28,6 +29,9 @@ backup="$(api POST /api/v1/backup/export "{\"current_password\":\"$ADMIN_PW\",\"
 printf '%s' "$backup" > /tmp/lab-backup.bin
 require "encrypted backup is non-empty" test -s /tmp/lab-backup.bin
 require "copy encrypted backup to LAN client" lan_put /tmp/lab-backup.bin /tmp/lab-backup.mrbak
+lan_login="$(lan "rm -f /tmp/lab-backup-cookie.txt; curl -sk --max-time 10 -c /tmp/lab-backup-cookie.txt -X POST $MR_API/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"password\":\"$ADMIN_PW\"}'")"
+lan_csrf="$(echo "$lan_login" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("csrf_token",""))' 2>/dev/null)"
+require "LAN backup session issued" test -n "$lan_csrf"
 
 phase "4-mr-runtime-2"
 # mutate: flip lease_time (safe, reversible change)
@@ -46,9 +50,9 @@ check "config mutation became canonical" test "$mutated_lease" != "$(echo "$cfg"
 check "config mutated without drift" check_converge
 
 phase "4.5-restore"
-# preview + apply the exported backup
-csrf="$(cat "$API_CSRF")"
-preview="$(lan "curl -sk --fail-with-body --max-time 60 -b $API_COOKIE -H 'X-CSRF-Token: $csrf' -F 'current_password=$ADMIN_PW' -F 'backup_passphrase=$BACKUP_PASSPHRASE' -F 'backup=@/tmp/lab-backup.mrbak;type=application/vnd.minimalrouter.backup+json' $MR_API/api/v1/backup/import/preview")"
+# Preview and apply use the same LAN session because import IDs are bound to
+# the authenticated session that created them.
+preview="$(lan "curl -sk --fail-with-body --max-time 60 -b /tmp/lab-backup-cookie.txt -H 'X-CSRF-Token: $lan_csrf' -F 'current_password=$ADMIN_PW' -F 'backup_passphrase=$BACKUP_PASSPHRASE' -F 'backup=@/tmp/lab-backup.mrbak;type=application/vnd.minimalrouter.backup+json' $MR_API/api/v1/backup/import/preview")"
 pid="$(echo "$preview" | python3 -c 'import json,sys
 try:
     d=json.load(sys.stdin)
@@ -56,7 +60,7 @@ try:
 except Exception:
     print("")' 2>/dev/null)"
 require "backup import preview ok" test -n "$pid"
-require "backup restore accepted" api POST "/api/v1/import/backup/$pid/apply"
+require "backup restore accepted" lan "curl -sk --fail-with-body --max-time 120 -b /tmp/lab-backup-cookie.txt -X POST -H 'X-CSRF-Token: $lan_csrf' $MR_API/api/v1/import/backup/$pid/apply"
 confirm_pending
 sleep 3
 check "MR alive after restore" mr "uptime -s | grep -q ."
