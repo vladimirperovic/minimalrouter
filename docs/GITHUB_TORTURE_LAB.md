@@ -414,6 +414,18 @@ Latest passing backup/restore regression:
   scenario result was created. That idempotent discovery probe now retries for
   a bounded interval, while arbitrary appliance mutations remain single-shot.
 
+Latest passing inode-exhaustion regression:
+
+- Run: [32979774343](https://github.com/vladimirperovic/minimalrouter/actions/runs/32979774343)
+- Workflow checkout: PR head `9c2b386a60c090de3420f5ecc672aac9d8e1679f`
+- Selection: focused `32-inode-exhaustion`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9612684666` proves an exhausted bounded apply-state filesystem
+  rejects saves while router services, default-drop firewall and Internet stay
+  healthy; after unmounting the fault, saves and canonical/last-good
+  convergence recover without touching production.
+- The next known complete-suite failure is `33-readonly-rootfs`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
