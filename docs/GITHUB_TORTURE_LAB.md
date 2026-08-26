@@ -328,6 +328,16 @@ Latest passing ENOSPC regression:
   state converged and production isolation held.
 - Scenario 27 passed in the prior complete run; the next known failure is
   `28-lan-ip-change`.
+- Focused run
+  [32937796093](https://github.com/vladimirperovic/minimalrouter/actions/runs/32937796093)
+  (artifact `9597128180`) preserved the original LAN address, lease, Internet,
+  canonical revision, convergence and production isolation, but its validation
+  request returned an authentication response rather than `422`. Router logs
+  prove the request from LAN client `192.168.1.121` was unauthorized: `api_login`
+  stores its cookie on the Proxmox host while the scenario incorrectly invoked
+  curl inside the LAN VM with that host-only path. The request and response
+  assertion now use the authenticated host transport, matching the shared API
+  contract; transition and rollback behavior remain unchanged.
 
 Latest passing carrier regression:
 
