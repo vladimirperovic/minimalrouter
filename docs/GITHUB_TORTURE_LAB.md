@@ -339,6 +339,18 @@ Latest passing ENOSPC regression:
   assertion now use the authenticated host transport, matching the shared API
   contract; transition and rollback behavior remain unchanged.
 
+Latest passing LAN transition regression:
+
+- Run: [32943464868](https://github.com/vladimirperovic/minimalrouter/actions/runs/32943464868)
+- Workflow checkout: PR head `38c7510055ce5c1370a070f6ea35ce9a1355ea5c`
+- Selection: focused `28-lan-ip-change`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9598873607` proves the live cross-subnet change was rejected with
+  `422` and recovery-console guidance while canonical revision, original LAN
+  address, client lease, Internet, canonical/last-good convergence and
+  production isolation remained unchanged.
+- The next known complete-suite failure is `29-squid`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
