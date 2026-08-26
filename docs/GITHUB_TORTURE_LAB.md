@@ -294,6 +294,17 @@ Latest passing signed-update regression:
   other API scenarios do, without changing appliance contents or recovery
   behavior.
 
+Latest passing incomplete-update regression:
+
+- Run: [32912797333](https://github.com/vladimirperovic/minimalrouter/actions/runs/32912797333)
+- Workflow checkout: PR head `355a43e006a5ad3389bf4b21a77bd768dfa0a9e5`
+- Selection: focused `25-incomplete-update`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- Artifact `9591354615` proves signed staging, a real VM halt during activation,
+  cold-boot recovery, restored PPPoE/LAN/Internet, default-drop firewall and API
+  service, canonical/last-good convergence and production isolation.
+- The next known complete-suite failure is `26-enospc`.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
