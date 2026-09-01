@@ -119,6 +119,7 @@
 .skin-menu-swatch.is-console { background: linear-gradient(135deg, #0e1116 0%, #11151b 100%); box-shadow: inset 0 -8px 0 -6px #2ee08a; }
 .skin-menu-swatch.is-atelier { background: linear-gradient(135deg, #ffffff 0%, #f2f2f4 100%); box-shadow: inset 0 -8px 0 -6px #3559e0; }
 .skin-menu-swatch.is-topology { background: linear-gradient(135deg, #0f181d 0%, #16242b 100%); box-shadow: inset 0 -8px 0 -6px #34c6dd; }
+.skin-menu-swatch.is-studio { background: linear-gradient(135deg, #f5f1ea 0%, #ece4d7 100%); box-shadow: inset 0 -8px 0 -6px #8b6f47; }
 
 .skin-menu-foot {
   margin: 6px 10px 4px;

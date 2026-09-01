@@ -6,7 +6,7 @@
 // appliance default look and deliberately ships no stylesheet at all, so the
 // default rendering path is byte-for-byte what it was before skins existed.
 
-export type SkinID = "classic" | "console" | "atelier" | "topology";
+export type SkinID = "classic" | "console" | "atelier" | "topology" | "studio";
 
 export type SkinDefinition = {
   id: SkinID;
@@ -19,6 +19,7 @@ export const SKINS: readonly SkinDefinition[] = [
   { id: "console", label: "Console", summary: "Dense operator console with monospaced figures" },
   { id: "atelier", label: "Atelier", summary: "Calm and spacious, settings-app rows" },
   { id: "topology", label: "Topology", summary: "Network-first, teal and technical" },
+  { id: "studio", label: "Studio", summary: "Warm paper, bronze accent, serif figures" },
 ];
 
 export const DEFAULT_SKIN: SkinID = "classic";
