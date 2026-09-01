@@ -50,6 +50,15 @@
   --skin-radius-sm: 7px;
   --skin-hairline: 1px solid rgba(139, 111, 71, 0.22);
   --skin-shadow: 0 22px 48px -34px rgba(48, 36, 20, 0.42);
+
+  /* The shell paints a long list of cards from these four tokens, which the
+     base sheet only defines under an explicit light/dark theme. Restating them
+     here keeps service cards and peer panels on the same warm hairline as
+     everything else instead of the cool glass they would otherwise inherit. */
+  --classic-glass: rgba(255, 253, 249, 0.62);
+  --classic-glass-strong: rgba(255, 253, 249, 0.86);
+  --classic-glass-border: rgba(139, 111, 71, 0.22);
+  --classic-glass-shadow: rgba(48, 36, 20, 0.10);
 }
 
 /* Dark here is candlelight, not slate: the ground keeps the warm hue and the
@@ -80,14 +89,33 @@
 
   --skin-hairline: 1px solid rgba(201, 168, 117, 0.22);
   --skin-shadow: 0 22px 48px -34px rgba(0, 0, 0, 0.7);
+
+  --classic-glass: rgba(33, 29, 24, 0.62);
+  --classic-glass-strong: rgba(33, 29, 24, 0.88);
+  --classic-glass-border: rgba(201, 168, 117, 0.20);
+  --classic-glass-shadow: rgba(0, 0, 0, 0.34);
 }
 
 /* ---- ground -------------------------------------------------- */
+/* Not a flat fill: a warm bloom off the top right and a faint settling of
+   shade along the bottom, so the paper has a light source and the panels
+   sitting on it have something to cast onto. */
 :root[data-skin="studio"] .dashboard-app {
-  background: var(--classic-bg);
-  background-attachment: initial;
+  background:
+    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(197, 160, 106, 0.16) 0%, rgba(197, 160, 106, 0) 68%),
+    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(92, 72, 45, 0.09) 0%, rgba(92, 72, 45, 0) 72%),
+    linear-gradient(176deg, #f7f3ec 0%, #f5f1ea 44%, #efe9df 100%);
+  background-attachment: fixed;
   font-family: Inter, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   letter-spacing: -0.008em;
+}
+
+:root[data-skin="studio"][data-theme="dark"] .dashboard-app {
+  background:
+    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(201, 168, 117, 0.10) 0%, rgba(201, 168, 117, 0) 68%),
+    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 72%),
+    linear-gradient(176deg, #17140f 0%, #14120f 44%, #100e0b 100%);
+  background-attachment: fixed;
 }
 
 /* ---- sidebar ------------------------------------------------- */
@@ -334,7 +362,7 @@
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
   background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
-  box-shadow: none;
+  box-shadow: var(--skin-shadow);
 }
 
 :root[data-skin="studio"] .settings-form { gap: 18px; padding: 8px; }
@@ -485,14 +513,175 @@
   font-size: 13px;
 }
 
-/* ---- shared command surfaces --------------------------------- */
-/* These slabs stay dark in every skin. Warming them keeps them from reading
-   as a foreign element dropped onto the paper. */
-:root[data-skin="studio"] .overview-status-hero,
-:root[data-skin="studio"] .wg-page-hero,
-:root[data-skin="studio"] .classic-security-command {
+/* ---- command surfaces ---------------------------------------- */
+/* Overview, WireGuard, Security and DNS Filter open on a navy slab in every
+   other skin. On paper that slab reads as a hole in the page, so here the
+   surfaces come up onto the ground like everything else.
+ *
+ * Turning one light is not a background swap: the shell writes light-on-dark
+ * text inside them with hardcoded hexes, and pins the DNS Filter title with
+ * -webkit-text-fill-color, which outranks `color` and would leave the heading
+ * invisible. Both the ground and everything written on it are remapped below.
+ * The .dashboard-app prefix matches the specificity the base uses for these. */
+:root[data-skin="studio"] .dashboard-app .overview-status-hero,
+:root[data-skin="studio"] .dashboard-app .wg-page-hero,
+:root[data-skin="studio"] .dashboard-app .classic-security-command,
+:root[data-skin="studio"] .dashboard-app .dns-filter-heading {
+  border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: linear-gradient(118deg, #201c17 0%, #2b2620 55%, #201c17 100%);
+  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
+  color: var(--classic-text);
+  box-shadow: var(--skin-shadow);
+}
+
+/* The decorative ring was drawn in a pale blue meant to catch light against
+   navy; on paper it is only smudge. */
+:root[data-skin="studio"] .dashboard-app .overview-status-hero::after,
+:root[data-skin="studio"] .dashboard-app .wg-page-hero::after,
+:root[data-skin="studio"] .dashboard-app .classic-security-command::after,
+:root[data-skin="studio"] .dashboard-app .dns-filter-heading::after {
+  border-color: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* The shell writes a great deal of the text inside these surfaces on bare
+   strong/small/em/span with no class of its own, all of it tuned to navy.
+   Naming each one would miss the next; instead the whole surface is remapped
+   in two weights, and the specific rules that follow — status colours, the
+   pinned title — outrank this because they carry a class.
+ *
+ * :where() contributes no specificity, so this stays at the prefix's weight
+ * and every later rule here still wins. The tooltip is excluded: it is a
+ * floating bubble with its own dark ground, not part of the surface. */
+:root[data-skin="studio"] .dashboard-app .overview-status-hero
+  :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *),
+:root[data-skin="studio"] .dashboard-app .wg-page-hero
+  :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *),
+:root[data-skin="studio"] .dashboard-app .classic-security-command
+  :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *) {
+  color: var(--classic-text);
+  -webkit-text-fill-color: var(--classic-text);
+}
+
+:root[data-skin="studio"] .dashboard-app .overview-status-hero
+  :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *),
+:root[data-skin="studio"] .dashboard-app .wg-page-hero
+  :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *),
+:root[data-skin="studio"] .dashboard-app .classic-security-command
+  :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *) {
+  color: var(--text-secondary);
+  -webkit-text-fill-color: var(--text-secondary);
+}
+
+/* The hover bubble keeps a dark ground in this skin too — it floats over the
+   page rather than sitting on it — but warmed to match. */
+:root[data-skin="studio"] .dashboard-app .demo-metric-tip {
+  border-color: rgba(201, 168, 117, 0.24);
+  background: #241f19;
+  color: #ece3d5;
+  -webkit-text-fill-color: #ece3d5;
+}
+
+/* These heroes carry their own heading class, so the serif rule for section
+   headings does not reach them. */
+:root[data-skin="studio"] .dashboard-app .classic-hero-heading h2,
+:root[data-skin="studio"] .dashboard-app .overview-hero-summary h2,
+:root[data-skin="studio"] .dashboard-app .wg-page-hero h2 {
+  font-family: var(--studio-display);
+  font-weight: 400;
+  letter-spacing: -0.028em;
+}
+
+/* Headline text inside the four surfaces. */
+:root[data-skin="studio"] .dashboard-app .dns-filter-heading h2,
+:root[data-skin="studio"] .dashboard-app .dns-filter-heading.has-facts h2,
+:root[data-skin="studio"] .dashboard-app .overview-hero-summary h2,
+:root[data-skin="studio"] .dashboard-app .overview-summary-meta strong,
+:root[data-skin="studio"] .dashboard-app .overview-assurance strong,
+:root[data-skin="studio"] .dashboard-app .overview-technical-facts strong,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd {
+  color: var(--classic-text);
+  -webkit-text-fill-color: var(--classic-text);
+}
+
+/* Labels and secondary copy — the cool blue-greys become the skin's muted
+   tones, which carry on paper. */
+:root[data-skin="studio"] .dashboard-app .overview-hero-kicker,
+:root[data-skin="studio"] .dashboard-app .overview-wan-card header,
+:root[data-skin="studio"] .dashboard-app .overview-wan-main div small,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dt,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts small {
+  color: var(--text-tertiary);
+  -webkit-text-fill-color: var(--text-tertiary);
+}
+
+:root[data-skin="studio"] .dashboard-app .overview-hero-summary > p,
+:root[data-skin="studio"] .dashboard-app .classic-security-command > .classic-security-intro {
+  color: var(--text-secondary);
+  -webkit-text-fill-color: var(--text-secondary);
+}
+
+/* Nested cells inside the heroes were tinted with translucent blue over navy.
+   Over paper they vanish, so they are re-cut as hairline cells. */
+:root[data-skin="studio"] .dashboard-app .overview-wan-card,
+:root[data-skin="studio"] .dashboard-app .overview-assurance > div,
+:root[data-skin="studio"] .dashboard-app .overview-technical-facts,
+:root[data-skin="studio"] .dashboard-app .overview-wan-quality span:not(.demo-metric-tip),
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts > div,
+:root[data-skin="studio"] .dashboard-app .wg-hero-metrics,
+:root[data-skin="studio"] .dashboard-app .wg-hero-metrics > div {
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: none;
+}
+
+/* Status colours were picked for a dark ground and wash out on paper. */
+:root[data-skin="studio"] .dashboard-app .overview-request-state strong,
+:root[data-skin="studio"] .dashboard-app .overview-request-state svg,
+:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-good,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-good {
+  color: var(--classic-green);
+  -webkit-text-fill-color: var(--classic-green);
+}
+
+:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-warn,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-warn {
+  color: var(--classic-orange);
+  -webkit-text-fill-color: var(--classic-orange);
+}
+
+:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-bad,
+:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-bad {
+  color: #a8443c;
+  -webkit-text-fill-color: #a8443c;
+}
+
+:root[data-skin="studio"][data-theme="dark"] .dashboard-app .subpage-hero-facts dd.is-bad,
+:root[data-skin="studio"][data-theme="dark"] .dashboard-app .classic-security-command-facts dd.is-bad {
+  color: #e08a80;
+  -webkit-text-fill-color: #e08a80;
+}
+
+:root[data-skin="studio"] .dashboard-app .overview-assurance > div > span {
+  background: color-mix(in srgb, var(--classic-green) 14%, transparent);
+  color: var(--classic-green);
+}
+
+/* Actions sat in a pale wash tuned to navy — invisible on paper. */
+:root[data-skin="studio"] .dashboard-app .dns-filter-actions .button,
+:root[data-skin="studio"] .dashboard-app .wg-interface-toggle,
+:root[data-skin="studio"] .dashboard-app .dashboard-section-heading > .classic-status-chip {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--classic-panel) 70%, transparent);
+  color: var(--classic-text);
+}
+
+/* The topbar page name is painted as gradient-filled text, so `color` alone
+   never reaches it. */
+:root[data-skin="studio"] .dashboard-app .classic-page-heading h1 {
+  background: none;
+  color: var(--accent);
+  -webkit-text-fill-color: var(--accent);
 }
 
 /* ---- desktop frame ------------------------------------------------ */
