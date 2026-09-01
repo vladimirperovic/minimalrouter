@@ -20,6 +20,15 @@ const (
 	CheckInterval  = 1 * time.Second
 	SampleInterval = 1 * time.Second
 	MaxBoots       = 5
+
+	// samplePersistInterval bounds how often the resource series reaches disk.
+	// Every write serialises the whole boot document, so persisting each sample
+	// made the bytes written grow with the square of the sample count: a full
+	// ten-minute capture wrote 20 MiB to produce a 71 KiB file, on an appliance
+	// that boots from flash. Samples are held in memory between flushes; a crash
+	// loses at most this much of the series, while events, readiness milestones
+	// and completion still persist at once.
+	samplePersistInterval = 15 * time.Second
 )
 
 type Event struct {
@@ -53,12 +62,13 @@ type Boot struct {
 }
 
 type Recorder struct {
-	mu        sync.Mutex
-	dir       string
-	started   time.Time
-	boot      Boot
-	lastCPU   uint64
-	lastTotal uint64
+	mu          sync.Mutex
+	dir         string
+	started     time.Time
+	boot        Boot
+	lastCPU     uint64
+	lastTotal   uint64
+	lastSampleP time.Time
 }
 
 func New(dataDir string) (*Recorder, error) {
@@ -93,6 +103,9 @@ func New(dataDir string) (*Recorder, error) {
 	if err := r.persist(); err != nil {
 		return nil, err
 	}
+	// The set of boot files only changes when a boot starts, so pruning belongs
+	// here rather than inside every persist.
+	_ = prune(dir)
 	return r, nil
 }
 
@@ -206,6 +219,11 @@ func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface strin
 	deadline := time.NewTimer(remaining)
 	defer deadline.Stop()
 
+	// Say why the uplink milestones are absent, so a capture showing only
+	// management is not read as a boot that failed to get online.
+	if !pppoeEnabled {
+		r.Event("wan", "No uplink configured at boot; DNS and Internet milestones do not apply")
+	}
 	// Record one lightweight local sample at process start. Network probes are
 	// handled separately and stop permanently as soon as their milestone is met.
 	r.sample()
@@ -254,7 +272,18 @@ func (r *Recorder) checkReadiness(ctx context.Context, pppoeEnabled bool, wgInte
 		}
 	}
 
-	wanReady := !pppoeEnabled || readiness.PPPoESeconds != nil
+	// With no uplink configured there is nothing for a resolver or an HTTPS
+	// dial to reach, so those milestones do not apply to this boot. The old
+	// code deferred them only while PPPoE was configured but still coming up,
+	// which left the case the comment names -- first boot, before the wizard --
+	// probing for the full ten-minute window and never completing.
+	if !pppoeEnabled {
+		managementReady := readiness.ManagementSeconds != nil
+		wgReady := !wgEnabled || wgInterface == "" || readiness.WireGuardSeconds != nil
+		return managementReady && wgReady
+	}
+
+	wanReady := readiness.PPPoESeconds != nil
 	if wanReady && readiness.DNSSeconds == nil {
 		dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		_, err := net.DefaultResolver.LookupHost(dnsCtx, "example.com")
@@ -276,9 +305,9 @@ func (r *Recorder) checkReadiness(ctx context.Context, pppoeEnabled bool, wgInte
 	}
 
 	managementReady := readiness.ManagementSeconds != nil
-	pppoeReady := !pppoeEnabled || readiness.PPPoESeconds != nil
 	wgReady := !wgEnabled || wgInterface == "" || readiness.WireGuardSeconds != nil
-	return managementReady && pppoeReady && wgReady && readiness.DNSSeconds != nil && readiness.InternetSeconds != nil
+	return managementReady && readiness.PPPoESeconds != nil && wgReady &&
+		readiness.DNSSeconds != nil && readiness.InternetSeconds != nil
 }
 
 func int64Ptr(value int64) *int64 { return &value }
@@ -322,6 +351,11 @@ func (r *Recorder) sample() {
 		MemoryUsedMB:  used,
 		MemoryTotalMB: totalMB,
 	})
+	now := time.Now()
+	if now.Sub(r.lastSampleP) < samplePersistInterval {
+		return
+	}
+	r.lastSampleP = now
 	_ = r.persistLocked()
 }
 
@@ -387,10 +421,7 @@ func (r *Recorder) persistLocked() error {
 	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return err
-	}
-	return prune(r.dir)
+	return os.Rename(tmp, dst)
 }
 
 type bootFile struct {

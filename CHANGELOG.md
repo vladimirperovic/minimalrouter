@@ -8,6 +8,15 @@ compatibility may still change between releases.
 
 Next development version: **v0.1.7**.
 
+### Added
+
+- A fifth dashboard appearance, **Studio**: warm paper ground, bronze accent and
+  serif display type, with measurements set large so a status page reads like a
+  printed sheet. Like the others it has a light and a dark form and is chosen
+  from the topbar. The display face is a system serif stack rather than a
+  webfont, because the dashboard is served from the appliance and is routinely
+  opened while the WAN is down.
+
 ## [v0.1.6] — 2026-08-22
 
 ### Highlights
