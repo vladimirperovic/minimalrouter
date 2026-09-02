@@ -618,13 +618,25 @@ PY
 
 set +e
 selected_scenario="${LAB_SCENARIO:-all}"
+scenario_args=()
+if [[ "$selected_scenario" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+  first="${BASH_REMATCH[1]}"
+  last="${BASH_REMATCH[2]}"
+  (( first <= last )) || { echo "invalid scenario range: $selected_scenario" >&2; exit 1; }
+  while IFS= read -r scenario; do
+    scenario_args+=("$scenario")
+  done < <(find "$WORK/scripts/lab/scenarios" -maxdepth 1 -type f -name '[0-9]*.sh' | sort -V | awk -F/ -v first="$first" -v last="$last" '{ split($NF, p, "-"); n=p[1]+0; if (n >= first && n <= last) print $NF }' | sed 's/\.sh$//')
+  (( ${#scenario_args[@]} > 0 )) || { echo "no scenarios in range: $selected_scenario" >&2; exit 1; }
+else
+  scenario_args=("$selected_scenario")
+fi
 (
   cd "$WORK"
   LAB_GITHUB_STATE="$STATE" LAB_GITHUB_KEY="$LAB_GITHUB_KEY" \
   LAB_RECOVERY_PW="$LAB_RECOVERY_PW" LAB_ADMIN_PW="$LAB_ADMIN_PW" \
   LAB_BACKEND=github LAB_RESULTS="$STATE/results" LAB_SIGNED_ROOT="$LAB_SIGNED_ROOT" \
   PATH="$STATE/bin:$PATH" \
-  sh scripts/lab/lab-run.sh "$selected_scenario"
+  sh scripts/lab/lab-run.sh "${scenario_args[@]}"
 ) 2>&1 | tee "$STATE/torture.log"
 rc=${PIPESTATUS[0]}
 set -e
@@ -633,7 +645,9 @@ pass="$(grep -Ec 'scenario [^ ]+ PASS$' "$STATE/torture.log" || true)"
 fail="$(grep -Ec 'scenario [^ ]+ FAILED' "$STATE/torture.log" || true)"
 result_files="$(find "$STATE/results" -name result.txt -type f | wc -l | tr -d ' ')"
 expected="$scenario_count"
-[ "$selected_scenario" = all ] || expected=1
+if [ "$selected_scenario" != all ]; then
+  expected="${#scenario_args[@]}"
+fi
 jq -n \
   --arg selected "$selected_scenario" \
   --argjson inventory "$scenario_count" --argjson expected "$expected" \

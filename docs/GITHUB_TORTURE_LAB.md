@@ -13,8 +13,9 @@ worktree, with lab-specific assertions kept alongside the shared scenarios.
 3. Select **Run workflow**, choose the branch to test (normally
    `audit/github-torture-lab` or the PR branch), leave **scenario** as `all`
    for the complete suite (or enter one scenario name/number for a focused
-   diagnostic run), and start it.
-4. Wait for the job **153-scenario QEMU torture lab**.
+   diagnostic run), and start it. Complete suites run four independent numeric
+   shards: `1-24`, `25-76`, `77-114`, and `115-153`.
+4. Wait for every QEMU torture-lab shard job to pass.
 5. Download the `github-qemu-torture-<commit>` artifact if the job fails. It
    contains `summary.json`, `torture.log`, per-scenario results/logs and the
    ISO installation log.
@@ -32,8 +33,10 @@ Direct links:
 
 ## What a passing result means
 
-A pass requires the ISO build/install smoke checks and all 153 scenario scripts
-to finish with exit code 0. The artifact summary must report:
+A pass requires every shard's ISO build/install smoke checks and all 153
+scenario scripts to finish with exit code 0. Each shard artifact reports its
+selected range and its matching pass count; together they must cover the full
+inventory with no scenario failures. A focused one-scenario artifact reports:
 
 ```json
 {
@@ -439,8 +442,13 @@ Latest passing read-only canonical-storage regression:
   plane, default-drop firewall and privileged helper remain active. Removing
   only the two disposable mounts restores routerd, durable saves and
   canonical/last-good convergence; the production-isolation invariant holds.
-- The next run is the complete `all` inventory, which must pass every scenario
-  before this lab can be called green.
+- The initial complete run
+  [33645363816](https://github.com/vladimirperovic/minimalrouter/actions/runs/33645363816)
+  was cancelled by GitHub's six-hour job ceiling rather than a failed assertion:
+  scenarios `1` through `24` passed, including power-loss and signed-update
+  paths, and `25-incomplete-update` was still executing. Complete validation is
+  therefore sharded into four independent ranges, each below the hosted-job
+  ceiling; all four must pass before this lab can be called green.
 
 Latest passing carrier regression:
 
