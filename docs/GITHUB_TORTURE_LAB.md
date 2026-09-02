@@ -426,6 +426,22 @@ Latest passing inode-exhaustion regression:
   convergence recover without touching production.
 - The next known complete-suite failure is `33-readonly-rootfs`.
 
+Latest passing read-only canonical-storage regression:
+
+- Run: [33594577877](https://github.com/vladimirperovic/minimalrouter/actions/runs/33594577877)
+- Workflow checkout: PR head `ccce043e55ec66e1a08a78c5b40068a9d4728e26`
+- Selection: focused `33-readonly-rootfs`
+- Result: **passed** (`1` scenario pass, `0` failures, runner exit `0`)
+- The original live-root remount was correctly rejected while active services
+  held writers. The scenario now stages canonical SQLite state on a disposable
+  tmpfs and applies a read-only bind at that same path. It proves routerd
+  refuses the read-only canonical store, while the already-applied forwarding
+  plane, default-drop firewall and privileged helper remain active. Removing
+  only the two disposable mounts restores routerd, durable saves and
+  canonical/last-good convergence; the production-isolation invariant holds.
+- The next run is the complete `all` inventory, which must pass every scenario
+  before this lab can be called green.
+
 Latest passing carrier regression:
 
 - Run: [32729865737](https://github.com/vladimirperovic/minimalrouter/actions/runs/32729865737)
