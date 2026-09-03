@@ -42,8 +42,16 @@ check "counting rules carry no verdict" check_not mr "nft list table inet minima
 require "LAN client generates traffic" lan "wget -q -O /dev/null http://10.250.0.1/ 2>/dev/null || ping -c 20 -s 1400 10.250.0.1 >/dev/null 2>&1 || true"
 require "counters observed in the kernel" retry 60 mr "nft -j list set inet minimalrouter acct_tx | grep -q counter"
 
-# The collector runs once a minute; give it one full cycle.
-require "API reports per-device usage" retry 120 sh -c "api GET '/api/v1/accounting?months=1' | grep -q '\"devices\"'"
+# The collector runs every five minutes; allow one complete collection cycle.
+accounting_has_device_usage() {
+  api GET "/api/v1/accounting?months=1" | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+sys.exit(not any(month.get("devices") for month in d.get("months", [])))
+'
+}
+# Collection is intentionally every five minutes to minimize appliance load.
+require "API reports per-device usage" retry 360 accounting_has_device_usage
 check "usage response marks the feature available" api GET "/api/v1/accounting?months=1" | grep -q '"available":true'
 
 phase "4.5-cleanup"

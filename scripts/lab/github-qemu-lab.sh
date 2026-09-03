@@ -619,7 +619,9 @@ PY
 set +e
 selected_scenario="${LAB_SCENARIO:-all}"
 scenario_args=()
-if [[ "$selected_scenario" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+if [[ "$selected_scenario" =~ ^[0-9]+(,[0-9]+)+$ ]]; then
+  IFS=',' read -r -a scenario_args <<< "$selected_scenario"
+elif [[ "$selected_scenario" =~ ^([0-9]+)-([0-9]+)$ ]]; then
   first="${BASH_REMATCH[1]}"
   last="${BASH_REMATCH[2]}"
   (( first <= last )) || { echo "invalid scenario range: $selected_scenario" >&2; exit 1; }

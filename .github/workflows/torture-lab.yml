@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: 'Scenario name, number, numeric range, or all'
+        description: 'Scenario name, number, comma-separated numbers, numeric range, or all'
         required: false
         default: all
 
@@ -49,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario != 'all' && fromJSON(format('["{0}"]', inputs.scenario)) || fromJSON('["1-24","25-76","77-114","115-153"]') }}
+        scenario: ${{ github.event_name == 'workflow_dispatch' && inputs.scenario != 'all' && fromJSON(format('["{0}"]', inputs.scenario)) || fromJSON('["1-24","25-36","37-76","77-114","115-153"]') }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

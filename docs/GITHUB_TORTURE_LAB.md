@@ -12,9 +12,10 @@ worktree, with lab-specific assertions kept alongside the shared scenarios.
 2. Select **GitHub QEMU torture lab**.
 3. Select **Run workflow**, choose the branch to test (normally
    `audit/github-torture-lab` or the PR branch), leave **scenario** as `all`
-   for the complete suite (or enter one scenario name/number for a focused
-   diagnostic run), and start it. Complete suites run four independent numeric
-   shards: `1-24`, `25-76`, `77-114`, and `115-153`.
+   for the complete suite (or enter one scenario name/number, a numeric range,
+   or comma-separated scenario numbers for a focused
+   diagnostic run), and start it. Complete suites run five independent numeric
+   shards: `1-24`, `25-36`, `37-76`, `77-114`, and `115-153`.
 4. Wait for every QEMU torture-lab shard job to pass.
 5. Download the `github-qemu-torture-<commit>` artifact if the job fails. It
    contains `summary.json`, `torture.log`, per-scenario results/logs and the
@@ -447,8 +448,9 @@ Latest passing read-only canonical-storage regression:
   was cancelled by GitHub's six-hour job ceiling rather than a failed assertion:
   scenarios `1` through `24` passed, including power-loss and signed-update
   paths, and `25-incomplete-update` was still executing. Complete validation is
-  therefore sharded into four independent ranges, each below the hosted-job
-  ceiling; all four must pass before this lab can be called green.
+  therefore initially sharded into four independent ranges. The hosted-job
+  ceiling later required splitting `25-76` into `25-36` and `37-76`; all five
+  must pass before this lab can be called green.
 
 Latest passing carrier regression:
 
@@ -462,3 +464,32 @@ Latest passing carrier regression:
 
 The carrier regression is green. The complete lab remains red while the
 focused failures from run `32735068105` are repaired and rerun.
+
+Latest sharded complete-suite evidence:
+
+- Run: [33684856938](https://github.com/vladimirperovic/minimalrouter/actions/runs/33684856938)
+- Workflow checkout: `4b20c56af21704f2a426dd611e4736626be26832`
+- Selection: four independent complete-suite ranges. The `25-76` job was
+  cancelled at the six-hour hosted-job cap after scenario 36 failed and the
+  baseline guard correctly refused to run later scenarios against the
+  fail-closed router.
+- The `77-114` shard completed all scenarios but reported three stale harness
+  assertions: pfSense preview was sent from the LAN guest even though its
+  authenticated session lives on the host; the DHCP resolver check did not
+  recognize the hosted client's lease state; and the gateway endpoint now
+  accepts the documented `30d` window.
+- The `115-153` shard likewise completed its range with two stale harness
+  checks: enabled forwards are valid when WireGuard is enabled (and still never
+  reach WAN), while the accounting API returns device lists below `months` and
+  intentionally collects every five minutes.
+- Scenario 36 had a stale recovery expectation: corrupt privileged-helper
+  metadata correctly prevents startup instead of trusting canonical state. Its
+  scenario now asserts that fail-closed result, restores a saved trusted
+  recovery record, and verifies a deliberate recovery.
+- The repaired focused selection is `36,88,100,112,140,153`; it uses the host
+  session for XML preview, checks the effective or leased DHCP resolver,
+  rejects `90d`, validates the no-WireGuard forward rejection, waits one
+  accounting collection interval for a nested device record, and verifies
+  explicit trusted recovery of corrupt metadata. Complete suites now split the
+  formerly overlong `25-76` range into `25-36` and `37-76`. The full suite is
+  not green until that focused run and every shard pass.

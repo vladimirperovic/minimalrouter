@@ -6,7 +6,7 @@ begin "100-lan-dns-propagation"
 phase "3-fault"
 require "fault: none (lan dns)" ispfault status
 phase "4.5-operator"
-check "DHCP installed router as LAN resolver" lan "grep -Eq '^nameserver[[:space:]]+192\\.168\\.1\\.1$' /etc/resolv.conf || resolvectl dns '$LAN_CLIENT_IF' 2>/dev/null | grep -q '192.168.1.1'"
+check "DHCP installed router as LAN resolver" lan "grep -Eq '^nameserver[[:space:]]+192\\.168\\.1\\.1$' /etc/resolv.conf || resolvectl dns '$LAN_CLIENT_IF' 2>/dev/null | grep -q '192.168.1.1' || grep -RqsE 'domain-name-servers[[:space:]]+192\\.168\\.1\\.1' /var/lib/dhcp /var/lib/NetworkManager 2>/dev/null"
 check "router answers authoritative local record" lan "host router.home.arpa 192.168.1.1 2>/dev/null | grep -q '192.168.1.1'"
 check "router forwards public DNS query" lan "host example.com 192.168.1.1 2>/dev/null | grep -q 'has address'"
 check "LAN client reaches simulated internet" check_lan_internet

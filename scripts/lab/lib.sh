@@ -130,6 +130,17 @@ api() {
     H "curl -sk --max-time 60 -b $API_COOKIE -X $method $hdr $MR_API$path" 2>/dev/null
   fi
 }
+# api_xml <method> <path> <xml> — authenticated XML request from the host.
+# The session cookie is deliberately kept on the host, so XML imports must not
+# run from a guest that cannot read it.
+api_xml() {
+  method="$1"; path="$2"; data="$3"
+  csrf=""
+  [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
+  hdr=""
+  [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
+  H "curl -sk --max-time 120 -b $API_COOKIE -X $method $hdr -H 'Content-Type: application/xml' --data-binary '$data' $MR_API$path" 2>/dev/null
+}
 # api_status <method> <path> [data] [content-type] — authenticated status only.
 api_status() {
   method="$1"; path="$2"; data="${3:-}"; content_type="${4:-application/json}"
