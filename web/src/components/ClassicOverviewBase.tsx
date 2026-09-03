@@ -361,7 +361,7 @@ export default function ClassicOverview({
       <span className={`overview-service-chip ${stateClass(config.wireguard.enabled)}`}>WireGuard{config.wireguard.enabled && <b>{system.runtime?.wireguard_active_peers || 0} / {(config.wireguard.peers || []).filter((peer) => peer.enabled).length}</b>}</span>
       <span className={`overview-service-chip ${stateClass(config.dhcp.enabled)}`}>DHCP{config.dhcp.enabled && <b>{runtime.dhcp_leases?.length || 0}</b>}</span>
       <span className={`overview-service-chip ${dnsChipClass}`}>DNS {dnsChipLabel}</span>
-      <span className={`overview-service-chip ${config.cloudflare.ddns_enabled ? runtime.ddns?.running ? "is-good" : "is-info" : "is-off"}`}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
+      <span className={`overview-service-chip ${config.cloudflare.ddns_enabled ? runtime.ddns?.in_sync ? "is-good" : runtime.ddns?.running && runtime.ddns?.resolved_ip ? "is-warning" : runtime.ddns?.running ? "is-good" : "is-info" : "is-off"}`}>{config.cloudflare.ddns_enabled ? `DDNS: ${ddnsProvider}` : "DDNS off"}</span>
       <span className={`overview-service-chip ${stateClass(config.squid_proxy.enabled)}`}>Squid Proxy {config.squid_proxy.enabled ? "on" : "off"}</span>
       <span className={`overview-service-chip ${config.qos.enabled ? "is-info" : "is-off"}`}>QoS {config.qos.enabled ? config.qos.algorithm : "off"}</span>
       <span className={`overview-service-chip ${stateClass(config.cloudflare.tunnel_enabled)}`}>Cloudflare Tunnel {config.cloudflare.tunnel_enabled ? "on" : "off"}</span>
