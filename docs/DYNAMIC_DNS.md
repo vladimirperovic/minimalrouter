@@ -112,6 +112,39 @@ Then verify the public DNS result from a separate network/resolver. For the
 production proof, also verify a later WAN public-IP change without manually
 running an updater on the Proxmox host.
 
+## Cache drift: why "running" is not "in sync"
+
+`inadyn` decides whether to contact the provider by comparing the detected
+public address against its **local cache file only** (`No IP# change detected
+... still at X`). It never asks the provider what is actually published. If an
+update is missed, rejected, or overwritten elsewhere (another client, a manual
+provider-side change, a re-provisioned hostname), the cache stays "correct"
+while public DNS points at a stale address — silently, until a forced update
+fires. This exact drift broke an iPhone WireGuard tunnel in production
+(2026-09-03): the daemon was healthy, the cache matched the WAN address, and
+public DNS still served the previous PPPoE address.
+
+Two mitigations, both in the appliance:
+
+1. The generated `inadyn.conf` sets `forced-update = 604800` (7 days), so any
+   drift is re-pushed within a week even when no local change is detected.
+   Weekly is far below provider abuse limits; the previous 30-day value left
+   drift undetected for weeks.
+2. The runtime status verifies instead of trusting: on every snapshot the
+   router resolves the configured hostname and reports `resolved_ip` plus
+   `in_sync` (true only when the resolved address equals the last-sent
+   address) in the `ddns` status object. The dashboard shows "In sync" only
+   when `in_sync` is true, a "Mismatch" chip when the daemon runs but DNS
+   disagrees, and both the Registered IP (last sent) and the Public DNS
+   (currently published) side by side. A failed lookup leaves `resolved_ip`
+   empty and must be read as "unknown", never as a mismatch.
+
+To diagnose a suspected drift from the console, compare the two sides
+directly: the address in `/var/cache/inadyn/*.cache` against an independent
+resolver (`nslookup <hostname> 1.1.1.1` from another network). If they differ,
+one foreground forced update (`inadyn -n -1 --force`, then restart the daemon)
+re-pushes the current address.
+
 ## Target-host validation status
 
 The 2026-08-01 Proxmox pilot proved that a manually provisioned Dynamic DNS
