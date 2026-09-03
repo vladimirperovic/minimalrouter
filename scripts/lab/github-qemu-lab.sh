@@ -553,6 +553,7 @@ case "$1" in
     ip addr flush dev "$interface"
     ip addr add "$ip/24" dev "$interface"
     if [ -n "${router:-}" ]; then set -- $router; ip route replace default via "$1" dev "$interface"; fi
+    if [ -n "${dns:-}" ]; then set -- $dns; printf 'nameserver %s\n' "$1" > /etc/resolv.conf; fi
     ;;
 esac
 EOF

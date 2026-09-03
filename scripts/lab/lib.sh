@@ -139,7 +139,7 @@ api_xml() {
   [ -f "$API_CSRF" ] && csrf="$(cat "$API_CSRF" 2>/dev/null)"
   hdr=""
   [ -n "$csrf" ] && hdr="-H 'X-CSRF-Token: $csrf'"
-  H "curl -sk --max-time 120 -b $API_COOKIE -X $method $hdr -H 'Content-Type: application/xml' --data-binary '$data' $MR_API$path" 2>/dev/null
+  H "curl -sk --max-time 120 -b $API_COOKIE -X $method $hdr -H 'Content-Type: application/xml' --data-binary '$data' '$MR_API$path'" 2>/dev/null
 }
 # api_status <method> <path> [data] [content-type] — authenticated status only.
 api_status() {

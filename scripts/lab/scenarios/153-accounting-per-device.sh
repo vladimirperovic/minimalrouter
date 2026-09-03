@@ -38,12 +38,13 @@ check "download counter set installed" mr "nft list table inet minimalrouter 2>/
 check "upload counter set installed" mr "nft list table inet minimalrouter 2>/dev/null | grep -q 'set acct_tx'"
 check "counting rules carry no verdict" check_not mr "nft list table inet minimalrouter 2>/dev/null | grep 'update @acct_' | grep -qE ' (accept|drop|reject)'"
 
-# Generate traffic from the LAN client so at least one host is counted.
-require "LAN client generates traffic" lan "wget -q -O /dev/null http://10.250.0.1/ 2>/dev/null || ping -c 20 -s 1400 10.250.0.1 >/dev/null 2>&1 || true"
+# Generate bounded traffic from the LAN client so at least one host is counted.
+require "LAN client generates traffic" lan "ping -c 20 -s 1400 -W 1 10.250.0.1 >/dev/null 2>&1 || true"
 require "counters observed in the kernel" retry 60 mr "nft -j list set inet minimalrouter acct_tx | grep -q counter"
 
 # The collector runs every five minutes; allow one complete collection cycle.
 accounting_has_device_usage() {
+  api_login
   api GET "/api/v1/accounting?months=1" | python3 -c '
 import json,sys
 d=json.load(sys.stdin)

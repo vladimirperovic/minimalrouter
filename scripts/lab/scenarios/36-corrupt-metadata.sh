@@ -26,8 +26,8 @@ require "corrupt last-good.json" mr "echo 'garbage' > /var/lib/minimalrouter-app
 phase "4-mr-runtime-2"
 # A corrupt recovery record blocks both mutation and helper startup. That
 # conservative behavior prevents the privileged helper from guessing at state.
-check "live save is rejected with corrupt last-good" check_not save_config
-check "restart applyd fails closed on corrupt metadata" check_not mr "rc-service router-applyd restart; sleep 5; rc-service router-applyd status | grep -q started"
+check_not "live save is rejected with corrupt last-good" save_config
+check_not "restart applyd fails closed on corrupt metadata" mr "rc-service router-applyd restart; sleep 5; rc-service router-applyd status | grep -q started"
 
 phase "4.5-recovery"
 require "trusted backup restores applyd" mr "install -m 600 '$backup' /var/lib/minimalrouter-applyd/last-good.json; rc-service router-applyd restart; sleep 8; rc-service router-applyd status | grep -q started"

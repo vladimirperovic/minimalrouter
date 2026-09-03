@@ -493,3 +493,17 @@ Latest sharded complete-suite evidence:
   explicit trusted recovery of corrupt metadata. Complete suites now split the
   formerly overlong `25-76` range into `25-36` and `37-76`. The full suite is
   not green until that focused run and every shard pass.
+
+Focused follow-up evidence:
+
+- Run: [33717176351](https://github.com/vladimirperovic/minimalrouter/actions/runs/33717176351)
+- Workflow checkout: `81b56487c70e2128bd9befd581a72c0ebb9e203c`
+- `112-gateway-window-validation` and `140-firewall-wan-forward` passed.
+- The remaining failures were harness defects: scenario 36 nested `check_not`
+  inside `check`, so it never ran the command; the pfSense URL left its query
+  separator unquoted; the hosted DHCP client hook applied address and route but
+  omitted the DNS option; and scenario 153 allowed an unbounded HTTP request to
+  outlive its authenticated session before polling the accounting endpoint.
+- The next focused selection remains `36,88,100,112,140,153`, with the corrected
+  direct negative checks, quoted XML URL, DHCP DNS hook, bounded ICMP traffic,
+  and session refresh during accounting polling.
