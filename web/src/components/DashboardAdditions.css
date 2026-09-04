@@ -199,6 +199,28 @@
 
 .static-lease-form { margin-top: 12px; }
 
+/* Inline row editor: reservation fields edit in place so the operator never
+   has to scroll down to the add form. Compact sibling of `.field input`. */
+.static-leases tr.is-editing > td { background: var(--accent-soft); }
+.static-leases .row-edit-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--separator-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 9px;
+  font-size: 14px;
+  outline: none;
+}
+.static-leases .row-edit-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.static-leases .row-edit-input-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.static-leases .row-edit-note-row > td { padding: 0 12px 10px; }
+.static-leases .row-edit-note-row .form-note { margin: 0; }
+
 .form-grid.three {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

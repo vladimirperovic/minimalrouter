@@ -1,6 +1,7 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Fragment, type KeyboardEvent, useState } from "react";
 import { apiFetch } from "../lib/api";
 import type { RouterConfig, StaticLease } from "../api-types";
+import { MAC_PATTERN, insidePool, isValidIPv4 } from "./deviceReservation";
 
 // dnsmasq already receives `dhcp-host=` for every static lease, so reservations
 // have always worked on the appliance — there was simply no way to create one
@@ -16,31 +17,52 @@ type Props = {
   liveLeases?: { mac: string }[];
 };
 
-const MAC_PATTERN = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+const POOL_GUARD = "The router refuses a reservation that overlaps the pool.";
 
-function isValidIPv4(value: string): boolean {
-  const parts = value.split(".");
-  if (parts.length !== 4) return false;
-  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
-}
-
-// A reservation inside the dynamic pool is the classic way to end up with two
-// devices holding the same address, so warn before the router does.
-function insidePool(ip: string, start: string, end: string): boolean {
-  const toNumber = (value: string) =>
-    value.split(".").reduce((total, octet) => total * 256 + Number(octet), 0);
-  if (!isValidIPv4(ip) || !isValidIPv4(start) || !isValidIPv4(end)) return false;
-  const target = toNumber(ip);
-  return target >= toNumber(start) && target <= toNumber(end);
+// validateLease checks one reservation against the rest. excludeId lets the
+// inline row editor keep the lease it is editing out of the duplicate checks.
+function validateLease(
+  leases: StaticLease[],
+  mac: string,
+  ip: string,
+  poolStart: string,
+  poolEnd: string,
+  excludeId: string | null,
+): string {
+  const normalisedMac = mac.trim().toLowerCase();
+  const normalisedIp = ip.trim();
+  if (!MAC_PATTERN.test(normalisedMac)) {
+    return "MAC address must look like aa:bb:cc:dd:ee:ff.";
+  }
+  if (!isValidIPv4(normalisedIp)) {
+    return "Reserved address must be a valid IPv4 address.";
+  }
+  if (leases.some((lease) => lease.id !== excludeId && lease.mac.toLowerCase() === normalisedMac)) {
+    return "That MAC address already has a reservation.";
+  }
+  if (leases.some((lease) => lease.id !== excludeId && lease.ip_address === normalisedIp)) {
+    return "That address is already reserved for another device.";
+  }
+  if (insidePool(normalisedIp, poolStart, poolEnd)) {
+    return `${normalisedIp} is inside the dynamic DHCP pool (${poolStart}–${poolEnd}). ${POOL_GUARD}`;
+  }
+  return "";
 }
 
 export default function StaticLeasesEditor({ config, busy, applyConfig, prefill, onPrefillConsumed }: Props) {
   const leases: StaticLease[] = config.dhcp.static_leases || [];
+  // Add form (bottom) — only used for new reservations.
   const [hostname, setHostname] = useState(prefill?.hostname ?? "");
   const [mac, setMac] = useState(prefill?.mac ?? "");
   const [ip, setIp] = useState(prefill?.ip ?? "");
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  // Inline row editor — edits happen in place in the table, so the operator
+  // never has to scroll down to the add form to change a reservation.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editHostname, setEditHostname] = useState("");
+  const [editMac, setEditMac] = useState("");
+  const [editIp, setEditIp] = useState("");
+  const [editError, setEditError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
   const wakeOnLan = async (mac: string) => {
@@ -59,58 +81,76 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
 
   const startEdit = (lease: StaticLease) => {
     setEditingId(lease.id);
-    setHostname(lease.hostname || "");
-    setMac(lease.mac);
-    setIp(lease.ip_address);
-    setError("");
+    setEditHostname(lease.hostname || "");
+    setEditMac(lease.mac);
+    setEditIp(lease.ip_address);
+    setEditError("");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setHostname("");
-    setMac("");
-    setIp("");
-    setError("");
+    setEditHostname("");
+    setEditMac("");
+    setEditIp("");
+    setEditError("");
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    const problem = validateLease(
+      leases,
+      editMac,
+      editIp,
+      config.dhcp.range_start,
+      config.dhcp.range_end,
+      editingId,
+    );
+    if (problem) {
+      setEditError(problem);
+      return;
+    }
+    const targetId = editingId;
+    const nextHostname = editHostname.trim();
+    const nextMac = editMac.trim().toLowerCase();
+    const nextIp = editIp.trim();
+    applyConfig((next) => {
+      next.dhcp = {
+        ...next.dhcp,
+        static_leases: (next.dhcp.static_leases || []).map((lease) =>
+          lease.id === targetId
+            ? { ...lease, hostname: nextHostname, mac: nextMac, ip_address: nextIp }
+            : lease,
+        ),
+      };
+    }, "DHCP reservation updated.");
+    cancelEdit();
+  };
+
+  const handleEditKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveEdit();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      cancelEdit();
+    }
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const problem = validateLease(
+      leases,
+      mac,
+      ip,
+      config.dhcp.range_start,
+      config.dhcp.range_end,
+      null,
+    );
+    if (problem) {
+      setError(problem);
+      return;
+    }
     setError("");
-    const normalisedMac = mac.trim().toLowerCase();
-    if (!MAC_PATTERN.test(normalisedMac)) {
-      setError("MAC address must look like aa:bb:cc:dd:ee:ff.");
-      return;
-    }
-    if (!isValidIPv4(ip.trim())) {
-      setError("Reserved address must be a valid IPv4 address.");
-      return;
-    }
-    if (leases.some((lease) => lease.id !== editingId && lease.mac.toLowerCase() === normalisedMac)) {
-      setError("That MAC address already has a reservation.");
-      return;
-    }
-    if (leases.some((lease) => lease.id !== editingId && lease.ip_address === ip.trim())) {
-      setError("That address is already reserved for another device.");
-      return;
-    }
-    if (insidePool(ip.trim(), config.dhcp.range_start, config.dhcp.range_end)) {
-      setError(`${ip.trim()} is inside the dynamic DHCP pool (${config.dhcp.range_start}–${config.dhcp.range_end}). The router refuses a reservation that overlaps the pool.`);
-      return;
-    }
-    if (editingId) {
-      applyConfig((next) => {
-        next.dhcp = {
-          ...next.dhcp,
-          static_leases: (next.dhcp.static_leases || []).map((lease) =>
-            lease.id === editingId
-              ? { ...lease, hostname: hostname.trim(), mac: normalisedMac, ip_address: ip.trim() }
-              : lease,
-          ),
-        };
-      }, "DHCP reservation updated.");
-      cancelEdit();
-      return;
-    }
     applyConfig((next) => {
       next.dhcp = {
         ...next.dhcp,
@@ -119,7 +159,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
           {
             id: `lease-${Date.now().toString(36)}`,
             hostname: hostname.trim(),
-            mac: normalisedMac,
+            mac: mac.trim().toLowerCase(),
             ip_address: ip.trim(),
           },
         ],
@@ -178,20 +218,92 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             {filteredLeases.length === 0 ? (
               <tr><td className="empty-state" colSpan={4}>No matching reservations.</td></tr>
             ) : (
-              filteredLeases.map((lease) => (
-                <tr key={lease.id}>
-                  <td className="elegant-cell-name">{lease.hostname || "Unnamed device"}</td>
-                  <td className="elegant-cell-mac"><code>{lease.mac}</code></td>
-                  <td className="elegant-cell-ip"><code>{lease.ip_address}</code></td>
-                  <td className="elegant-cell-actions">
-                    <div className="device-row-actions">
-                      <button className="button secondary small" disabled={busy} onClick={() => startEdit(lease)} type="button">Edit</button>
-                      <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
-                      <button className="button secondary small danger" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+              filteredLeases.map((lease) => {
+                const isEditing = editingId === lease.id;
+                const editPoolWarning =
+                  isEditing && editIp && insidePool(editIp.trim(), config.dhcp.range_start, config.dhcp.range_end);
+                return (
+                  <Fragment key={lease.id}>
+                    <tr className={isEditing ? "is-editing" : ""}>
+                      <td className="elegant-cell-name">
+                        {isEditing ? (
+                          <input
+                            aria-label="Device name"
+                            autoFocus
+                            className="row-edit-input"
+                            disabled={busy}
+                            onChange={(event) => setEditHostname(event.target.value)}
+                            onKeyDown={handleEditKeyDown}
+                            placeholder="living-room-tv"
+                            value={editHostname}
+                          />
+                        ) : (
+                          lease.hostname || "Unnamed device"
+                        )}
+                      </td>
+                      <td className="elegant-cell-mac">
+                        {isEditing ? (
+                          <input
+                            aria-label="MAC address"
+                            className="row-edit-input row-edit-input-mono"
+                            disabled={busy}
+                            onChange={(event) => setEditMac(event.target.value)}
+                            onKeyDown={handleEditKeyDown}
+                            placeholder="aa:bb:cc:dd:ee:ff"
+                            value={editMac}
+                          />
+                        ) : (
+                          <code>{lease.mac}</code>
+                        )}
+                      </td>
+                      <td className="elegant-cell-ip">
+                        {isEditing ? (
+                          <input
+                            aria-label="Reserved address"
+                            className="row-edit-input row-edit-input-mono"
+                            disabled={busy}
+                            onChange={(event) => setEditIp(event.target.value)}
+                            onKeyDown={handleEditKeyDown}
+                            placeholder="192.168.1.20"
+                            value={editIp}
+                          />
+                        ) : (
+                          <code>{lease.ip_address}</code>
+                        )}
+                      </td>
+                      <td className="elegant-cell-actions">
+                        <div className="device-row-actions">
+                          {isEditing ? (
+                            <>
+                              <button className="button primary small" disabled={busy || Boolean(editPoolWarning)} onClick={saveEdit} type="button">Save</button>
+                              <button className="button secondary small" disabled={busy} onClick={cancelEdit} type="button">Cancel</button>
+                            </>
+                          ) : (
+                            <>
+                              <button className="button secondary small" disabled={busy || editingId !== null} onClick={() => startEdit(lease)} type="button">Edit</button>
+                              <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>
+                              <button className="button secondary small danger" disabled={busy} onClick={() => remove(lease.id)} type="button">Remove</button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {isEditing && (editError || editPoolWarning) && (
+                      <tr className="row-edit-note-row">
+                        <td colSpan={4}>
+                          {editPoolWarning ? (
+                            <p className="form-note is-warning" role="alert">
+                              {editIp.trim()} is inside the DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). {POOL_GUARD}
+                            </p>
+                          ) : (
+                            <p className="form-note is-error" role="alert">{editError}</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -220,8 +332,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         )}
         {error && <p className="form-note is-error" role="alert">{error}</p>}
         <div className="form-actions">
-          {editingId && <button className="button secondary" disabled={busy} onClick={cancelEdit} type="button">Cancel edit</button>}
-          <button className="button primary" disabled={busy || Boolean(poolWarning)} type="submit">{editingId ? "Save changes" : "Reserve address"}</button>
+          <button className="button primary" disabled={busy || Boolean(poolWarning)} type="submit">Reserve address</button>
         </div>
       </form>
     </article>
