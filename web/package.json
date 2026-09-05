@@ -13,7 +13,8 @@
     "lint": "eslint . --ignore-pattern dist",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "dev:demo": "vite --mode demo --port 5251 --strictPort"
+    "dev:demo": "vite --mode demo --port 5251 --strictPort",
+    "test:visual": "vite build && playwright test --project=chromium e2e/theme-visual.spec.ts"
   },
   "dependencies": {
     "react": "19.2.6",

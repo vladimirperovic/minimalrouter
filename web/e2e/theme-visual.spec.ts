@@ -8,13 +8,23 @@ import { expect, test, type Page, type Route } from "@playwright/test";
  * rule that turns out to have been load-bearing shows up as a pixel diff
  * instead of as something an operator notices months later.
  *
+ * Run it with `pnpm --dir web test:visual`, never with playwright directly:
+ * the preview server serves dist/, so without a build first this compares the
+ * previous build against itself and passes while proving nothing.
+ *
  * Baselines are committed. Regenerate deliberately, never to make a red run
- * green:  pnpm exec playwright test --project=chromium e2e/theme-visual.spec.ts --update-snapshots
+ * green:  pnpm --dir web test:visual -- --update-snapshots
  *
  * The whole API is stubbed with documentation-range values (RFC 5737 addresses,
  * RFC 7042 MACs, RFC 2606 names), so a capture never depends on an appliance or
  * on the time of day.
  */
+
+// An absolute budget, not a ratio. A ratio of 0.002 sounds strict but allows
+// ~5,000 pixels on a 1440x1800 capture - enough to hide an entire toolbar
+// button, which is exactly what it did the first time this ran. This tolerates
+// font antialiasing and nothing structural.
+const MAX_DIFF_PIXELS = 200;
 
 const NOW = new Date("2026-03-14T09:41:00Z");
 
@@ -155,7 +165,7 @@ test.describe("Studio look", () => {
         // The bandwidth sparkline and the clock in the top bar move on their
         // own; masking them keeps the contract about layout and colour.
         mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
-        maxDiffPixelRatio: 0.002,
+        maxDiffPixels: MAX_DIFF_PIXELS,
         animations: "disabled",
       });
       expect(crashes, "the dashboard threw while capturing").toEqual([]);
@@ -168,7 +178,7 @@ test.describe("Studio look", () => {
     await page.waitForTimeout(400);
     await expect(page).toHaveScreenshot("overview-dark.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
   });
@@ -178,7 +188,7 @@ test.describe("Studio look", () => {
     await openDashboard(page);
     await expect(page).toHaveScreenshot("overview-mobile.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
       fullPage: true,
     });
@@ -195,7 +205,7 @@ test.describe("Studio look", () => {
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
     await expect(page).toHaveScreenshot("sign-in.png", {
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
   });
@@ -211,7 +221,7 @@ test.describe("Studio look", () => {
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
     await expect(page).toHaveScreenshot("sign-in-mobile.png", {
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
   });
@@ -227,7 +237,7 @@ test.describe("Studio look", () => {
     await page.waitForTimeout(400);
     await expect(page).toHaveScreenshot("mobile-drawer.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
   });

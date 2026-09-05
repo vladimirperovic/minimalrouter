@@ -12,8 +12,8 @@ import "./V015FinalTweaks.css";
 import "./MobileResponsive.css";
 import "./FinalPolish.css";
 import "./MobileNavigation.css";
-// Skins load last: their rules must win ties against every base sheet above.
-import "./skins/index.css";
+// The look loads last: its rules must win ties against every base sheet above.
+import "./theme/look.css";
 
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);
