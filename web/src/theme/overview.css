@@ -16,14 +16,14 @@
 
 /* ── The statement ──────────────────────────────────────────
    The biggest thing on the page, with room around it. */
-:root:root .dashboard-app .overview-hero-summary h1,
-:root:root .dashboard-app .overview-hero-summary h2 {
+:root:root .dashboard-app .overview-masthead h1,
+:root:root .dashboard-app .overview-masthead h2 {
   font-size: var(--text-2xl);
   line-height: 1.08;
   margin: var(--space-3) 0 var(--space-4);
 }
 
-:root:root .dashboard-app .overview-hero-summary > p {
+:root:root .dashboard-app .overview-masthead > p {
   font-size: var(--text-md);
   line-height: var(--leading-body);
   color: var(--text-secondary);
@@ -40,145 +40,114 @@
   color: var(--ink-eyebrow);
 }
 
-/* The supporting readings under the statement: label above,
-   figure below, in the display face. */
-:root:root .dashboard-app .overview-summary-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: var(--space-5);
-  margin-bottom: var(--space-5);
+/* ── Masthead ───────────────────────────────────────────────
+   The verdict, the sentence that qualifies it, and the four
+   readings an operator checks next. Nothing competes with it. */
+:root:root .dashboard-app .overview-masthead {
+  max-width: 62ch;
 }
 
-:root:root .dashboard-app .overview-summary-meta small {
-  display: block;
+:root:root .dashboard-app .overview-headline-readings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-6);
+  margin: var(--gap-group) 0 0;
+  padding-top: var(--gap-group);
+  border-top: 1px solid var(--classic-border);
+}
+
+:root:root .dashboard-app .overview-headline-readings dt {
   font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--ink-eyebrow);
-  margin-bottom: var(--space-1);
 }
 
-:root:root .dashboard-app .overview-summary-meta strong {
+:root:root .dashboard-app .overview-headline-readings dd {
+  margin: var(--space-2) 0 var(--space-1);
   font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-regular);
+  font-size: var(--text-xl);
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
-/* ── One surface, three columns ─────────────────────────────
-   The WAN session and the assurance list stop being cards and
-   become columns of the same sheet, divided by a hairline. */
-:root:root .dashboard-app .overview-hero-command {
+:root:root .dashboard-app .overview-headline-readings small {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* ── Groups ─────────────────────────────────────────────────
+   Three ruled lists of equal weight. A reading belongs to
+   exactly one, so nothing has to be hunted for twice. */
+:root:root .dashboard-app .overview-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--gap-section);
+  margin-top: var(--gap-section);
 }
 
-:root:root .dashboard-app .overview-wan-card {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
-  gap: var(--gap-group);
-  /* space-between stretched this column to the height of its tallest
-     neighbour and pushed ninety pixels of nothing between the header and the
-     session. The readings belong together at the top. */
-  justify-content: flex-start;
-}
-
-:root:root .dashboard-app .overview-wan-card > header {
+:root:root .dashboard-app .overview-group h2 {
+  font-family: var(--font-ui);
   font-size: var(--text-2xs);
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--ink-eyebrow);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--classic-text);
+}
+
+:root:root .dashboard-app .overview-group dl {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+:root:root .dashboard-app .overview-group dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-4);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--classic-border);
 }
 
-:root:root .dashboard-app .overview-wan-main strong {
-  font-family: var(--font-display);
-  font-weight: var(--weight-regular);
-  font-variant-numeric: tabular-nums;
+:root:root .dashboard-app .overview-group dl > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
-/* Readings, not tiles: the boxes came from a different design
-   and fought the paper ground they sit on. */
-:root:root .dashboard-app .overview-wan-quality > * {
-  background: transparent;
-  border: 0;
-  border-left: 1px solid var(--classic-border);
-  border-radius: 0;
-  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+:root:root .dashboard-app .overview-group dt {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
 }
 
-:root:root .dashboard-app .overview-wan-quality > *:first-child {
-  border-left: 0;
-  padding-left: 0;
-}
-
-:root:root .dashboard-app .overview-wan-quality small {
-  display: block;
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--ink-eyebrow);
-  margin-bottom: var(--space-1);
-}
-
-:root:root .dashboard-app .overview-wan-quality strong {
+:root:root .dashboard-app .overview-group dd {
+  margin: 0;
   font-family: var(--font-display);
   font-size: var(--text-md);
-  font-weight: var(--weight-regular);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-/* ── Assurance ──────────────────────────────────────────────
-   Three facts about trust, time and access. A list with
-   hairlines, not three competing cards. */
-:root:root .dashboard-app .overview-assurance {
-  gap: 0;
-}
-
-:root:root .dashboard-app .overview-assurance > * {
-  background: transparent;
-  border: 0;
-  border-top: 1px solid var(--classic-border);
-  border-radius: 0;
-  padding: var(--space-4) 0;
-}
-
-:root:root .dashboard-app .overview-assurance > *:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-/* ── Identity facts ─────────────────────────────────────────
-   Addresses and MACs are reference material, not headline news:
-   quiet, monospaced where they are identifiers, at the foot of
-   the card. */
-:root:root .dashboard-app .overview-technical-facts {
-  background: transparent;
-  border-top: 1px solid var(--classic-border);
-  border-radius: 0;
-  padding: var(--gap-group) 0 0;
-  margin-top: var(--gap-group);
-}
-
-:root:root .dashboard-app .overview-technical-facts small {
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-eyebrow);
-  text-transform: uppercase;
-  color: var(--ink-eyebrow);
-}
-
-:root:root .dashboard-app .overview-technical-facts strong {
+/* An identifier is read character by character, not scanned. */
+:root:root .dashboard-app .overview-group dd.is-identifier {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  font-weight: var(--weight-regular);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app .overview-group dd.is-good { color: var(--classic-green); }
+:root:root .dashboard-app .overview-group dd.is-bad { color: #a8402e; }
+:root:root .dashboard-app .overview-group dd.is-warning { color: var(--classic-orange); }
+
+/* A qualifying line under a reading spans the row. */
+:root:root .dashboard-app .overview-group dl > div > small {
+  grid-column: 1 / -1;
+  margin-top: calc(var(--space-1) * -1);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
 }
 
 /* ── Service ribbon ─────────────────────────────────────────
