@@ -126,7 +126,14 @@ test.skip(
   "the visual contract is captured on desktop chromium only",
 );
 
+// Date.now() is pinned, but timers keep running: the dashboard polls, and a
+// stopped clock would leave it waiting for samples that never arrive.
+async function freezeClock(page: Page) {
+  await page.clock.setFixedTime(NOW);
+}
+
 async function openDashboard(page: Page) {
+  await freezeClock(page);
   // Until Studio becomes the only look, the baseline has to ask for it
   // explicitly. Afterwards this is a harmless no-op, which is what makes the
   // before/after images comparable.
@@ -146,6 +153,13 @@ async function openDashboard(page: Page) {
 }
 
 test.describe("Studio look", () => {
+  // The Overview eyebrow prints the current date, so without a frozen clock
+  // every capture on this page turns red the next day - a red run that says
+  // nothing about the dashboard. The timezone and locale are pinned for the
+  // same reason: `toLocaleDateString` would otherwise render whatever the
+  // machine happened to be set to.
+  test.use({ timezoneId: "UTC", locale: "en-GB" });
+
   for (const section of SECTIONS) {
     test(`section ${section}`, async ({ page }) => {
       const crashes: string[] = [];
@@ -232,6 +246,7 @@ test.describe("Studio look", () => {
     await page.route("**/api/v1/**", (r) => json(r, {}));
     await page.route("**/api/v1/auth/session", (r) => json(r, { error: "unauthorized" }, 401));
     await page.route("**/api/v1/setup/status", (r) => json(r, { is_configured: true }));
+    await freezeClock(page);
     await page.goto("/");
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
@@ -248,6 +263,7 @@ test.describe("Studio look", () => {
     await page.route("**/api/v1/**", (r) => json(r, {}));
     await page.route("**/api/v1/auth/session", (r) => json(r, { error: "unauthorized" }, 401));
     await page.route("**/api/v1/setup/status", (r) => json(r, { is_configured: true }));
+    await freezeClock(page);
     await page.goto("/");
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
