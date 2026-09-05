@@ -17,6 +17,8 @@ import "./MobileNavigation.css";
 // that the layered sheets left inconsistent.
 import "./theme/tokens.css";
 import "./theme/look.css";
+import "./theme/typography.css";
+import "./theme/surfaces.css";
 import "./theme/controls.css";
 
 function CanonicalRevisionBoundary() {

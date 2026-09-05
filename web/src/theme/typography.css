@@ -1,0 +1,134 @@
+/* ============================================================
+   TYPOGRAPHY
+   Every piece of text on the dashboard has one of five roles.
+   This file assigns all of them, so a heading cannot end up in
+   the wrong face because the section it lives in was written
+   after the sheet that styled its neighbours.
+
+     eyebrow      the small caps label above a title
+     page title   one per page, the display face, large
+     hero         the status statement on Overview and Security
+     card title   the heading on a settings or data card
+     copy         prose: intros, helper text, descriptions
+
+   Contrast is not guesswork here. The values below were measured
+   against the paper ground rgb(245,241,234):
+
+     section copy was rgb(171,192,217) at 1.65:1 - a third of the
+       4.5:1 that normal text requires, and set at 12px
+     the eyebrow bronze sat at 4.18:1, just under the line
+
+   Both are corrected, and the copy size is raised to the body
+   step so an operator can actually read the sentence that
+   explains the page.
+   ============================================================ */
+
+/* ── Eyebrow ────────────────────────────────────────────────
+   A darker bronze than the accent: the same family, but it has
+   to carry 10px uppercase text and clear 4.5:1. */
+:root:root {
+  --ink-eyebrow: #7a5c33;
+}
+
+:root:root[data-theme="dark"] {
+  --ink-eyebrow: #d3ae74;
+}
+
+:root:root .dashboard-app .eyebrow,
+:root:root .dashboard-app .subpage-hero-head .eyebrow,
+:root:root .dashboard-app .service-config-title > div > p {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+}
+
+/* ── Hero statements ────────────────────────────────────────
+   "Online and verified" and "Protected by default" are the
+   largest sentence on their page and were the only page-level
+   headings still set in the UI face. */
+:root:root .dashboard-app .overview-hero-summary h1,
+:root:root .dashboard-app .overview-hero-summary h2,
+:root:root .dashboard-app .classic-security-hero-copy h1,
+:root:root .dashboard-app .classic-security-hero-copy h2 {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
+/* ── Card titles ────────────────────────────────────────────
+   Every heading that names a card, whichever of the several
+   markup patterns the section happens to use. They ranged from
+   15px to 17px in three different weights. */
+:root:root .dashboard-app .fieldset-title,
+:root:root .dashboard-app .service-config-title h3,
+:root:root .dashboard-app .overview-panel-header h2,
+:root:root .dashboard-app .boot-activity-head h2,
+:root:root .dashboard-app .wg-peer-panel-head h3,
+:root:root .dashboard-app .wg-client-title h3,
+:root:root .dashboard-app .port-forward-title h3,
+:root:root .dashboard-app .classic-security-feed-heading h3,
+:root:root .dashboard-app .classic-security-card > h3,
+:root:root .dashboard-app .table-card > header h3,
+:root:root .dashboard-app .settings-form > h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+  color: var(--classic-text);
+  margin: 0;
+}
+
+/* ── Copy ───────────────────────────────────────────────────
+   The sentence under a page title explains what the page is
+   for. It has to be readable: warm grey rather than pale blue,
+   at the body size, with a measure that does not run the full
+   width of a 1440px screen. */
+:root:root .dashboard-app .section-copy,
+:root:root .dashboard-app .ddns-lead,
+:root:root .dashboard-app .dns-filter-intro,
+:root:root .dashboard-app .subpage-hero-head p:not(.eyebrow),
+:root:root .dashboard-app .dashboard-section-heading p:not(.eyebrow) {
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-body);
+  color: var(--text-secondary);
+  max-width: 68ch;
+}
+
+/* Helper text under a field keeps the same voice one step down,
+   and stays above the contrast line. */
+:root:root .dashboard-app .field-hint,
+:root:root .dashboard-app .settings-form small,
+:root:root .dashboard-app .service-config-title > div > span {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--text-secondary);
+}
+
+/* ── Data ───────────────────────────────────────────────────
+   Figures in fact strips are display-face numerals, and every
+   number on the page uses tabular figures so a column cannot
+   shift as a value changes. */
+:root:root .dashboard-app .subpage-hero-facts dd,
+:root:root .dashboard-app .classic-security-command-facts dd {
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+:root:root .dashboard-app .subpage-hero-facts dt,
+:root:root .dashboard-app .classic-security-command-facts dt {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+}
