@@ -16,12 +16,18 @@ v0.1.5 ISO evidence below does not carry forward on its own and the blank-disk
 E2E is required again for this line.
 
 What has been re-run, precisely: the **Build, flash and boot minimalrouter
-golden ISO** job passed on the branch carrying the flasher change
-([run 33965811766](https://github.com/vladimirperovic/minimalrouter/actions/runs/33965811766),
-commit `1d2fb92`). That is CI evidence on a pull-request branch — it is **not**
-a claim about the released artifact. The signed release workflow rebuilds the
-exact tagged commit and repeats the full E2E install before publication, and
-the release claim rests on that run, not on this one.
+golden ISO** job has passed twice on the v0.1.7 line —
+
+- [run 33965811766](https://github.com/vladimirperovic/minimalrouter/actions/runs/33965811766)
+  on the branch carrying the flasher change itself (commit `1d2fb92`);
+- [run 33996803693](https://github.com/vladimirperovic/minimalrouter/actions/runs/33996803693)
+  on the branch that changes how the bootstrap binaries are built (commit
+  `a9731bb`), which is the later of the two to touch what lands on the disk.
+
+Both are CI evidence on pull-request branches. Neither is a claim about a
+released artifact: the signed release workflow rebuilds the exact tagged commit
+and repeats the full E2E install before publication, and the release claim
+rests on that run rather than on either of these.
 
 No new owner-Proxmox or ISP evidence has been produced for v0.1.7.
 
