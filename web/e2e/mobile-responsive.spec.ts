@@ -396,7 +396,14 @@ test("startup timeline is horizontal and scrolls inside Logs on mobile", async (
 test.describe("desktop final frame", () => {
   test.use({ viewport: { width: 1600, height: 900 } });
 
-  test("uses equal 37px gutters and hides only the redundant gateway ribbon chip", async ({ page, isMobile }) => {
+  // The frame this asserted was the v0.1.5 one: the rail floated 37px in from
+  // the viewport edge, so the page had three gutters of the same size. Studio
+  // runs the rail flush to the edge as a full-height panel, which leaves two -
+  // rail to content, and content to the right edge. Those two still have to be
+  // equal, and the topbar still has to align with the content under it; that is
+  // what this test is for. The outer inset is gone, not merely a different
+  // number, so asserting it would be asserting the retired design.
+  test("runs the rail flush and keeps one gutter either side of the page", async ({ page, isMobile }) => {
     test.skip(isMobile, "desktop-only frame regression");
     await stubApi(page);
     await page.goto("/");
@@ -417,9 +424,12 @@ test.describe("desktop final frame", () => {
       };
     });
 
-    expect(Math.abs(geometry.sidebarLeft - 37)).toBeLessThanOrEqual(1);
-    expect(Math.abs((geometry.overviewLeft - geometry.sidebarRight) - 37)).toBeLessThanOrEqual(1);
-    expect(Math.abs((geometry.viewport - geometry.overviewRight) - 37)).toBeLessThanOrEqual(1);
+    const railToPage = geometry.overviewLeft - geometry.sidebarRight;
+    const pageToEdge = geometry.viewport - geometry.overviewRight;
+
+    expect(geometry.sidebarLeft).toBeLessThanOrEqual(1);
+    expect(Math.abs(railToPage - 38)).toBeLessThanOrEqual(1);
+    expect(Math.abs(pageToEdge - railToPage)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.topbarLeft - geometry.overviewLeft)).toBeLessThanOrEqual(1);
     expect(Math.abs(geometry.topbarRight - geometry.overviewRight)).toBeLessThanOrEqual(1);
     // The topbar health pill was removed: the Needs attention card on Overview
