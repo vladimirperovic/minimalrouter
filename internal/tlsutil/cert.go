@@ -109,6 +109,24 @@ func canonicalWireGuardIP(cfg *config.SystemConfig) (net.IP, bool) {
 	return ip, true
 }
 
+// RenewBeforeExpiry is how much remaining validity still counts as usable. A
+// certificate closer to expiry than this is rotated rather than risking a
+// failed handshake later.
+const RenewBeforeExpiry = 30 * 24 * time.Hour
+
+// CertificateTimeValid reports whether a certificate's validity window is
+// usable at the given moment. A certificate generated before the clock
+// synchronized may become not-yet-valid after a large wall-clock correction,
+// so both ends of the window matter.
+//
+// Callers that cache a parsed certificate must re-check this on every use: a
+// long-running process would otherwise keep serving a certificate that expired
+// (or became not-yet-valid) since it was cached, because nothing else in its
+// cache key changes with time.
+func CertificateTimeValid(notBefore, notAfter, now time.Time) bool {
+	return !now.Before(notBefore) && notAfter.Sub(now) >= RenewBeforeExpiry
+}
+
 func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, additionalIPs []net.IP, additionalDNS []string) bool {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
@@ -118,11 +136,7 @@ func certificateMatchesConfig(certPEM []byte, cfg *config.SystemConfig, addition
 	if err != nil {
 		return false
 	}
-	now := time.Now()
-	// A certificate generated before the clock synchronized may become
-	// not-yet-valid after a large wall-clock correction. Conversely, rotate
-	// with a month of validity left rather than failing a later handshake.
-	if now.Before(cert.NotBefore) || cert.NotAfter.Sub(now) < 30*24*time.Hour {
+	if !CertificateTimeValid(cert.NotBefore, cert.NotAfter, time.Now()) {
 		return false
 	}
 	lanIP := net.ParseIP(cfg.LAN.IPAddress)

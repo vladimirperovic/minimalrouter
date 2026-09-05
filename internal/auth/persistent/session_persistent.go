@@ -126,6 +126,44 @@ func (psm *PersistentSessionManager) CreateSessionWithMode(readOnly bool) *auth.
 	return session
 }
 
+// CreateSessionWithGeneration issues a session only if expectedGeneration —
+// the authentication epoch read alongside the hash the caller just verified
+// (see config.SQLiteStore.GetAdminAuthState) — is still current. This ties
+// session issuance atomically to the exact credential that was checked: a
+// password/TOTP change racing between verification and this call advances the
+// epoch, so the insert is refused instead of silently adopting the new epoch.
+func (psm *PersistentSessionManager) CreateSessionWithGeneration(readOnly bool, expectedGeneration uint64) (*auth.Session, error) {
+	sessionID, err := generateRandomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	csrfToken, err := generateRandomHex(32)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	ok, err := psm.store.CreateSessionIfGenerationCurrent(sessionID, csrfToken, readOnly, expectedGeneration, now, now)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, auth.ErrGenerationChanged
+	}
+	session := &auth.Session{
+		ID:             sessionID,
+		CSRFToken:      csrfToken,
+		ReadOnly:       readOnly,
+		AuthGeneration: expectedGeneration,
+		CreatedAt:      now,
+		LastSeen:       now,
+	}
+	psm.mu.Lock()
+	psm.sessions[session.ID] = session
+	psm.lastPersisted[session.ID] = now
+	psm.mu.Unlock()
+	return session, nil
+}
+
 // ValidateSession verifies if the given session cookie ID is valid and active.
 func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Session, error) {
 	cookie, err := r.Cookie(auth.SessionCookieName)

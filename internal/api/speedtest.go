@@ -75,6 +75,9 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	}
+	// This transport is created per measurement; without this its keep-alive
+	// connections would linger in an appliance with a 128 MiB budget.
+	defer client.CloseIdleConnections()
 
 	// Bind the measurement itself to the request: if the operator closes the
 	// tab or navigates away, the router stops pulling test traffic through the
@@ -112,6 +115,12 @@ func (s *Server) handleSpeedtest(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(res)
 }
 
+// minimumSampleFraction is how much of the requested payload must actually move
+// before a measurement is worth reporting. A short answer — an error page, a
+// truncated transfer — divided by a near-zero duration produces an arbitrarily
+// large "speed" that would then be offered as a QoS bandwidth suggestion.
+const minimumSampleFraction = 0.5
+
 func measureDownload(ctx context.Context, client *http.Client, sampleBytes int64) (float64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		speedtestHost+"/__down?bytes="+strconv.FormatInt(sampleBytes, 10), nil)
@@ -123,11 +132,19 @@ func measureDownload(ctx context.Context, client *http.Client, sampleBytes int64
 		return 0, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return 0, fmt.Errorf("download endpoint returned HTTP %d", resp.StatusCode)
+	}
 
 	start := time.Now()
-	n, err := io.Copy(io.Discard, resp.Body)
+	// Bound the read: the measurement asked for sampleBytes and must not be
+	// turned into an unbounded transfer by a misbehaving or redirected host.
+	n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, sampleBytes))
 	if err != nil {
 		return 0, err
+	}
+	if n < int64(float64(sampleBytes)*minimumSampleFraction) {
+		return 0, fmt.Errorf("download sample was too small to measure (%d of %d bytes)", n, sampleBytes)
 	}
 	elapsed := time.Since(start).Seconds()
 	if elapsed <= 0 {
@@ -143,13 +160,20 @@ func measureDownload(ctx context.Context, client *http.Client, sampleBytes int64
 type timedBody struct {
 	inner     io.Reader
 	firstRead time.Time
+	// sent counts the bytes the transport actually pulled from this body. The
+	// upload rate must be derived from these, never from the planned size: a
+	// server that answers before reading the body would otherwise divide the
+	// full sample by a near-zero duration.
+	sent int64
 }
 
 func (t *timedBody) Read(p []byte) (int, error) {
 	if t.firstRead.IsZero() {
 		t.firstRead = time.Now()
 	}
-	return t.inner.Read(p)
+	n, err := t.inner.Read(p)
+	t.sent += int64(n)
+	return n, err
 }
 
 func measureUpload(ctx context.Context, client *http.Client, sampleBytes int64) (float64, error) {
@@ -165,23 +189,27 @@ func measureUpload(ctx context.Context, client *http.Client, sampleBytes int64) 
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.ContentLength = sampleBytes
 
-	fallbackStart := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	start := body.firstRead
-	if start.IsZero() {
-		start = fallbackStart
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return 0, fmt.Errorf("upload endpoint returned HTTP %d", resp.StatusCode)
 	}
-	elapsed := time.Since(start).Seconds()
+
+	if body.firstRead.IsZero() {
+		return 0, fmt.Errorf("upload endpoint answered without reading the request body; no upload rate was measured")
+	}
+	if body.sent < int64(float64(sampleBytes)*minimumSampleFraction) {
+		return 0, fmt.Errorf("upload sample was too small to measure (%d of %d bytes)", body.sent, sampleBytes)
+	}
+	elapsed := time.Since(body.firstRead).Seconds()
 	if elapsed <= 0 {
 		elapsed = 1
 	}
-	return mbps(sampleBytes, elapsed), nil
+	return mbps(body.sent, elapsed), nil
 }
 
 func mbps(bytes int64, seconds float64) float64 {

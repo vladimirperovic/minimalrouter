@@ -41,6 +41,14 @@ const (
 	wireGuardClientRuntimePath = "/run/minimalrouter/wg1.runtime.conf"
 	lastTxPath                 = "/var/lib/minimalrouter-applyd/last-transaction.json"
 	pendingPath                = "/var/lib/minimalrouter-applyd/pending-confirmation.json"
+
+	// requestReadTimeout bounds how long an idle peer may hold a connection
+	// before sending its request.
+	requestReadTimeout = 15 * time.Second
+	// responseWriteTimeout bounds only the delivery of a finished outcome. It
+	// is armed at write time, not at accept time, so a legitimately long
+	// privileged operation cannot consume its own reply budget.
+	responseWriteTimeout = 15 * time.Second
 )
 
 var applyMu sync.Mutex
@@ -151,15 +159,16 @@ func handleConnection(conn net.Conn) {
 
 	// A compromised routerd could otherwise hold RPC connections open and
 	// exhaust the helper's descriptor budget with idle sockets.
-	if err := conn.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(requestReadTimeout)); err != nil {
 		return
 	}
-	// The response side needs the same bound. writeResponse runs while applyMu
-	// is held, so a peer that never reads its reply would otherwise wedge every
-	// later privileged operation, rollback and reconciliation included.
-	if err := conn.SetWriteDeadline(time.Now().Add(15 * time.Second)); err != nil {
-		return
-	}
+	// The write deadline is deliberately NOT set here. Waiting on applyMu,
+	// preflight, activation and verification (one WAN check alone may take up
+	// to 20s) all happen between accept and reply, so a deadline started here
+	// would already be spent before the first response byte — a completed
+	// privileged operation would lose its reply and force a transport replay.
+	// writeResponse arms it immediately before writing instead, which still
+	// bounds a peer that never reads while applyMu is held.
 
 	if err := validatePeer(conn); err != nil {
 		writeResponse(conn, apply.ApplyResponse{Success: false, Error: "unauthorized local peer"})
@@ -310,7 +319,16 @@ func hashRequest(req apply.ApplyRequest) (string, error) {
 
 func writeResponse(conn net.Conn, resp apply.ApplyResponse) {
 	resp.Timestamp = time.Now().Unix()
-	_ = json.NewEncoder(conn).Encode(&resp)
+	if err := conn.SetWriteDeadline(time.Now().Add(responseWriteTimeout)); err != nil {
+		log.Printf("apply transaction %q could not arm the response deadline: %v", resp.ID, err)
+		return
+	}
+	if err := json.NewEncoder(conn).Encode(&resp); err != nil {
+		// The privileged operation itself already completed; only its outcome
+		// was lost. Record it so an unexplained transport replay from routerd
+		// can be tied to this connection instead of looking like a helper hang.
+		log.Printf("apply transaction %q outcome could not be delivered: %v", resp.ID, err)
+	}
 }
 
 type runtimeVerificationPlan struct {

@@ -51,19 +51,28 @@ func (e accountingError) Error() string { return string(e) }
 
 const errUnsupportedSet = accountingError("unsupported accounting set")
 
+// Settings is the canonical accounting state one collection round works from.
+type Settings struct {
+	Enabled         bool
+	RetentionMonths int
+	// Generation identifies the current kernel counter set. It is the canonical
+	// configuration revision: every apply recreates the nftables table, so a
+	// changed revision means every counter restarted at zero.
+	Generation uint64
+}
+
 // Collector periodically folds kernel counters into the monthly buckets.
 type Collector struct {
 	store  *Store
 	reader Reader
-	// enabled reports the current canonical setting plus retention. It is a
-	// function because accounting can be switched on and off at runtime and the
+	// settings reports the current canonical configuration. It is a function
+	// because accounting can be switched on and off at runtime and the
 	// collector must not hold a stale copy of the configuration.
-	settings func() (bool, int)
+	settings func() Settings
 	interval time.Duration
-	wasOn    bool
 }
 
-func NewCollector(store *Store, reader Reader, settings func() (bool, int)) *Collector {
+func NewCollector(store *Store, reader Reader, settings func() Settings) *Collector {
 	return &Collector{
 		store:    store,
 		reader:   reader,
@@ -96,19 +105,29 @@ func (c *Collector) Run(ctx context.Context) {
 }
 
 func (c *Collector) collectOnce(ctx context.Context) {
-	enabled, retention := c.settings()
-	if !enabled {
+	settings := c.settings()
+	if !settings.Enabled {
 		// Disabling accounting removes the per-device history rather than
 		// freezing it on disk: the operator asked the router to stop measuring.
-		if c.wasOn {
-			if err := c.store.Reset(); err != nil {
-				log.Printf("[ACCOUNTING] could not clear history after disable: %v", err)
-			}
-			c.wasOn = false
+		// The "already cleared" answer is durable, so a disable followed by a
+		// restart still deletes, and a failed delete is retried next tick.
+		cleared, err := c.store.HistoryCleared()
+		if err != nil {
+			log.Printf("[ACCOUNTING] could not read disable state: %v", err)
+			return
+		}
+		if cleared {
+			return
+		}
+		if err := c.store.ClearHistory(); err != nil {
+			log.Printf("[ACCOUNTING] could not clear history after disable: %v", err)
 		}
 		return
 	}
-	c.wasOn = true
+	if err := c.store.MarkHistoryLive(); err != nil {
+		log.Printf("[ACCOUNTING] could not record active accounting state: %v", err)
+		return
+	}
 
 	rx, err := c.readCounters(ctx, AccountingSetRXName)
 	if err != nil {
@@ -121,7 +140,7 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	if len(rx) == 0 && len(tx) == 0 {
 		return
 	}
-	if err := c.store.Record(time.Now(), rx, tx, retention); err != nil {
+	if err := c.store.Record(time.Now(), rx, tx, settings.RetentionMonths, settings.Generation); err != nil {
 		log.Printf("[ACCOUNTING] could not record counters: %v", err)
 	}
 }

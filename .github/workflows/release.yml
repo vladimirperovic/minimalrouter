@@ -169,6 +169,7 @@ jobs:
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F BUILD-INFO
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz.sha256
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.bytes
           xorriso -indev "$iso" -ls /boot/grub 2>/dev/null | grep -F grub.cfg
           xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep -F 'El Torito boot img'
 

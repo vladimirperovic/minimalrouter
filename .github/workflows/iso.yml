@@ -60,7 +60,14 @@ jobs:
           grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh
           grep -F 'build-golden-image.sh' packaging/alpine/build-iso.sh
           grep -F 'golden.img.gz' packaging/alpine/build-iso.sh
-          grep -F "gzip -dc \"\$GOLDEN\" | dd" packaging/alpine/live-installer.sh
+          # The flasher still decompresses the golden image straight into dd,
+          # and must verify both halves of that pipeline: a shell pipeline
+          # reports only dd's status, so a decompressor that dies after partial
+          # output would otherwise look like a successful install.
+          grep -F "gzip -dc \"\$GOLDEN\"" packaging/alpine/live-installer.sh
+          grep -F "| dd of=\"\$disk\" bs=4M" packaging/alpine/live-installer.sh
+          grep -F 'gz_status_file' packaging/alpine/live-installer.sh
+          grep -F 'golden.img.bytes' packaging/alpine/live-installer.sh
           grep -F 'safe_auto_vm_disk' packaging/alpine/live-installer.sh
           grep -F 'guard_existing_install' packaging/alpine/live-installer.sh
           grep -F 'installed_by=golden-image' packaging/alpine/build-golden-image.sh
@@ -116,6 +123,7 @@ jobs:
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F BUILD-INFO
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz
           xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.gz.sha256
+          xorriso -indev "$iso" -ls /minimalrouter 2>/dev/null | grep -F golden.img.bytes
           xorriso -indev "$iso" -ls / 2>/dev/null | grep -F minimalrouter.apkovl.tar.gz
           xorriso -indev "$iso" -ls /boot/grub 2>/dev/null | grep -F grub.cfg
           xorriso -indev "$iso" -report_el_torito plain 2>/dev/null | grep -F 'El Torito boot img'

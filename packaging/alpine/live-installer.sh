@@ -177,9 +177,35 @@ write_golden_image() {
     disk="$1"
     printf '\nWriting the prebuilt MinimalRouter appliance to %s...\n' "$disk"
     printf 'No packages are installed on this VM; this is a verified raw-image copy.\n\n'
-    if ! gzip -dc "$GOLDEN" | dd of="$disk" bs=4M 2>/tmp/minimalrouter-dd.log; then
+
+    # A pipeline reports only the exit status of its last command, so
+    # `gzip -dc | dd` used to report success whenever dd wrote whatever it
+    # received — including a decompressor that died after partial output,
+    # leaving a truncated, unbootable disk described as "copied successfully".
+    # POSIX sh has no pipefail, so the decompressor records its own failure.
+    gz_status_file=/tmp/minimalrouter-gzip-status
+    rm -f "$gz_status_file"
+    { gzip -dc "$GOLDEN" || printf '%s' "$?" > "$gz_status_file"; } | dd of="$disk" bs=4M 2>/tmp/minimalrouter-dd.log
+    dd_status=$?
+    if [ -s "$gz_status_file" ]; then
+        cat /tmp/minimalrouter-dd.log >&2 || true
+        fail "Decompressing the golden image failed (gzip exit $(cat "$gz_status_file")); $disk now holds a partial image and must not be booted"
+    fi
+    if [ "$dd_status" -ne 0 ]; then
         cat /tmp/minimalrouter-dd.log >&2 || true
         fail "Could not write the golden image to $disk"
+    fi
+
+    # Exit statuses alone cannot see a stream that ended early but cleanly, so
+    # compare what dd actually wrote against the size recorded at build time.
+    # An ISO built before that file existed still gets the status checks above.
+    if [ -r "$GOLDEN_SIZE" ]; then
+        expected_bytes="$(tr -dc '0-9' < "$GOLDEN_SIZE")"
+        written_bytes="$(awk '/bytes/ {print $1; exit}' /tmp/minimalrouter-dd.log)"
+        if [ -n "$expected_bytes" ] && [ -n "$written_bytes" ] && [ "$written_bytes" != "$expected_bytes" ]; then
+            cat /tmp/minimalrouter-dd.log >&2 || true
+            fail "Golden image is incomplete: wrote $written_bytes of $expected_bytes bytes to $disk"
+        fi
     fi
 
     # The filesystem UUID, ExtLinux config, kernel, initramfs and modules are all
@@ -196,6 +222,7 @@ MEDIA="$(wait_for_media)" || fail "MinimalRouter golden image was not found on t
 ISO_ROOT="$MEDIA/minimalrouter"
 GOLDEN="$ISO_ROOT/golden.img.gz"
 GOLDEN_SHA="$ISO_ROOT/golden.img.gz.sha256"
+GOLDEN_SIZE="$ISO_ROOT/golden.img.bytes"
 VERSION="dev"
 [ -r "$ISO_ROOT/VERSION" ] && VERSION="$(tr -d '\r\n' < "$ISO_ROOT/VERSION")"
 [ -n "$VERSION" ] || VERSION="dev"

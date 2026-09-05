@@ -20,9 +20,16 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 	}
 	server.ConfigureAccountingStore(store)
 
-	collector := accounting.NewCollector(store, accounting.CommandReader{}, func() (bool, int) {
+	collector := accounting.NewCollector(store, accounting.CommandReader{}, func() accounting.Settings {
 		cfg := engine.GetCurrentConfig()
-		return cfg.Accounting.Enabled, cfg.Accounting.RetentionMonths
+		return accounting.Settings{
+			Enabled:         cfg.Accounting.Enabled,
+			RetentionMonths: cfg.Accounting.RetentionMonths,
+			// Every apply recreates the nftables table and with it the counter
+			// sets, and every apply advances the revision, so the revision is
+			// exactly the counter generation.
+			Generation: uint64(cfg.Revision),
+		}
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

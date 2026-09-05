@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/vladimirperovic/minimalrouter/internal/kdf"
 )
 
 // BackupEncryption provides authenticated encryption for backup snapshots using AES-GCM (NaCl-compatible).
@@ -69,7 +71,11 @@ func EncryptConfigBackup(cfg SystemConfig, passphrase string) ([]byte, error) {
 	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
 		return nil, fmt.Errorf("generate backup salt: %w", err)
 	}
+	if err := kdf.Acquire(); err != nil {
+		return nil, err
+	}
 	key := argon2.IDKey([]byte(passphrase), salt, backupArgonTime, backupArgonMemory, backupArgonThreads, 32)
+	kdf.Release()
 	defer clear(key)
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -130,7 +136,11 @@ func DecryptConfigBackup(data []byte, passphrase string) (SystemConfig, error) {
 	if err != nil || len(ciphertext) < 16 {
 		return SystemConfig{}, errors.New("backup ciphertext is invalid")
 	}
+	if err := kdf.Acquire(); err != nil {
+		return SystemConfig{}, err
+	}
 	key := argon2.IDKey([]byte(passphrase), salt, envelope.ArgonTime, envelope.ArgonMemory, envelope.ArgonThreads, 32)
+	kdf.Release()
 	defer clear(key)
 	block, err := aes.NewCipher(key)
 	if err != nil {

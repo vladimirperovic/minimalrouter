@@ -139,18 +139,40 @@ func decodeAddress(raw json.RawMessage) (string, bool) {
 }
 
 // Delta returns how many bytes to add for a host given the previously observed
-// raw counter.
+// raw counter within the same counter generation.
 //
-// The kernel counter is monotonic only between table reloads. Every apply
-// deletes and recreates `inet minimalrouter`, so a value lower than the last
-// observation means the counter restarted and the current value is itself the
-// delta. Treating that as zero would silently lose a month of traffic on a busy
-// router that gets configured often.
+// The kernel counter is monotonic only between table reloads. A value lower
+// than the last observation means the counter restarted and the current value
+// is itself the delta. Treating that as zero would silently lose a month of
+// traffic on a busy router that gets configured often.
+//
+// Magnitude alone cannot detect every restart: if the recreated counter has
+// already climbed past the last observed value by the time it is sampled (100
+// observed, table replaced, new counter at 200), the difference looks like a
+// normal 100-byte increase and a whole generation of traffic is lost. Callers
+// must therefore compare generations first — see DeltaAcrossGenerations.
 func Delta(previous, current uint64) uint64 {
 	if current >= previous {
 		return current - previous
 	}
 	return current
+}
+
+// DeltaAcrossGenerations folds the counter generation into the decision. The
+// generation is the canonical configuration revision: every apply deletes and
+// recreates the `inet minimalrouter` table, so a changed revision means the
+// sampled counters belong to a fresh set that started at zero, and the whole
+// current value is new traffic regardless of how it compares to the previous
+// observation.
+//
+// Traffic between the last sample and the table replacement is still lost;
+// sampling cannot recover it, and only keeping the accounting sets alive
+// across policy changes would.
+func DeltaAcrossGenerations(previousGeneration, currentGeneration, previous, current uint64) uint64 {
+	if previousGeneration != currentGeneration {
+		return current
+	}
+	return Delta(previous, current)
 }
 
 // MonthKey is the bucket identifier: calendar month in UTC.

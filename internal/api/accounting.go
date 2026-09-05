@@ -54,6 +54,15 @@ func (s *Server) handleGetAccounting(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot.Available = true
 
+	// Disabling accounting promises that per-device history is deleted. The
+	// collector performs that deletion on its next tick, so between the change
+	// and that tick rows may still exist on disk; serving them would contradict
+	// the setting the operator is looking at.
+	if !cfg.Accounting.Enabled {
+		writeAccountingJSON(w, snapshot)
+		return
+	}
+
 	months := 3
 	if raw := r.URL.Query().Get("months"); raw != "" {
 		parsed, err := strconv.Atoi(raw)

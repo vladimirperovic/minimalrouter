@@ -374,6 +374,13 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 			return tx, err
 		}
 		faultinject.Run(faultinject.PostSQLiteCommit)
+		// The durable store now holds newCfg: the in-memory canon must follow it
+		// immediately, before the helper's last-good acknowledgement below. If
+		// that acknowledgement fails, RecoveryRequired still triggers a Reconcile,
+		// but Reconcile builds its request from e.currentConfig — it must rebuild
+		// from the config that is actually committed and running, not revert to
+		// the pre-transaction config (see F1 in the 2026-09-05 audit).
+		e.currentConfig = newCfg
 		if applyReq.DeferLastGood {
 			ackID := txID + "-commit-canonical-0"
 			ackReq := ApplyRequest{ID: ackID, Op: OpCommitConfirmed, Revision: newCfg.Revision, Config: newCfg, SkipWANVerify: true}

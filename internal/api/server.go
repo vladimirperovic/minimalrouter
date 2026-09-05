@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/buildinfo"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/kdf"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -129,6 +131,7 @@ type SessionManagerInterface interface {
 	SetSessionCookie(w http.ResponseWriter, session *auth.Session)
 	CreateSession() *auth.Session
 	CreateSessionWithMode(readOnly bool) *auth.Session
+	CreateSessionWithGeneration(readOnly bool, expectedGeneration uint64) (*auth.Session, error)
 	DestroyAllSessions() error
 }
 
@@ -447,9 +450,29 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	hash := s.adminHash
-	s.mu.RUnlock()
+	// The hash used to verify the password and the generation used to gate
+	// session issuance below must come from the same instant: reading them via
+	// two separate calls lets a concurrent password/TOTP change slip in between
+	// and advance the generation, so a session created from this now-stale
+	// check would silently adopt the new epoch.
+	var hash string
+	var authGeneration uint64
+	if s.store != nil {
+		var stateErr error
+		hash, authGeneration, stateErr = s.store.GetAdminAuthState()
+		if stateErr != nil && !errors.Is(stateErr, sql.ErrNoRows) {
+			log.Printf("[AUTH] Authentication state unavailable for login from %s: %v", ip, stateErr)
+			s.appendAudit("auth.login_failed", ip, map[string]string{"result": "authentication_store_unavailable"})
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication service unavailable"})
+			return
+		}
+	} else {
+		s.mu.RLock()
+		hash = s.adminHash
+		s.mu.RUnlock()
+	}
 
 	// If no admin hash is set yet (first-run), reject login
 	if hash == "" {
@@ -463,6 +486,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	match, err := auth.VerifyPassword(req.Password, hash)
+	if errors.Is(err, kdf.ErrBusy) {
+		log.Printf("[AUTH] Login from %s rejected: password verification capacity exhausted\n", ip)
+		w.Header().Set("Retry-After", "5")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Authentication is busy. Try again shortly."})
+		return
+	}
 	if err != nil || !match {
 		log.Printf("[AUTH] Failed login from %s\n", ip)
 		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "invalid_credentials"})
@@ -510,8 +541,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	session := s.sessionMgr.CreateSessionWithMode(req.ReadOnly)
-	if session == nil {
+	// Issuing the session is conditional on the credential generation that was
+	// actually verified above still being current, so a password or TOTP change
+	// that landed mid-login refuses the session instead of adopting its epoch.
+	session, err := s.sessionMgr.CreateSessionWithGeneration(req.ReadOnly, authGeneration)
+	if errors.Is(err, auth.ErrGenerationChanged) {
+		log.Printf("[AUTH] Login from %s raced a credential change and was refused\n", ip)
+		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "credentials_changed"})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+		return
+	}
+	if err != nil || session == nil {
 		http.Error(w, "Could not create a durable session", http.StatusInternalServerError)
 		return
 	}
@@ -634,6 +676,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Verify old password
 	if currentHash != "" {
 		match, err := auth.VerifyPassword(req.OldPassword, currentHash)
+		if errors.Is(err, kdf.ErrBusy) {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "Authentication is busy; retry shortly", http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil || !match {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -644,6 +691,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Hash and store new password
 	newHash, err := auth.HashPassword(req.NewPassword)
+	if errors.Is(err, kdf.ErrBusy) {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Authentication is busy; retry shortly", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -726,8 +778,8 @@ func (s *Server) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if !s.verifyCurrentPassword(req.CurrentPassword) {
-		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+	if ok, err := s.verifyCurrentPassword(req.CurrentPassword); !ok {
+		writeCredentialCheckFailure(w, err)
 		return
 	}
 	if s.store == nil {
@@ -775,8 +827,8 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if !s.verifyCurrentPassword(req.CurrentPassword) {
-		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+	if ok, err := s.verifyCurrentPassword(req.CurrentPassword); !ok {
+		writeCredentialCheckFailure(w, err)
 		return
 	}
 
@@ -1291,12 +1343,30 @@ func (s *Server) handleGetPendingTransaction(w http.ResponseWriter, _ *http.Requ
 
 // ── Backup Encryption Handlers (P1) ──
 
-func (s *Server) verifyCurrentPassword(password string) bool {
+// verifyCurrentPassword reports whether the supplied password matches, and
+// separately whether the check could not run at all. Admission control on the
+// memory-hard KDF (see internal/kdf) makes "busy" a real outcome that must not
+// be reported to the operator as a wrong password.
+func (s *Server) verifyCurrentPassword(password string) (bool, error) {
 	s.mu.RLock()
 	hash := s.adminHash
 	s.mu.RUnlock()
 	match, err := auth.VerifyPassword(password, hash)
-	return err == nil && match
+	if errors.Is(err, kdf.ErrBusy) {
+		return false, err
+	}
+	return err == nil && match, nil
+}
+
+// writeCredentialCheckFailure answers a failed credential check: a KDF
+// admission rejection is a retryable service condition, a mismatch is 401.
+func writeCredentialCheckFailure(w http.ResponseWriter, err error) {
+	if errors.Is(err, kdf.ErrBusy) {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Authentication is busy; retry shortly", http.StatusServiceUnavailable)
+		return
+	}
+	http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
 }
 
 func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
@@ -1308,11 +1378,16 @@ func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
-	if !s.verifyCurrentPassword(req.CurrentPassword) {
-		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+	if ok, err := s.verifyCurrentPassword(req.CurrentPassword); !ok {
+		writeCredentialCheckFailure(w, err)
 		return
 	}
 	encrypted, err := config.EncryptConfigBackup(s.engine.GetCurrentConfig(), req.BackupPassphrase)
+	if errors.Is(err, kdf.ErrBusy) {
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Backup encryption is busy; retry shortly", http.StatusServiceUnavailable)
+		return
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
@@ -1334,8 +1409,8 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 	}
 	currentPassword := r.FormValue("current_password")
 	passphrase := r.FormValue("backup_passphrase")
-	if !s.verifyCurrentPassword(currentPassword) {
-		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+	if ok, err := s.verifyCurrentPassword(currentPassword); !ok {
+		writeCredentialCheckFailure(w, err)
 		return
 	}
 	file, _, err := r.FormFile("backup")

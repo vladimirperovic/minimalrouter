@@ -6,13 +6,17 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.1.5 — Beta / controlled pilot.**
+**Minimal Router OS v0.1.7 — Beta / controlled pilot.**
 
-v0.1.5 has a CI-built Golden Appliance ISO for AMD64/Proxmox and signed
-AMD64/ARM64 distribution/update payloads. It is not yet recommended as an
-unattended replacement for pfSense/OpenWrt.
+The build tree (`VERSION`, `web/package.json`) is v0.1.7. The Golden Appliance
+ISO evidence recorded below was produced for the v0.1.5 line and inherited
+through v0.1.6; it is **not** a claim that the full blank-disk install E2E has
+been re-run for v0.1.7. v0.1.7 changes the flasher's write verification, so
+that E2E is required again before v0.1.7 is published (see
+`docs/GOLDEN-IMAGE.md`). It is not recommended as an unattended replacement for
+pfSense/OpenWrt.
 
-## Golden Appliance ISO evidence — v0.1.5
+## Golden Appliance ISO evidence — v0.1.5 (inherited, not re-run for v0.1.7)
 
 The v0.1.5 release candidate extends the original Golden Appliance path with
 additional installed-appliance, supervision and installer-safety checks. The

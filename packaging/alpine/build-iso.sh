@@ -31,6 +31,7 @@ OUT_ISO="$BUILD_DIR/minimalrouter-${VERSION_SAFE}-amd64.iso"
 OUT_SHA="$OUT_ISO.sha256"
 GOLDEN_IMAGE="$BUILD_DIR/minimalrouter-golden-${VERSION}-amd64.img.gz"
 GOLDEN_SHA="$GOLDEN_IMAGE.sha256"
+GOLDEN_BYTES="$BUILD_DIR/minimalrouter-golden-${VERSION}-amd64.img.bytes"
 DIST_DIR="build/dist/minimalrouter-linux-amd64"
 
 need() {
@@ -205,6 +206,7 @@ echo "[2/6] Building the bootable golden disk image..."
 sh packaging/alpine/build-golden-image.sh
 [ -s "$GOLDEN_IMAGE" ] || { echo "ERROR: golden image was not produced" >&2; exit 1; }
 [ -s "$GOLDEN_SHA" ] || { echo "ERROR: golden image checksum was not produced" >&2; exit 1; }
+[ -s "$GOLDEN_BYTES" ] || { echo "ERROR: golden image size was not produced" >&2; exit 1; }
 
 echo "[3/6] Downloading verified Alpine ${ALPINE_VERSION} installer shell..."
 fetch_file "$ALPINE_ISO_URL" "$BASE_ISO"
@@ -236,6 +238,8 @@ install_model=golden-image
 EOF
 cp "$GOLDEN_IMAGE" "$INJECT_DIR/minimalrouter/golden.img.gz"
 cp "$GOLDEN_SHA" "$INJECT_DIR/minimalrouter/golden.img.gz.sha256"
+# Uncompressed size, so the flasher can prove it wrote the whole image.
+cp "$GOLDEN_BYTES" "$INJECT_DIR/minimalrouter/golden.img.bytes"
 
 rm -f "$OUT_ISO" "$OUT_SHA"
 xorriso \
@@ -254,6 +258,7 @@ iso_ls_has /minimalrouter VERSION || { echo "ERROR: final ISO is missing VERSION
 iso_ls_has /minimalrouter BUILD-INFO || { echo "ERROR: final ISO is missing BUILD-INFO" >&2; exit 1; }
 iso_ls_has /minimalrouter golden.img.gz || { echo "ERROR: final ISO is missing golden.img.gz" >&2; exit 1; }
 iso_ls_has /minimalrouter golden.img.gz.sha256 || { echo "ERROR: final ISO is missing golden image checksum" >&2; exit 1; }
+iso_ls_has /minimalrouter golden.img.bytes || { echo "ERROR: final ISO is missing golden image size" >&2; exit 1; }
 iso_ls_has / minimalrouter.apkovl.tar.gz || { echo "ERROR: final ISO is missing live flasher overlay" >&2; exit 1; }
 iso_ls_has /boot vmlinuz-lts || { echo "ERROR: final ISO is missing live vmlinuz-lts" >&2; exit 1; }
 iso_ls_has /boot initramfs-lts || { echo "ERROR: final ISO is missing live initramfs-lts" >&2; exit 1; }

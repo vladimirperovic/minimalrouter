@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/vladimirperovic/minimalrouter/internal/kdf"
 )
 
 // Argon2id parameters following SECURITY.md section 5:
@@ -42,7 +44,11 @@ func HashPassword(password string) (string, error) {
 		return "", fmt.Errorf("failed to generate random salt: %w", err)
 	}
 
+	if err := kdf.Acquire(); err != nil {
+		return "", err
+	}
 	hash := argon2.IDKey([]byte(password), salt, argonIterations, argonMemory, argonParallelism, argonKeyLen)
+	kdf.Release()
 
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
@@ -99,7 +105,11 @@ func VerifyPassword(password, encodedHash string) (bool, error) {
 		return false, ErrInvalidHash
 	}
 
+	if err := kdf.Acquire(); err != nil {
+		return false, err
+	}
 	otherHash := argon2.IDKey([]byte(password), salt, iterations, memory, parallelism, uint32(len(hash)))
+	kdf.Release()
 
 	if subtle.ConstantTimeCompare(hash, otherHash) == 1 {
 		return true, nil

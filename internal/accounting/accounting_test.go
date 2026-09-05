@@ -1,6 +1,7 @@
 package accounting
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -67,15 +68,15 @@ func TestStoreAccumulatesAcrossRestartWithoutDoubleCounting(t *testing.T) {
 	defer store.Close()
 
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1000}}, nil, 13); err != nil {
+	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1000}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
 	// Same raw counter observed again: nothing new happened.
-	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1000}}, nil, 13); err != nil {
+	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1000}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
 	// Counter advanced.
-	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1500}}, nil, 13); err != nil {
+	if err := store.Record(now, []Counter{{Address: "192.168.1.50", Bytes: 1500}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
 	months, err := store.Months(3)
@@ -102,10 +103,10 @@ func TestStoreSeparatesCalendarMonths(t *testing.T) {
 
 	march := time.Date(2026, 3, 31, 23, 0, 0, 0, time.UTC)
 	april := time.Date(2026, 4, 1, 1, 0, 0, 0, time.UTC)
-	if err := store.Record(march, []Counter{{Address: "192.168.1.60", Bytes: 500}}, nil, 13); err != nil {
+	if err := store.Record(march, []Counter{{Address: "192.168.1.60", Bytes: 500}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Record(april, []Counter{{Address: "192.168.1.60", Bytes: 900}}, nil, 13); err != nil {
+	if err := store.Record(april, []Counter{{Address: "192.168.1.60", Bytes: 900}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
 	months, err := store.Months(3)
@@ -127,6 +128,81 @@ func TestStoreSeparatesCalendarMonths(t *testing.T) {
 	}
 }
 
+// A table reload whose new counter has already climbed past the last
+// observation is invisible to magnitude alone: 100 recorded, table replaced,
+// counter at 200 must total 300, not 200.
+func TestStoreCountsFullValueAfterCounterGenerationChange(t *testing.T) {
+	store, err := OpenStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	if err := store.Record(now, []Counter{{Address: "192.168.1.80", Bytes: 100}}, nil, 13, 7); err != nil {
+		t.Fatal(err)
+	}
+	// An apply recreated the table: same host, counters restarted and grew to
+	// 200 under the next configuration revision.
+	if err := store.Record(now, []Counter{{Address: "192.168.1.80", Bytes: 200}}, nil, 13, 8); err != nil {
+		t.Fatal(err)
+	}
+	months, err := store.Months(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(months) != 1 || len(months[0].Devices) != 1 {
+		t.Fatalf("expected one month with one device, got %+v", months)
+	}
+	if got := months[0].Devices[0].RXBytes; got != 300 {
+		t.Fatalf("both counter generations must be counted: want 300, got %d", got)
+	}
+}
+
+// Disabling accounting must delete history even if the service restarts before
+// the next collection tick — the decision cannot live in a process flag.
+func TestDisabledAccountingClearsHistoryAfterRestart(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector := NewCollector(store, stubReader{}, func() Settings {
+		return Settings{Enabled: true, RetentionMonths: 13, Generation: 1}
+	})
+	collector.collectOnce(t.Context())
+	if err := store.Record(time.Now(), []Counter{{Address: "192.168.1.90", Bytes: 1234}}, nil, 13, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Operator disables accounting, then routerd restarts: the new collector
+	// has no memory of accounting ever having been on.
+	restarted, err := OpenStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	freshCollector := NewCollector(restarted, stubReader{}, func() Settings {
+		return Settings{Enabled: false, RetentionMonths: 13, Generation: 1}
+	})
+	freshCollector.collectOnce(t.Context())
+
+	months, err := restarted.Months(3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(months) != 0 {
+		t.Fatalf("disabled accounting must not keep history across a restart, got %+v", months)
+	}
+}
+
+type stubReader struct{}
+
+func (stubReader) ReadSet(context.Context, string) (string, error) { return "", nil }
+
 func TestStoreResetClearsHistory(t *testing.T) {
 	dir := t.TempDir()
 	store, err := OpenStore(dir)
@@ -134,7 +210,7 @@ func TestStoreResetClearsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.Record(time.Now(), []Counter{{Address: "192.168.1.70", Bytes: 10}}, nil, 13); err != nil {
+	if err := store.Record(time.Now(), []Counter{{Address: "192.168.1.70", Bytes: 10}}, nil, 13, 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Reset(); err != nil {

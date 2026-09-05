@@ -531,6 +531,23 @@ func (s *SQLiteStore) GetAuthGeneration() (uint64, error) {
 	return getAuthGeneration(s.db)
 }
 
+// GetAdminAuthState reads the password hash and authentication epoch as one
+// consistent snapshot. A caller that verifies a password against this hash
+// must pass this same generation to CreateSessionIfGenerationCurrent: reading
+// the two fields with separate locked calls would let a concurrent
+// SetAdminHash/SetAdminTOTPSecret/ClearAdminTOTPSecret advance the epoch
+// between them, so a session created afterward would silently adopt the new
+// epoch despite having verified the now-revoked credential.
+func (s *SQLiteStore) GetAdminAuthState() (hash string, generation uint64, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	err = s.db.QueryRow(`SELECT password_hash, auth_generation FROM admin_credentials WHERE id = 1`).Scan(&hash, &generation)
+	if err != nil {
+		return "", 0, err
+	}
+	return hash, generation, nil
+}
+
 func getAuthGeneration(q interface {
 	QueryRow(query string, args ...any) *sql.Row
 }) (uint64, error) {
@@ -713,6 +730,43 @@ func (s *SQLiteStore) CreateSession(sessionID, csrfToken string, readOnly bool, 
 		sessionID, csrfToken, readOnly, authGeneration, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
 	)
 	return err
+}
+
+// CreateSessionIfGenerationCurrent inserts a session only if the
+// authentication epoch is still expectedGeneration at the moment of
+// insertion, all under one lock/transaction. This closes the window between
+// a caller reading (hash, generation) via GetAdminAuthState, verifying the
+// password against that hash, and issuing the session: if a password/TOTP
+// change lands in between and advances the epoch, ok is false and no session
+// is created, so a session can never be issued for a credential generation
+// other than the one that was actually verified.
+func (s *SQLiteStore) CreateSessionIfGenerationCurrent(sessionID, csrfToken string, readOnly bool, expectedGeneration uint64, createdAt, lastSeen time.Time) (ok bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	current, err := getAuthGeneration(tx)
+	if err != nil {
+		return false, err
+	}
+	if current != expectedGeneration {
+		return false, nil
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO sessions (id, csrf_token, read_only, auth_generation, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)`,
+		sessionID, csrfToken, readOnly, expectedGeneration, createdAt.Format(time.RFC3339), lastSeen.Format(time.RFC3339),
+	); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // GetSession retrieves a session by ID.
