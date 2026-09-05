@@ -358,6 +358,14 @@
   text-overflow: clip;
   white-space: normal;
   overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Six-across strips (gateway) give each cell ~180px: hold the numerals one
+   step smaller so real values ("192h 0m") and placeholders ("Collecting")
+   stay on one line instead of breaking mid-word. */
+:root:root .subpage-hero-facts.six dd {
+  font-size: clamp(20px, 1.7vw, 26px);
 }
 
 :root:root .subpage-hero-facts small {
@@ -502,7 +510,7 @@
 
 :root:root .elegant-device-table tbody td {
   height: 58px;
-  padding: 0 22px;
+  padding: var(--space-4) var(--card-padding);
   border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 60%, transparent);
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;

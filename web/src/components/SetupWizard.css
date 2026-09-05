@@ -48,7 +48,7 @@
   height: 34px;
   place-items: center;
   border-radius: 11px;
-  background: #0071e3;
+  background: var(--accent, #8b6f47);
   color: #fff;
   font-weight: 750;
 }
@@ -79,7 +79,7 @@
 }
 
 .setup-step-labels .is-current {
-  color: #0071e3;
+  color: var(--accent, #8b6f47);
 }
 
 .setup-progress progress,
@@ -89,7 +89,7 @@
   border: 0;
   border-radius: 999px;
   overflow: hidden;
-  accent-color: #0071e3;
+  accent-color: var(--accent, #8b6f47);
 }
 
 .setup-page h1 {
@@ -175,8 +175,8 @@
 
 .setup-panel input:focus,
 .setup-panel select:focus {
-  border-color: #0071e3;
-  outline: 3px solid rgba(0, 113, 227, 0.16);
+  border-color: var(--accent, #8b6f47);
+  outline: 3px solid color-mix(in srgb, var(--accent, #8b6f47) 18%, transparent);
 }
 
 .setup-panel input.is-valid {
@@ -199,8 +199,8 @@
 }
 
 .setup-interface-list article.is-selected {
-  border-color: rgba(0, 113, 227, 0.55);
-  background: rgba(0, 113, 227, 0.05);
+  border-color: color-mix(in srgb, var(--accent, #8b6f47) 55%, transparent);
+  background: color-mix(in srgb, var(--accent, #8b6f47) 6%, transparent);
 }
 
 .setup-interface-list code {
@@ -309,7 +309,7 @@
   border-radius: 10px;
   padding: 9px 12px;
   background: var(--surface-muted, #f5f5f7);
-  color: #0071e3;
+  color: var(--accent, #8b6f47);
 }
 
 @media (max-width: 680px) {

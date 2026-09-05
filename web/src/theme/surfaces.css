@@ -41,19 +41,65 @@
 /* The header of a table card is the exception that proves the
    rule: the card has no padding, so its header supplies it. */
 :root:root .dashboard-app .table-card > header,
-:root:root .dashboard-app .card.table-card > header {
+:root:root .dashboard-app .table-card > .card-title-row,
+:root:root .dashboard-app .modern-section-heading {
   padding: var(--card-padding) var(--card-padding) var(--space-4);
 }
 
-/* Between cards: one rhythm down the page. */
-:root:root .dashboard-app .dashboard-section > * + * {
-  margin-top: var(--gap-section);
+/* The section grid owns the space between cards. Child margins used to add
+   another 40px to its gap, plus the page heading's bottom margin. */
+:root:root .dashboard-app .dashboard-section,
+:root:root .dashboard-app .dns-filter {
+  gap: var(--gap-group);
+  min-width: 0;
+}
+
+:root:root .dashboard-app .dashboard-section > *,
+:root:root .dashboard-app .dns-filter > * {
+  margin-block: 0;
+  min-width: 0;
+}
+
+:root:root .dashboard-app .dashboard-section-heading.has-facts,
+:root:root .dashboard-app .dns-filter-heading.has-facts {
+  gap: var(--gap-group);
+}
+
+/* Fieldsets share the form's inset. Only subsequent groups need an extra
+   top inset beneath their divider, not another frame on all four sides. */
+:root:root .dashboard-app .settings-form {
+  gap: var(--gap-group);
+}
+
+:root:root .dashboard-app .settings-form > .form-grid,
+:root:root .dashboard-app .settings-form > fieldset > .form-grid,
+:root:root .dashboard-app .settings-form .form-actions {
+  margin-block: 0;
+}
+
+:root:root .dashboard-app .settings-form > fieldset {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  min-width: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root:root .dashboard-app .settings-form > fieldset + fieldset {
+  border-top: var(--skin-hairline);
+  padding-top: var(--gap-group);
 }
 
 /* The fact strip under a page title is a row of readings, not a
    card. It keeps its own quiet rules and only needs breathing
    room from the sentence above it. */
-:root:root .dashboard-app .subpage-hero-facts,
+:root:root .dashboard-app .subpage-hero-facts {
+  margin: 0;
+  gap: 0;
+}
+
 :root:root .dashboard-app .classic-security-command-facts {
   margin-top: var(--gap-group);
   gap: var(--space-6);
@@ -76,11 +122,13 @@
   }
 
   :root:root .dashboard-app .table-card > header,
-  :root:root .dashboard-app .card.table-card > header {
+  :root:root .dashboard-app .table-card > .card-title-row,
+  :root:root .dashboard-app .modern-section-heading {
     padding: var(--card-padding-compact) var(--card-padding-compact) var(--space-3);
   }
 
-  :root:root .dashboard-app .dashboard-section > * + * {
-    margin-top: var(--gap-group);
+  :root:root .dashboard-app .dashboard-section,
+  :root:root .dashboard-app .dns-filter {
+    gap: var(--gap-field);
   }
 }

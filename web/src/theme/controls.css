@@ -69,6 +69,43 @@
   display: flex;
   align-items: center;
   gap: var(--space-4);
+  min-width: 0;
+}
+
+/* An inline checkbox cannot inherit the full width of a settings-form row:
+   that leaves no room for the accompanying description. */
+:root:root .dashboard-app .service-inline-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--gap-group);
+  padding: var(--card-padding);
+  border-radius: var(--radius-lg);
+}
+
+:root:root .dashboard-app .service-inline-control .checkbox-row {
+  width: auto;
+  min-width: 0;
+}
+
+:root:root .dashboard-app .service-inline-control p {
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+/* Native checkboxes keep their own dimensions; the generic input rule sets
+   a text field's 42px minimum height on them otherwise. */
+:root:root .dashboard-app .checkbox-row input[type="checkbox"] {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+}
+
+:root:root .dashboard-app .checkbox-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 :root:root .dashboard-app .service-config-icon {
@@ -339,6 +376,12 @@
 }
 
 @media (max-width: 720px) {
+  :root:root .dashboard-app .service-inline-control {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--gap-field);
+    padding: var(--card-padding-compact);
+  }
+
   :root:root .dashboard-app .service-config-fields {
     grid-template-columns: 1fr;
     padding: var(--card-padding-compact);

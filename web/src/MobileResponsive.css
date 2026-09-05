@@ -484,9 +484,9 @@
   }
 
   /* Common subpages */
-  .dashboard-main > .dashboard-section:not(#overview),
+  .dashboard-main > .dashboard-section:not(:where(#overview)),
   .dashboard-main > .dns-filter {
-    gap: 14px;
+    gap: var(--gap-field);
   }
 
   .dashboard-section-heading,
@@ -815,15 +815,15 @@
 
 @media (max-width: 430px) {
   .dashboard-main {
-    padding-right: max(6px, env(safe-area-inset-right)) !important;
-    padding-left: max(6px, env(safe-area-inset-left)) !important;
+    padding-right: max(16px, env(safe-area-inset-right)) !important;
+    padding-left: max(16px, env(safe-area-inset-left)) !important;
   }
 
   .dashboard-topbar.classic-topbar {
-    margin-right: -6px !important;
-    margin-left: -6px !important;
-    padding-right: max(6px, env(safe-area-inset-right)) !important;
-    padding-left: max(6px, env(safe-area-inset-left)) !important;
+    margin-right: -16px !important;
+    margin-left: -16px !important;
+    padding-right: max(16px, env(safe-area-inset-right)) !important;
+    padding-left: max(16px, env(safe-area-inset-left)) !important;
   }
 
   .classic-topbar-actions {

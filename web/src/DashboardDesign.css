@@ -100,8 +100,8 @@ body,
   --demo-bad-wash: rgba(202, 57, 66, .08);
   --demo-destructive-ink: #c83f46;
 
-  --demo-accent-ink: #1479f7;
-  --demo-migration-ink: #6258e8;
+  --demo-accent-ink: var(--classic-green);
+  --demo-migration-ink: var(--accent);
   --demo-hero-ink: #f4f8ff;
   --demo-hero-ink-muted: #abc0d9;
 }
@@ -121,8 +121,8 @@ body,
   --demo-bad-wash: rgba(255, 123, 132, .12);
   --demo-destructive-ink: #ff8a90;
 
-  --demo-accent-ink: #64a9ff;
-  --demo-migration-ink: #a89bff;
+  --demo-accent-ink: #7cc79a;
+  --demo-migration-ink: var(--accent);
 }
 
 .classic-help-button,
@@ -425,21 +425,6 @@ body,
   margin-top: 20px;
   padding-top: 0;
   border-top: 0 !important;
-}
-
-#network .settings-form > fieldset,
-#qos .settings-form > fieldset,
-#wireguard .settings-form > fieldset,
-#cloudflare .settings-form > fieldset,
-#squid .settings-form > fieldset,
-#wifi .settings-form > fieldset,
-#security .settings-form > fieldset {
-  margin: 0 0 18px;
-  border: 1px solid var(--classic-border);
-  border-radius: var(--demo-card-radius);
-  padding: 22px 24px 24px;
-  background: var(--classic-panel);
-  box-shadow: var(--demo-shadow-soft);
 }
 
 #network .settings-form > fieldset legend,
@@ -1189,7 +1174,7 @@ body {
 .wg-page-hero .eyebrow,
 .classic-security-page .eyebrow,
 .overview-status-hero .eyebrow {
-  color: var(--demo-hero-ink-muted);
+  color: var(--ink-eyebrow, #7a5c33);
   font-size: var(--demo-text-2xs);
   font-weight: var(--demo-weight-medium);
   letter-spacing: var(--demo-track-caps);
@@ -1207,7 +1192,7 @@ body {
 .wg-page-hero p:not(.eyebrow),
 .overview-status-hero p:not(.eyebrow) {
   max-width: 760px;
-  color: var(--demo-hero-ink-muted);
+  color: var(--text-secondary, #5d574e);
   font-size: var(--demo-text-sm);
   line-height: 1.55;
 }

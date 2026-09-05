@@ -84,8 +84,8 @@ html.demo-015-preview {
   --demo-bad-wash: rgba(202, 57, 66, .08);
   --demo-destructive-ink: #c83f46;
 
-  --demo-accent-ink: #1479f7;
-  --demo-migration-ink: #6258e8;
+  --demo-accent-ink: var(--classic-green);
+  --demo-migration-ink: var(--accent);
   --demo-hero-ink: #f4f8ff;
   --demo-hero-ink-muted: #abc0d9;
 }
@@ -105,8 +105,8 @@ html.demo-015-preview:root[data-theme="dark"] {
   --demo-bad-wash: rgba(255, 123, 132, .12);
   --demo-destructive-ink: #ff8a90;
 
-  --demo-accent-ink: #64a9ff;
-  --demo-migration-ink: #a89bff;
+  --demo-accent-ink: #7cc79a;
+  --demo-migration-ink: var(--accent);
 }
 
 html.demo-015-preview .classic-help-button,
@@ -489,21 +489,6 @@ html.demo-015-preview .settings-form .form-actions {
   border-top: 0 !important;
 }
 
-html.demo-015-preview #network .settings-form > fieldset,
-html.demo-015-preview #qos .settings-form > fieldset,
-html.demo-015-preview #wireguard .settings-form > fieldset,
-html.demo-015-preview #cloudflare .settings-form > fieldset,
-html.demo-015-preview #squid .settings-form > fieldset,
-html.demo-015-preview #wifi .settings-form > fieldset,
-html.demo-015-preview #security .settings-form > fieldset {
-  margin: 0 0 18px;
-  border: 1px solid var(--classic-border);
-  border-radius: var(--demo-card-radius);
-  padding: 22px 24px 24px;
-  background: var(--classic-panel);
-  box-shadow: var(--demo-shadow-soft);
-}
-
 html.demo-015-preview #network .settings-form > fieldset legend,
 html.demo-015-preview #qos .settings-form > fieldset legend,
 html.demo-015-preview #wireguard .settings-form > fieldset legend,
@@ -749,9 +734,9 @@ html.demo-015-preview .demo-recovery-index {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
 }
 
-html.demo-015-preview .demo-recovery-index.is-1 { background: #1479f7; }
-html.demo-015-preview .demo-recovery-index.is-2 { background: #18a861; }
-html.demo-015-preview .demo-recovery-index.is-3 { background: #6258e8; }
+html.demo-015-preview .demo-recovery-index.is-1 { background: var(--accent); }
+html.demo-015-preview .demo-recovery-index.is-2 { background: var(--accent); }
+html.demo-015-preview .demo-recovery-index.is-3 { background: var(--accent); }
 
 html.demo-015-preview .demo-recovery-label {
   color: var(--classic-text);
@@ -1287,7 +1272,7 @@ html.demo-015-preview .dns-filter-heading .eyebrow,
 html.demo-015-preview .wg-page-hero .eyebrow,
 html.demo-015-preview .classic-security-page .eyebrow,
 html.demo-015-preview .overview-status-hero .eyebrow {
-  color: var(--demo-hero-ink-muted);
+  color: var(--ink-eyebrow, #7a5c33);
   font-size: var(--demo-text-2xs);
   font-weight: var(--demo-weight-medium);
   letter-spacing: var(--demo-track-caps);
@@ -1305,7 +1290,7 @@ html.demo-015-preview .dns-filter-heading .dns-filter-intro,
 html.demo-015-preview .wg-page-hero p:not(.eyebrow),
 html.demo-015-preview .overview-status-hero p:not(.eyebrow) {
   max-width: 760px;
-  color: var(--demo-hero-ink-muted);
+  color: var(--text-secondary);
   font-size: var(--demo-text-sm);
   line-height: 1.55;
 }

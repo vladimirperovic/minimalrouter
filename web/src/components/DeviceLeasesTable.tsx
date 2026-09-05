@@ -385,7 +385,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
       <div className="elegant-table-container">
         <table className="elegant-device-table">
-          <colgroup><col className="elegant-col-num" /><col /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
+          <colgroup><col className="elegant-col-num" /><col className="elegant-col-name" /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
           <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
             {filteredRows.length === 0 ? (
