@@ -243,12 +243,22 @@
 :root:root .classic-topbar-button { width: 36px; }
 :root:root .classic-topbar-button svg { width: 17px; height: 17px; stroke-width: 1.6; }
 
+/* Hover is a hint that a control is live, not a change of identity. These
+   used to invert to near-black, which on a paper ground reads as the button
+   having been pressed into a different design. A warm tint and a firmer
+   hairline say the same thing quietly, and keep the icon legible. */
 :root:root .classic-topbar-button:hover,
 :root:root .classic-account-button:hover,
 :root:root .classic-setup-pill:hover {
-  border-color: var(--classic-text);
-  background: var(--classic-text);
-  color: var(--classic-bg);
+  border-color: color-mix(in srgb, var(--classic-blue) 42%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 10%, var(--classic-panel));
+  color: var(--classic-text);
+}
+
+:root:root .classic-topbar-button:active,
+:root:root .classic-account-button:active,
+:root:root .classic-setup-pill:active {
+  background: color-mix(in srgb, var(--classic-blue) 18%, var(--classic-panel));
 }
 
 :root:root .skin-menu-trigger.classic-topbar-button { width: auto; padding: 0 14px; }
@@ -626,11 +636,12 @@
 }
 
 /* Nested cells inside the heroes were tinted with translucent blue over navy.
-   Over paper they vanish, so they are re-cut as hairline cells. */
-:root:root .dashboard-app .overview-wan-card,
-:root:root .dashboard-app .overview-assurance > div,
+   Over paper they vanish, so they are re-cut as hairline cells.
+
+   The Overview's own cells are no longer in this list: theme/overview.css
+   flattens that page's three levels of nesting into one sheet, and a tinted
+   cell there would just be the middle level growing back. */
 :root:root .dashboard-app .overview-technical-facts,
-:root:root .dashboard-app .overview-wan-quality span:not(.demo-metric-tip),
 :root:root .dashboard-app .classic-security-command-facts,
 :root:root .dashboard-app .classic-security-command-facts > div,
 :root:root .dashboard-app .wg-hero-metrics,

@@ -172,6 +172,37 @@ test.describe("Studio look", () => {
     });
   }
 
+  // Every section at phone width too. The mobile stylesheets are folded into
+  // component media queries next, and two captures could not tell whether a
+  // page survived it.
+  for (const section of SECTIONS) {
+    test(`phone ${section}`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await openDashboard(page);
+      const menu = page.locator(".dashboard-menu:visible").first();
+      await menu.click();
+      const link = page.locator(`a[href="#${section}"]`).first();
+      await link.waitFor({ state: "visible" });
+      await link.click();
+      await expect(link).toHaveClass(/is-active/);
+      await page.waitForTimeout(500);
+      await page.evaluate(() => window.scrollTo(0, 0));
+
+      // A phone capture is full-page: what matters is whether the whole
+      // section fits the width and stacks, not just its first screen.
+      await expect(page).toHaveScreenshot(`phone-${section}.png`, {
+        mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
+        maxDiffPixels: MAX_DIFF_PIXELS,
+        animations: "disabled",
+        fullPage: true,
+      });
+
+      // Nothing may push the page sideways at 390px.
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow, "the page scrolls horizontally at phone width").toBeLessThanOrEqual(0);
+    });
+  }
+
   test("dark form", async ({ page }) => {
     await openDashboard(page);
     await page.getByRole("button", { name: /toggle appearance/i }).click();
