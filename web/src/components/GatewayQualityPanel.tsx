@@ -108,13 +108,20 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
   useEffect(() => {
     let mounted = true;
     const controller = new AbortController();
-    const loadHistory = async () => {
+    const loadHistory = async (attempt = 0) => {
       try {
         const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal: controller.signal });
         if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
         const body = (await response.json()) as { points?: GatewayHistoryPoint[] };
         if (mounted) setPoints(Array.isArray(body.points) ? body.points : []);
       } catch (error) {
+        // Opening the section can abort the first mount-time request (the
+        // previous section unmounts mid-flight). Retry once while mounted so
+        // the chart does not stay empty until the 30s poll refires.
+        if (mounted && (error as Error).name === "AbortError" && attempt < 1) {
+          window.setTimeout(() => { if (mounted) void loadHistory(attempt + 1); }, 500);
+          return;
+        }
         if (mounted && (error as Error).name !== "AbortError") onError(error instanceof Error ? error.message : "Gateway history unavailable");
       }
     };

@@ -196,7 +196,7 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     config.revision += 1;
     return json({ tx: { state: "Committed" } });
   }
-  if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", provisioning_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
+  if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", qr_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
   if (path === "/api/v1/backup/import/preview" && method === "POST") return json({ import_id: "demo-backup", expires_in_seconds: 600, candidate: config });
   if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");

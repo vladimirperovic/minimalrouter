@@ -764,15 +764,15 @@ export default function DashboardSections({
 
   {config.qos.enabled ? (
     <div className="speedtest-note" role="status">
-      <strong>Speed test unavailable</strong>
-      <span>Disable QoS first. An active shaper (currently {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps) would report its own limit — not your real line speed — and suggested limits would be wrong.</span>
+      <strong>Measuring with QoS on is fine</strong>
+      <span>The test briefly bypasses the shaper (currently {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps), so the measured line speed and suggested limits stay valid.</span>
     </div>
   ) : (
     <div className="speedtest-block">
       <div className="speedtest-heading">
         <div>
           <strong>Measure your line speed</strong>
-          <small>Run with QoS off, then apply the suggested 90% limits below.</small>
+          <small>Run the test, then apply the suggested 90% limits below.</small>
         </div>
         <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Measuring…" : "Run speed test"}</button>
       </div>
