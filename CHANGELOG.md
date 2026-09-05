@@ -54,6 +54,15 @@ Next development version: **v0.1.8**.
   presentation layer patched the DOM after React drew it, which is a race with
   every re-render. The patches it carried are in the components.
 
+### Removed
+
+- The four appearances that were not chosen — Console, Atelier, Topology and
+  the previous default — along with the topbar control that selected them.
+- The standalone LAN & DHCP design gallery published at `/design/` on the
+  GitHub Pages site. It existed to compare candidate appearances against each
+  other; the comparison is over, and a page still offering them would advertise
+  a control the dashboard no longer has.
+
 ### Fixed
 
 - **Recovery no longer reverts a committed configuration.** When the canonical
