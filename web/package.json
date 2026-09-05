@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "lint": "eslint . --ignore-pattern dist",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "dev:demo": "vite --mode demo --port 5251 --strictPort"
   },
   "dependencies": {
     "react": "19.2.6",
