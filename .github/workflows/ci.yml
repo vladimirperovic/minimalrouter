@@ -150,6 +150,24 @@ jobs:
       - name: Scan reachable Go vulnerabilities
         run: govulncheck ./...
 
+  bootstrap-compatibility:
+    name: Bootstrap A/B update compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check builds the baseline release tag as well as this tree.
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Decide whether this build is deliverable as a web update
+        run: sh scripts/ci/bootstrap-compatibility.sh
+
   dashboard:
     name: Dashboard lint, audit and build
     runs-on: ubuntu-latest

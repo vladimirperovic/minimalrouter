@@ -1,0 +1,33 @@
+{
+  "comment": [
+    "router-update and router-recovery are installed to /usr/libexec/minimalrouter/bootstrap,",
+    "outside the A/B slot. cmd/router-update/runtime_layout.go requires a candidate release to",
+    "carry byte-identical copies of them before it will activate an A/B slot, because a binary",
+    "that survives rollback cannot itself be rolled back by moving a symlink.",
+    "",
+    "bootstrap_baseline_ref names the release those bytes are unchanged since. Appliances running",
+    "that baseline (or any later release sharing it) can take this build as a dashboard web update.",
+    "Appliances older than it need the full signed distribution installer once.",
+    "",
+    "scripts/ci/bootstrap-compatibility.sh proves the claim by building both refs with the same",
+    "toolchain and deterministic flags. When bootstrap source genuinely changes, update this file",
+    "in the same pull request and document the one-time installer step - never relax the",
+    "byte-identity check to make a release pass."
+  ],
+  "bootstrap_baseline_ref": "v0.1.6",
+  "bootstrap_baseline_version": "0.1.6",
+  "bootstrap_commands": ["router-update", "router-recovery"],
+  "architectures": ["amd64", "arm64"],
+  "bootstrap_change_acknowledged_version": "0.1.7",
+  "bootstrap_change_reason": "router-recovery links internal/config, and internal/config/validation.go changed after v0.1.6 (firewall source and lease-time validator fixes). The recovery console's own validation must match the release it ships with, so this is a real bootstrap change, not build noise. Appliances running v0.1.6 therefore take v0.1.7 through the full signed distribution installer once.",
+  "requires_full_installer_from": "0.1.6",
+  "deterministic_bootstrap_since": "0.1.7",
+  "deterministic_bootstrap_note": [
+    "Releases up to and including v0.1.6 were built without -buildvcs=false, so Go stamped the",
+    "commit hash and derived module version into the bootstrap binaries. Two such releases can",
+    "never be byte-identical, which made web updates between published releases impossible for a",
+    "reason unrelated to compatibility: v0.1.5 and v0.1.6 differ only in vcs.revision, vcs.time and",
+    "the module version string. From the first release built with GO_BOOTSTRAP_BUILD_FLAGS, the",
+    "bytes depend on bootstrap source and toolchain only."
+  ]
+}
