@@ -1,6 +1,16 @@
 .PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
 
 GO_BUILD_FLAGS := -trimpath
+# router-update and router-recovery are bootstrap binaries: they run from
+# /usr/libexec/minimalrouter/bootstrap, outside the A/B slot, and every A/B
+# activation requires the candidate's copy to be byte-identical to the
+# installed one (cmd/router-update/runtime_layout.go). Go stamps the commit
+# hash and derived module version into every binary by default, so two
+# releases built from otherwise identical bootstrap source still differ —
+# which made web updates between published releases impossible for a reason
+# that has nothing to do with compatibility. Traceability for these two is
+# carried by the signed release manifest, not by an embedded commit.
+GO_BOOTSTRAP_BUILD_FLAGS := $(GO_BUILD_FLAGS) -buildvcs=false
 BUILD_VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 BUILD_COMMIT ?= unknown
 BUILD_DATE ?= unknown
@@ -39,8 +49,8 @@ build:
 	mkdir -p bin
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd ./cmd/routerd
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
+	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
+	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup ./cmd/router-setup
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-sign ./cmd/firmware-sign
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-keygen ./cmd/firmware-keygen
@@ -53,8 +63,8 @@ build-linux:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-amd64 ./cmd/routerd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-amd64 ./cmd/router-setup
 
 build-linux-amd64: build-linux
@@ -63,8 +73,8 @@ build-linux-arm64:
 	mkdir -p bin
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-arm64 ./cmd/routerd
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-arm64 ./cmd/router-setup
 
 web-build:
