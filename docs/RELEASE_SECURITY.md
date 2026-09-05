@@ -119,10 +119,24 @@ The current release workflow uses a GitHub Actions protected Ed25519 signing
 secret. It is decoded into a mode `0600` temporary file, used only to sign
 canonical manifests, and removed before publication.
 
-This is **not an offline key**. The protected `production-release` environment,
-required reviewer approval, pinned Actions and SSH-signed tag verification reduce
-risk, but a future trust-model migration should consider isolated/hardware-backed
-signing or a reviewed keyless design.
+This is **not an offline key**. Four controls reduce the risk, and on
+2026-09-06 each was checked against the repository rather than assumed:
+
+- the `production-release` environment carries a **required-reviewer rule**, so
+  a tag push pauses for an explicit approval before the signing step runs. This
+  rule was claimed by this document while the environment in fact had no
+  protection rules at all; it now exists;
+- Actions are pinned by commit SHA;
+- the tag must be SSH-signed by a key in `MINIMALROUTER_RELEASE_ALLOWED_SIGNERS`;
+- `VERSION` must equal the tag before any artifact is built.
+
+The approval gate is what makes a mistaken tag recoverable. Until it is
+granted, nothing has been signed, no ISO has been built and no release exists —
+so a wrong tag is declined and deleted rather than unpublished.
+
+A future trust-model migration should still consider isolated or
+hardware-backed signing, or a reviewed keyless design. An approval gate limits
+who can start a signing run; it does not protect the key itself.
 
 ## Local trust anchor
 

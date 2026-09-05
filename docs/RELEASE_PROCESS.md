@@ -70,8 +70,17 @@ Do not move or recreate a published release tag casually.
 
 ## 3. Signed release workflow
 
-Pushing `v0.1.7` starts `.github/workflows/release.yml` (`Signed release`). The
-workflow must first prove:
+Pushing `v0.1.7` starts `.github/workflows/release.yml` (`Signed release`).
+
+The job runs in the `production-release` environment, which requires a
+maintainer approval before its first step. **The push does not publish
+anything on its own:** until the deployment is approved, no signing key has
+been loaded, no ISO has been built and no release exists. Approve it from the
+run's page, or from the repository's Actions tab, once the tag is the one you
+meant to push. A tag pushed by mistake is declined here and deleted, rather
+than unpublished afterwards.
+
+Once approved, the workflow must first prove:
 
 - the ref is an annotated tag object;
 - its name matches the release-tag pattern;
