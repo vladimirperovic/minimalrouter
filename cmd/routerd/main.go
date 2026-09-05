@@ -25,6 +25,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/auth/persistent"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/release"
 	"github.com/vladimirperovic/minimalrouter/internal/tlsutil"
 )
 
@@ -125,6 +126,15 @@ func main() {
 	} else {
 		log.Printf("[SECURITY] Firmware updates disabled: trusted key unavailable: %v", err)
 	}
+	// One release checker per process feeds every dashboard tab from one cache,
+	// and reconciles an update interrupted by the restart that activation
+	// itself performs. It deliberately starts after the management plane is
+	// serving: discovery is a convenience, never part of the boot path.
+	updateChecker := server.ConfigureUpdates(release.Catalog{}, runtime.GOARCH)
+	updateCtx, stopUpdateChecks := context.WithCancel(context.Background())
+	defer stopUpdateChecks()
+	go updateChecker.Run(updateCtx)
+
 	mux := http.NewServeMux()
 	server.RegisterRoutes(mux)
 	server.RegisterGatewayRoutes(mux)

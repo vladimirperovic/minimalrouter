@@ -1,10 +1,21 @@
-package firmware
+// Package release fetches, selects and prepares published Minimal Router
+// releases for the privileged updater.
+//
+// It is deliberately separate from internal/firmware. firmware is linked into
+// router-update, a bootstrap binary that lives outside the A/B slot and must
+// stay byte-identical between releases for an A/B activation to be allowed
+// (see docs/WEB-UPDATE.md). Release discovery changes often; keeping it out of
+// that package means it can evolve without making every release require the
+// full installer.
+//
+// Nothing here establishes trust. GitHub metadata only proves that an asset
+// exists; the pinned Ed25519 key and the root updater decide what may run.
+package release
 
 import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,40 +26,16 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
 
 const (
-	defaultReleaseAPIURL   = "https://api.github.com/repos/vladimirperovic/minimalrouter/releases?per_page=20"
 	releaseDownloadBaseURL = "https://github.com/vladimirperovic/minimalrouter/releases/download/"
 	maxReleaseManifest     = 1 << 20
 	maxReleaseArchive      = 128 << 20
 	maxExpandedRelease     = 256 << 20
 )
-
-var releaseAPIURL = defaultReleaseAPIURL
-
-// PublishedRelease is the minimal trusted-by-policy metadata needed to select
-// and fetch a public Minimal Router release. Version is normalized to the
-// manifest/A-B-slot form without a leading "v"; tag retains the GitHub tag.
-// Cryptographic trust is established later by the pinned Ed25519 key, never by
-// GitHub metadata alone.
-type PublishedRelease struct {
-	Version     string
-	Prerelease  bool
-	PublishedAt time.Time
-	tag         string
-	assets      map[string]string
-}
-
-type githubRelease struct {
-	TagName     string `json:"tag_name"`
-	Draft       bool   `json:"draft"`
-	Prerelease  bool   `json:"prerelease"`
-	PublishedAt string `json:"published_at"`
-	Assets      []struct {
-		Name string `json:"name"`
-	} `json:"assets"`
-}
 
 func canonicalReleaseAssetURL(tag, name string) string {
 	return releaseDownloadBaseURL + url.PathEscape(tag) + "/" + url.PathEscape(name)
@@ -69,77 +56,6 @@ func releaseHTTPClient() *http.Client {
 	}
 }
 
-func getReleaseJSON(ctx context.Context, endpoint string, dst any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "minimalrouter-update")
-	resp, err := releaseHTTPClient().Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("release service returned HTTP %d", resp.StatusCode)
-	}
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseManifest))
-	if err := decoder.Decode(dst); err != nil {
-		return fmt.Errorf("decode release metadata: %w", err)
-	}
-	return nil
-}
-
-// LatestPublishedRelease selects the highest valid non-draft SemVer release.
-// Beta/prerelease builds are deliberately eligible because Minimal Router is
-// currently distributed as a signed Beta.
-func LatestPublishedRelease(ctx context.Context) (PublishedRelease, error) {
-	var releases []githubRelease
-	if err := getReleaseJSON(ctx, releaseAPIURL, &releases); err != nil {
-		return PublishedRelease{}, err
-	}
-
-	var best PublishedRelease
-	found := false
-	for _, item := range releases {
-		tag := strings.TrimSpace(item.TagName)
-		if item.Draft || !IsReleaseVersion(tag) {
-			continue
-		}
-		version := strings.TrimPrefix(tag, "v")
-		assets := make(map[string]string, len(item.Assets))
-		for _, asset := range item.Assets {
-			if asset.Name != "" {
-				// The release API is used only to prove that the named asset exists.
-				// Never follow a URL supplied in remote metadata; construct the one
-				// canonical public Minimal Router GitHub download URL ourselves.
-				assets[asset.Name] = canonicalReleaseAssetURL(tag, asset.Name)
-			}
-		}
-		publishedAt, _ := time.Parse(time.RFC3339, item.PublishedAt)
-		candidate := PublishedRelease{
-			Version:     version,
-			Prerelease:  item.Prerelease,
-			PublishedAt: publishedAt,
-			tag:         tag,
-			assets:      assets,
-		}
-		if !found {
-			best, found = candidate, true
-			continue
-		}
-		cmp, err := CompareReleaseVersions(candidate.Version, best.Version)
-		if err == nil && cmp > 0 {
-			best = candidate
-		}
-	}
-	if !found {
-		return PublishedRelease{}, errors.New("no published Minimal Router release is available")
-	}
-	return best, nil
-}
-
 func downloadReleaseFile(ctx context.Context, assetURL, destination string, maximum int64) error {
 	parsed, err := url.Parse(assetURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "github.com" ||
@@ -150,7 +66,7 @@ func downloadReleaseFile(ctx context.Context, assetURL, destination string, maxi
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "minimalrouter-update")
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := releaseHTTPClient().Do(req)
 	if err != nil {
 		return err
@@ -288,23 +204,22 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 	return filepath.Join(destination, prefix), nil
 }
 
-// PreparePublishedRelease downloads the architecture-specific signed manifest
-// and archive into a private routerd-owned inbox and safely extracts regular
-// files only. The root updater performs the authoritative signature, hash,
-// mode, architecture, forward-version and A/B-slot checks afterwards.
-func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch, destination string) (string, string, error) {
+// PreparePublished downloads the architecture-specific signed manifest and
+// archive into a private routerd-owned inbox and safely extracts regular files
+// only. The root updater performs the authoritative signature, hash, mode,
+// architecture, forward-version and A/B-slot checks afterwards.
+func PreparePublished(ctx context.Context, published Release, arch, destination string) (string, string, error) {
 	if arch != "amd64" && arch != "arm64" {
 		return "", "", fmt.Errorf("unsupported update architecture %q", arch)
 	}
-	if !IsReleaseVersion(release.Version) || !IsReleaseVersion(release.tag) {
+	if !firmware.IsReleaseVersion(published.Version) || !firmware.IsReleaseVersion(published.Tag) {
 		return "", "", errors.New("invalid published release version")
 	}
-	archiveName := "minimalrouter-linux-" + arch + ".tar.gz"
-	manifestName := "minimalrouter-linux-" + arch + ".manifest.json"
-	archiveURL := release.assets[archiveName]
-	manifestURL := release.assets[manifestName]
+	archiveName, manifestName := payloadAssetNames(arch)
+	archiveURL := published.assets[archiveName]
+	manifestURL := published.assets[manifestName]
 	if archiveURL == "" || manifestURL == "" {
-		return "", "", fmt.Errorf("release %s does not contain %s and %s", release.tag, archiveName, manifestName)
+		return "", "", fmt.Errorf("release %s does not contain %s and %s", published.Tag, archiveName, manifestName)
 	}
 
 	if err := os.RemoveAll(destination); err != nil {
@@ -321,12 +236,12 @@ func PreparePublishedRelease(ctx context.Context, release PublishedRelease, arch
 	if err := downloadReleaseFile(ctx, manifestURL, manifestPath, maxReleaseManifest); err != nil {
 		return "", "", fmt.Errorf("download signed manifest: %w", err)
 	}
-	manifest, err := LoadManifest(manifestPath)
+	manifest, err := firmware.LoadManifest(manifestPath)
 	if err != nil {
 		return "", "", fmt.Errorf("read signed manifest: %w", err)
 	}
-	if manifest.Version != release.Version {
-		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", release.tag, manifest.Version)
+	if manifest.Version != published.Version {
+		return "", "", fmt.Errorf("release tag %s does not match manifest version %s", published.Tag, manifest.Version)
 	}
 	if err := downloadReleaseFile(ctx, archiveURL, archiveFilePath, maxReleaseArchive); err != nil {
 		return "", "", fmt.Errorf("download release archive: %w", err)

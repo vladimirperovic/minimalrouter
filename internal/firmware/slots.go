@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
 var releaseVersionPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$`)
@@ -413,10 +411,10 @@ func (m SlotManager) withLock(fn func() error) (err error) {
 			err = errors.Join(err, fmt.Errorf("close update lock: %w", closeErr))
 		}
 	}()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+	if err := lockExclusive(lock); err != nil {
 		return err
 	}
-	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN) //nolint:errcheck
+	defer unlock(lock)
 	return fn()
 }
 

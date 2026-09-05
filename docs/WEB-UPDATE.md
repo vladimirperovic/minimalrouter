@@ -97,19 +97,48 @@ So:
 - **v0.1.7 onward:** web-updatable whenever the check reports
   `WEB_UPDATE_SUPPORTED=true` for the release.
 
-## What is still missing for a dashboard "New version" button
+## The dashboard flow
 
-This document and the check cover the compatibility gate only. Still to build:
+```text
+routerd starts
+  └─ release checker: first check ~3 min after readiness, then every 6 h + jitter
+       ├─ conditional request (If-None-Match), bounded pages, Retry-After honoured
+       └─ one cache for the whole process: every tab reads it, nobody calls GitHub to render
 
-1. a background release check with caching, ETag/backoff and a `stale` state, so
-   the dashboard does not call GitHub on every page load;
-2. candidate selection that pins the confirmed release (a newer release
-   published mid-confirmation must not be installed silently);
-3. an update operation with durable state that survives closing the tab and
-   restarting `routerd`, coordinated against configuration applies;
-4. a readiness definition where success means the expected build is actually
-   serving, not that a symlink moved;
-5. the shared update dialog and the sidebar entry that opens it.
+dashboard
+  ├─ sidebar footer: "New version · vX.Y.Z", or a quiet "Updates" entry
+  ├─ one dialog (sidebar and profile menu open the same one)
+  └─ one confirmation, naming the exact candidate
 
-Until those exist, the offline upload path in the profile menu remains the
-supported way to install a signed release from the dashboard.
+POST /api/v1/firmware/update {candidate_id, target_version, idempotency_key}
+  └─ 202 + operation id; the work continues without the browser
+       queued → downloading → verifying → staging → activating → checking_health → succeeded
+                                                              ↘ failed / rolled_back / recovery_required
+```
+
+### What the endpoints do
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /api/v1/firmware/status` | Cached answer, no upstream call. Carries versions, candidate, capability, `blocked_reason`, freshness and the current operation |
+| `POST /api/v1/firmware/check` | One operator-triggered check, 60 s cooldown, shared by concurrent callers |
+| `POST /api/v1/firmware/channel` | `stable` or `beta`, stored outside the network configuration |
+| `POST /api/v1/firmware/update` | Requires the confirmed `candidate_id` and `target_version`; re-derives the candidate server-side and refuses a superseded one |
+| `POST /api/v1/firmware/upload` | Offline signed build, same verification and the same operation record |
+
+### Rules the implementation keeps
+
+- **A failed or stale check is never shown as "up to date".** Not knowing and knowing there is nothing new are different states, and only a check that actually succeeded may claim the latter.
+- **The confirmation is pinned.** A release published between rendering and confirming cannot take the confirmed one's place; the server answers `candidate_superseded` and asks for a fresh confirmation.
+- **The work outlives the browser.** After the 202 the appliance owns the update; closing the dialog or the tab changes nothing. The record is durable, so a `routerd` restart cannot lose it.
+- **Restart is the normal path, not a failure.** Activation restarts `routerd`; on the next start the slot state decides the outcome — running the target means succeeded, running the previous version means rolled back, anything else means recovery required.
+- **Success means the new version is serving.** A moved symlink is not success; the dashboard reloads only after the appliance reports the target version running.
+- **Only one update at a time**, and never while a configuration change is applying or awaiting confirmation.
+- **A retried request cannot install twice.** The idempotency key returns the existing operation or its outcome.
+- **Read-only sessions may watch, not act**, and the privilege boundary — not the disabled button — is what enforces it.
+
+## What is still missing
+
+1. **A real appliance N → N+1 proof.** Everything above is covered by Go and frontend tests, but installing a signed release over a previous one on hardware, with configuration preserved, and a deliberately broken candidate rolling back, has not been run. `docs/GOLDEN-IMAGE.md` defines that evidence.
+2. **Crash and power-cut coverage in the activation window**, beyond the restart reconciliation that is unit-tested here.
+3. **Compatibility reporting per candidate.** The status exposes local capability; it does not yet say "v0.1.9 exists but needs the full installer" before the download.

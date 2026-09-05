@@ -45,7 +45,11 @@ type Server struct {
 	pendingImports map[string]pendingPfSenseImport
 	totpReplay     map[[sha256.Size]byte]time.Time
 	previewHTTP    bool
-	mu             sync.RWMutex
+	// updates is the optional release-update subsystem: the cached release
+	// check and the durable record of an accepted update. Explicit ownership,
+	// rather than a package-level registry keyed by *Server.
+	updates updateService
+	mu      sync.RWMutex
 }
 
 // runtimeSnapshotTTL bounds how stale a telemetry read may be.

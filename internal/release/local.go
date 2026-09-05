@@ -1,4 +1,4 @@
-package firmware
+package release
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
 
 func copyUploadedReleaseFile(source, destination string, maximum int64) error {
@@ -62,11 +64,11 @@ func PrepareLocalRelease(manifestSource, archiveSource, arch, destination string
 	if err := copyUploadedReleaseFile(manifestSource, manifestPath, maxReleaseManifest); err != nil {
 		return "", "", "", fmt.Errorf("copy signed manifest: %w", err)
 	}
-	manifest, err := LoadManifest(manifestPath)
+	manifest, err := firmware.LoadManifest(manifestPath)
 	if err != nil {
 		return "", "", "", fmt.Errorf("read signed manifest: %w", err)
 	}
-	if !IsReleaseVersion(manifest.Version) {
+	if !firmware.IsReleaseVersion(manifest.Version) {
 		return "", "", "", errors.New("uploaded manifest has an invalid release version")
 	}
 	if err := copyUploadedReleaseFile(archiveSource, archivePath, maxReleaseArchive); err != nil {

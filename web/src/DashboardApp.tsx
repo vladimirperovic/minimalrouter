@@ -3,9 +3,11 @@ import AuthGate from "./components/AuthGate";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
+import UpdateDialog from "./components/UpdateDialog";
 import SkinMenu from "./components/SkinMenu";
 import { applySkin, initialSkin, type SkinID } from "./skins/skins";
 import { apiFetch } from "./lib/api";
+import { updateBadgeLabel, useUpdates } from "./lib/updates";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import { useApplianceHealth } from "./components/HealthBanner";
@@ -99,6 +101,11 @@ function Dashboard() {
   const pollSequence = useRef(0);
   const pollController = useRef<AbortController | null>(null);
   const { health, unavailable: healthUnavailable } = useApplianceHealth();
+  // One update controller for the whole dashboard: the sidebar entry and the
+  // profile menu open the same dialog over the same state.
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const updates = useUpdates(true);
+  const updateBadge = updateBadgeLabel(updates.status);
 
   const load = useCallback(async () => {
     const sequence = ++pollSequence.current;
@@ -609,7 +616,15 @@ function Dashboard() {
             ))}</div>
           </section>)}
         </nav>
-        <div className="dashboard-sidebar-footer"><div className="dashboard-brand-revision">Minimal Router OS <span>{system.version && system.version !== "dev" ? system.version : `r${config.revision}`}</span></div></div>
+        <div className="dashboard-sidebar-footer">
+          {updateBadge
+            ? <button className="sidebar-update-button" onClick={() => setUpdateDialogOpen(true)} type="button">
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+                <span>{updateBadge}</span>
+              </button>
+            : <button className="sidebar-update-link" onClick={() => setUpdateDialogOpen(true)} type="button">Updates</button>}
+          <div className="dashboard-brand-revision">Minimal Router OS <span>{system.version && system.version !== "dev" ? system.version : `r${config.revision}`}</span></div>
+        </div>
       </aside>
 
       <main className="dashboard-main">
@@ -629,7 +644,7 @@ function Dashboard() {
               {alertCount > 0 && <i aria-hidden="true" />}
             </button>
             <a aria-label="Help and operator guide" className="classic-topbar-button classic-help-button" href="/help.html" rel="noreferrer" target="_blank"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9.2" /><path d="M9.2 9.2a2.8 2.8 0 1 1 3.9 2.6c-.7.3-1.1.8-1.1 1.6" /><circle cx="12" cy="16.8" r=".5" /></svg><span>Help</span></a>
-            <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} />
+            <ProfileMenu changePassword={changePassword} logout={logout} error={error} setError={setError} openUpdates={() => setUpdateDialogOpen(true)} updateAvailable={Boolean(updates.status?.update_available)} />
           </div>
         </header>
 
@@ -679,6 +694,8 @@ function Dashboard() {
           />
         )}
       </main>
+
+      {updateDialogOpen && <UpdateDialog controller={updates} onClose={() => setUpdateDialogOpen(false)} />}
     </div>
   );
 }

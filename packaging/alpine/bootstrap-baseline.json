@@ -19,7 +19,7 @@
   "bootstrap_commands": ["router-update", "router-recovery"],
   "architectures": ["amd64", "arm64"],
   "bootstrap_change_acknowledged_version": "0.1.7",
-  "bootstrap_change_reason": "router-recovery links internal/config, and internal/config/validation.go changed after v0.1.6 (firewall source and lease-time validator fixes). The recovery console's own validation must match the release it ships with, so this is a real bootstrap change, not build noise. Appliances running v0.1.6 therefore take v0.1.7 through the full signed distribution installer once.",
+  "bootstrap_change_reason": "Both bootstrap binaries changed in v0.1.7, for two deliberate reasons. router-recovery links internal/config, and internal/config/validation.go changed after v0.1.6 (firewall source and lease-time validator fixes) - the recovery console must validate exactly like the release it ships with. router-update shrank: GitHub release discovery and payload preparation moved from internal/firmware to internal/release, which router-update does not import, so the binary that decides activations no longer carries HTTP and archive code and future changes to release discovery cannot break bootstrap identity. Appliances running v0.1.6 therefore take v0.1.7 through the full signed distribution installer once.",
   "requires_full_installer_from": "0.1.6",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [
