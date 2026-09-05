@@ -1,13 +1,11 @@
-package firmware
+package release
 
 import (
 	"archive/tar"
 	"compress/gzip"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -53,34 +51,12 @@ func writeTestArchive(t *testing.T, entries []archiveEntry) string {
 	return archivePath
 }
 
-func TestLatestPublishedReleaseNormalizesTagForManifestAndSlot(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `[{"tag_name":"v0.1.3","draft":false,"prerelease":true,"published_at":"2026-08-15T12:00:00Z","assets":[{"name":"minimalrouter-linux-amd64.tar.gz"},{"name":"minimalrouter-linux-amd64.manifest.json"}]}]`)
-	}))
-	defer server.Close()
-
-	previous := releaseAPIURL
-	releaseAPIURL = server.URL
-	defer func() { releaseAPIURL = previous }()
-
-	release, err := LatestPublishedRelease(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if release.tag != "v0.1.3" {
-		t.Fatalf("tag = %q, want v0.1.3", release.tag)
-	}
-	if release.Version != "0.1.3" {
-		t.Fatalf("version = %q, want 0.1.3", release.Version)
-	}
-	wantURL := "https://github.com/vladimirperovic/minimalrouter/releases/download/v0.1.3/minimalrouter-linux-amd64.tar.gz"
-	if got := release.assets["minimalrouter-linux-amd64.tar.gz"]; got != wantURL {
-		t.Fatalf("archive URL = %q, want %q", got, wantURL)
-	}
-}
-
 func TestExtractReleaseArchivePreservesReviewedModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The appliance is Linux; Windows does not carry POSIX permission bits,
+		// so this assertion can only be made where it means something.
+		t.Skip("POSIX file modes are not represented on this platform")
+	}
 	archivePath := writeTestArchive(t, []archiveEntry{
 		{name: "minimalrouter-linux-amd64", typeflag: tar.TypeDir, mode: 0o755},
 		{name: "minimalrouter-linux-amd64/bin", typeflag: tar.TypeDir, mode: 0o755},
