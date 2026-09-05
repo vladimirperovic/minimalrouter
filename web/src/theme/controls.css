@@ -1,0 +1,352 @@
+/* ============================================================
+   CONTROLS AND CARD RHYTHM
+   One button, one switch, one settings card, one field row -
+   defined once, in terms of the tokens.
+
+   Loaded after look.css. It deliberately corrects three things
+   the layered sheets left inconsistent:
+
+   1. Card titles. `.fieldset-title` was restyled by every skin
+      and `.service-config-card h3` by none, so the same kind of
+      card read in a serif face on LAN & DHCP and a bold sans
+      face on Squid Proxy. Both are the display face here.
+   2. Buttons. Height, padding, weight, radius, focus and
+      disabled state were decided per sheet.
+   3. The service toggle, which rendered as a large empty
+      checkbox beside small text.
+   ============================================================ */
+
+/* ── Headings ───────────────────────────────────────────────
+   Every card title is the display face, at one size, whichever
+   pattern the section happens to use. */
+:root:root .dashboard-app .fieldset-title,
+:root:root .dashboard-app .service-config-title h3,
+:root:root .dashboard-app .service-config-title > div > h3 {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+  color: var(--classic-text);
+  margin: 0;
+}
+
+/* The eyebrow above a card title: the same treatment as the page
+   eyebrow, so the two hierarchies read as one system. */
+:root:root .dashboard-app .service-config-title > div > p {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--classic-blue);
+  margin: 0 0 var(--space-1);
+}
+
+:root:root .dashboard-app .service-config-title > div > span {
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--classic-muted);
+}
+
+/* ── Settings card ──────────────────────────────────────────
+   One interior measure, and a header that sits on the same
+   rhythm as the fields below it rather than a tighter one. */
+:root:root .dashboard-app .service-config-card {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+:root:root .dashboard-app .service-config-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--card-padding);
+}
+
+:root:root .dashboard-app .service-config-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+:root:root .dashboard-app .service-config-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--space-10);
+  height: var(--space-10);
+  border-radius: var(--radius);
+  color: var(--classic-blue);
+  background: var(--classic-soft);
+  border: 1px solid var(--classic-border);
+}
+
+:root:root .dashboard-app .service-config-icon svg {
+  width: var(--icon);
+  height: var(--icon);
+  stroke-width: var(--stroke);
+}
+
+/* ── Service toggle ─────────────────────────────────────────
+   A switch, not a bare checkbox in a box. The state word carries
+   the meaning; the track carries the affordance. Colour is never
+   the only signal - the label says Enabled or Disabled. */
+:root:root .dashboard-app .service-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--classic-border);
+  border-radius: var(--radius);
+  background: var(--classic-panel);
+  cursor: pointer;
+  min-height: var(--control-height);
+}
+
+:root:root .dashboard-app .service-toggle input[type="checkbox"] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 24px;
+  /* The sheet that sizes text inputs also matches this checkbox and sets a
+     42px min-height, which wins over height and stretches the track. */
+  min-height: 24px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: var(--classic-soft);
+  border: 1px solid var(--classic-border);
+  position: relative;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease-out),
+    border-color var(--duration) var(--ease-out);
+}
+
+:root:root .dashboard-app .service-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--classic-panel);
+  box-shadow: 0 1px 3px rgba(48, 36, 20, 0.28);
+  transition: transform var(--duration) var(--ease-out);
+}
+
+:root:root .dashboard-app .service-toggle input[type="checkbox"]:checked {
+  background: var(--classic-blue);
+  border-color: var(--classic-blue);
+}
+
+:root:root .dashboard-app .service-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+}
+
+:root:root .dashboard-app .service-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 2px;
+}
+
+:root:root .dashboard-app .service-toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: var(--leading-tight);
+}
+
+:root:root .dashboard-app .service-toggle b {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+:root:root .dashboard-app .service-toggle small {
+  font-size: var(--text-xs);
+  color: var(--classic-muted);
+}
+
+/* ── Buttons ────────────────────────────────────────────────
+   One height, one radius, one weight. The primary action is the
+   only filled control on a card, so "which button submits this"
+   never needs a second look. */
+:root:root .dashboard-app .button,
+:root:root .dashboard-app button.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-pill);
+  border: 1px solid transparent;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease-out),
+    border-color var(--duration) var(--ease-out),
+    color var(--duration) var(--ease-out);
+}
+
+:root:root .dashboard-app .button.small {
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-4);
+  font-size: var(--text-xs);
+}
+
+:root:root .dashboard-app .button.primary {
+  background: var(--classic-blue);
+  border-color: var(--classic-blue);
+  color: #fff;
+}
+
+:root:root .dashboard-app .button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+:root:root .dashboard-app .button.secondary {
+  background: var(--classic-panel);
+  border-color: var(--classic-border);
+  color: var(--classic-text);
+}
+
+:root:root .dashboard-app .button.secondary:hover:not(:disabled) {
+  background: var(--classic-soft);
+}
+
+/* A destructive action is never just "the other button": it
+   carries its own colour and sits apart from the primary one. */
+:root:root .dashboard-app .button.danger {
+  background: transparent;
+  border-color: rgba(180, 60, 44, 0.5);
+  color: #a8402e;
+}
+
+:root:root .dashboard-app .button.danger:hover:not(:disabled) {
+  background: rgba(180, 60, 44, 0.08);
+}
+
+/* A refused action must look refused. Without this the primary
+   button keeps its full accent while doing nothing, which reads
+   as a broken dashboard rather than as "not right now". */
+:root:root .dashboard-app .button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+:root:root .dashboard-app .button:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 2px;
+}
+
+/* Destructive icon buttons carry the same meaning as a danger button and must
+   read the same way. The overlay used to colour these by matching the word
+   "remove" or "delete" in their text; the semantics live in the markup
+   instead, where a renamed label cannot quietly turn a delete into an
+   ordinary action. Icon-only controls also need a real target size and a
+   label - they have aria-label already. */
+:root:root .dashboard-app .wg-peer-delete,
+:root:root .dashboard-app .dns-record-remove,
+:root:root .dashboard-app .is-remove {
+  display: inline-grid;
+  place-items: center;
+  min-width: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+  border-radius: var(--radius-sm);
+  color: #a8402e;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--duration) var(--ease-out),
+    border-color var(--duration) var(--ease-out);
+}
+
+:root:root .dashboard-app .wg-peer-delete:hover:not(:disabled),
+:root:root .dashboard-app .dns-record-remove:hover:not(:disabled),
+:root:root .dashboard-app .is-remove:hover:not(:disabled) {
+  background: rgba(180, 60, 44, 0.08);
+  border-color: rgba(180, 60, 44, 0.32);
+}
+
+:root:root .dashboard-app .wg-peer-delete:disabled,
+:root:root .dashboard-app .dns-record-remove:disabled,
+:root:root .dashboard-app .is-remove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+:root:root .dashboard-app .wg-peer-delete svg,
+:root:root .dashboard-app .dns-record-remove svg,
+:root:root .dashboard-app .is-remove svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  stroke-width: var(--stroke);
+}
+
+/* ── Fields ─────────────────────────────────────────────────
+   Inputs share the control height so a row of fields and the
+   button that submits them sit on one baseline. */
+:root:root .dashboard-app input[type="text"],
+:root:root .dashboard-app input[type="password"],
+:root:root .dashboard-app input[type="number"],
+:root:root .dashboard-app input[type="email"],
+:root:root .dashboard-app select {
+  min-height: var(--control-height);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+:root:root .dashboard-app input:focus-visible,
+:root:root .dashboard-app select:focus-visible,
+:root:root .dashboard-app textarea:focus-visible {
+  outline: 2px solid var(--classic-blue);
+  outline-offset: 1px;
+}
+
+/* Addresses, ports, byte counts and timings are data. Tabular
+   figures keep a column from shifting as values change. */
+:root:root .dashboard-app input[type="number"],
+:root:root .dashboard-app .subpage-hero-facts dd,
+:root:root .dashboard-app .service-config-fields input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Field rhythm ───────────────────────────────────────────
+   A settings card lays its fields on one grid. A full-width
+   field spans it rather than starting a second, narrower rhythm
+   underneath a two-column row. */
+:root:root .dashboard-app .service-config-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-field) var(--space-6);
+  padding: var(--card-padding);
+}
+
+:root:root .dashboard-app .service-config-fields > label:only-child,
+:root:root .dashboard-app .service-config-fields > .is-wide {
+  grid-column: 1 / -1;
+}
+
+:root:root .dashboard-app .service-config-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+@media (max-width: 720px) {
+  :root:root .dashboard-app .service-config-fields {
+    grid-template-columns: 1fr;
+    padding: var(--card-padding-compact);
+  }
+
+  :root:root .dashboard-app .service-config-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--card-padding-compact);
+  }
+}

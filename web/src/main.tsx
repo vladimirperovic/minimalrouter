@@ -13,7 +13,11 @@ import "./MobileResponsive.css";
 import "./FinalPolish.css";
 import "./MobileNavigation.css";
 // The look loads last: its rules must win ties against every base sheet above.
+// tokens define the measurements, look the palette, controls the components
+// that the layered sheets left inconsistent.
+import "./theme/tokens.css";
 import "./theme/look.css";
+import "./theme/controls.css";
 
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);

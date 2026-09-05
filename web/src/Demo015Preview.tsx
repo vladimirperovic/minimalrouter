@@ -26,22 +26,6 @@ const STATUS_VARIANTS: Record<string, "good" | "warning" | "bad" | "muted"> = {
   Paused: "muted",
 };
 
-const BUTTON_ICONS: Array<[RegExp, string]> = [
-  [/^save\b/i, "✓"],
-  [/^add\b/i, "+"],
-  [/^reserve\b/i, "+"],
-  [/^download\b/i, "↓"],
-  [/^export\b/i, "⇩"],
-  [/^restore\b/i, "↻"],
-  [/^validate\b/i, "✓"],
-  [/^preview\b/i, "⌕"],
-  [/^generate\b/i, "◇"],
-  [/^wake\b/i, "↗"],
-  [/^pause\b/i, "Ⅱ"],
-  [/^enable\b/i, "✓"],
-  [/^(remove|delete)\b/i, "×"],
-];
-
 if (isDemoMode && typeof window !== "undefined") {
   try {
     window.localStorage.setItem("minimalrouter:wan-speed-estimate", JSON.stringify(DEMO_WAN_ESTIMATE));
@@ -407,20 +391,6 @@ function patchPreviewBadge() {
   document.querySelector(".dashboard-brand .demo-015-beta-badge")?.remove();
 }
 
-function decorateButtons() {
-  document.querySelectorAll<HTMLElement>("button.button, a.button").forEach((button) => {
-    const text = button.textContent?.trim() || "";
-    if (!button.dataset.demoIcon) {
-      const match = BUTTON_ICONS.find(([pattern]) => pattern.test(text));
-      if (match) {
-        button.dataset.demoIcon = match[1];
-        button.classList.add("demo-icon-button");
-      }
-    }
-    if (/^(remove|delete|apply validated|apply pfsense)/i.test(text)) button.classList.add("demo-destructive-action");
-  });
-}
-
 function decorateStatuses() {
   const selector = "td, .wg-client-toggle span, .dashboard-callout strong, .overview-wan-card header b";
   document.querySelectorAll<HTMLElement>(selector).forEach((element) => {
@@ -471,7 +441,6 @@ export default function Demo015Preview() {
       patchWireGuardSuccess();
       patchRecoveryCopy();
       patchPreviewBadge();
-      decorateButtons();
       decorateStatuses();
       decorateEmptyStates();
       markVisualSystem();
