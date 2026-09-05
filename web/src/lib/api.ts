@@ -244,7 +244,13 @@ export async function apiFetch(
       // Background tabs must not keep waking the router. A stale last-known-good
       // passive snapshot is preferable until the operator returns to the page.
       if (cached && (document.hidden || now - cached.storedAt < ttl)) {
-        return cached.response.clone();
+        try {
+          return cached.response.clone();
+        } catch {
+          // A disturbed entry must never poison later readers; fall through
+          // to the network instead.
+          passiveGetCache.delete(key);
+        }
       }
 
       // Only coalesce requests that do not carry their own AbortSignal. A
@@ -276,7 +282,26 @@ export async function apiFetch(
       const epoch = passiveGetEpoch;
       const response = await networkFetch(input, init, headers, method);
       if (response.ok && epoch === passiveGetEpoch) {
-        passiveGetCache.set(key, { response: response.clone(), storedAt: Date.now() });
+        // Buffer the body into a detached copy before caching. Caching a live
+        // tee'd clone would share the source stream: if this caller unmounts
+        // and aborts its in-flight body read, the abort reason propagates
+        // through the tee and poisons the cache entry for every later reader
+        // until the TTL expires. A disturbed source is simply not cached.
+        const copy = response.clone();
+        void copy.arrayBuffer().then(
+          (buffer) => {
+            if (epoch !== passiveGetEpoch) return;
+            passiveGetCache.set(key, {
+              response: new Response(buffer, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
+              }),
+              storedAt: Date.now(),
+            });
+          },
+          () => undefined,
+        );
       }
       return response;
     }

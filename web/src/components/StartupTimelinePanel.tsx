@@ -115,7 +115,9 @@ export default function StartupTimelinePanel() {
       </div>
       {error && <div className="dashboard-alert is-error">{error}</div>}
       {boots.length === 0 ? (
-        <div className="empty-state">No startup captures yet. The next routerd start will create one.</div>
+        // The error banner above already explains a failed load; don't stack
+        // a second empty-state beneath it.
+        error ? null : <div className="empty-state">No startup captures yet. The next routerd start will create one.</div>
       ) : (
         <>
           <div className="tl-boots">

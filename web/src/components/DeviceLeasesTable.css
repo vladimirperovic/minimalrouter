@@ -37,7 +37,9 @@
 }
 
 .dashboard-app .elegant-cell-name {
-  overflow-wrap: anywhere;
+  /* `anywhere` shredded names letter-by-letter on narrow screens; plain
+     word wrapping keeps long hostnames inside the scroll container instead. */
+  overflow-wrap: break-word;
 }
 
 /* Unified table standard: quiet hover, tabular figures, consistent code cells. */
