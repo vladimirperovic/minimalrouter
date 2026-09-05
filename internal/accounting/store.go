@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -72,11 +73,28 @@ func migrate(db *sql.DB) error {
 		address TEXT NOT NULL,
 		direction TEXT NOT NULL CHECK(direction IN ('rx','tx')),
 		last_raw INTEGER NOT NULL DEFAULT 0,
+		-- The counter generation the cursor was taken in. Comparing raw values
+		-- alone cannot see a table reload that already climbed past the previous
+		-- reading, which silently dropped a full generation of traffic.
+		generation INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (address, direction)
+	);
+	-- Whether the operator's decision to disable accounting has been carried
+	-- out. A process flag could not survive the restart that follows a disable,
+	-- which left history on disk that was promised to be deleted.
+	CREATE TABLE IF NOT EXISTS accounting_state (
+		id INTEGER PRIMARY KEY CHECK(id = 1),
+		history_cleared INTEGER NOT NULL DEFAULT 0
 	);
 	`)
 	if err != nil {
 		return fmt.Errorf("migrate accounting store: %w", err)
+	}
+	// Older databases predate the generation column; adding it is idempotent
+	// because a duplicate-column error simply means the migration already ran.
+	if _, err := db.Exec(`ALTER TABLE device_cursor ADD COLUMN generation INTEGER NOT NULL DEFAULT 0`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("migrate accounting cursors: %w", err)
 	}
 	return nil
 }
@@ -89,8 +107,11 @@ func (s *Store) Close() error {
 }
 
 // Record folds one collection round into the monthly buckets. rx and tx are the
-// current raw kernel counters keyed by host address.
-func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int) error {
+// current raw kernel counters keyed by host address, and generation identifies
+// the counter set they were read from — the canonical configuration revision,
+// which changes exactly when the nftables table (and with it every counter) is
+// recreated.
+func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int, generation uint64) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
@@ -106,20 +127,22 @@ func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int) err
 
 	apply := func(direction string, counters []Counter) error {
 		for _, counter := range counters {
-			var previous uint64
-			row := tx2.QueryRow(`SELECT last_raw FROM device_cursor WHERE address = ? AND direction = ?`,
+			var previous, previousGeneration uint64
+			row := tx2.QueryRow(`SELECT last_raw, generation FROM device_cursor WHERE address = ? AND direction = ?`,
 				counter.Address, direction)
-			switch err := row.Scan(&previous); err {
+			switch err := row.Scan(&previous, &previousGeneration); err {
 			case nil:
 			case sql.ErrNoRows:
 				previous = 0
+				previousGeneration = generation
 			default:
 				return err
 			}
-			delta := Delta(previous, counter.Bytes)
-			if _, err := tx2.Exec(`INSERT INTO device_cursor(address, direction, last_raw)
-				VALUES (?, ?, ?) ON CONFLICT(address, direction) DO UPDATE SET last_raw = excluded.last_raw`,
-				counter.Address, direction, counter.Bytes); err != nil {
+			delta := DeltaAcrossGenerations(previousGeneration, generation, previous, counter.Bytes)
+			if _, err := tx2.Exec(`INSERT INTO device_cursor(address, direction, last_raw, generation)
+				VALUES (?, ?, ?, ?) ON CONFLICT(address, direction) DO UPDATE SET
+					last_raw = excluded.last_raw, generation = excluded.generation`,
+				counter.Address, direction, counter.Bytes, generation); err != nil {
 				return err
 			}
 			if delta == 0 {
@@ -225,5 +248,68 @@ func (s *Store) Reset() error {
 		return err
 	}
 	_, err := s.db.Exec(`DELETE FROM device_cursor`)
+	return err
+}
+
+// ClearHistory deletes every per-device record and durably marks the
+// operator's disable as carried out, in one transaction. The flag is what
+// makes the promise survive a restart: a process-local "was enabled" flag
+// starts false in a new process, so a disable followed by a restart before the
+// next collection tick used to leave the history on disk forever. Because the
+// flag is only written when the deletion commits, a failed clear is naturally
+// retried on the next tick.
+func (s *Store) ClearHistory() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM device_month`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM device_cursor`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO accounting_state(id, history_cleared) VALUES (1, 1)
+		ON CONFLICT(id) DO UPDATE SET history_cleared = 1`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// HistoryCleared reports whether a disable has already been honored, so a
+// restarted collector does not have to guess.
+func (s *Store) HistoryCleared() (bool, error) {
+	if s == nil || s.db == nil {
+		return true, nil
+	}
+	var cleared int
+	switch err := s.db.QueryRow(`SELECT history_cleared FROM accounting_state WHERE id = 1`).Scan(&cleared); err {
+	case nil:
+		return cleared != 0, nil
+	case sql.ErrNoRows:
+		// A store that has never recorded anything has nothing to clear, but
+		// one carrying rows from a previous release predates the flag.
+		var rows int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM device_month`).Scan(&rows); err != nil {
+			return false, err
+		}
+		return rows == 0, nil
+	default:
+		return false, err
+	}
+}
+
+// MarkHistoryLive records that accounting is measuring again, so a later
+// disable is treated as a fresh instruction to delete.
+func (s *Store) MarkHistoryLive() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(`INSERT INTO accounting_state(id, history_cleared) VALUES (1, 0)
+		ON CONFLICT(id) DO UPDATE SET history_cleared = 0`)
 	return err
 }

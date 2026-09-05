@@ -19,6 +19,12 @@ const (
 
 var ErrUnauthorized = errors.New("unauthorized or expired session")
 
+// ErrGenerationChanged means the credential generation advanced between the
+// moment a caller verified a credential and the moment it tried to issue a
+// session for it. The verified credential is already revoked, so the login
+// must be repeated against the current one.
+var ErrGenerationChanged = errors.New("authentication credentials changed; please log in again")
+
 // Session tracks an authenticated administrator session.
 type Session struct {
 	ID             string    `json:"id"`
@@ -82,6 +88,13 @@ func (sm *SessionManager) CreateSessionWithMode(readOnly bool) *Session {
 
 	sm.sessions[session.ID] = session
 	return session
+}
+
+// CreateSessionWithGeneration exists for interface parity with
+// PersistentSessionManager. This manager has no durable credential-generation
+// concept to race against, so it simply issues the session.
+func (sm *SessionManager) CreateSessionWithGeneration(readOnly bool, expectedGeneration uint64) (*Session, error) {
+	return sm.CreateSessionWithMode(readOnly), nil
 }
 
 // ValidateSession verifies if the given session cookie ID is valid and active.

@@ -17,6 +17,76 @@ Next development version: **v0.1.7**.
   webfont, because the dashboard is served from the appliance and is routinely
   opened while the WAN is down.
 
+### Fixed
+
+- **Recovery no longer reverts a committed configuration.** When the canonical
+  SQLite commit succeeded but the privileged helper's last-good acknowledgement
+  failed, the engine kept the pre-transaction configuration in memory while the
+  database and the running system held the new one. The recovery reconcile that
+  the failure triggers then rebuilt its request from the stale copy and pushed
+  the previous settings back onto a correctly applied revision.
+- **Traffic accounting counts every counter generation.** Each apply recreates
+  the nftables table, restarting the kernel counters. A reset was detected only
+  when the new counter was still below the last reading, so a counter that had
+  already climbed past it silently dropped a whole generation of traffic (100
+  recorded plus 200 after the reset totalled 200 instead of 300). Cursors now
+  carry the configuration revision they were sampled in.
+- **Disabling accounting deletes history even across a restart.** The decision
+  lived in a process flag that starts false, so disabling and then restarting
+  routerd before the next collection tick left the history on disk forever. The
+  outcome is now recorded durably and retried until the deletion succeeds, and
+  the API stops serving history while accounting is off.
+- **Automatic WAN recovery ignores stale and unmeasurable samples.** The
+  gateway monitor keeps its last summary when a collection round fails, so an
+  hour-old offline reading could still satisfy the "link has been down for
+  three minutes" condition. Recovery now requires a fresh, available sample and
+  treats `unknown` as unknown rather than as an outage.
+- **The speed test rejects failed measurements instead of turning them into QoS
+  suggestions.** Neither direction checked the HTTP status, and the upload rate
+  divided the *planned* byte count by the elapsed time, so a server answering
+  before reading the body produced absurd results (an HTTP 503 measured tens of
+  millions of Mbps). Both directions now require a successful status and a
+  sufficiently complete sample, and measure the bytes that actually moved.
+- **The Golden-image flasher verifies the whole pipeline.** `gzip -dc | dd`
+  reports only `dd`'s exit status, so a decompressor that failed after partial
+  output finished with "Golden image copied successfully" over a truncated
+  disk. Both stages are now checked, and the written byte count is compared
+  against the uncompressed size recorded at build time
+  (`/minimalrouter/golden.img.bytes` in the ISO).
+- **The privileged helper no longer loses the reply to a long operation.** The
+  response write deadline started when the connection was accepted, so a
+  legitimate multi-second apply could consume it before the first response byte
+  and force a transport replay. It is armed immediately before the reply, and a
+  failed delivery is logged instead of discarded.
+- **The MCP server survives router errors instead of misreporting them.** API
+  responses are status-checked, so an authentication error body can no longer be
+  decoded as configuration; a missing configuration section is refused instead
+  of panicking the process; an expired session is re-authenticated once (never
+  by replaying a single-use TOTP code); a change awaiting confirmation is
+  reported as awaiting confirmation rather than as applied; and a malformed
+  stdin stream ends the process instead of spinning forever in a decoder that
+  cannot resynchronize.
+- **TLS certificate validity is re-checked on cache hits.** The cached
+  certificate was keyed on configuration alone, so a long-running appliance
+  could keep serving an expired — or, after a clock correction, not-yet-valid —
+  certificate. The parsed validity window is now checked per handshake without
+  re-reading PEM from disk.
+
+### Security
+
+- **Session issuance is bound atomically to the credential that was verified.**
+  A login that read the password hash, was preempted by a password change, and
+  then created its session picked up the *new* authentication generation, so a
+  session proving only the revoked password passed validation. The hash and
+  generation are now read as one snapshot and the session row is inserted only
+  while that generation is still current.
+- **Concurrent Argon2id derivations are admission-controlled.** Every
+  derivation reserves 64 MiB against a 128 MiB process budget, and the login
+  rate limits bound attempts per minute, not attempts in flight. Logins,
+  password changes, recovery resets and encrypted backups now share one
+  bounded-wait gate, and an exhausted gate answers with a retryable 503 rather
+  than an incorrect-password error.
+
 ## [v0.1.6] — 2026-08-22
 
 ### Highlights

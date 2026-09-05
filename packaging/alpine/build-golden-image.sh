@@ -12,6 +12,7 @@ ROOTFS="$BUILD_DIR/minimalrouter-rootfs-${VERSION}-amd64.tar.gz"
 RAW="$BUILD_DIR/minimalrouter-golden-${VERSION}-amd64.img"
 OUT="$RAW.gz"
 OUT_SHA="$OUT.sha256"
+OUT_BYTES="$BUILD_DIR/minimalrouter-golden-${VERSION}-amd64.img.bytes"
 MNT="$BUILD_DIR/golden-mnt"
 IMAGE_BYTES="${MINIMALROUTER_GOLDEN_BYTES:-8589934592}"
 
@@ -40,7 +41,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-rm -f "$RAW" "$OUT" "$OUT_SHA"
+rm -f "$RAW" "$OUT" "$OUT_SHA" "$OUT_BYTES"
 mkdir -p "$BUILD_DIR" "$MNT"
 truncate -s "$IMAGE_BYTES" "$RAW"
 
@@ -148,8 +149,12 @@ rm -f "$RAW"
 gzip -t "$OUT"
 GOLDEN_SHA="$(sha256sum "$OUT" | awk '{print $1}')"
 printf '%s  golden.img.gz\n' "$GOLDEN_SHA" > "$OUT_SHA"
+# The flasher compares the bytes dd actually wrote against this value. A
+# decompression that stops early but cleanly cannot be seen any other way,
+# and gzip's own stored length is only accurate modulo 4 GiB.
+printf '%s\n' "$IMAGE_BYTES" > "$OUT_BYTES"
 
 printf 'Built golden image: %s\n' "$OUT"
 printf 'Kernel/modules: %s\n' "$KERNEL_RELEASE"
 printf 'Root UUID: %s\n' "$ROOT_UUID"
-ls -lh "$OUT" "$OUT_SHA"
+ls -lh "$OUT" "$OUT_SHA" "$OUT_BYTES"

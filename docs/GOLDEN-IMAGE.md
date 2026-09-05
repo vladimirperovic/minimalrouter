@@ -74,6 +74,13 @@ sync
 reboot
 ```
 
+The flasher checks both halves of that pipeline. A shell pipeline reports only
+the exit status of its last command, so a decompressor that fails after partial
+output would otherwise leave `dd` — and the installer — reporting success over a
+truncated disk. The decompressor's status is captured separately, and the bytes
+`dd` wrote are compared against `/minimalrouter/golden.img.bytes`, the
+uncompressed size recorded when the image was built.
+
 ### 4. CI harness false negatives
 
 Two late v0.1.4 failures were test-harness defects rather than appliance defects:
@@ -237,6 +244,7 @@ The final ISO injects:
 /minimalrouter/BUILD-INFO
 /minimalrouter/golden.img.gz
 /minimalrouter/golden.img.gz.sha256
+/minimalrouter/golden.img.bytes
 /minimalrouter.apkovl.tar.gz
 /boot/syslinux/syslinux.cfg
 /boot/grub/grub.cfg

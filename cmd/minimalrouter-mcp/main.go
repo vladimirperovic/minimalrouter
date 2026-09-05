@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,6 +57,10 @@ var routerAPIURL = "https://192.168.1.1:8443"
 var routerClient *apiClient
 var allowMutations bool
 
+// totpConfigured records whether the operator supplied a one-time code at
+// startup. It gates automatic re-authentication: see reauthenticate.
+var totpConfigured bool
+
 type apiClient struct {
 	http *http.Client
 	csrf string
@@ -66,6 +71,7 @@ func main() {
 		routerAPIURL = envURL
 	}
 	allowMutations = os.Getenv("MINIMALROUTER_MCP_MODE") == "admin"
+	totpConfigured = strings.TrimSpace(os.Getenv("MINIMALROUTER_TOTP_CODE")) != ""
 	client, err := newAPIClient()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "minimalrouter-mcp: secure API initialization failed: %v\n", err)
@@ -79,10 +85,19 @@ func main() {
 	for {
 		var req JSONRPCRequest
 		if err := decoder.Decode(&req); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			continue
+			// A json.Decoder cannot resynchronize after a malformed message:
+			// it returns the same error on every subsequent call, so the old
+			// `continue` here turned a corrupt stdin into a busy loop that
+			// spun a core forever. Report the parse error and stop.
+			_ = encoder.Encode(&JSONRPCResponse{
+				JSONRPC: "2.0",
+				Error:   &RPCError{Code: -32700, Message: "Parse error: stdin stream is malformed and cannot be resynchronized"},
+			})
+			fmt.Fprintf(os.Stderr, "minimalrouter-mcp: unrecoverable stdin decode error: %v\n", err)
+			os.Exit(1)
 		}
 
 		resp := handleRPCRequest(req)
@@ -174,6 +189,87 @@ func (c *apiClient) do(method, path string, body []byte) (*http.Response, error)
 		req.Header.Set("X-CSRF-Token", c.csrf)
 	}
 	return c.http.Do(req)
+}
+
+// maxAPIResponseBytes bounds what a single router answer may contribute to the
+// model's context, and bounds memory if the endpoint ever misbehaves.
+const maxAPIResponseBytes = 1 << 20
+
+// errSessionExpired marks an answer the router refused to authorize. It is a
+// distinct condition from a rejected change: an AI client must be able to tell
+// "you are logged out" apart from "the router said no".
+var errSessionExpired = errors.New("router session is no longer authenticated")
+
+// apiErrorMessage renders a router error body for a human/model reader without
+// pasting an entire HTML or JSON page into the answer.
+func apiErrorMessage(payload []byte) string {
+	var structured struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(payload, &structured) == nil && structured.Error != "" {
+		return structured.Error
+	}
+	text := strings.TrimSpace(string(payload))
+	if len(text) > 512 {
+		text = text[:512] + "…"
+	}
+	if text == "" {
+		text = "no response body"
+	}
+	return text
+}
+
+// request performs one API call and converts the HTTP outcome into an explicit
+// result. Every non-2xx status becomes an error here, so an error body can
+// never be decoded as configuration or reported to the model as success.
+func (c *apiClient) request(method, path string, body []byte) ([]byte, int, error) {
+	resp, err := c.do(method, path, body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%s %s failed: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, maxAPIResponseBytes))
+	if readErr != nil {
+		return nil, resp.StatusCode, fmt.Errorf("reading %s %s response: %w", method, path, readErr)
+	}
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
+		return payload, resp.StatusCode, fmt.Errorf("%w: %s %s returned HTTP %d: %s", errSessionExpired, method, path, resp.StatusCode, apiErrorMessage(payload))
+	case resp.StatusCode < 200 || resp.StatusCode > 299:
+		return payload, resp.StatusCode, fmt.Errorf("router rejected %s %s with HTTP %d: %s", method, path, resp.StatusCode, apiErrorMessage(payload))
+	}
+	return payload, resp.StatusCode, nil
+}
+
+// callAPI is the single entry point every tool uses. On an expired session it
+// re-authenticates once and retries, so a long-lived MCP process survives the
+// router's session idle timeout instead of silently returning error bodies.
+func callAPI(method, path string, body []byte) ([]byte, int, error) {
+	payload, status, err := routerClient.request(method, path, body)
+	if !errors.Is(err, errSessionExpired) {
+		return payload, status, err
+	}
+	if err := reauthenticate(); err != nil {
+		return payload, status, err
+	}
+	return routerClient.request(method, path, body)
+}
+
+// reauthenticate re-establishes the router session after expiry. It refuses to
+// do so when a TOTP code was supplied at startup: that code is single-use, so
+// replaying it would either be rejected by the router or, if it were accepted,
+// would weaken the second factor. Such a deployment must be restarted with a
+// fresh code instead.
+func reauthenticate() error {
+	if totpConfigured {
+		return fmt.Errorf("%w: the session expired and the configured TOTP code is single-use; restart minimalrouter-mcp with a fresh code", errSessionExpired)
+	}
+	client, err := newAPIClient()
+	if err != nil {
+		return fmt.Errorf("%w: re-authentication failed: %v", errSessionExpired, err)
+	}
+	routerClient = client
+	return nil
 }
 
 func handleRPCRequest(req JSONRPCRequest) *JSONRPCResponse {
@@ -325,21 +421,17 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 	}
 	switch name {
 	case "get_router_status":
-		resp, err := routerClient.do(http.MethodGet, "/api/v1/system", nil)
+		body, _, err := callAPI(http.MethodGet, "/api/v1/system", nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch status: %w", err)
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
 		return string(body), nil
 
 	case "get_full_config":
-		resp, err := routerClient.do(http.MethodGet, "/api/v1/config", nil)
+		body, _, err := callAPI(http.MethodGet, "/api/v1/config", nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to fetch config: %w", err)
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
 		return string(body), nil
 
 	case "add_port_forward":
@@ -354,7 +446,11 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 		intIP, _ := args["internal_ip"].(string)
 		intPortFloat, _ := args["internal_port"].(float64)
 
-		pfRules, _ := cfg["firewall"].(map[string]interface{})["port_forwards"].([]interface{})
+		firewall, err := configSection(cfg, "firewall")
+		if err != nil {
+			return "", err
+		}
+		pfRules, _ := firewall["port_forwards"].([]interface{})
 		newRule := map[string]interface{}{
 			"id":            fmt.Sprintf("pf-%d", time.Now().UnixNano()),
 			"name":          name,
@@ -364,12 +460,13 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 			"internal_port": int(intPortFloat),
 			"enabled":       true,
 		}
-		cfg["firewall"].(map[string]interface{})["port_forwards"] = append(pfRules, newRule)
+		firewall["port_forwards"] = append(pfRules, newRule)
 
-		if err := saveConfig(cfg); err != nil {
+		outcome, err := saveConfig(cfg)
+		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Successfully added port forward rule '%s' (%s:%d -> %s:%d)", name, proto, int(extPortFloat), intIP, int(intPortFloat)), nil
+		return fmt.Sprintf("Port forward '%s' (%s:%d -> %s:%d): %s", name, proto, int(extPortFloat), intIP, int(intPortFloat), outcome), nil
 
 	case "block_device_ip":
 		return "", fmt.Errorf("Squid policy is disabled until its privileged lifecycle adapter is implemented")
@@ -382,13 +479,17 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 
 		pri, _ := args["primary_dns"].(string)
 		sec, _ := args["secondary_dns"].(string)
-		dhcpCfg, _ := cfg["dhcp"].(map[string]interface{})
-		dhcpCfg["dns_servers"] = []interface{}{pri, sec}
-
-		if err := saveConfig(cfg); err != nil {
+		dhcpCfg, err := configSection(cfg, "dhcp")
+		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Successfully updated DNS servers to [%s, %s].", pri, sec), nil
+		dhcpCfg["dns_servers"] = []interface{}{pri, sec}
+
+		outcome, err := saveConfig(cfg)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("DNS servers [%s, %s]: %s", pri, sec, outcome), nil
 
 	case "configure_squid_proxy":
 		return "", fmt.Errorf("Squid configuration is disabled until its privileged lifecycle adapter is implemented")
@@ -396,27 +497,35 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 	case "create_snapshot":
 		label, _ := args["label"].(string)
 		reqBody, _ := json.Marshal(map[string]string{"label": label})
-		resp, err := routerClient.do(http.MethodPost, "/api/v1/snapshots", reqBody)
+		body, _, err := callAPI(http.MethodPost, "/api/v1/snapshots", reqBody)
 		if err != nil {
 			return "", fmt.Errorf("failed to create snapshot: %w", err)
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
 		return string(body), nil
 
 	case "rollback_snapshot":
 		snapshotID, _ := args["snapshot_id"].(string)
-		resp, err := routerClient.do(http.MethodPost, "/api/v1/snapshots/"+url.PathEscape(snapshotID)+"/restore", []byte("{}"))
+		body, _, err := callAPI(http.MethodPost, "/api/v1/snapshots/"+url.PathEscape(snapshotID)+"/restore", []byte("{}"))
 		if err != nil {
 			return "", fmt.Errorf("failed to restore snapshot: %w", err)
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
 		return string(body), nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+// configSection returns a writable configuration section. An unchecked type
+// assertion here used to panic the whole MCP process ("assignment to entry in
+// nil map") whenever the router answered with anything but a full config —
+// an authentication error body, for example.
+func configSection(cfg map[string]interface{}, name string) (map[string]interface{}, error) {
+	section, ok := cfg[name].(map[string]interface{})
+	if !ok || section == nil {
+		return nil, fmt.Errorf("router configuration has no usable %q section; refusing to guess its shape", name)
+	}
+	return section, nil
 }
 
 func mcpInstructions() string {
@@ -436,35 +545,49 @@ func isMutationTool(name string) bool {
 }
 
 func fetchConfig() (map[string]interface{}, error) {
-	resp, err := routerClient.do(http.MethodGet, "/api/v1/config", nil)
+	body, _, err := callAPI(http.MethodGet, "/api/v1/config", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch config: %w", err)
 	}
-	defer resp.Body.Close()
-
 	var cfg map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+	if err := json.Unmarshal(body, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to decode config: %w", err)
+	}
+	if len(cfg) == 0 {
+		return nil, fmt.Errorf("router returned an empty configuration document")
 	}
 	return cfg, nil
 }
 
-func saveConfig(cfg map[string]interface{}) error {
+// saveConfig applies a configuration and describes what actually happened. A
+// change that touches the management path is only staged (HTTP 202) and
+// reverts automatically unless it is confirmed, so reporting every accepted
+// request as "successfully applied" would tell an AI client the opposite of
+// the truth.
+func saveConfig(cfg map[string]interface{}) (string, error) {
 	data, err := json.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to encode config: %w", err)
+		return "", fmt.Errorf("failed to encode config: %w", err)
 	}
 
-	resp, err := routerClient.do(http.MethodPut, "/api/v1/config", data)
+	body, status, err := callAPI(http.MethodPut, "/api/v1/config", data)
 	if err != nil {
-		return fmt.Errorf("failed to send config update: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("config update failed with status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("configuration change was not applied: %w", err)
 	}
 
-	return nil
+	var tx struct {
+		ID                   string `json:"id"`
+		State                string `json:"state"`
+		ConfirmationDeadline string `json:"confirmation_deadline"`
+		Config               struct {
+			Revision uint64 `json:"revision"`
+		} `json:"config"`
+	}
+	_ = json.Unmarshal(body, &tx)
+
+	if status == http.StatusAccepted || tx.State == "AwaitingConfirmation" {
+		return fmt.Sprintf("staged as transaction %s and AWAITING CONFIRMATION (deadline %s); it rolls back automatically unless POST /api/v1/transactions/%s/confirm is called from a still-reachable management path",
+			tx.ID, tx.ConfirmationDeadline, tx.ID), nil
+	}
+	return fmt.Sprintf("applied and verified as transaction %s, revision %d (state %s)", tx.ID, tx.Config.Revision, tx.State), nil
 }

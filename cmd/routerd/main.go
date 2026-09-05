@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"log"
@@ -156,6 +157,13 @@ func main() {
 		certMu        sync.Mutex
 		cachedCert    *tls.Certificate
 		cachedCertKey string
+		// The cache key is derived from configuration only, so nothing in it
+		// changes as time passes. Keeping the parsed validity window lets a
+		// cache hit be re-checked for expiry (and for a not-yet-valid window
+		// after a clock correction) without re-reading and re-parsing PEM on
+		// every handshake.
+		cachedNotBefore time.Time
+		cachedNotAfter  time.Time
 	)
 	tlsConfig := &tls.Config{
 		MinVersion:   tls.VersionTLS12,
@@ -189,7 +197,8 @@ func main() {
 			}
 
 			cacheKey := certificateCacheKey(active, additionalIPs, additionalDNS)
-			if cachedCert != nil && cachedCertKey == cacheKey {
+			if cachedCert != nil && cachedCertKey == cacheKey &&
+				tlsutil.CertificateTimeValid(cachedNotBefore, cachedNotAfter, time.Now()) {
 				return cachedCert, nil
 			}
 
@@ -201,8 +210,17 @@ func main() {
 			if certErr != nil {
 				return nil, certErr
 			}
+			leaf := activeCert.Leaf
+			if leaf == nil {
+				leaf, certErr = x509.ParseCertificate(activeCert.Certificate[0])
+				if certErr != nil {
+					return nil, certErr
+				}
+			}
 			cachedCert = &activeCert
 			cachedCertKey = cacheKey
+			cachedNotBefore = leaf.NotBefore
+			cachedNotAfter = leaf.NotAfter
 			return cachedCert, nil
 		},
 		PreferServerCipherSuites: true,
