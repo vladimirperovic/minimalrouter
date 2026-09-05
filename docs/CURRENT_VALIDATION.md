@@ -8,15 +8,24 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 **Minimal Router OS v0.1.7 — Beta / controlled pilot.**
 
-The build tree (`VERSION`, `web/package.json`) is v0.1.7. The Golden Appliance
-ISO evidence recorded below was produced for the v0.1.5 line and inherited
-through v0.1.6; it is **not** a claim that the full blank-disk install E2E has
-been re-run for v0.1.7. v0.1.7 changes the flasher's write verification, so
-that E2E is required again before v0.1.7 is published (see
-`docs/GOLDEN-IMAGE.md`). It is not recommended as an unattended replacement for
-pfSense/OpenWrt.
+The build tree (`VERSION`, `web/package.json`) is v0.1.7. It is not recommended
+as an unattended replacement for pfSense/OpenWrt.
 
-## Golden Appliance ISO evidence — v0.1.5 (inherited, not re-run for v0.1.7)
+v0.1.7 changes the Golden-image flasher's write verification, so the inherited
+v0.1.5 ISO evidence below does not carry forward on its own and the blank-disk
+E2E is required again for this line.
+
+What has been re-run, precisely: the **Build, flash and boot minimalrouter
+golden ISO** job passed on the branch carrying the flasher change
+([run 33965811766](https://github.com/vladimirperovic/minimalrouter/actions/runs/33965811766),
+commit `1d2fb92`). That is CI evidence on a pull-request branch — it is **not**
+a claim about the released artifact. The signed release workflow rebuilds the
+exact tagged commit and repeats the full E2E install before publication, and
+the release claim rests on that run, not on this one.
+
+No new owner-Proxmox or ISP evidence has been produced for v0.1.7.
+
+## Golden Appliance ISO evidence — v0.1.5 (inherited; see the flasher note above)
 
 The v0.1.5 release candidate extends the original Golden Appliance path with
 additional installed-appliance, supervision and installer-safety checks. The

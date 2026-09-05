@@ -61,7 +61,7 @@ Charts should remain simple:
 ## Connected devices
 
 The device view should support quick scanning and actions without becoming a
-full network-management table. v0.1.6 combines hostname/IP/MAC and lease data
+full network-management table. v0.1.7 combines hostname/IP/MAC and lease data
 with **Online**, **Last seen**, and **New** state derived from bounded DHCP and
 accounting evidence. Static leases are clearly marked, Wake-on-LAN remains
 available where applicable, and a device can be paused from Internet access for
@@ -92,7 +92,7 @@ hidden or presented as active.
 
 ## Responsive behavior
 
-Below desktop width the status row may reduce secondary chips. On mobile v0.1.6
+Below desktop width the status row may reduce secondary chips. On mobile v0.1.7
 uses a fixed top-right navigation control: opening the menu reveals navigation
 behind a pushed/scaled foreground page rather than replacing the app with an
 unrelated mobile layout. The menu closes with the same control, Escape, an

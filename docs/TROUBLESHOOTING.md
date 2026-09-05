@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Minimal Router OS is **Beta (v0.1.6)** networking software for controlled pilots.
+Minimal Router OS is **Beta (v0.1.7)** networking software for controlled pilots.
 Troubleshooting must not leave the active network exposed or unavailable. Restore
 the known-good router first when a test causes an outage, then investigate on an
 isolated network.

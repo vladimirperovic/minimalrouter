@@ -6,16 +6,53 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.7**.
+Next development version: **v0.1.8**.
+
+## [v0.1.7] — 2026-09-06
+
+### Highlights
+
+- The dashboard tells you when a new release exists and installs it for you.
+- One appearance, rebuilt: **Studio**, and the four others are gone.
+- Eleven findings from the 2026-09-05 technical review are repaired, including
+  two that could lose a committed configuration or accept a revoked password.
 
 ### Added
 
-- A fifth dashboard appearance, **Studio**: warm paper ground, bronze accent and
-  serif display type, with measurements set large so a status page reads like a
-  printed sheet. Like the others it has a light and a dark form and is chosen
-  from the topbar. The display face is a system serif stack rather than a
-  webfont, because the dashboard is served from the appliance and is routinely
-  opened while the WAN is down.
+- **Updating from the dashboard.** A *New version* button appears at the foot
+  of the sidebar when a newer signed release is published. It states what it
+  found, what it will do and what it cannot do; the install runs behind a
+  confirmation, into the inactive slot, and is verified against the release's
+  Ed25519 manifest before anything is switched over. An update is offered only
+  when both the archive and its signed manifest are present, so the button can
+  never lead to a download that cannot be verified.
+- **Bootstrap binaries are byte-identical between builds of the same source.**
+  `router-update` and `router-recovery` embedded the commit hash and build
+  time, so two builds of one tree produced different bytes and an A/B slot
+  update could not prove it was installing the same bootstrap it was running.
+  They are now built without VCS stamping, and a CI job holds the property
+  against a recorded baseline.
+- **The dashboard has one look.** Studio — warm paper ground, bronze accent,
+  serif display type — is no longer one appearance among five; it is the
+  dashboard's design, rebuilt underneath as six small stylesheets: tokens, the
+  palette, typography, surfaces, controls and the Overview. The display face is
+  a system serif stack rather than a webfont, because the dashboard is served
+  from the appliance and is routinely opened while the WAN is down.
+
+### Changed
+
+- **Overview reads as one page rather than three stacked boxes.** The status
+  card was a card holding a card holding tiles, all at the same weight. It is
+  now a single card carrying one grid: the verdict, the three readings checked
+  next, three groups of equal weight (Connection, Load, Trust & access) and the
+  appliance identity, all on the same columns.
+- **Text meets the contrast it is required to meet.** Section copy was measured
+  at 1.65:1 against the page ground — a third of the 4.5:1 that normal text
+  requires — and set two steps below body size; the small-caps labels sat at
+  4.18:1. Both are corrected and the copy is at the body step.
+- **The dashboard stopped rewriting its own markup after rendering.** A
+  presentation layer patched the DOM after React drew it, which is a race with
+  every re-render. The patches it carried are in the components.
 
 ### Fixed
 
