@@ -49,8 +49,10 @@
 
 :root:root .dashboard-app .overview-headline-readings {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-6);
+  /* The same three columns as the groups below, so the card reads as one
+     grid rather than as a four-across row sitting on a three-across one. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-section);
   margin: var(--gap-group) 0 0;
   padding-top: var(--gap-group);
   border-top: 1px solid var(--classic-border);
@@ -82,7 +84,7 @@
    exactly one, so nothing has to be hunted for twice. */
 :root:root .dashboard-app .overview-groups {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--gap-section);
   margin-top: var(--gap-section);
 }
@@ -150,6 +152,45 @@
   color: var(--text-tertiary);
 }
 
+/* ── Identity footer ────────────────────────────────────────
+   The MAC addresses and the guide link are reference material, not
+   readings: they belong at the foot of the card, on the same three
+   columns as everything above it. It arrived as a five-column grid
+   holding four items, tinted like a nested cell, with 8px labels -
+   two grids fighting, and a label below any size a person reads. */
+:root:root .dashboard-app .overview-technical-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-section);
+  margin-top: var(--gap-section);
+  padding: var(--gap-group) 0 0;
+  border-top: 1px solid var(--classic-border);
+  border-radius: 0;
+  background: none;
+}
+
+:root:root .dashboard-app .overview-technical-facts span {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--ink-eyebrow);
+}
+
+:root:root .dashboard-app .overview-technical-facts strong {
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+/* The guide is a link, so it reads as one. */
+:root:root .dashboard-app .overview-technical-facts .overview-help-link {
+  font-family: var(--font-ui);
+  color: var(--accent-ink, var(--classic-text));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* ── Service ribbon ─────────────────────────────────────────
    Ten chips of equal weight made "Firewall on" shout as loudly
    as "Squid Proxy off". What is off is not news; keep it legible
@@ -209,15 +250,66 @@
   color: var(--classic-text);
 }
 
-/* The health callout was pulled up 26px so it overlapped the hero
-   card's bottom edge. On a paper ground that reads as a rendering
-   fault rather than as emphasis - a white strip cutting the card.
-   The original is an ID selector, so this one is too: a class
-   cannot outrank it, and !important would only hide the argument.
-   It is its own block now, on the page's rhythm. */
+/* The health callout is a drawer sliding out from under the status
+   card, not a separate block and not a strip cutting across it.
+   Three things have to agree for that to read correctly: it starts
+   behind the card's bottom edge, it stacks underneath so the card's
+   own ground covers the overlap, and its top corners stay square so
+   the hidden part has no visible shoulder.
+
+   The rule it replaces is an ID selector, so this one is too: a
+   class cannot outrank an ID, and !important would only hide the
+   argument instead of settling it. */
+:root:root .dashboard-app .overview-status-hero {
+  position: relative;
+  z-index: 1;
+}
+
 :root:root #overview > .health-banner,
 :root:root .dashboard-app .overview-status-hero + .health-banner {
-  margin-top: var(--gap-section);
+  position: relative;
+  z-index: 0;
+  /* Same width as the card it slides from. A 22px inset left the
+     drawer's shoulders showing on both sides, which reads as
+     misalignment rather than as depth. */
+  margin: calc(var(--radius-lg) * -1) 0 0;
+  width: auto;
+  padding-top: calc(var(--card-padding) + var(--radius-lg));
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  /* The status accent runs down the drawer's left edge, and the top 14px of
+     it sit behind the card - where it appeared as a stray red tick above the
+     card's corner. Clipping the drawer to its own box hides the part that is
+     meant to be hidden. */
+  overflow: hidden;
+}
+
+/* ── Narrower ───────────────────────────────────────────────
+   The card is one grid, so it reflows as one: three columns become
+   two, then one. The readings, the groups and the identity footer
+   step together at the same widths, because a page that drops one
+   of them a breakpoint before the others reads as broken rather
+   than as responsive. */
+@media (max-width: 1100px) {
+  :root:root .dashboard-app .overview-headline-readings,
+  :root:root .dashboard-app .overview-groups,
+  :root:root .dashboard-app .overview-technical-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--gap-group);
+  }
+}
+
+@media (max-width: 680px) {
+  :root:root .dashboard-app .overview-headline-readings,
+  :root:root .dashboard-app .overview-groups,
+  :root:root .dashboard-app .overview-technical-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root:root .dashboard-app .overview-masthead h1,
+  :root:root .dashboard-app .overview-masthead h2 {
+    font-size: var(--text-xl);
+  }
 }
 
 @media (max-width: 900px) {

@@ -170,9 +170,13 @@ export default function ClassicOverview({
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
   const healthDetailsRef = useRef<HTMLElement>(null);
 
-  const showHealthDetails = () => {
-    setHealthDetailsOpen(true);
-    window.setTimeout(() => healthDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  const toggleHealthDetails = () => {
+    setHealthDetailsOpen((open) => {
+      // Only scroll on the way in. Scrolling as the panel closes would move the
+      // page out from under the reader who just dismissed it.
+      if (!open) window.setTimeout(() => healthDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      return !open;
+    });
   };
 
   useEffect(() => {
@@ -395,7 +399,6 @@ export default function ClassicOverview({
         <div><dt>Uptime</dt><dd>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</dd><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></div>
         <div><dt>Latency</dt><dd>{formatMetric(gatewaySummary?.latency_ms, " ms")}</dd><small>jitter {formatMetric(gatewaySummary?.jitter_ms, " ms")}</small></div>
         <div><dt>Line estimate</dt><dd>{wanEstimate ? `${wanEstimate.download_mbps.toFixed(0)} / ${wanEstimate.upload_mbps.toFixed(0)}` : wanConnected ? "Measuring" : "—"}</dd><small>{wanEstimate ? "Mbps down / up" : "not measured yet"}</small></div>
-        <div><dt>LAN clients</dt><dd>{runtime.dhcp_leases?.length ?? 0}</dd><small>active leases</small></div>
       </dl>
 
       {/* Three groups, equal weight, each a ruled list. A reading belongs to
@@ -409,6 +412,7 @@ export default function ClassicOverview({
             <div><dt>Public IP</dt><dd className="is-identifier">{runtime.public_ip || "Unavailable"}</dd></div>
             <div><dt>MTU</dt><dd>{config.wan.mtu || 1492}</dd></div>
             <div><dt>Probe targets</dt><dd>{gatewaySummary?.targets?.length || gatewayTargetCount}</dd></div>
+            <div><dt>LAN clients</dt><dd>{runtime.dhcp_leases?.length ?? 0}</dd></div>
           </dl>
         </section>
 
@@ -438,12 +442,11 @@ export default function ClassicOverview({
       <footer className="overview-technical-facts" aria-label="Router identity">
         <div><span>WAN MAC{config.wan.interface ? ` · ${config.wan.interface}` : ""}</span><strong>{runtime.wan_mac || "Unknown"}</strong></div>
         <div><span>LAN MAC{config.lan.interface ? ` · ${config.lan.interface}` : ""}</span><strong>{runtime.lan_mac || "Unknown"}</strong></div>
-        <div><span>Appliance uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong></div>
         <div><span>Guide</span><strong><a href="/help.html" target="_blank" rel="noreferrer" className="overview-help-link">Help &amp; operator guide ↗</a></strong></div>
       </footer>
     </article>
 
-    <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={showHealthDetails} />
+    <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} />
 
     <section className="overview-diagnostic-strip" aria-label="Appliance diagnostics">
       <div><OverviewIcon name="traffic" /><span><small>Conntrack</small><strong>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}<em>{typeof runtime.conntrack_usage_percent === "number" ? `${runtime.conntrack_usage_percent.toFixed(2)}% utilized` : ""}</em></strong></span></div>

@@ -101,9 +101,11 @@ type Props = {
   health: ApplianceHealth | null;
   unavailable: boolean;
   onShowDetails?: () => void;
+  /** Whether the detail list below is open, so the control can say so. */
+  detailsOpen?: boolean;
 };
 
-export default function HealthBanner({ health, unavailable, onShowDetails }: Props) {
+export default function HealthBanner({ health, unavailable, onShowDetails, detailsOpen = false }: Props) {
   if (unavailable || !health) {
     return (
       <section className="health-banner is-unknown" aria-label="Appliance health">
@@ -141,8 +143,17 @@ export default function HealthBanner({ health, unavailable, onShowDetails }: Pro
               : `Checked ${generated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
           </small>
         </div>
-        <button className="health-banner-toggle" onClick={onShowDetails} type="button">
-          {attention.length > 0 ? "Review checks" : "View checks"}
+        {/* One control, two states. A button that opens a panel and then keeps
+            offering to open it leaves the reader to work out whether anything
+            happened; this one says what pressing it will do next. */}
+        <button
+          aria-controls="system-health-checks"
+          aria-expanded={detailsOpen}
+          className="health-banner-toggle"
+          onClick={onShowDetails}
+          type="button"
+        >
+          {detailsOpen ? "Close" : attention.length > 0 ? "Review checks" : "View checks"}
         </button>
       </div>
     </section>

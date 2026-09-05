@@ -641,7 +641,6 @@
    The Overview's own cells are no longer in this list: theme/overview.css
    flattens that page's three levels of nesting into one sheet, and a tinted
    cell there would just be the middle level growing back. */
-:root:root .dashboard-app .overview-technical-facts,
 :root:root .dashboard-app .classic-security-command-facts,
 :root:root .dashboard-app .classic-security-command-facts > div,
 :root:root .dashboard-app .wg-hero-metrics,
