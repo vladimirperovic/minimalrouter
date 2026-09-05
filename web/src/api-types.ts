@@ -197,7 +197,7 @@ export type SystemStatus = {
       tx_bytes?: number;
       online: boolean;
     };
-    ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string };
+    ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string; resolved_ip?: string; in_sync?: boolean };
   };
 };
 

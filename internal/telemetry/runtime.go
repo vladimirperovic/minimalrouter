@@ -1,6 +1,8 @@
 package telemetry
 
 import (
+	"context"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -122,9 +124,45 @@ func countActive(peers []WireGuardPeerStatus) int {
 // DDNSStatus reports the live state of the in-router inadyn daemon, mirroring
 // the status pfSense shows for a Dynamic DNS client. LastUpdate is the last
 // successful provider update epoch; LastIP is the address most recently sent.
+// ResolvedIP is what public DNS currently returns for Hostname. InSync is true
+// only when both are known and equal: inadyn compares the detected address
+// solely against its local cache, so a missed or externally overwritten update
+// leaves LastIP fresh while DNS points elsewhere. Consumers must treat a
+// missing ResolvedIP as "unknown", never as a mismatch.
 type DDNSStatus struct {
 	Running    bool   `json:"running"`
 	Hostname   string `json:"hostname,omitempty"`
 	LastUpdate int64  `json:"last_update_epoch,omitempty"`
 	LastIP     string `json:"last_ip,omitempty"`
+	ResolvedIP string `json:"resolved_ip,omitempty"`
+	InSync     bool   `json:"in_sync,omitempty"`
+}
+
+// ddnsResolveTimeout bounds the public-DNS verification lookup. The dashboard
+// polls runtime status every two seconds behind a one-second cache, and the
+// query normally hits the router's own dnsmasq cache, so a short timeout keeps
+// a slow upstream from stalling telemetry.
+const ddnsResolveTimeout = 1500 * time.Millisecond
+
+// resolveDDNSHostname returns the IPv4 address public DNS currently publishes
+// for hostname. IPv6 is ignored because the generated inadyn configuration
+// sets allow-ipv6 = false. The boolean reports whether a usable answer arrived;
+// callers must not treat a failed lookup as a mismatch.
+func resolveDDNSHostname(hostname string) (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), ddnsResolveTimeout)
+	defer cancel()
+	addrs, err := (&net.Resolver{PreferGo: true}).LookupIP(ctx, "ip4", hostname)
+	if err != nil || len(addrs) == 0 {
+		return "", false
+	}
+	return addrs[0].String(), true
+}
+
+// ddnsInSync reports whether the address last sent to the DDNS provider equals
+// the address DNS currently publishes. Either side missing means unknown,
+// never in-sync: a failed lookup must not read as drift.
+func ddnsInSync(lastIP, resolvedIP string) bool {
+	last := net.ParseIP(strings.TrimSpace(lastIP))
+	resolved := net.ParseIP(strings.TrimSpace(resolvedIP))
+	return last != nil && resolved != nil && last.Equal(resolved)
 }

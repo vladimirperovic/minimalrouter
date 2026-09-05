@@ -222,6 +222,12 @@ func inspectDDNS() DDNSStatus {
 		break
 	}
 	st.Hostname = inadynHostname()
+	if st.Hostname != "" {
+		if resolved, ok := resolveDDNSHostname(st.Hostname); ok {
+			st.ResolvedIP = resolved
+			st.InSync = ddnsInSync(st.LastIP, resolved)
+		}
+	}
 	return st
 }
 
