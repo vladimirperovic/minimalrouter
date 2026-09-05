@@ -1,4 +1,7 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 /*
  * The visual contract for the dashboard's single Studio look.
@@ -14,6 +17,10 @@ import { expect, test, type Page, type Route } from "@playwright/test";
  *
  * Baselines are committed. Regenerate deliberately, never to make a red run
  * green:  pnpm --dir web test:visual -- --update-snapshots
+ *
+ * Only win32 baselines exist today, so the image comparison runs on Windows
+ * and is skipped elsewhere - CI included. See BASELINE_PLATFORM_SUPPORTED
+ * below for what CI does still check, and for how to widen it.
  *
  * The whole API is stubbed with documentation-range values (RFC 5737 addresses,
  * RFC 7042 MACs, RFC 2606 names), so a capture never depends on an appliance or
@@ -126,7 +133,54 @@ test.skip(
   "the visual contract is captured on desktop chromium only",
 );
 
+// Text rendering differs enough between operating systems that a baseline is
+// only ever valid on the platform that produced it - Playwright says so by
+// putting the platform in the file name. Only win32 baselines are committed,
+// so on CI's Linux runners every capture would fail for a reason that has
+// nothing to do with the dashboard.
+//
+// So the comparison runs where a baseline exists, and the assertions that do
+// not depend on rendering - that no section throws, and that nothing pushes a
+// phone page sideways - run everywhere. That keeps CI honest about what it
+// checked instead of green about what it skipped.
+//
+// To make CI check the look too, generate Linux baselines in the Playwright
+// container CI uses and commit them next to these; the guard picks them up on
+// its own.
+const BASELINE_PLATFORM_SUPPORTED = existsSync(
+  join(
+    fileURLToPath(new URL(".", import.meta.url)),
+    "theme-visual.spec.ts-snapshots",
+    `overview-chromium-${process.platform}.png`,
+  ),
+);
+
+type CaptureOptions = {
+  mask?: Locator[];
+  maxDiffPixels?: number;
+  animations?: "disabled" | "allow";
+  fullPage?: boolean;
+};
+
+async function captureLook(page: Page, name: string, options: CaptureOptions) {
+  if (!BASELINE_PLATFORM_SUPPORTED) {
+    test.info().annotations.push({
+      type: "capture-skipped",
+      description: `no committed baseline for ${process.platform}; the look is not compared on this platform`,
+    });
+    return;
+  }
+  await expect(page).toHaveScreenshot(name, options);
+}
+
+// Date.now() is pinned, but timers keep running: the dashboard polls, and a
+// stopped clock would leave it waiting for samples that never arrive.
+async function freezeClock(page: Page) {
+  await page.clock.setFixedTime(NOW);
+}
+
 async function openDashboard(page: Page) {
+  await freezeClock(page);
   // Until Studio becomes the only look, the baseline has to ask for it
   // explicitly. Afterwards this is a harmless no-op, which is what makes the
   // before/after images comparable.
@@ -146,6 +200,13 @@ async function openDashboard(page: Page) {
 }
 
 test.describe("Studio look", () => {
+  // The Overview eyebrow prints the current date, so without a frozen clock
+  // every capture on this page turns red the next day - a red run that says
+  // nothing about the dashboard. The timezone and locale are pinned for the
+  // same reason: `toLocaleDateString` would otherwise render whatever the
+  // machine happened to be set to.
+  test.use({ timezoneId: "UTC", locale: "en-GB" });
+
   for (const section of SECTIONS) {
     test(`section ${section}`, async ({ page }) => {
       const crashes: string[] = [];
@@ -161,7 +222,7 @@ test.describe("Studio look", () => {
       await page.waitForTimeout(500);
       await page.evaluate(() => window.scrollTo(0, 0));
 
-      await expect(page).toHaveScreenshot(`${section}.png`, {
+      await captureLook(page, `${section}.png`, {
         // The bandwidth sparkline and the clock in the top bar move on their
         // own; masking them keeps the contract about layout and colour.
         mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
@@ -190,7 +251,7 @@ test.describe("Studio look", () => {
 
       // A phone capture is full-page: what matters is whether the whole
       // section fits the width and stacks, not just its first screen.
-      await expect(page).toHaveScreenshot(`phone-${section}.png`, {
+      await captureLook(page, `phone-${section}.png`, {
         mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
         maxDiffPixels: MAX_DIFF_PIXELS,
         animations: "disabled",
@@ -207,7 +268,7 @@ test.describe("Studio look", () => {
     await openDashboard(page);
     await page.getByRole("button", { name: /toggle appearance/i }).click();
     await page.waitForTimeout(400);
-    await expect(page).toHaveScreenshot("overview-dark.png", {
+    await captureLook(page, "overview-dark.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
       maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
@@ -217,7 +278,7 @@ test.describe("Studio look", () => {
   test("mobile overview", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openDashboard(page);
-    await expect(page).toHaveScreenshot("overview-mobile.png", {
+    await captureLook(page, "overview-mobile.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
       maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
@@ -232,10 +293,11 @@ test.describe("Studio look", () => {
     await page.route("**/api/v1/**", (r) => json(r, {}));
     await page.route("**/api/v1/auth/session", (r) => json(r, { error: "unauthorized" }, 401));
     await page.route("**/api/v1/setup/status", (r) => json(r, { is_configured: true }));
+    await freezeClock(page);
     await page.goto("/");
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
-    await expect(page).toHaveScreenshot("sign-in.png", {
+    await captureLook(page, "sign-in.png", {
       maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
@@ -248,10 +310,11 @@ test.describe("Studio look", () => {
     await page.route("**/api/v1/**", (r) => json(r, {}));
     await page.route("**/api/v1/auth/session", (r) => json(r, { error: "unauthorized" }, 401));
     await page.route("**/api/v1/setup/status", (r) => json(r, { is_configured: true }));
+    await freezeClock(page);
     await page.goto("/");
     await page.waitForSelector("input[type=password]", { timeout: 15_000 });
     await page.waitForTimeout(400);
-    await expect(page).toHaveScreenshot("sign-in-mobile.png", {
+    await captureLook(page, "sign-in-mobile.png", {
       maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
     });
@@ -266,7 +329,7 @@ test.describe("Studio look", () => {
     await menu.waitFor({ state: "visible" });
     await menu.click();
     await page.waitForTimeout(400);
-    await expect(page).toHaveScreenshot("mobile-drawer.png", {
+    await captureLook(page, "mobile-drawer.png", {
       mask: [page.locator(".classic-live-sync"), page.locator("canvas")],
       maxDiffPixels: MAX_DIFF_PIXELS,
       animations: "disabled",
