@@ -160,11 +160,19 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <main className="auth-shell">
         <section className="auth-panel auth-offline" aria-labelledby="offline-title">
-          <div className="auth-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
-          <p className="auth-kicker">Secure access</p>
-          <h1 id="offline-title">Router unavailable</h1>
-          <p>Connect to the router LAN and try again. This page will reconnect automatically.</p>
-          <button className="button primary" type="button" onClick={() => window.location.reload()}>Try again now</button>
+          <div className="auth-section auth-head">
+            <div className="auth-headline">
+              <h1 id="offline-title">Router unavailable</h1>
+              <p className="auth-meta">Minimal Router OS · reconnecting</p>
+            </div>
+            <span className="auth-mark" aria-hidden="true">M</span>
+          </div>
+          <div className="auth-section auth-note">
+            <p>Connect to the router LAN and try again. This page will reconnect automatically.</p>
+          </div>
+          <div className="auth-section auth-actions">
+            <button className="button primary" type="button" onClick={() => window.location.reload()}>Try again now</button>
+          </div>
         </section>
       </main>
     );
@@ -173,40 +181,46 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   return (
     <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="login-title">
-        <div className="auth-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
-        <p className="auth-kicker">Secure access</p>
-        <div className="auth-heading">
-          <h1 id="login-title">Sign in</h1>
-          {previewMode && <span className="auth-preview-badge">UI preview</span>}
+        <div className="auth-section auth-head">
+          <div className="auth-headline">
+            <h1 id="login-title">Sign in</h1>
+            <p className="auth-meta">Minimal Router OS · secure access</p>
+            {previewMode && <span className="auth-chip">UI preview</span>}
+          </div>
+          <span className="auth-mark" aria-hidden="true">M</span>
         </div>
-        <form className="auth-form" onSubmit={login}>
-        <label className="field">
-          <span>Password</span>
-          <input
-            autoComplete="current-password"
-            autoFocus
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
-        </label>
-        {requiresTOTP && <label className="field">
-          <span>Two-factor code <small>(only if enabled)</small></span>
-          <input
-            aria-describedby="totp-help"
-            autoComplete="one-time-code"
-            inputMode="numeric"
-            maxLength={6}
-            onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
-            value={totpCode}
-          />
-          <small id="totp-help">Leave this blank if two-factor authentication is not configured.</small>
-        </label>}
-        {error && <p className="auth-error" role="alert">{error}</p>}
-        <button className="button primary auth-submit" disabled={submitting} type="submit">
-          {submitting ? "Signing in…" : "Sign in"}
-        </button>
+        <form onSubmit={login}>
+          <div className="auth-section auth-form">
+            <label className="field">
+              <span>Password</span>
+              <input
+                autoComplete="current-password"
+                autoFocus
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                type="password"
+                value={password}
+              />
+            </label>
+            {requiresTOTP && <label className="field">
+              <span>Two-factor code <small>(only if enabled)</small></span>
+              <input
+                aria-describedby="totp-help"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                maxLength={6}
+                onChange={(event) => setTotpCode(event.target.value.replace(/\D/g, ""))}
+                value={totpCode}
+              />
+              <small id="totp-help">Leave this blank if two-factor authentication is not configured.</small>
+            </label>}
+            {error && <p className="auth-error" role="alert">{error}</p>}
+          </div>
+          <div className="auth-section auth-actions">
+            <button className="button primary auth-submit" disabled={submitting} type="submit">
+              {submitting ? "Signing in…" : "Sign in"}
+            </button>
+          </div>
         </form>
       </section>
     </main>
