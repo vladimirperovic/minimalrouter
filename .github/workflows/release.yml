@@ -142,8 +142,16 @@ jobs:
           tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
           sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
           sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
-          tar tzf build/minimalrouter-linux-amd64.tar.gz | grep -qx 'minimalrouter-linux-amd64/firmware-signing.pub'
-          tar tzf build/minimalrouter-linux-arm64.tar.gz | grep -qx 'minimalrouter-linux-arm64/firmware-signing.pub'
+          # Write the listing to a file instead of piping it into `grep -q`.
+          # `grep -q` exits at the first match, tar then dies on EPIPE, and
+          # `pipefail` fails the whole step -- so the check passed or failed on
+          # where the entry happened to land in the archive's readdir order.
+          # That is what stopped the v0.1.7 release with `tar: stdout: write
+          # error` after the payloads were already signed.
+          for arch in amd64 arm64; do
+            tar tzf "build/minimalrouter-linux-$arch.tar.gz" > "$RUNNER_TEMP/repack-listing-$arch.txt"
+            grep -qx "minimalrouter-linux-$arch/firmware-signing.pub" "$RUNNER_TEMP/repack-listing-$arch.txt"
+          done
 
       - name: Build release Golden ISO from the signed AMD64 distribution
         shell: bash
