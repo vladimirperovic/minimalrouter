@@ -1,6 +1,6 @@
 # Roadmap
 
-Minimal Router OS is currently **Beta (v0.1.6)**. The roadmap is organized around
+Minimal Router OS is currently **Beta (v0.1.7)**. The roadmap is organized around
 evidence and release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
@@ -46,7 +46,7 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
 ## Next pilot gates
 
-- [ ] repeat the v0.1.6 Golden ISO on owner Proxmox from blank disk through real WAN cutover
+- [ ] repeat the v0.1.7 Golden ISO on owner Proxmox from blank disk through real WAN cutover
 - [ ] five repeated guest/host cold boots with stable WAN/LAN identity
 - [ ] repeated real PPPoE disconnect/reconnect and reboot recovery
 - [ ] MinimalRouter-managed No-IP update and later public-IP change
@@ -60,7 +60,7 @@ Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
 ## Platform / media gates
 
-- [ ] full installed-disk UEFI qualification; v0.1.6 E2E target is SeaBIOS/MBR
+- [ ] full installed-disk UEFI qualification; v0.1.7 E2E target is SeaBIOS/MBR
 - [ ] owner-qualified recovery-media procedure
 - [ ] supported Proxmox/NIC matrix
 - [ ] ARM64 appliance-image/installer path if it becomes a supported target

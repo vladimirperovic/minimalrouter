@@ -1,8 +1,8 @@
-# Proxmox VE — v0.1.6 Golden ISO pilot
+# Proxmox VE — v0.1.7 Golden ISO pilot
 
 Minimal Router OS should run as a QEMU/KVM VM, not an LXC container.
 
-v0.1.6's preferred first-install path is the Golden Appliance ISO. You do not
+v0.1.7's preferred first-install path is the Golden Appliance ISO. You do not
 install Alpine separately before booting the ISO.
 
 Current evidence: [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md).
@@ -18,7 +18,7 @@ The exact automated end-to-end target is deliberately conservative:
 - RAM: 1 GiB or more
 - Disk: one VirtIO disk, minimum 8 GiB
 - NICs: two VirtIO NICs
-- CD/DVD: MinimalRouter v0.1.6 ISO
+- CD/DVD: MinimalRouter v0.1.7 ISO
 - Console: noVNC available during first pilot
 - Optional: `serial0` socket for `ttyS0` recovery
 
@@ -63,7 +63,7 @@ safer during initial qualification.
 ## Installation
 
 1. Create the blank VM using the profile above.
-2. Attach the verified `minimalrouter-0.1.6-amd64.iso`.
+2. Attach the verified `minimalrouter-0.1.7-amd64.iso`.
 3. Keep the LAN isolated from the production DHCP domain.
 4. Boot the ISO using VGA/noVNC or the dedicated serial entry.
 5. The live flasher verifies the Golden image and automatically selects the only
@@ -144,5 +144,5 @@ Golden disk** currently uses an MBR partition table and ExtLinux and is qualifie
 end-to-end on SeaBIOS. UEFI installed-disk support must be tested separately
 before it is documented as supported.
 
-Minimal Router v0.1.6 remains a controlled Beta pilot, not an unattended
+Minimal Router v0.1.7 remains a controlled Beta pilot, not an unattended
 pfSense/OpenWrt replacement.

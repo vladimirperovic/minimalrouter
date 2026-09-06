@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.6"><img alt="Beta release: v0.1.6" src="https://img.shields.io/badge/beta-v0.1.6-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.7"><img alt="Beta release: v0.1.7" src="https://img.shields.io/badge/beta-v0.1.7-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -44,11 +44,11 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **Beta — v0.1.6.** The preferred AMD64/Proxmox installation path is the
+> **Beta — v0.1.7.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
-> then runs a short first-boot router configuration. v0.1.6 also promotes the
+> then runs a short first-boot router configuration. v0.1.7 also promotes the
 > approved dashboard visual system to production, keeps the public demo aligned
 > with the production UI, adds the pushed mobile navigation interaction and
 > expands the release gate with cold-boot, supervision and installer-safety
@@ -56,19 +56,19 @@ recoverable and fail-closed.
 > pfSense/OpenWrt replacement. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## v0.1.6 quick start — Proxmox
+## v0.1.7 quick start — Proxmox
 
-Download these assets from the **v0.1.6 GitHub release**:
+Download these assets from the **v0.1.7 GitHub release**:
 
 ```text
-minimalrouter-0.1.6-amd64.iso
-minimalrouter-0.1.6-amd64.iso.sha256
+minimalrouter-0.1.7-amd64.iso
+minimalrouter-0.1.7-amd64.iso.sha256
 ```
 
 Verify before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.1.6-amd64.iso.sha256
+sha256sum -c minimalrouter-0.1.7-amd64.iso.sha256
 ```
 
 Create a QEMU/KVM VM with the currently proven target profile:
@@ -103,7 +103,7 @@ Serial:    ttyS0 @ 115200
 Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
 [`docs/PROXMOX.md`](docs/PROXMOX.md).
 
-> The installer ISO contains BIOS and UEFI boot metadata, but the v0.1.6
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.1.7
 > **installed Golden target** that is fully exercised end-to-end is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
@@ -164,6 +164,7 @@ signed distribution archive on an existing Alpine system*) and
 - optional Wi-Fi access point on supported hardware
 - transactional configuration with confirmation, rollback and recovery
 - encrypted backups, snapshots and crash-safe A/B updates
+- signed updates installed from the dashboard when a new release appears
 - local console, trusted-LAN SSH and serial recovery paths
 
 Deliberately **not** included: multi-WAN, BGP/OSPF, IDS/IPS, captive portals,
@@ -222,7 +223,7 @@ login and verifies the installed appliance.
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.1.6 ISO install
+- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.1.7 ISO install
 - [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — exact ISO architecture and rebuild rules
 - [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and pilot procedure
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is actually proven
