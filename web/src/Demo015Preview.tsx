@@ -1,8 +1,4 @@
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import type { RouterConfig } from "./api-types";
-import RecoveryToolsPanel from "./components/RecoveryToolsPanel";
-import { apiFetch } from "./lib/api";
+import { useEffect } from "react";
 import { isDemoMode } from "./lib/demoApi";
 
 const DEMO_WAN_ESTIMATE = { download_mbps: 600, upload_mbps: 400, measured_at: Date.now() };
@@ -134,62 +130,6 @@ function patchWireGuardSuccess() {
   callout.insertBefore(wrapper, callout.firstChild);
 }
 
-function patchRecoveryCopy() {
-  const recovery = document.getElementById("recovery");
-  if (recovery) {
-    const title = recovery.querySelector<HTMLElement>(".dashboard-section-heading h2");
-    if (title && title.textContent !== "Recovery") title.textContent = "Recovery";
-    const copy = recovery.querySelector<HTMLElement>(".dashboard-section-heading .section-copy");
-    const recoveryCopy = "Back up your Minimal Router configuration, restore from an encrypted backup, or migrate settings from pfSense.";
-    if (copy && copy.textContent !== recoveryCopy) copy.textContent = recoveryCopy;
-  }
-
-  document.querySelectorAll<HTMLElement>(".security-recovery-card").forEach((card) => {
-    const heading = card.querySelector<HTMLElement>(".card-title-row h3");
-    if (heading && heading.textContent !== "Recovery tools") heading.textContent = "Recovery tools";
-    const paragraph = card.querySelector<HTMLElement>(".card-title-row p");
-    const toolsCopy = "Encrypted backups, restore validation, pfSense migration and redacted diagnostics.";
-    if (paragraph && paragraph.textContent !== toolsCopy) paragraph.textContent = toolsCopy;
-
-    const details = Array.from(card.querySelectorAll<HTMLDetailsElement>("details"));
-    const labels = [
-      "Encrypted Minimal Router backup (.mrbak)",
-      "Restore encrypted backup",
-      "Migrate from pfSense config.xml",
-    ];
-    details.forEach((detail, index) => {
-      const summary = detail.querySelector<HTMLElement>("summary");
-      if (!summary || summary.querySelector(".demo-recovery-label")) return;
-      summary.textContent = "";
-      const number = document.createElement("span");
-      number.className = `demo-recovery-index is-${index + 1}`;
-      number.textContent = String(index + 1);
-      const label = document.createElement("span");
-      label.className = "demo-recovery-label";
-      label.textContent = labels[index] || `Recovery step ${index + 1}`;
-      summary.append(number, label);
-      if (index === 0 || index === 2) {
-        const badge = document.createElement("span");
-        badge.className = `demo-recovery-badge ${index === 0 ? "is-recommended" : "is-migration"}`;
-        badge.textContent = index === 0 ? "Recommended" : "Migration only";
-        summary.appendChild(badge);
-      }
-      const chevron = document.createElement("span");
-      chevron.className = "demo-recovery-chevron";
-      chevron.setAttribute("aria-hidden", "true");
-      chevron.textContent = "›";
-      summary.appendChild(chevron);
-    });
-
-    if (!card.querySelector(".demo-recovery-legend")) {
-      const legend = document.createElement("div");
-      legend.className = "demo-recovery-legend";
-      legend.innerHTML = "<span>ⓘ</span><p><strong>.mrbak</strong> backups are for Minimal Router only.</p><i></i><p><strong>pfSense config.xml</strong> is for migration only and is not a Minimal Router backup.</p>";
-      card.appendChild(legend);
-    }
-  });
-}
-
 // The preview badge under the wordmark is retired — the design is no longer a
 // pass being reviewed. Existing badges are cleared so a page left open from an
 // earlier build does not keep one.
@@ -231,9 +171,6 @@ function markVisualSystem() {
 }
 
 export default function Demo015Preview() {
-  const [recoveryTarget, setRecoveryTarget] = useState<HTMLElement | null>(null);
-  const [config, setConfig] = useState<RouterConfig | null>(null);
-  const [recoveryError, setRecoveryError] = useState("");
 
   useEffect(() => {
     document.documentElement.classList.add("demo-015-preview");
@@ -245,22 +182,12 @@ export default function Demo015Preview() {
       // ClassicOverviewBase itself now, where a rename cannot silently break it.
       patchHealthChecks();
       patchWireGuardSuccess();
-      patchRecoveryCopy();
       patchPreviewBadge();
       decorateStatuses();
       decorateEmptyStates();
       markVisualSystem();
 
-      if (isDemoMode) {
-        const recovery = document.getElementById("recovery");
-        let slot = recovery?.querySelector<HTMLElement>(".demo-015-recovery-slot") ?? null;
-        if (recovery && !slot) {
-          slot = document.createElement("div");
-          slot.className = "demo-015-recovery-slot";
-          recovery.appendChild(slot);
-        }
-        setRecoveryTarget(slot);
-      }
+
     };
 
     const root = document.getElementById("root") ?? document.body;
@@ -292,18 +219,6 @@ export default function Demo015Preview() {
     sync();
     observe();
 
-    // Interface names are only in the config, and the Overview never renders
-    // them. Fetch once on mount so the MAC labels can be annotated there rather
-    // than only after the operator has visited Recovery.
-    let cancelled = false;
-    void apiFetch("/api/v1/config")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: RouterConfig | null) => {
-        if (cancelled || !body) return;
-        schedule();
-      })
-      .catch(() => undefined);
-
     const trackPointer = (event: MouseEvent) => {
       const host = (event.target as HTMLElement | null)?.closest<HTMLElement>(".demo-has-tip");
       if (!host) return;
@@ -322,7 +237,6 @@ export default function Demo015Preview() {
     window.addEventListener("hashchange", schedule);
     window.addEventListener("minimalrouter:wan-speed-estimate", schedule);
     return () => {
-      cancelled = true;
       document.removeEventListener("mousemove", trackPointer);
       document.removeEventListener("focusin", anchorOnFocus);
       observer.disconnect();
@@ -333,22 +247,5 @@ export default function Demo015Preview() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isDemoMode || !recoveryTarget) return;
-    let cancelled = false;
-    void apiFetch("/api/v1/config")
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Configuration unavailable")))
-      .then((body: RouterConfig) => { if (!cancelled) setConfig(body); })
-      .catch((error) => { if (!cancelled) setRecoveryError(error instanceof Error ? error.message : "Recovery tools unavailable"); });
-    return () => { cancelled = true; };
-  }, [recoveryTarget]);
-
-  if (!isDemoMode || !recoveryTarget || !config) return null;
-  return createPortal(
-    <div className="demo-015-recovery-moved">
-      {recoveryError && <div className="dashboard-alert is-error" role="alert">{recoveryError}</div>}
-      <RecoveryToolsPanel config={config} onError={setRecoveryError} />
-    </div>,
-    recoveryTarget,
-  );
+  return null;
 }

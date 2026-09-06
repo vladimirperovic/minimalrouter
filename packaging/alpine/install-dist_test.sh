@@ -1,129 +1,90 @@
 #!/bin/sh
+# Dependency/preflight tests only: every writable path and command is isolated.
 set -eu
-
-echo "=== Testing install-dist.sh ==="
-
-# Mock environment
-export PATH="$PWD/mock-bin:$PATH"
-mkdir -p mock-bin
-cat > mock-bin/apk << 'EOF'
+SOURCE=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/minimalrouter-installer-test.XXXXXX")
+trap 'rm -rf "$WORK"' EXIT HUP INT TERM
+export WORK
+mkdir -p "$WORK/mock-bin" "$WORK/bin" "$WORK/etc/apk"
+: > "$WORK/etc/alpine-release"
+: > "$WORK/etc/apk/repositories"
+export PATH="$WORK/mock-bin:$PATH"
+cat > "$WORK/mock-bin/id" <<'MOCK'
 #!/bin/sh
-if [ "$1" = "update" ]; then
-    echo "MOCK apk update"
-elif [ "$1" = "add" ]; then
-    shift
-    echo "MOCK apk add $@"
-elif [ "$1" = "info" ] && [ "$2" = "-e" ]; then
-    pkg="$3"
-    # For testing, we pretend 'missing-pkg' is not installed
-    if [ "$pkg" = "missing-pkg" ]; then
-        exit 1
-    fi
-    exit 0
-else
-    echo "MOCK apk unknown: $@"
-    exit 1
-fi
-EOF
-chmod +x mock-bin/apk
-
-# Mock id and uname
-cat > mock-bin/id << 'EOF'
+printf '0\n'
+MOCK
+cat > "$WORK/mock-bin/uname" <<'MOCK'
 #!/bin/sh
-echo "0"
-EOF
-chmod +x mock-bin/id
-
-cat > mock-bin/uname << 'EOF'
+printf 'x86_64\n'
+MOCK
+cat > "$WORK/mock-bin/apk" <<'MOCK'
 #!/bin/sh
-echo "x86_64"
-EOF
-chmod +x mock-bin/uname
-
-# Mock install
-cat > mock-bin/install << 'EOF'
+printf '%s\n' "$*" >> "$WORK/apk.log"
+case "$1" in
+  update|add) echo "MOCK apk $*" ;;
+  info) [ "$3" != "${MISSING_PACKAGE:-}" ] ;;
+  *) exit 1 ;;
+esac
+MOCK
+cat > "$WORK/bin/router-update-amd64" <<'MOCK'
 #!/bin/sh
-echo "MOCK install $@"
-EOF
-chmod +x mock-bin/install
-
-# Create dummy Alpine release file
-mkdir -p mock-etc/apk
-touch mock-etc/alpine-release
-touch mock-etc/apk/repositories
-
-# We'll run the installer via a wrapper that sets /etc to mock-etc
-cat > run-installer.sh << 'EOF'
+printf '%s\n' "$1" >> "$WORK/updater.log"
+case "$1" in
+  install-preflight) exit "${PREFLIGHT_RC:-0}" ;;
+  install-begin) : > "$WORK/intent" ;;
+  *) exit 99 ;;
+esac
+MOCK
+cat > "$WORK/mock-bin/dnsmasq" <<'MOCK'
 #!/bin/sh
-export PATH="$PWD/mock-bin:$PATH"
-# Patch script to use mock-etc instead of /etc just for the first check
-sed 's|/etc|mock-etc|g' packaging/alpine/install-dist.sh > /tmp/test-install.sh
-chmod +x /tmp/test-install.sh
-# Remove cd $SCRIPT_DIR so it uses our local mock-etc
-sed -i.bak '/cd "$SCRIPT_DIR"/d' /tmp/test-install.sh
-# Also stub the file checks because we don't have the build artifacts
-sed -i.bak 's/\[ -f "$required" \]/true/g' /tmp/test-install.sh
-# This test intentionally exercises only dependency selection. Stop before the
-# real kernel-module preflight and all root-runtime mutations.
-sed -i.bak '/# Fail before replacing appliance runtime files/,$d' /tmp/test-install.sh
+printf 'Compile time options: IPv6 %s DHCP DNSSEC\n' "${DNSMASQ_CAPABILITY:-nftset}"
+MOCK
+chmod 0755 "$WORK/mock-bin/"* "$WORK/bin/"*
+# Stop before kernel/runtime mutation. Only dependency discovery is exercised.
+sed '/# Fail before replacing appliance runtime files/,$d' "$SOURCE/install-dist.sh" |
+    sed '/# Install the admission\/recovery fence durably/,/^# The all-in-one ISO/{ /^# The all-in-one ISO/!d; }' |
+    sed "s|/etc|$WORK/etc|g; s/\[ -f \"\$required\" \]/true/g" > "$WORK/install-dist.sh"
+output=$(sh "$WORK/install-dist.sh" 2>&1)
+printf '%s\n' "$output" | grep -q 'MOCK apk update'
+printf '%s\n' "$output" | grep -q 'MOCK apk add'
+echo 'PASS normal dependency installation'
+: > "$WORK/apk.log"
+output=$(sh "$WORK/install-dist.sh" --offline 2>&1)
+printf '%s\n' "$output" | grep -q 'All required dependencies already installed'
+! grep -Eq '^(update|add)' "$WORK/apk.log"
+echo 'PASS offline checks without package mutation'
+if MISSING_PACKAGE=nftables sh "$WORK/install-dist.sh" --offline > "$WORK/output" 2>&1; then exit 1; fi
+grep -q 'required packages are missing' "$WORK/output"
+echo 'PASS missing dependency refusal'
+if sh "$WORK/install-dist.sh" --unknown > "$WORK/output" 2>&1; then exit 1; fi
+grep -q Usage: "$WORK/output"
+echo 'PASS unknown argument refusal'
+rm -f "$WORK/intent" "$WORK/apk.log" "$WORK/updater.log"
+if PREFLIGHT_RC=42 sh "$WORK/install-dist.sh" > "$WORK/output" 2>&1; then exit 1; fi
+[ ! -e "$WORK/intent" ] && [ ! -e "$WORK/apk.log" ]
+[ "$(cat "$WORK/updater.log")" = install-preflight ]
+echo 'PASS rejected trust preflight precedes install intent and package mutation'
 
-/tmp/test-install.sh "$@"
-EOF
-chmod +x run-installer.sh
+rm -f "$WORK/intent" "$WORK/updater.log"
+if DNSMASQ_CAPABILITY=no-nftset sh "$WORK/install-dist.sh" --offline > "$WORK/output" 2>&1; then exit 1; fi
+grep -q 'lacks required NFTSET' "$WORK/output"
+[ ! -e "$WORK/intent" ]
+[ "$(cat "$WORK/updater.log")" = install-preflight ]
+echo 'PASS offline no-nftset refusal before installation mutation'
 
-# Test A: Normal mode
-echo "--- Test A: Normal mode ---"
-output=$(./run-installer.sh 2>&1)
-if echo "$output" | grep -q "MOCK apk update" && echo "$output" | grep -q "MOCK apk add"; then
-    echo "PASS: Normal mode calls apk update/add"
-else
-    echo "FAIL: Normal mode did not call apk update/add"
-    echo "$output"
-    exit 1
-fi
-
-# Test B: Offline mode with all dependencies
-echo "--- Test B: Offline mode with all dependencies ---"
-output=$(./run-installer.sh --offline 2>&1)
-if echo "$output" | grep -q "MOCK apk" || ! echo "$output" | grep -q "All required dependencies already installed"; then
-    echo "FAIL: Offline mode called apk or failed to recognize installed dependencies"
-    echo "$output"
-    exit 1
-else
-    echo "PASS: Offline mode skipped apk and verified dependencies"
-fi
-
-# Test C: Offline mode with missing dependency
-echo "--- Test C: Offline mode with missing dependency ---"
-# We inject a fake missing dependency into the required list
-sed -i.bak 's/REQUIRED_PACKAGES="/REQUIRED_PACKAGES="missing-pkg /g' /tmp/test-install.sh
-set +e
-output=$(/tmp/test-install.sh --offline 2>&1)
-rc=$?
-set -e
-if [ $rc -ne 0 ] && echo "$output" | grep -q "ERROR: The following required packages are missing" && echo "$output" | grep -q "missing-pkg"; then
-    echo "PASS: Offline mode failed correctly with missing dependency"
-else
-    echo "FAIL: Offline mode did not fail correctly on missing dependency"
-    echo "RC: $rc"
-    echo "$output"
-    exit 1
-fi
-
-# Test D: Unknown CLI argument
-echo "--- Test D: Unknown argument ---"
-set +e
-output=$(./run-installer.sh --unknown 2>&1)
-rc=$?
-set -e
-if [ $rc -ne 0 ] && echo "$output" | grep -q "Usage:"; then
-    echo "PASS: Unknown argument rejected correctly"
-else
-    echo "FAIL: Unknown argument not rejected"
-    echo "RC: $rc"
-    echo "$output"
-    exit 1
-fi
-
-echo "=== All install-dist.sh tests passed ==="
-rm -rf mock-bin mock-etc run-installer.sh /tmp/test-install.sh
+# Execute only the two real binary-install commands in a temporary tree.
+# Assert production ownership explicitly, then omit chown for this non-root host
+# harness; all paths and permissions still use the actual installer commands.
+mkdir -p "$WORK/bootstrap/bin"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/router-recovery-amd64"
+for command in router-recovery router-update; do
+    line=$(sed -n "/^install .*\"bin\/$command-\${BIN_ARCH}\"/p" "$SOURCE/install-dist.sh")
+    [ -n "$line" ]
+    printf '%s\n' "$line" | grep -q -- '-o root -g root'
+    printf '%s\n' "$line" |
+        sed "s| -o root -g root||; s|/usr/libexec/minimalrouter/bootstrap|$WORK/bootstrap|g" > "$WORK/install-one.sh"
+    (cd "$WORK"; BIN_ARCH=amd64; export BIN_ARCH; sh ./install-one.sh)
+done
+[ "$(ls -l "$WORK/bootstrap/bin/router-recovery-amd64" | cut -c1-10)" = '-rwxr-xr-x' ]
+[ "$(ls -l "$WORK/bootstrap/bin/router-update-amd64" | cut -c1-10)" = '-rwxr-x---' ]
+echo 'PASS recovery worker executable 0755; updater private 0750; explicit root ownership'

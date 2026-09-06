@@ -10,7 +10,7 @@ import type { FirewallCustomRule, RouterConfig } from "../api-types";
 type Props = {
   config: RouterConfig;
   busy: boolean;
-  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => void;
+  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
 };
 
 const DIRECTIONS = [
@@ -70,7 +70,7 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
     setError("");
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     if (name.trim() === "") {
@@ -87,7 +87,7 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
       return;
     }
     if (editingId) {
-      applyConfig((next) => {
+      const saved = await applyConfig((next) => {
         next.firewall = {
           ...next.firewall,
           custom_rules: (next.firewall.custom_rules || []).map((rule) => (
@@ -97,10 +97,10 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
           )),
         };
       }, "Firewall rule updated.");
-      cancelEdit();
+      if (saved) cancelEdit();
       return;
     }
-    applyConfig((next) => {
+    const saved = await applyConfig((next) => {
       next.firewall = {
         ...next.firewall,
         custom_rules: [
@@ -118,6 +118,7 @@ export default function FirewallRulesEditor({ config, busy, applyConfig }: Props
         ],
       };
     }, "Firewall rule saved.");
+    if (!saved) return;
     setName("");
     setSrcIP("");
     setDstPort("");

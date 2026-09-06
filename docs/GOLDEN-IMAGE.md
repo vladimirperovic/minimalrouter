@@ -156,7 +156,7 @@ Important packages include:
 ```text
 alpine-base alpine-conf linux-lts linux-firmware-none
 e2fsprogs e2fsprogs-extra grub grub-efi syslinux dosfstools util-linux
-nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping
+nftables ppp ppp-pppoe dnsmasq-dnssec-nftset iproute2 iputils-ping iputils-arping
 ca-certificates openssh-server wireguard-tools-wg doas squid hostapd iw
 inadyn chrony logrotate
 ```
@@ -454,3 +454,45 @@ Before changing the ISO architecture:
 
 If a future design cannot satisfy these invariants, document the reason and add
 equivalent or stronger safety/evidence before replacing them.
+
+## Current checkout hardening — full CI validation required
+
+These source changes preserve the Golden raw-copy invariant. The release path
+still uses the already signed AMD64 distribution with `firmware-signing.pub`;
+VERSION is included before signing, and the detached `release-manifest.json` is
+embedded when repacking. Firstboot scripts are also taken from that distribution.
+The ordinary Appliance ISO build may use development payloads; it does not
+establish release provenance for an unsigned artifact.
+
+All Alpine install/rootfs dependency lists select `dnsmasq-dnssec-nftset`
+explicitly. The installer requires the standalone `nftset` compile-option token;
+`no-nftset` is refused. Offline checks precede the install intent, while online
+installation also validates the selected package's executable before runtime
+replacement. The builder accepts APK metadata and keys only through the official
+image's existing trust chain; the previous `--allow-untrusted` keyring bootstrap
+has been removed. Alpine builder tags/repositories remain external mutable inputs;
+this change is not a claim of bit-for-bit reproducible OS construction.
+
+Firstboot completion requires a private root marker plus valid canonical setup,
+configured root recovery credentials and SSH configuration. Networking/SSH depend
+on successful firstboot rather than ordering alone. A corrupt completion marker
+or interrupted installation/migration enters local recovery; exiting that shell
+returns failure and restores local gettys. Startup admission keeps both router
+daemons stopped while a maintenance journal exists. Finishing the full installer
+establishes a durable complete baseline; it does not preserve application rollback
+into an older OS integration generation. See `docs/WEB-UPDATE.md` for the version
+floor, role table and full-install compatibility contract.
+
+Both workflows invoke `scripts/ci/iso-validate.sh` against their exact production
+ISO. It makes a separate serial-menu test ISO and requires full install, firstboot,
+serial and actual SSH login, installed cold boot, routerd crash recovery, warm
+reboot, existing-install refusal and undersized-disk refusal. Production ISO and
+refused target disk hashes must remain unchanged. The signed release cannot
+publish until the same gates succeed; validation logs and digests are uploaded.
+
+Local Go, shell/mock and packaging-parity tests are necessary but do not satisfy
+this gate. Before merge/release, run the changed **Appliance ISO** workflow and
+repeat the complete gate on the actual signed release ISO, retaining its digest,
+build commit and logs. Earlier tests of the published v0.1.7 ISO (different source)
+or a development distribution installed over its disk cannot prove this checkout's
+new firstboot/fence/package behavior. Hardware and power-cut limits above remain.

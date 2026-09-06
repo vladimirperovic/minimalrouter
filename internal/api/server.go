@@ -131,7 +131,7 @@ func (s *Server) ConfigureLoopbackHTTPPreview(enabled bool) {
 // SessionManagerInterface defines the session management operations needed by the API.
 type SessionManagerInterface interface {
 	ValidateSession(r *http.Request) (*auth.Session, error)
-	DestroySession(r *http.Request, w http.ResponseWriter)
+	DestroySession(r *http.Request, w http.ResponseWriter) error
 	SetSessionCookie(w http.ResponseWriter, session *auth.Session)
 	CreateSession() *auth.Session
 	CreateSessionWithMode(readOnly bool) *auth.Session
@@ -576,7 +576,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) consumeTOTP(secret, code string) bool {
-	key := sha256.Sum256([]byte(secret + "\x00" + code))
+	key := auth.TOTPReplayKey(secret, code)
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -643,7 +643,11 @@ func (s *Server) handleFirmwareVerify(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[AUTH] Logout from %s\n", r.RemoteAddr)
-	s.sessionMgr.DestroySession(r, w)
+	if err := s.sessionMgr.DestroySession(r, w); err != nil {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Session revocation could not be confirmed; retry", http.StatusServiceUnavailable)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -720,7 +724,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Password changed but session revocation failed", http.StatusInternalServerError)
 		return
 	}
-	s.sessionMgr.DestroySession(r, w)
+	if err := s.sessionMgr.DestroySession(r, w); err != nil {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Session revocation could not be confirmed; retry", http.StatusServiceUnavailable)
+		return
+	}
 
 	log.Printf("[AUTH] Admin password changed from %s\n", r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
@@ -765,7 +773,11 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "TOTP enabled but session revocation failed", http.StatusInternalServerError)
 		return
 	}
-	s.sessionMgr.DestroySession(r, w)
+	if err := s.sessionMgr.DestroySession(r, w); err != nil {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Session revocation could not be confirmed; retry", http.StatusServiceUnavailable)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -855,7 +867,11 @@ func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "TOTP disabled but session revocation failed", http.StatusInternalServerError)
 		return
 	}
-	s.sessionMgr.DestroySession(r, w)
+	if err := s.sessionMgr.DestroySession(r, w); err != nil {
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "Session revocation could not be confirmed; retry", http.StatusServiceUnavailable)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1197,41 +1213,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := s.engine.GetCurrentConfig()
-	if newCfg.WAN.Password == "[REDACTED]" {
-		newCfg.WAN.Password = current.WAN.Password
-	}
-	if newCfg.WireGuard.PrivateKey == "[REDACTED]" {
-		newCfg.WireGuard.PrivateKey = current.WireGuard.PrivateKey
-	}
-	if newCfg.WGClient.PrivateKey == "[REDACTED]" {
-		newCfg.WGClient.PrivateKey = current.WGClient.PrivateKey
-	}
-	if newCfg.WGClient.PresharedKey == "[REDACTED]" {
-		newCfg.WGClient.PresharedKey = current.WGClient.PresharedKey
-	}
-	for i := range newCfg.WireGuard.Peers {
-		if newCfg.WireGuard.Peers[i].PresharedKey != "[REDACTED]" {
-			continue
-		}
-		for _, existing := range current.WireGuard.Peers {
-			if existing.ID == newCfg.WireGuard.Peers[i].ID {
-				newCfg.WireGuard.Peers[i].PresharedKey = existing.PresharedKey
-				break
-			}
-		}
-	}
-	if newCfg.Cloudflare.APIToken == "[REDACTED]" {
-		newCfg.Cloudflare.APIToken = current.Cloudflare.APIToken
-	}
-	if newCfg.Cloudflare.TunnelToken == "[REDACTED]" {
-		newCfg.Cloudflare.TunnelToken = current.Cloudflare.TunnelToken
-	}
-	if newCfg.SquidProxy.Password == "[REDACTED]" {
-		newCfg.SquidProxy.Password = current.SquidProxy.Password
-	}
-	if newCfg.WiFi.Passphrase == "[REDACTED]" {
-		newCfg.WiFi.Passphrase = current.WiFi.Passphrase
-	}
+	newCfg = restoreRedactedConfig(newCfg, current)
 
 	// Fail-safe: changing trusted_networks must never lock the operator out.
 	// If the new list would not admit the caller's own source address, the

@@ -17,6 +17,14 @@ import (
 const defaultDataDir = "/var/lib/minimalrouter"
 
 func main() {
+	// This private pipe protocol cannot elevate its caller: the entry point
+	// refuses root and verifies permanently dropped appliance credentials.
+	if len(os.Args) == 2 && os.Args[1] == recovery.MigrationDBWorkerArgument {
+		if err := recovery.RunMigrationDBWorker(); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
 		usage(os.Stdout)
 		return
@@ -33,6 +41,10 @@ func main() {
 
 func runCommand(command string, args []string) {
 	switch command {
+	case "migrate-config":
+		if err := migrateConfigCommand(args); err != nil {
+			fatal(err)
+		}
 	case "interfaces":
 		showInterfaces()
 	case "reset-auth":
@@ -349,6 +361,7 @@ Commands:
   support-bundle [--output PATH]
   restore-last-good
   restore-snapshot --id SNAPSHOT --confirm RESTORE-SNAPSHOT
+  migrate-config --file CONFIG.json --confirm MIGRATE-CONFIG
   factory-reset [--wan NAME --lan NAME] --password-stdin --confirm FACTORY-RESET
   help`)
 }

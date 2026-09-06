@@ -187,9 +187,11 @@ for (const width of [390, 768, 1024, 1440]) {
       await expectNoPageOverflow(page);
     });
 
-    test("network form has one inset and no accumulated heading margins", async ({ page }) => {
+    test("independent network forms retain one inset and no accumulated heading margins", async ({ page }) => {
       await page.goto("/#network");
-      const form = page.locator("#network > .settings-form");
+      const forms = page.locator("#network > .settings-form");
+      await expect(forms).toHaveCount(5);
+      const form = forms.filter({ has: page.getByRole("textbox", { name: "WAN interface", exact: true }) });
       await expect(form).toBeVisible();
       const heading = await page.locator("#network > .dashboard-section-heading").boundingBox();
       const box = await form.boundingBox();
@@ -201,6 +203,13 @@ for (const width of [390, 768, 1024, 1440]) {
       expect(input!.x - box!.x).toBeGreaterThanOrEqual(12);
       expect(input!.x - box!.x).toBeLessThanOrEqual(32);
       expect(fieldset!.x + fieldset!.width).toBeLessThan(box!.x + box!.width);
+      for (const section of await forms.all()) {
+        const bounds = (await section.boundingBox())!;
+        const inset = (await section.locator(":scope > fieldset").first().boundingBox())!;
+        expect(inset.x - bounds.x).toBeGreaterThanOrEqual(12);
+        expect(inset.x - bounds.x).toBeLessThanOrEqual(32);
+        expect(inset.x + inset.width).toBeLessThan(bounds.x + bounds.width);
+      }
       await expectNoPageOverflow(page);
     });
 

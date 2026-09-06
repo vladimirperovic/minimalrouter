@@ -59,8 +59,8 @@ func TestBootstrapBaselineDescribesTheVerifiedBinaries(t *testing.T) {
 		}
 	}
 	for _, file := range files {
-		if !strings.HasPrefix(file.systemPath, "/usr/libexec/minimalrouter/bootstrap/") {
-			t.Fatalf("bootstrap binary %s is not installed under the bootstrap directory the "+
+		if !strings.HasPrefix(file.systemPath, "/usr/libexec/minimalrouter/bootstrap/") && file.systemPath != "/usr/sbin/router-setup" {
+			t.Fatalf("bootstrap binary %s is not installed at a fixed bootstrap/firstboot path the "+
 				"baseline documents", file.systemPath)
 		}
 	}

@@ -41,21 +41,23 @@ var firmwareUpdateMu sync.Mutex
 // blockedReason codes are stable strings the dashboard maps to explanations.
 // They exist so the UI never has to parse prose to decide what to offer.
 const (
-	blockMissingTrustKey     = "missing_trust_key"
-	blockMissingHelper       = "missing_update_helper"
-	blockMissingBaseline     = "missing_baseline"
-	blockPendingActivation   = "pending_activation"
-	blockUnsupportedArch     = "unsupported_architecture"
-	blockInsufficientSpace   = "insufficient_space"
-	blockConfigurationBusy   = "configuration_pending"
-	blockRecoveryRequired    = "recovery_required"
-	blockUpdateInProgress    = "update_in_progress"
-	blockCheckUnavailable    = "check_unavailable"
-	blockNoCandidate         = "no_candidate"
-	blockAlreadyCurrent      = "already_current"
-	blockReadOnlySession     = "read_only_session"
-	blockLocalStateUnknown   = "local_state_unavailable"
-	blockCandidateSuperseded = "candidate_superseded"
+	blockMissingTrustKey         = "missing_trust_key"
+	blockMissingHelper           = "missing_update_helper"
+	blockMissingBaseline         = "missing_baseline"
+	blockUnknownInstalledVersion = "unknown_installed_version"
+	blockBelowInstalledVersion   = "below_installed_version"
+	blockPendingActivation       = "pending_activation"
+	blockUnsupportedArch         = "unsupported_architecture"
+	blockInsufficientSpace       = "insufficient_space"
+	blockConfigurationBusy       = "configuration_pending"
+	blockRecoveryRequired        = "recovery_required"
+	blockUpdateInProgress        = "update_in_progress"
+	blockCheckUnavailable        = "check_unavailable"
+	blockNoCandidate             = "no_candidate"
+	blockAlreadyCurrent          = "already_current"
+	blockReadOnlySession         = "read_only_session"
+	blockLocalStateUnknown       = "local_state_unavailable"
+	blockCandidateSuperseded     = "candidate_superseded"
 )
 
 type firmwareStatusResponse struct {
@@ -136,9 +138,11 @@ var availableUpdateBytes = func() (uint64, error) {
 }
 
 func currentApplianceVersion(state firmware.SlotState) string {
-	if state.Current != "" {
+	if state.Current != "" && !strings.HasPrefix(strings.TrimPrefix(state.Current, "v"), "0.0.0+bootstrap.") {
 		return state.Current
 	}
+	// A bootstrap directory is a content identity, not the running release.
+	// This display fallback never establishes the root updater's version floor.
 	return buildinfo.DisplayVersion()
 }
 
@@ -183,6 +187,10 @@ func (s *Server) assessUpdateCapability(state firmware.SlotState, stateErr error
 	if state.Current == "" {
 		return updateCapability{Reason: blockMissingBaseline}
 	}
+	floor, err := state.UpgradeFloor()
+	if err != nil {
+		return updateCapability{Reason: blockUnknownInstalledVersion}
+	}
 	if state.Pending != "" {
 		return updateCapability{Reason: blockPendingActivation}
 	}
@@ -208,6 +216,9 @@ func (s *Server) assessUpdateCapability(state firmware.SlotState, stateErr error
 	}
 	if !releaseIsNewer(snapshot.Candidate.Version, currentApplianceVersion(state)) {
 		return updateCapability{Reason: blockAlreadyCurrent}
+	}
+	if !releaseIsNewer(snapshot.Candidate.Version, floor) {
+		return updateCapability{Reason: blockBelowInstalledVersion}
 	}
 	return updateCapability{CanInstall: true}
 }

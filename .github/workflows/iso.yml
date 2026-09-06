@@ -14,25 +14,25 @@ jobs:
   build-and-boot:
     name: Build, flash and boot minimalrouter golden ISO
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:
-          version: 10.15.1
+          version: 11.9.0
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           cache: pnpm
@@ -169,76 +169,23 @@ jobs:
             exit 1
           fi
 
-      - name: Flash ISO, complete firstboot and verify installed appliance
+      - name: Full install, cold/warm boot, crash recovery and refusal gates
         run: |
-          set -eux
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
-
-          # Production defaults to VGA/noVNC. CI changes only the boot-menu
-          # default so Expect can drive the same flasher and firstboot over ttyS0.
-          cp build/iso/syslinux.cfg build/iso/syslinux-full-install.cfg
-          sed -i 's/^DEFAULT minimalrouter$/DEFAULT minimalrouter-serial/' build/iso/syslinux-full-install.cfg
-          xorriso \
-            -indev "$iso" \
-            -outdev build/iso/minimalrouter-full-install-test.iso \
-            -boot_image any replay \
-            -map build/iso/syslinux-full-install.cfg /boot/syslinux/syslinux.cfg \
-            -commit \
-            -end
-
-          truncate -s 8G build/iso/full-install-disk.raw
-          chmod +x scripts/ci/iso-full-install.exp
-          timeout 1500 scripts/ci/iso-full-install.exp \
-            build/iso/minimalrouter-full-install-test.iso \
-            build/iso/full-install-disk.raw \
-            build/iso/qemu-full-install.log
-          grep -F 'FULL_ISO_INSTALL_OK' build/iso/qemu-full-install.log
-          grep -F 'INSTALLED_SSH_OK' build/iso/qemu-full-install.log
-
-      - name: Cold boot, crash-recover and reboot the installed appliance
-        run: |
-          set -eux
-          chmod +x scripts/ci/iso-installed-reboot.exp
-          timeout 900 scripts/ci/iso-installed-reboot.exp \
-            build/iso/full-install-disk.raw \
-            build/iso/qemu-installed-reboot.log
-          grep -F 'INSTALLED_COLD_BOOT_OK' build/iso/qemu-installed-reboot.log
-          grep -F 'ROUTERD_CRASH_RECOVERY_OK' build/iso/qemu-installed-reboot.log
-          grep -F 'INSTALLED_WARM_REBOOT_OK' build/iso/qemu-installed-reboot.log
-          grep -F 'INSTALLED_REBOOT_MATRIX_OK' build/iso/qemu-installed-reboot.log
-
-      - name: Verify destructive installer safety guards
-        run: |
-          set -eux
-          chmod +x scripts/ci/iso-installer-safety.exp
-          timeout 300 scripts/ci/iso-installer-safety.exp \
-            existing \
-            build/iso/minimalrouter-full-install-test.iso \
-            build/iso/full-install-disk.raw \
-            build/iso/qemu-existing-install-guard.log
-          grep -F 'EXISTING_INSTALL_GUARD_OK' build/iso/qemu-existing-install-guard.log
-
-          truncate -s 4G build/iso/undersized-install-disk.raw
-          timeout 300 scripts/ci/iso-installer-safety.exp \
-            small \
-            build/iso/minimalrouter-full-install-test.iso \
-            build/iso/undersized-install-disk.raw \
-            build/iso/qemu-undersized-disk.log
-          grep -F 'UNDERSIZED_DISK_GUARD_OK' build/iso/qemu-undersized-disk.log
+          sh scripts/ci/iso-validate.sh "$iso" build/iso/validation
 
       - name: Upload tested bootable ISO
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: minimalrouter-appliance-iso-${{ github.sha }}
           path: |
             build/iso/minimalrouter-*-amd64.iso
             build/iso/minimalrouter-*-amd64.iso.sha256
             build/iso/qemu-boot.log
-            build/iso/qemu-full-install.log
-            build/iso/qemu-installed-reboot.log
-            build/iso/qemu-existing-install-guard.log
-            build/iso/qemu-undersized-disk.log
+            build/iso/validation/*.log
+            build/iso/validation/*.sha256
+            build/iso/validation/result.txt
           if-no-files-found: warn
           compression-level: 0
           retention-days: 14

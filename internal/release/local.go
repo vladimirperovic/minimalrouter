@@ -49,13 +49,7 @@ func PrepareLocalRelease(manifestSource, archiveSource, arch, destination string
 	if arch != "amd64" && arch != "arm64" {
 		return "", "", "", fmt.Errorf("unsupported update architecture %q", arch)
 	}
-	if err := os.RemoveAll(destination); err != nil {
-		return "", "", "", err
-	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
-		return "", "", "", err
-	}
-	if err := os.Chmod(destination, 0o700); err != nil {
+	if err := prepareInbox(destination); err != nil {
 		return "", "", "", err
 	}
 
@@ -74,15 +68,8 @@ func PrepareLocalRelease(manifestSource, archiveSource, arch, destination string
 	if err := copyUploadedReleaseFile(archiveSource, archivePath, maxReleaseArchive); err != nil {
 		return "", "", "", fmt.Errorf("copy release archive: %w", err)
 	}
-	extractRoot := filepath.Join(destination, "release")
-	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
-		return "", "", "", err
-	}
-	payloadRoot, err := extractReleaseArchive(archivePath, extractRoot, arch)
+	payloadRoot, err := finishArchive(archivePath, destination, arch)
 	if err != nil {
-		return "", "", "", err
-	}
-	if err := os.Remove(archivePath); err != nil {
 		return "", "", "", err
 	}
 	return payloadRoot, manifestPath, manifest.Version, nil

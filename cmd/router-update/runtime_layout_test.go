@@ -69,6 +69,7 @@ func TestRuntimeLayoutMismatchBlocksActivationBeforeServiceRestart(t *testing.T)
 	root := filepath.Join(t.TempDir(), "updates")
 	systemRoot := filepath.Join(t.TempDir(), "system")
 	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, true)
 
 	oldServiceCommand := serviceCommand
@@ -96,6 +97,7 @@ func TestBootstrapBinaryMismatchBlocksABActivation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "updates")
 	systemRoot := filepath.Join(t.TempDir(), "system")
 	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
 
 	bootstrap, err := bootstrapRuntimeFiles()
@@ -130,6 +132,7 @@ func TestActivationRestartsBothDaemonsFromSameSlot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "updates")
 	systemRoot := filepath.Join(t.TempDir(), "system")
 	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
 
 	oldServiceCommand := serviceCommand
@@ -166,6 +169,7 @@ func TestFailedNewDaemonRestartAutomaticallyRollsBack(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "updates")
 	systemRoot := filepath.Join(t.TempDir(), "system")
 	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
 
 	oldServiceCommand := serviceCommand
@@ -197,5 +201,34 @@ func TestActivationRequiresRollbackBaseline(t *testing.T) {
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
 	if err := activateAndRestart(firmware.SlotManager{Root: root}, "1.1.0", systemRoot); err == nil {
 		t.Fatal("first A/B activation without rollback baseline was accepted")
+	}
+}
+
+func TestRollbackRejectsPreviousGenerationBeforeMutation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "updates")
+	systemRoot := t.TempDir()
+	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
+	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
+	manager := firmware.SlotManager{Root: root}
+	if err := manager.Activate("1.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	previousPath := filepath.Join(root, "slots", "1.0.0", runtimeLayoutFiles[0].slotPath)
+	if err := os.WriteFile(previousPath, []byte("previous integration generation"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldCommand := serviceCommand
+	defer func() { serviceCommand = oldCommand }()
+	serviceCommand = func(args ...string) error {
+		t.Fatal("rollback touched services before compatibility check")
+		return nil
+	}
+	if err := rollbackAndRestart(manager, systemRoot); err == nil {
+		t.Fatal("incompatible rollback admitted")
+	}
+	state, err := manager.State()
+	if err != nil || state.Current != "1.1.0" {
+		t.Fatalf("rollback mutated state: %+v %v", state, err)
 	}
 }

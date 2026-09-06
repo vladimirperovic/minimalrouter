@@ -67,11 +67,11 @@ func autoRecoveryDue(wanEnabled bool, summary gateway.Summary, status apply.Engi
 }
 
 // runGatewayAutoRecovery is deliberately conservative: it never reacts to
-// packet loss, DNS failures, or a remote host being down. It only reconciles
-// the canonical configuration after the PPPoE link itself has remained down
+// packet loss, DNS failures, or a remote host being down. It only restarts
+// the PPPoE service after the link itself has remained down
 // continuously for three minutes, and then enforces a ten-minute cooldown.
-// Reconcile uses the existing privileged helper and verified apply path; no new
-// root capability is introduced here.
+// The existing allowlisted WAN reconnect action restarts the service and
+// verifies a fresh PPP address and default route before reporting completion.
 func (s *Server) runGatewayAutoRecovery(ctx context.Context, monitor *gateway.Monitor) {
 	ticker := time.NewTicker(autoRecoveryPollInterval)
 	defer ticker.Stop()
@@ -106,7 +106,7 @@ func (s *Server) runGatewayAutoRecovery(ctx context.Context, monitor *gateway.Mo
 
 		lastAttempt = now
 		reconcileCtx, cancel := context.WithTimeout(ctx, apply.ReconcileBudget)
-		err := s.engine.Reconcile(reconcileCtx)
+		err := s.engine.RunServiceAction(reconcileCtx, apply.ServiceActionWANReconnect)
 		cancel()
 		if err != nil {
 			s.appendAudit("gateway.auto_recovery_failed", "local", map[string]string{"reason": "pppoe_link_down"})

@@ -26,25 +26,28 @@ func staleButVerifiedConfig(t *testing.T) config.SystemConfig {
 // validatePrivilegedCandidate is the verdict applyAll reaches before it touches
 // anything. It must match the management plane's verdict on the same pair, or an
 // edit routerd accepted is refused here and the appliance cannot be saved.
-func TestPrivilegedCandidateAcceptsAnEditBesideAnUntouchedStaleFault(t *testing.T) {
+func TestPrivilegedCandidateRejectsUnrepairedLegacyFault(t *testing.T) {
 	stale := staleButVerifiedConfig(t)
 
 	next := stale
 	next.Accounting.Enabled = true
 
-	if err := validatePrivilegedCandidate(next, &stale); err != nil {
-		t.Fatalf("the privileged plane disagreed with the management plane: %v", err)
+	if err := validatePrivilegedCandidate(next, &stale); err == nil {
+		t.Fatal("legacy faults must be repaired before the candidate can persist or boot")
 	}
 }
 
-func TestPrivilegedCandidateAcceptsRepairOfTheStaleField(t *testing.T) {
+func TestPrivilegedCandidateRequiresMigratedRollbackBaseline(t *testing.T) {
 	stale := staleButVerifiedConfig(t)
 
 	next := stale
 	next.WAN.Password = "a-real-pppoe-secret"
 
-	if err := validatePrivilegedCandidate(next, &stale); err != nil {
-		t.Fatalf("repairing the stale field must be accepted: %v", err)
+	if err := validatePrivilegedCandidate(next, &stale); err == nil {
+		t.Fatal("live repair cannot proceed with an invalid rollback target")
+	}
+	if err := validatePrivilegedCandidate(next, &next); err != nil {
+		t.Fatalf("fully migrated baseline must permit valid changes: %v", err)
 	}
 }
 

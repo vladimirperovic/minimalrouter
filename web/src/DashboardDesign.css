@@ -398,84 +398,7 @@ body,
   background: color-mix(in srgb, var(--classic-soft) 30%, var(--classic-panel));
 }
 
-/* Form system: fewer arbitrary rules, stronger sections, consistent controls. */
-.settings-form .field > span,
-.settings-form .field > span {
-  margin-bottom: 7px;
-  font-size: 11.5px;
-  font-weight: 690;
-  line-height: 1.35;
-}
-
-.settings-form input,
-.settings-form select,
-.settings-form textarea {
-  min-height: 44px;
-  border-radius: var(--demo-control-radius);
-  font-size: 13.5px;
-}
-
-.settings-form .form-note {
-  color: var(--classic-muted);
-  font-size: 11.5px;
-  line-height: 1.55;
-}
-
-.settings-form .form-actions {
-  margin-top: 20px;
-  padding-top: 0;
-  border-top: 0 !important;
-}
-
-#network .settings-form > fieldset legend,
-#qos .settings-form > fieldset legend,
-#wireguard .settings-form > fieldset legend,
-#cloudflare .settings-form > fieldset legend,
-#squid .settings-form > fieldset legend,
-#wifi .settings-form > fieldset legend,
-#security .settings-form > fieldset legend {
-  padding: 0 10px;
-  margin-left: 12px;
-  background: var(--classic-panel);
-  border-radius: 999px;
-  color: var(--classic-text);
-  font-size: 13px;
-  font-weight: 770;
-  letter-spacing: -.015em;
-}
-
-/* Inside-card headings: refactored fieldsets use <div class="fieldset-title"> so the
-   heading lives in normal flow inside the card and the fieldset border stays continuous. */
-.fieldset-title {
-  margin: 0 0 14px;
-  color: var(--classic-text);
-  font-size: 13px;
-  font-weight: 770;
-  letter-spacing: -.015em;
-}
-
-/* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
-#network .demo-015-hidden-wan-toggle {
-  display: none !important;
-}
-
-#network .settings-form > fieldset {
-  position: relative;
-}
-
-#network .demo-015-fieldset-actions {
-  margin-top: 22px;
-  padding-top: 0;
-  border-top: 0;
-}
-
-#network .demo-015-fieldset-actions .button {
-  min-width: 126px;
-}
-
-#network .demo-015-original-network-save {
-  display: none !important;
-}
+/* Shared form rules live at their winning position in Demo015Preview.css. */
 
 /* Button system. */
 .button,
@@ -597,178 +520,9 @@ td.empty-state::before {
   display: none !important;
 }
 
-.demo-015-recovery-slot {
-  margin-top: 4px;
-}
-
-.demo-015-recovery-moved .security-recovery-card {
-  margin: 0;
-  overflow: visible;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.demo-015-recovery-moved .security-recovery-card > .card-title-row {
-  margin: 0 0 14px;
-  border: 1px solid var(--classic-border);
-  border-radius: 15px;
-  padding: 17px 18px;
-  background: var(--classic-panel);
-  box-shadow: var(--demo-shadow-soft);
-}
-
-.demo-015-recovery-moved .security-recovery-card .card-title-row h3 {
-  margin-bottom: 4px;
-  font-size: 16px;
-  font-weight: 760;
-  letter-spacing: -.02em;
-}
-
-.demo-015-recovery-moved .security-recovery-card .card-title-row p {
-  max-width: 760px;
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-
-.demo-015-recovery-moved .security-recovery-card details {
-  margin: 0 0 12px;
-  overflow: hidden;
-  border: 1px solid var(--classic-border);
-  border-radius: 15px;
-  background: var(--classic-panel);
-  box-shadow: var(--demo-shadow-soft);
-}
-
-.demo-015-recovery-moved .security-recovery-card summary {
-  display: flex;
-  min-height: 68px;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 18px;
-  list-style: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 740;
-}
-
-.demo-015-recovery-moved .security-recovery-card summary::-webkit-details-marker {
-  display: none;
-}
-
-.demo-015-recovery-moved .security-recovery-card details[open] > summary {
-  border-bottom: 1px solid var(--classic-border);
-}
-
-.demo-recovery-index {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  place-items: center;
-  border-radius: 12px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
-}
-
 .demo-recovery-index.is-1 { background: #1479f7; }
 .demo-recovery-index.is-2 { background: #18a861; }
 .demo-recovery-index.is-3 { background: #6258e8; }
-
-.demo-recovery-label {
-  color: var(--classic-text);
-  font-size: 13.5px;
-  font-weight: 760;
-  letter-spacing: -.012em;
-}
-
-.demo-recovery-badge {
-  display: inline-flex;
-  min-height: 24px;
-  align-items: center;
-  border-radius: 999px;
-  padding: 0 9px;
-  font-size: 9.5px;
-  font-weight: 750;
-  white-space: nowrap;
-}
-
-.demo-recovery-badge.is-recommended {
-  background: color-mix(in srgb, var(--demo-accent-ink) 12%, transparent);
-  color: var(--demo-accent-ink);
-}
-
-.demo-recovery-badge.is-migration {
-  background: color-mix(in srgb, var(--demo-migration-ink) 12%, transparent);
-  color: var(--demo-migration-ink);
-}
-
-.demo-recovery-chevron {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  margin-left: auto;
-  place-items: center;
-  border: 1px solid var(--classic-border);
-  border-radius: 9px;
-  color: var(--classic-muted);
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 1;
-  transform: rotate(0deg);
-  transition: transform .16s ease;
-}
-
-.demo-015-recovery-moved details[open] .demo-recovery-chevron {
-  transform: rotate(-90deg);
-}
-
-.demo-015-recovery-moved details .settings-form {
-  margin: 0;
-  padding: 20px 22px 22px;
-}
-
-.demo-015-recovery-moved details .form-note {
-  width: fit-content;
-  max-width: 720px;
-  border: 1px solid color-mix(in srgb, var(--classic-blue) 18%, var(--classic-border));
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--classic-blue) 4%, var(--classic-panel));
-}
-
-.demo-recovery-legend {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  border: 1px solid color-mix(in srgb, var(--classic-blue) 16%, var(--classic-border));
-  border-radius: 12px;
-  padding: 11px 14px;
-  background: color-mix(in srgb, var(--classic-blue) 3%, var(--classic-panel));
-  color: var(--classic-muted);
-  font-size: 10.5px;
-  line-height: 1.45;
-}
-
-.demo-recovery-legend > span {
-  color: var(--classic-blue);
-  font-size: 15px;
-}
-
-.demo-recovery-legend p {
-  margin: 0;
-}
-
-.demo-recovery-legend i {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--classic-border);
-}
 
 @media (max-width: 900px) {
   .classic-help-button {
@@ -1207,44 +961,7 @@ body {
   letter-spacing: -.025em;
 }
 
-/* --- Grouped form sections -------------------------------------------------
-   Pass 2 listed section ids by hand and two of them never matched: the Security
-   page renders without an id, and DNS Filter's element is `#adguard`, not
-   `#dns-filter`. markVisualSystem() already tags every settings form with
-   `.settings-form`, so drive the system from that class instead. It also
-   picks up Gateway, which the hand-written list omitted. */
-.settings-form > fieldset {
-  margin: 0 0 18px;
-  border: 1px solid var(--classic-border);
-  border-radius: var(--demo-card-radius);
-  padding: 22px 24px 24px;
-  background: var(--classic-panel);
-  box-shadow: var(--demo-shadow-soft);
-}
-
-.settings-form > fieldset legend {
-  padding: 0 10px;
-  margin-left: 12px;
-  background: var(--classic-panel);
-  border-radius: 999px;
-  color: var(--classic-text);
-  font-size: 13px;
-  font-weight: 770;
-  letter-spacing: -.015em;
-}
-
-.settings-form > fieldset .fieldset-title,
-.dns-records-fieldset .fieldset-title {
-  margin: 0 0 14px;
-  color: var(--classic-text);
-  font-size: 13px;
-  font-weight: 770;
-  letter-spacing: -.015em;
-}
-
-.settings-form > fieldset:last-of-type {
-  margin-bottom: 0;
-}
+/* Grouped fieldsets share their declarations in Demo015Preview.css. */
 
 /* --- Dark theme parity -----------------------------------------------------
    The pass-2 surfaces were tuned against a white panel. On the dark theme the
@@ -1281,14 +998,7 @@ td.empty-state::before {
   background: color-mix(in srgb, var(--classic-blue) 6%, var(--classic-panel));
 }
 
-/* --- Focus -----------------------------------------------------------------
-   This pass restyles buttons and takes over <summary>, which is the only way
-   to reach the recovery steps from the keyboard. Keep the ring on both. */
-.demo-015-recovery-moved summary:focus-visible {
-  outline: 2px solid var(--classic-blue);
-  outline-offset: -2px;
-  border-radius: 15px;
-}
+/* Icon focus; Recovery summary focus is shared in Demo015Preview.css. */
 
 .demo-icon-button:focus-visible {
   outline: 2px solid var(--classic-blue);

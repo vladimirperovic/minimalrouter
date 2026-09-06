@@ -92,7 +92,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
       {config.accounting?.enabled && !unavailable && months.length === 0 && (
         <div className="dashboard-callout">
           <strong>Collecting.</strong>
-          <p>Counters are read once a minute. Totals appear after the first collection round following a configuration apply.</p>
+          <p>Counters are read every five minutes. Totals appear after the first collection round following a configuration apply.</p>
         </div>
       )}
 

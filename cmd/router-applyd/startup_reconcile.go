@@ -47,6 +47,11 @@ func init() {
 	if os.Getenv(startupReconcileEnv) != "1" {
 		return
 	}
+	if err := acquireDaemonGuard(); err != nil {
+		// Migration owns the stopped runtime; do not rewrite even the emergency
+		// firewall while its durable recovery marker is present.
+		log.Fatalf("applyd offline migration admission failed: %v", err)
+	}
 	if err := hardenProcess(); err != nil {
 		failClosedStartup(config.SystemConfig{})
 		log.Fatalf("applyd startup hardening failed closed: %v", err)
@@ -138,7 +143,7 @@ func pendingConfirmationExists() (bool, error) {
 }
 
 func clearPendingConfirmation() error {
-	return os.Remove(pendingPath)
+	return clearPendingFile(pendingPath)
 }
 
 // restoreFirstRunRuntime exposes only the local setup plane. It deliberately

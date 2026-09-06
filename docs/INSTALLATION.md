@@ -147,3 +147,29 @@ router available until repeated real PPPoE/reboot recovery, backup restore,
 external scans, destructive fault tests and longer soak testing are complete.
 
 Current evidence: [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md).
+
+## Full-installer compatibility and interrupted installations
+
+The current updater/firstboot changes require the newly built full distribution
+installer on published v0.1.7 and earlier appliances. A production distribution
+must be signed and contain `firmware-signing.pub` and `release-manifest.json`.
+The installed key is preserved, lower versions are refused, and a same-version
+verified reinstall can repair the installation. Local unsigned development builds
+are explicit root-operated test installs; they do not become signed Golden releases.
+
+Use Alpine's `dnsmasq-dnssec-nftset` variant. Offline installation requires it to
+be installed already with the `nftset` option reported by `dnsmasq --version`.
+The plain variant reporting `no-nftset` cannot provide DNS filter profiles and is
+refused; do not weaken configuration preflight to work around this dependency.
+
+A full install resets the application rollback generation because bootstrap and
+OS integration changes cannot be undone by switching an A/B slot. Keep the normal
+operator backup/recovery route. If interrupted, local console recovery remains
+available but daemon startup is fenced until the full installer completes. Rerun
+the complete installer with the same or newer authorized payload; do not manually
+remove `installation.json`. An interrupted offline migration likewise requires
+completion through its local recovery command before runtime can start.
+
+See [Web update trust and compatibility](WEB-UPDATE.md) and the required
+[Golden ISO evidence](GOLDEN-IMAGE.md). A successful local distribution install
+is not evidence that the newly built signed Golden ISO passed its full CI gates.

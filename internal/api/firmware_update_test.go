@@ -13,6 +13,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
+	"github.com/vladimirperovic/minimalrouter/internal/buildinfo"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 	"github.com/vladimirperovic/minimalrouter/internal/release"
@@ -156,6 +157,12 @@ func TestCapabilityReportsEachLocalObstacle(t *testing.T) {
 		},
 		"no rollback baseline": {
 			state: firmware.SlotState{}, snapshot: fresh, want: blockMissingBaseline,
+		},
+		"legacy bootstrap has no authenticated floor": {
+			state: firmware.SlotState{Current: "0.0.0+bootstrap.1234"}, snapshot: fresh, want: blockUnknownInstalledVersion,
+		},
+		"rollback does not lower installed version floor": {
+			state: firmware.SlotState{Current: "0.1.7", MinimumVersion: "0.1.8"}, snapshot: fresh, want: blockBelowInstalledVersion,
 		},
 		"activation already pending": {
 			state: firmware.SlotState{Current: "0.1.7", Pending: "0.1.8"}, snapshot: fresh, want: blockPendingActivation,
@@ -395,5 +402,15 @@ func TestStartupReconciliationReadsTheOutcomeFromTheSlotState(t *testing.T) {
 				t.Fatalf("state = %s, want %s", result.State, tc.want)
 			}
 		})
+	}
+}
+
+func TestSyntheticBaselineDisplaysRunningVersionWithoutInventingTrust(t *testing.T) {
+	state := firmware.SlotState{Current: "0.0.0+bootstrap.1234"}
+	if got := currentApplianceVersion(state); got != buildinfo.DisplayVersion() {
+		t.Fatalf("bootstrap content identity leaked as release version: %q", got)
+	}
+	if _, err := state.UpgradeFloor(); err == nil {
+		t.Fatal("display fallback established an update floor")
 	}
 }

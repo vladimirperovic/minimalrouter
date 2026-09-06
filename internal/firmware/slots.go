@@ -26,6 +26,10 @@ type SlotState struct {
 	Current  string `json:"current"`
 	Previous string `json:"previous"`
 	Pending  string `json:"pending"`
+	// MinimumVersion is the verified full-install/activation high-water mark.
+	// It survives explicit rollback; a bootstrap directory name is not a version.
+	MinimumVersion      string `json:"minimum_version,omitempty"`
+	InstallationPending bool   `json:"installation_pending,omitempty"`
 }
 
 type slotOperation struct {
@@ -44,6 +48,9 @@ type SlotManager struct {
 
 func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 	return m.withLock(func() error {
+		if err := m.checkInstallation(); err != nil {
+			return err
+		}
 		if err := m.recoverOperation(); err != nil {
 			return fmt.Errorf("recover interrupted slot operation: %w", err)
 		}
@@ -61,7 +68,11 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 		if err != nil {
 			return err
 		}
-		if err := validateForwardUpgrade(manifest.Version, state.Current); err != nil {
+		floor, err := state.UpgradeFloor()
+		if err != nil {
+			return err
+		}
+		if err := validateForwardUpgrade(manifest.Version, floor); err != nil {
 			return err
 		}
 		finalDir := filepath.Join(m.Root, "slots", manifest.Version)
@@ -86,12 +97,15 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 			if err := copyRegularFile(source, destination); err != nil {
 				return err
 			}
+			if err := normalizeCopiedFile(tempDir, clean); err != nil {
+				return err
+			}
 		}
 
 		if err := ValidateReleaseCandidate(tempDir, manifest, m.TrustedKey); err != nil {
 			return fmt.Errorf("verify copied release slot: %w", err)
 		}
-		if err := syncDir(tempDir); err != nil {
+		if err := syncPayloadTree(tempDir); err != nil {
 			return fmt.Errorf("sync staged slot: %w", err)
 		}
 		if err := os.Rename(tempDir, finalDir); err != nil {
@@ -117,6 +131,9 @@ func (m SlotManager) Stage(sourceDir string, manifest *FirmwareManifest) error {
 
 func (m SlotManager) Activate(version string) error {
 	return m.withLock(func() error {
+		if err := m.checkInstallation(); err != nil {
+			return err
+		}
 		if err := m.recoverOperation(); err != nil {
 			return fmt.Errorf("recover interrupted slot operation: %w", err)
 		}
@@ -134,12 +151,20 @@ func (m SlotManager) Activate(version string) error {
 			state.Pending = ""
 			return m.saveState(state)
 		}
+		floor, err := state.UpgradeFloor()
+		if err != nil {
+			return err
+		}
+		if err := validateForwardUpgrade(version, floor); err != nil {
+			return err
+		}
 
 		old := state
 		next := state
 		next.Previous = old.Current
 		next.Current = version
 		next.Pending = ""
+		next.MinimumVersion = version
 
 		return m.commitOperation("activate", old, next, func() error {
 			if old.Current != "" {
@@ -159,6 +184,9 @@ func (m SlotManager) Activate(version string) error {
 
 func (m SlotManager) Rollback() error {
 	return m.withLock(func() error {
+		if err := m.checkInstallation(); err != nil {
+			return err
+		}
 		if err := m.recoverOperation(); err != nil {
 			return fmt.Errorf("recover interrupted slot operation: %w", err)
 		}
@@ -177,6 +205,11 @@ func (m SlotManager) Rollback() error {
 		next := state
 		next.Current, next.Previous = old.Previous, old.Current
 		next.Pending = ""
+		floor, err := state.UpgradeFloor()
+		if err != nil {
+			return err
+		}
+		next.MinimumVersion = floor
 
 		return m.commitOperation("rollback", old, next, func() error {
 			if err := m.swapLink("current", next.Current); err != nil {
@@ -200,7 +233,14 @@ func (m SlotManager) State() (SlotState, error) {
 		return SlotState{}, err
 	}
 	if exists {
-		return m.projectOperationState(operation)
+		state, err := m.projectOperationState(operation)
+		if err != nil {
+			return SlotState{}, err
+		}
+		if err := m.applyInstallationFloor(&state); err != nil {
+			return SlotState{}, err
+		}
+		return state, nil
 	}
 	return m.stateWithoutOperation()
 }
@@ -228,6 +268,9 @@ func (m SlotManager) stateWithoutOperation() (SlotState, error) {
 		return SlotState{}, err
 	} else if exists {
 		state.Previous = previous
+	}
+	if err := m.applyInstallationFloor(&state); err != nil {
+		return SlotState{}, err
 	}
 	return state, nil
 }
@@ -345,6 +388,10 @@ func (m SlotManager) validateOperation(operation *slotOperation) error {
 		return errors.New("completed slot operation state cannot remain pending")
 	}
 	switch operation.Kind {
+	case "install":
+		if operation.Next.Current == "" || operation.Next.Previous != "" {
+			return errors.New("invalid full installation journal")
+		}
 	case "activate":
 		if operation.Next.Current == "" || operation.Next.Current == operation.Old.Current || operation.Next.Previous != operation.Old.Current {
 			return errors.New("invalid activation slot operation journal")

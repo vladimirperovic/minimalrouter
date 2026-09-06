@@ -28,8 +28,8 @@ func TestDeviceProfileRulesAllowPerDayWindows(t *testing.T) {
 	for _, expected := range []string{
 		"set svc_steam",
 		"set svc_youtube",
-		"meta day monday meta hour \"17:00\"-\"21:00\" return",
-		"meta day saturday meta hour \"00:00\"-\"23:59\" return",
+		"meta day 1 meta hour \"17:00\"-\"21:00\" return",
+		"meta day 6 meta hour \"00:00\"-\"23:59:59\" return",
 		"ip saddr 192.168.1.50 ip daddr @svc_youtube drop",
 		"ip saddr 192.168.1.50 udp dport { 53, 853 } drop",
 	} {
@@ -37,7 +37,7 @@ func TestDeviceProfileRulesAllowPerDayWindows(t *testing.T) {
 			t.Fatalf("missing %q in generated rules:\n%s", expected, output)
 		}
 	}
-	if strings.Contains(output, "meta day sunday") {
+	if strings.Contains(output, "meta day 0") {
 		t.Fatalf("unexpected Sunday access in generated rules:\n%s", output)
 	}
 }
@@ -56,8 +56,8 @@ func TestLegacyScheduleStillGeneratesRules(t *testing.T) {
 	var rules bytes.Buffer
 	writeDeviceProfileObjects(&rules, &cfg)
 	output := rules.String()
-	if !strings.Contains(output, "meta day friday meta hour \"19:00\"-\"23:00\" return") ||
-		!strings.Contains(output, "meta day sunday meta hour \"00:00\"-\"23:59\" return") {
+	if !strings.Contains(output, "meta day 5 meta hour \"19:00\"-\"23:00\" return") ||
+		!strings.Contains(output, "meta day 0 meta hour \"00:00\"-\"23:59:59\" return") {
 		t.Fatalf("legacy schedule was not translated:\n%s", output)
 	}
 }

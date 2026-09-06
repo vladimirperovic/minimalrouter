@@ -68,6 +68,8 @@ func main() {
 		err = collect(os.Args[2:])
 	case "apply":
 		err = apply(os.Args[2:])
+	case "verify":
+		err = verifySetup(os.Args[2:])
 	default:
 		usage()
 	}
@@ -77,7 +79,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: router-setup collect --output <file> [--data-dir <dir>] | router-setup apply --input <file> [--data-dir <dir>]")
+	fmt.Fprintln(os.Stderr, "Usage: router-setup collect --output <file> [--data-dir <dir>] | router-setup apply --input <file> [--data-dir <dir>] | router-setup verify [--data-dir <dir>]")
 	os.Exit(2)
 }
 
