@@ -1,8 +1,13 @@
 /* ============================================================
-   SKIN 04 · STUDIO
+   THE LOOK
    Warm paper ground, bronze accent, serif display type. Figures
    are set large and quiet so a status page reads like a printed
    sheet rather than a control panel.
+
+   This was the "Studio" skin. It is now the dashboard's only
+   appearance, so its selectors are unscoped: nothing has to
+   remember to re-style a component for a second theme. Light and
+   dark are two forms of one look, not two looks.
    ============================================================ */
 
 /* The display face is a system serif stack on purpose. An appliance
@@ -11,7 +16,7 @@
    would leave the page in a fallback face exactly when it matters most.
    Georgia and the Palatino family cover Windows, macOS and most Linux
    desktops; ui-serif picks up the platform default everywhere else. */
-:root[data-skin="studio"] {
+:root:root {
   --studio-display: "Iowan Old Style", "Palatino Linotype", Palatino,
     "Book Antiqua", Georgia, ui-serif, serif;
 
@@ -63,7 +68,7 @@
 
 /* Dark here is candlelight, not slate: the ground keeps the warm hue and the
    bronze is lifted rather than swapped, so the two themes read as one look. */
-:root[data-skin="studio"][data-theme="dark"] {
+:root:root[data-theme="dark"] {
   --classic-bg: #14120f;
   --classic-panel: #1b1815;
   --classic-soft: #23201b;
@@ -100,7 +105,7 @@
 /* Not a flat fill: a warm bloom off the top right and a faint settling of
    shade along the bottom, so the paper has a light source and the panels
    sitting on it have something to cast onto. */
-:root[data-skin="studio"] .dashboard-app {
+:root:root .dashboard-app {
   background:
     radial-gradient(ellipse 62% 44% at 88% -6%, rgba(197, 160, 106, 0.16) 0%, rgba(197, 160, 106, 0) 68%),
     radial-gradient(ellipse 70% 50% at 12% 106%, rgba(92, 72, 45, 0.09) 0%, rgba(92, 72, 45, 0) 72%),
@@ -110,7 +115,7 @@
   letter-spacing: -0.008em;
 }
 
-:root[data-skin="studio"][data-theme="dark"] .dashboard-app {
+:root:root[data-theme="dark"] .dashboard-app {
   background:
     radial-gradient(ellipse 62% 44% at 88% -6%, rgba(201, 168, 117, 0.10) 0%, rgba(201, 168, 117, 0) 68%),
     radial-gradient(ellipse 70% 50% at 12% 106%, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 72%),
@@ -119,23 +124,23 @@
 }
 
 /* ---- sidebar ------------------------------------------------- */
-:root[data-skin="studio"] .dashboard-sidebar {
+:root:root .dashboard-sidebar {
   width: 246px;
   padding: 30px 14px 18px;
   border-right: var(--skin-hairline);
   background: var(--classic-bg);
 }
 
-:root[data-skin="studio"] .dashboard-brand { padding: 4px 10px 28px; }
+:root:root .dashboard-brand { padding: 4px 10px 28px; }
 
-:root[data-skin="studio"] .dashboard-brand .dashboard-brand-title strong {
+:root:root .dashboard-brand .dashboard-brand-title strong {
   font-family: var(--studio-display);
   font-size: 22px;
   font-weight: 500;
   letter-spacing: -0.02em;
 }
 
-:root[data-skin="studio"] .dashboard-brand-revision {
+:root:root .dashboard-brand-revision {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.18em;
@@ -143,9 +148,9 @@
   color: var(--classic-muted);
 }
 
-:root[data-skin="studio"] .dashboard-nav-group + .dashboard-nav-group { margin-top: 24px; }
+:root:root .dashboard-nav-group + .dashboard-nav-group { margin-top: 24px; }
 
-:root[data-skin="studio"] .dashboard-nav-group h2 {
+:root:root .dashboard-nav-group h2 {
   padding: 0 10px 8px;
   font-size: 9px;
   font-weight: 600;
@@ -154,9 +159,9 @@
   color: var(--accent);
 }
 
-:root[data-skin="studio"] .dashboard-nav-group > div { gap: 1px; }
+:root:root .dashboard-nav-group > div { gap: 1px; }
 
-:root[data-skin="studio"] .dashboard-sidebar nav a {
+:root:root .dashboard-sidebar nav a {
   min-height: 34px;
   gap: 11px;
   padding: 0 10px;
@@ -167,31 +172,31 @@
   transition: color 0.25s, background 0.25s;
 }
 
-:root[data-skin="studio"] .dashboard-nav-icon { width: 16px; height: 16px; stroke-width: 1.5; }
+:root:root .dashboard-nav-icon { width: 16px; height: 16px; stroke-width: 1.5; }
 
-:root[data-skin="studio"] .dashboard-sidebar nav a:hover {
+:root:root .dashboard-sidebar nav a:hover {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .dashboard-sidebar nav a.is-active {
+:root:root .dashboard-sidebar nav a.is-active {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   box-shadow: none;
   color: var(--classic-text);
   font-weight: 500;
 }
 
-:root[data-skin="studio"] .dashboard-sidebar nav a.is-active .dashboard-nav-icon { color: var(--accent); }
+:root:root .dashboard-sidebar nav a.is-active .dashboard-nav-icon { color: var(--accent); }
 
-:root[data-skin="studio"] .dashboard-sidebar-footer {
+:root:root .dashboard-sidebar-footer {
   border-top: var(--skin-hairline);
   padding-top: 16px;
 }
 
 /* ---- topbar -------------------------------------------------- */
-:root[data-skin="studio"] .dashboard-main { margin-left: 246px; padding: 0 38px 110px; }
+:root:root .dashboard-main { margin-left: 246px; padding: 0 38px 110px; }
 
-:root[data-skin="studio"] .dashboard-topbar.classic-topbar {
+:root:root .dashboard-topbar.classic-topbar {
   top: 0;
   min-height: 68px;
   margin: 0 -38px 18px;
@@ -203,7 +208,7 @@
   box-shadow: none;
 }
 
-:root[data-skin="studio"] .classic-page-heading h1 {
+:root:root .classic-page-heading h1 {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.26em;
@@ -211,9 +216,9 @@
   color: var(--accent);
 }
 
-:root[data-skin="studio"] .classic-live-sync { border-right: 0; padding-right: 10px; }
+:root:root .classic-live-sync { border-right: 0; padding-right: 10px; }
 
-:root[data-skin="studio"] .classic-live-sync strong {
+:root:root .classic-live-sync strong {
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -221,9 +226,9 @@
 
 /* Topbar controls become pill outlines that invert on hover — the same
    gesture the eyebrow buttons use on the section heroes. */
-:root[data-skin="studio"] .classic-topbar-button,
-:root[data-skin="studio"] .classic-account-button,
-:root[data-skin="studio"] .classic-setup-pill {
+:root:root .classic-topbar-button,
+:root:root .classic-account-button,
+:root:root .classic-setup-pill {
   min-height: 36px;
   border: var(--skin-hairline);
   border-radius: 999px;
@@ -235,22 +240,32 @@
   transition: 0.25s;
 }
 
-:root[data-skin="studio"] .classic-topbar-button { width: 36px; }
-:root[data-skin="studio"] .classic-topbar-button svg { width: 17px; height: 17px; stroke-width: 1.6; }
+:root:root .classic-topbar-button { width: 36px; }
+:root:root .classic-topbar-button svg { width: 17px; height: 17px; stroke-width: 1.6; }
 
-:root[data-skin="studio"] .classic-topbar-button:hover,
-:root[data-skin="studio"] .classic-account-button:hover,
-:root[data-skin="studio"] .classic-setup-pill:hover {
-  border-color: var(--classic-text);
-  background: var(--classic-text);
-  color: var(--classic-bg);
+/* Hover is a hint that a control is live, not a change of identity. These
+   used to invert to near-black, which on a paper ground reads as the button
+   having been pressed into a different design. A warm tint and a firmer
+   hairline say the same thing quietly, and keep the icon legible. */
+:root:root .classic-topbar-button:hover,
+:root:root .classic-account-button:hover,
+:root:root .classic-setup-pill:hover {
+  border-color: color-mix(in srgb, var(--classic-blue) 42%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-blue) 10%, var(--classic-panel));
+  color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .skin-menu-trigger.classic-topbar-button { width: auto; padding: 0 14px; }
+:root:root .classic-topbar-button:active,
+:root:root .classic-account-button:active,
+:root:root .classic-setup-pill:active {
+  background: color-mix(in srgb, var(--classic-blue) 18%, var(--classic-panel));
+}
+
+:root:root .skin-menu-trigger.classic-topbar-button { width: auto; padding: 0 14px; }
 
 /* ---- section hero -------------------------------------------- */
-:root[data-skin="studio"] .dashboard-section-heading,
-:root[data-skin="studio"] .dns-filter-heading {
+:root:root .dashboard-section-heading,
+:root:root .dns-filter-heading {
   min-height: 0;
   gap: 28px;
   border: 0;
@@ -261,13 +276,13 @@
   box-shadow: none;
 }
 
-:root[data-skin="studio"] .dashboard-section-heading::after,
-:root[data-skin="studio"] .dns-filter-heading::after { display: none; }
+:root:root .dashboard-section-heading::after,
+:root:root .dns-filter-heading::after { display: none; }
 
-:root[data-skin="studio"] .subpage-hero-head { align-items: flex-end; gap: 28px; }
+:root:root .subpage-hero-head { align-items: flex-end; gap: 28px; }
 
-:root[data-skin="studio"] .dashboard-section-heading .eyebrow,
-:root[data-skin="studio"] .dns-filter-heading .eyebrow {
+:root:root .dashboard-section-heading .eyebrow,
+:root:root .dns-filter-heading .eyebrow {
   margin: 0 0 14px;
   font-size: 10px;
   font-weight: 600;
@@ -276,8 +291,8 @@
   color: var(--accent);
 }
 
-:root[data-skin="studio"] .dashboard-section-heading h2,
-:root[data-skin="studio"] .dns-filter-heading h2 {
+:root:root .dashboard-section-heading h2,
+:root:root .dns-filter-heading h2 {
   font-family: var(--studio-display);
   font-size: clamp(34px, 4vw, 54px);
   font-weight: 400;
@@ -286,10 +301,10 @@
   color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .dashboard-section-heading .section-copy,
-:root[data-skin="studio"] .dashboard-section-heading .dns-filter-intro,
-:root[data-skin="studio"] .dashboard-section-heading .ddns-lead,
-:root[data-skin="studio"] .dns-filter-heading .dns-filter-intro {
+:root:root .dashboard-section-heading .section-copy,
+:root:root .dashboard-section-heading .dns-filter-intro,
+:root:root .dashboard-section-heading .ddns-lead,
+:root:root .dns-filter-heading .dns-filter-intro {
   max-width: 64ch;
   margin: 16px 0 0;
   font-size: 14px;
@@ -301,7 +316,7 @@
 /* The fact strip is the page's headline measurement, so it is set as a ruled
    band of serif figures rather than a row of cards — hairlines between the
    cells, nothing boxed. */
-:root[data-skin="studio"] .subpage-hero-facts {
+:root:root .subpage-hero-facts {
   gap: 0;
   border: 0;
   border-top: var(--skin-hairline);
@@ -311,15 +326,15 @@
   overflow: hidden;
 }
 
-:root[data-skin="studio"] .subpage-hero-facts > div {
+:root:root .subpage-hero-facts > div {
   padding: 24px 20px 22px;
   border-right: var(--skin-hairline);
   background: transparent;
 }
 
-:root[data-skin="studio"] .subpage-hero-facts > div:last-child { border-right: 0; }
+:root:root .subpage-hero-facts > div:last-child { border-right: 0; }
 
-:root[data-skin="studio"] .subpage-hero-facts dt {
+:root:root .subpage-hero-facts dt {
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.22em;
@@ -330,7 +345,7 @@
 /* The cells hold words as often as figures ("WireGuard", "Deny"), and the base
    sheet truncates with an ellipsis. At display size that clips real values, so
    the face is held to a clamp and allowed to wrap instead of being cut. */
-:root[data-skin="studio"] .subpage-hero-facts dd {
+:root:root .subpage-hero-facts dd {
   margin: 16px 0 8px;
   font-family: var(--studio-display);
   font-size: clamp(22px, 2.2vw, 34px);
@@ -345,30 +360,30 @@
   overflow-wrap: break-word;
 }
 
-:root[data-skin="studio"] .subpage-hero-facts small {
+:root:root .subpage-hero-facts small {
   font-size: 11px;
   line-height: 1.5;
   color: var(--classic-muted);
 }
 
 /* ---- panels and forms ---------------------------------------- */
-:root[data-skin="studio"] .dashboard-app .card,
-:root[data-skin="studio"] .settings-form,
-:root[data-skin="studio"] .status-list,
-:root[data-skin="studio"] .dashboard-callout,
-:root[data-skin="studio"] .speedtest-block,
-:root[data-skin="studio"] .ddns-status,
-:root[data-skin="studio"] .modern-device-section {
+:root:root .dashboard-app .card,
+:root:root .settings-form,
+:root:root .status-list,
+:root:root .dashboard-callout,
+:root:root .speedtest-block,
+:root:root .ddns-status,
+:root:root .modern-device-section {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
   background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
   box-shadow: var(--skin-shadow);
 }
 
-:root[data-skin="studio"] .settings-form { gap: 18px; padding: 8px; }
+:root:root .settings-form { gap: 18px; padding: 8px; }
 
-:root[data-skin="studio"] .settings-form fieldset,
-:root[data-skin="studio"] .dns-records-fieldset {
+:root:root .settings-form fieldset,
+:root:root .dns-records-fieldset {
   gap: 18px;
   border: 0;
   border-radius: var(--skin-radius-sm);
@@ -376,15 +391,15 @@
   background: transparent;
 }
 
-:root[data-skin="studio"] .settings-form > fieldset + fieldset {
+:root:root .settings-form > fieldset + fieldset {
   border-top: var(--skin-hairline);
   border-radius: 0;
 }
 
-:root[data-skin="studio"] .settings-form legend,
-:root[data-skin="studio"] .dns-records-fieldset legend,
-:root[data-skin="studio"] .settings-form .fieldset-title,
-:root[data-skin="studio"] .dns-records-fieldset .fieldset-title {
+:root:root .settings-form legend,
+:root:root .dns-records-fieldset legend,
+:root:root .settings-form .fieldset-title,
+:root:root .dns-records-fieldset .fieldset-title {
   padding: 0;
   font-family: var(--studio-display);
   font-size: 22px;
@@ -394,9 +409,9 @@
   color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .dashboard-app .field { gap: 8px; }
+:root:root .dashboard-app .field { gap: 8px; }
 
-:root[data-skin="studio"] .dashboard-app .field > span {
+:root:root .dashboard-app .field > span {
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -404,8 +419,8 @@
   color: var(--text-tertiary);
 }
 
-:root[data-skin="studio"] .dashboard-app input,
-:root[data-skin="studio"] .dashboard-app select {
+:root:root .dashboard-app input,
+:root:root .dashboard-app select {
   min-height: 42px;
   padding: 0 14px;
   border: var(--skin-hairline);
@@ -415,16 +430,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-:root[data-skin="studio"] .dashboard-app input:focus,
-:root[data-skin="studio"] .dashboard-app select:focus {
+:root:root .dashboard-app input:focus,
+:root:root .dashboard-app select:focus {
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   background: var(--surface-raised);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-:root[data-skin="studio"] .dashboard-section .checkbox-row,
-:root[data-skin="studio"] .dns-filter .checkbox-row,
-:root[data-skin="studio"] .classic-security-card .checkbox-row {
+:root:root .dashboard-section .checkbox-row,
+:root:root .dns-filter .checkbox-row,
+:root:root .classic-security-card .checkbox-row {
   width: 100%;
   border: var(--skin-hairline);
   border-radius: var(--skin-radius-sm);
@@ -433,13 +448,13 @@
   font-size: 13.5px;
 }
 
-:root[data-skin="studio"] .form-actions {
+:root:root .form-actions {
   border-top: var(--skin-hairline);
   padding-top: 22px;
 }
 
-:root[data-skin="studio"] .dashboard-section .button,
-:root[data-skin="studio"] .dns-filter .button {
+:root:root .dashboard-section .button,
+:root:root .dns-filter .button {
   min-height: 40px;
   border-radius: 999px;
   font-size: 10px;
@@ -448,14 +463,14 @@
   text-transform: uppercase;
 }
 
-:root[data-skin="studio"] .form-note {
+:root:root .form-note {
   font-size: 12px;
   font-weight: 300;
   line-height: 1.65;
 }
 
 /* ---- chips and tables ---------------------------------------- */
-:root[data-skin="studio"] .classic-status-chip {
+:root:root .classic-status-chip {
   min-height: 26px;
   border: var(--skin-hairline);
   border-radius: 999px;
@@ -467,14 +482,14 @@
   text-transform: uppercase;
 }
 
-:root[data-skin="studio"] .elegant-table-container {
+:root:root .elegant-table-container {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
   background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
   box-shadow: none;
 }
 
-:root[data-skin="studio"] .elegant-device-table thead th {
+:root:root .elegant-device-table thead th {
   padding: 14px 22px;
   border-bottom: var(--skin-hairline);
   background: transparent;
@@ -485,7 +500,7 @@
   color: var(--text-tertiary);
 }
 
-:root[data-skin="studio"] .elegant-device-table tbody td {
+:root:root .elegant-device-table tbody td {
   height: 58px;
   padding: 0 22px;
   border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 60%, transparent);
@@ -493,12 +508,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-:root[data-skin="studio"] .elegant-device-table tbody tr:hover td {
+:root:root .elegant-device-table tbody tr:hover td {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-:root[data-skin="studio"] .modern-section-heading h2,
-:root[data-skin="studio"] .card-title-row h3 {
+:root:root .modern-section-heading h2,
+:root:root .card-title-row h3 {
   font-family: var(--studio-display);
   font-size: 24px;
   font-weight: 500;
@@ -507,7 +522,7 @@
   color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .dashboard-app .modern-search-input {
+:root:root .dashboard-app .modern-search-input {
   min-height: 38px;
   border-radius: 999px;
   font-size: 13px;
@@ -523,10 +538,10 @@
  * -webkit-text-fill-color, which outranks `color` and would leave the heading
  * invisible. Both the ground and everything written on it are remapped below.
  * The .dashboard-app prefix matches the specificity the base uses for these. */
-:root[data-skin="studio"] .dashboard-app .overview-status-hero,
-:root[data-skin="studio"] .dashboard-app .wg-page-hero,
-:root[data-skin="studio"] .dashboard-app .classic-security-command,
-:root[data-skin="studio"] .dashboard-app .dns-filter-heading {
+:root:root .dashboard-app .overview-status-hero,
+:root:root .dashboard-app .wg-page-hero,
+:root:root .dashboard-app .classic-security-command,
+:root:root .dashboard-app .dns-filter-heading {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
   background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
@@ -536,10 +551,10 @@
 
 /* The decorative ring was drawn in a pale blue meant to catch light against
    navy; on paper it is only smudge. */
-:root[data-skin="studio"] .dashboard-app .overview-status-hero::after,
-:root[data-skin="studio"] .dashboard-app .wg-page-hero::after,
-:root[data-skin="studio"] .dashboard-app .classic-security-command::after,
-:root[data-skin="studio"] .dashboard-app .dns-filter-heading::after {
+:root:root .dashboard-app .overview-status-hero::after,
+:root:root .dashboard-app .wg-page-hero::after,
+:root:root .dashboard-app .classic-security-command::after,
+:root:root .dashboard-app .dns-filter-heading::after {
   border-color: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
@@ -552,21 +567,21 @@
  * :where() contributes no specificity, so this stays at the prefix's weight
  * and every later rule here still wins. The tooltip is excluded: it is a
  * floating bubble with its own dark ground, not part of the surface. */
-:root[data-skin="studio"] .dashboard-app .overview-status-hero
+:root:root .dashboard-app .overview-status-hero
   :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *),
-:root[data-skin="studio"] .dashboard-app .wg-page-hero
+:root:root .dashboard-app .wg-page-hero
   :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *),
-:root[data-skin="studio"] .dashboard-app .classic-security-command
+:root:root .dashboard-app .classic-security-command
   :where(strong, b, h1, h2, h3, dd):not(.demo-metric-tip *) {
   color: var(--classic-text);
   -webkit-text-fill-color: var(--classic-text);
 }
 
-:root[data-skin="studio"] .dashboard-app .overview-status-hero
+:root:root .dashboard-app .overview-status-hero
   :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *),
-:root[data-skin="studio"] .dashboard-app .wg-page-hero
+:root:root .dashboard-app .wg-page-hero
   :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *),
-:root[data-skin="studio"] .dashboard-app .classic-security-command
+:root:root .dashboard-app .classic-security-command
   :where(p, small, em, span, dt, li):not(.demo-metric-tip):not(.demo-metric-tip *) {
   color: var(--text-secondary);
   -webkit-text-fill-color: var(--text-secondary);
@@ -574,7 +589,7 @@
 
 /* The hover bubble keeps a dark ground in this skin too — it floats over the
    page rather than sitting on it — but warmed to match. */
-:root[data-skin="studio"] .dashboard-app .demo-metric-tip {
+:root:root .dashboard-app .demo-metric-tip {
   border-color: rgba(201, 168, 117, 0.24);
   background: #241f19;
   color: #ece3d5;
@@ -583,94 +598,94 @@
 
 /* These heroes carry their own heading class, so the serif rule for section
    headings does not reach them. */
-:root[data-skin="studio"] .dashboard-app .classic-hero-heading h2,
-:root[data-skin="studio"] .dashboard-app .overview-hero-summary h2,
-:root[data-skin="studio"] .dashboard-app .wg-page-hero h2 {
+:root:root .dashboard-app .classic-hero-heading h2,
+:root:root .dashboard-app .overview-hero-summary h2,
+:root:root .dashboard-app .wg-page-hero h2 {
   font-family: var(--studio-display);
   font-weight: 400;
   letter-spacing: -0.028em;
 }
 
 /* Headline text inside the four surfaces. */
-:root[data-skin="studio"] .dashboard-app .dns-filter-heading h2,
-:root[data-skin="studio"] .dashboard-app .dns-filter-heading.has-facts h2,
-:root[data-skin="studio"] .dashboard-app .overview-hero-summary h2,
-:root[data-skin="studio"] .dashboard-app .overview-summary-meta strong,
-:root[data-skin="studio"] .dashboard-app .overview-assurance strong,
-:root[data-skin="studio"] .dashboard-app .overview-technical-facts strong,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd {
+:root:root .dashboard-app .dns-filter-heading h2,
+:root:root .dashboard-app .dns-filter-heading.has-facts h2,
+:root:root .dashboard-app .overview-hero-summary h2,
+:root:root .dashboard-app .overview-summary-meta strong,
+:root:root .dashboard-app .overview-assurance strong,
+:root:root .dashboard-app .overview-technical-facts strong,
+:root:root .dashboard-app .classic-security-command-facts dd {
   color: var(--classic-text);
   -webkit-text-fill-color: var(--classic-text);
 }
 
 /* Labels and secondary copy — the cool blue-greys become the skin's muted
    tones, which carry on paper. */
-:root[data-skin="studio"] .dashboard-app .overview-hero-kicker,
-:root[data-skin="studio"] .dashboard-app .overview-wan-card header,
-:root[data-skin="studio"] .dashboard-app .overview-wan-main div small,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dt,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts small {
+:root:root .dashboard-app .overview-hero-kicker,
+:root:root .dashboard-app .overview-wan-card header,
+:root:root .dashboard-app .overview-wan-main div small,
+:root:root .dashboard-app .classic-security-command-facts dt,
+:root:root .dashboard-app .classic-security-command-facts small {
   color: var(--text-tertiary);
   -webkit-text-fill-color: var(--text-tertiary);
 }
 
-:root[data-skin="studio"] .dashboard-app .overview-hero-summary > p,
-:root[data-skin="studio"] .dashboard-app .classic-security-command > .classic-security-intro {
+:root:root .dashboard-app .overview-hero-summary > p,
+:root:root .dashboard-app .classic-security-command > .classic-security-intro {
   color: var(--text-secondary);
   -webkit-text-fill-color: var(--text-secondary);
 }
 
 /* Nested cells inside the heroes were tinted with translucent blue over navy.
-   Over paper they vanish, so they are re-cut as hairline cells. */
-:root[data-skin="studio"] .dashboard-app .overview-wan-card,
-:root[data-skin="studio"] .dashboard-app .overview-assurance > div,
-:root[data-skin="studio"] .dashboard-app .overview-technical-facts,
-:root[data-skin="studio"] .dashboard-app .overview-wan-quality span:not(.demo-metric-tip),
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts > div,
-:root[data-skin="studio"] .dashboard-app .wg-hero-metrics,
-:root[data-skin="studio"] .dashboard-app .wg-hero-metrics > div {
+   Over paper they vanish, so they are re-cut as hairline cells.
+
+   The Overview's own cells are no longer in this list: theme/overview.css
+   flattens that page's three levels of nesting into one sheet, and a tinted
+   cell there would just be the middle level growing back. */
+:root:root .dashboard-app .classic-security-command-facts,
+:root:root .dashboard-app .classic-security-command-facts > div,
+:root:root .dashboard-app .wg-hero-metrics,
+:root:root .dashboard-app .wg-hero-metrics > div {
   border-color: color-mix(in srgb, var(--accent) 18%, transparent);
   background: color-mix(in srgb, var(--accent) 5%, transparent);
   box-shadow: none;
 }
 
 /* Status colours were picked for a dark ground and wash out on paper. */
-:root[data-skin="studio"] .dashboard-app .overview-request-state strong,
-:root[data-skin="studio"] .dashboard-app .overview-request-state svg,
-:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-good,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-good {
+:root:root .dashboard-app .overview-request-state strong,
+:root:root .dashboard-app .overview-request-state svg,
+:root:root .dashboard-app .subpage-hero-facts dd.is-good,
+:root:root .dashboard-app .classic-security-command-facts dd.is-good {
   color: var(--classic-green);
   -webkit-text-fill-color: var(--classic-green);
 }
 
-:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-warn,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-warn {
+:root:root .dashboard-app .subpage-hero-facts dd.is-warn,
+:root:root .dashboard-app .classic-security-command-facts dd.is-warn {
   color: var(--classic-orange);
   -webkit-text-fill-color: var(--classic-orange);
 }
 
-:root[data-skin="studio"] .dashboard-app .subpage-hero-facts dd.is-bad,
-:root[data-skin="studio"] .dashboard-app .classic-security-command-facts dd.is-bad {
+:root:root .dashboard-app .subpage-hero-facts dd.is-bad,
+:root:root .dashboard-app .classic-security-command-facts dd.is-bad {
   color: #a8443c;
   -webkit-text-fill-color: #a8443c;
 }
 
-:root[data-skin="studio"][data-theme="dark"] .dashboard-app .subpage-hero-facts dd.is-bad,
-:root[data-skin="studio"][data-theme="dark"] .dashboard-app .classic-security-command-facts dd.is-bad {
+:root:root[data-theme="dark"] .dashboard-app .subpage-hero-facts dd.is-bad,
+:root:root[data-theme="dark"] .dashboard-app .classic-security-command-facts dd.is-bad {
   color: #e08a80;
   -webkit-text-fill-color: #e08a80;
 }
 
-:root[data-skin="studio"] .dashboard-app .overview-assurance > div > span {
+:root:root .dashboard-app .overview-assurance > div > span {
   background: color-mix(in srgb, var(--classic-green) 14%, transparent);
   color: var(--classic-green);
 }
 
 /* Actions sat in a pale wash tuned to navy — invisible on paper. */
-:root[data-skin="studio"] .dashboard-app .dns-filter-actions .button,
-:root[data-skin="studio"] .dashboard-app .wg-interface-toggle,
-:root[data-skin="studio"] .dashboard-app .dashboard-section-heading > .classic-status-chip {
+:root:root .dashboard-app .dns-filter-actions .button,
+:root:root .dashboard-app .wg-interface-toggle,
+:root:root .dashboard-app .dashboard-section-heading > .classic-status-chip {
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   background: color-mix(in srgb, var(--classic-panel) 70%, transparent);
   color: var(--classic-text);
@@ -678,7 +693,7 @@
 
 /* The topbar page name is painted as gradient-filled text, so `color` alone
    never reaches it. */
-:root[data-skin="studio"] .dashboard-app .classic-page-heading h1 {
+:root:root .dashboard-app .classic-page-heading h1 {
   background: none;
   color: var(--accent);
   -webkit-text-fill-color: var(--accent);
@@ -688,17 +703,17 @@
 /* The rail runs flush to the viewport edge in this skin rather than floating
    inset. The gutter token is 0, so the page padding is set here instead. */
 @media (min-width: 901px) {
-  :root[data-skin="studio"] .dashboard-sidebar {
+  :root:root .dashboard-sidebar {
     inset-block: 0;
     border-radius: 0;
   }
 
-  :root[data-skin="studio"] .dashboard-main {
+  :root:root .dashboard-main {
     padding-left: 38px !important;
     padding-right: 38px !important;
   }
 
-  :root[data-skin="studio"] .dashboard-topbar.classic-topbar {
+  :root:root .dashboard-topbar.classic-topbar {
     top: 0;
     min-height: 68px;
     margin: 0 -38px 18px;
@@ -712,19 +727,19 @@
 }
 
 @media (max-width: 900px) {
-  :root[data-skin="studio"] .dashboard-main { margin-left: 0; padding-left: 18px; padding-right: 18px; }
+  :root:root .dashboard-main { margin-left: 0; padding-left: 18px; padding-right: 18px; }
 
-  :root[data-skin="studio"] .dashboard-topbar.classic-topbar {
+  :root:root .dashboard-topbar.classic-topbar {
     margin-left: -18px;
     margin-right: -18px;
     padding: 0 18px;
   }
 
   /* Stacked, the ruled band would show a dangling right edge on each cell. */
-  :root[data-skin="studio"] .subpage-hero-facts > div {
+  :root:root .subpage-hero-facts > div {
     border-right: 0;
     border-bottom: var(--skin-hairline);
   }
 
-  :root[data-skin="studio"] .subpage-hero-facts > div:last-child { border-bottom: 0; }
+  :root:root .subpage-hero-facts > div:last-child { border-bottom: 0; }
 }

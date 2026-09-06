@@ -1,0 +1,86 @@
+/* ============================================================
+   SURFACES
+   Cards, panels and the space between them.
+
+   Measured before writing this, the dashboard used five different
+   card paddings - 16, 17, 18, 20 and none - depending on which
+   sheet had last touched a section. A card is a card: it gets one
+   interior measure, from the token.
+
+   Table cards keep zero padding on purpose. Their cells carry
+   their own, and adding a second inset would push the first
+   column away from the header above it.
+   ============================================================ */
+
+:root:root .dashboard-app .settings-form,
+:root:root .dashboard-app .overview-status-hero,
+:root:root .dashboard-app .overview-wan-card,
+:root:root .dashboard-app .overview-panel,
+:root:root .dashboard-app .boot-activity,
+:root:root .dashboard-app .wg-peer-panel,
+:root:root .dashboard-app .wg-client-card,
+:root:root .dashboard-app .classic-live-card,
+:root:root .dashboard-app .classic-security-card,
+:root:root .dashboard-app .classic-security-feed,
+:root:root .dashboard-app .dashboard-section-heading,
+:root:root .dashboard-app .section-heading {
+  padding: var(--card-padding);
+  border-radius: var(--radius-lg);
+}
+
+/* A card's own header sits on the card's inset, not on a tighter
+   one of its own, so the title lines up with the content under it. */
+:root:root .dashboard-app .overview-panel-header,
+:root:root .dashboard-app .boot-activity-head,
+:root:root .dashboard-app .wg-peer-panel-head,
+:root:root .dashboard-app .classic-security-feed-heading {
+  padding: 0;
+  margin-bottom: var(--gap-group);
+}
+
+/* The header of a table card is the exception that proves the
+   rule: the card has no padding, so its header supplies it. */
+:root:root .dashboard-app .table-card > header,
+:root:root .dashboard-app .card.table-card > header {
+  padding: var(--card-padding) var(--card-padding) var(--space-4);
+}
+
+/* Between cards: one rhythm down the page. */
+:root:root .dashboard-app .dashboard-section > * + * {
+  margin-top: var(--gap-section);
+}
+
+/* The fact strip under a page title is a row of readings, not a
+   card. It keeps its own quiet rules and only needs breathing
+   room from the sentence above it. */
+:root:root .dashboard-app .subpage-hero-facts,
+:root:root .dashboard-app .classic-security-command-facts {
+  margin-top: var(--gap-group);
+  gap: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  :root:root .dashboard-app .settings-form,
+  :root:root .dashboard-app .overview-status-hero,
+  :root:root .dashboard-app .overview-wan-card,
+  :root:root .dashboard-app .overview-panel,
+  :root:root .dashboard-app .boot-activity,
+  :root:root .dashboard-app .wg-peer-panel,
+  :root:root .dashboard-app .wg-client-card,
+  :root:root .dashboard-app .classic-live-card,
+  :root:root .dashboard-app .classic-security-card,
+  :root:root .dashboard-app .classic-security-feed,
+  :root:root .dashboard-app .dashboard-section-heading,
+  :root:root .dashboard-app .section-heading {
+    padding: var(--card-padding-compact);
+  }
+
+  :root:root .dashboard-app .table-card > header,
+  :root:root .dashboard-app .card.table-card > header {
+    padding: var(--card-padding-compact) var(--card-padding-compact) var(--space-3);
+  }
+
+  :root:root .dashboard-app .dashboard-section > * + * {
+    margin-top: var(--gap-group);
+  }
+}

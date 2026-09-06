@@ -170,9 +170,13 @@ export default function ClassicOverview({
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
   const healthDetailsRef = useRef<HTMLElement>(null);
 
-  const showHealthDetails = () => {
-    setHealthDetailsOpen(true);
-    window.setTimeout(() => healthDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  const toggleHealthDetails = () => {
+    setHealthDetailsOpen((open) => {
+      // Only scroll on the way in. Scrolling as the panel closes would move the
+      // page out from under the reader who just dismissed it.
+      if (!open) window.setTimeout(() => healthDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      return !open;
+    });
   };
 
   useEffect(() => {
@@ -382,46 +386,67 @@ export default function ClassicOverview({
     )}
 
     <article className={`overview-status-hero ${heroState}`}>
-      <div className="overview-hero-command">
-        <div className="overview-hero-summary">
-          <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
-          <h1>{headline}</h1>
-          <p>{verified ? "WAN, security policy and local services are operating normally." : "Review WAN connectivity and the active appliance alerts."}</p>
-          <div className="overview-summary-meta">
-            <span><small>CPU state</small><strong>{cpuIdle}</strong></span>
-            <span><small>Load average</small><strong>{loadAverage}</strong></span>
-            <span className="overview-request-state"><small>Rejected requests</small><strong>{securityCount ?? "Checking"}</strong></span>
-          </div>
-          <div className="overview-summary-meta"><span><small>Guide</small><a href="/help.html" target="_blank" rel="noreferrer" className="overview-help-link"><strong>Help &amp; operator guide ↗</strong></a></span></div>
-        </div>
+      {/* The masthead answers the question the page exists for, then states
+          the four readings an operator checks next. Everything else on the
+          page is detail behind that answer. */}
+      <header className="overview-masthead">
+        <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
+        <h1>{headline}</h1>
+        <p>{verified ? "WAN, security policy and local services are operating normally." : "Review WAN connectivity and the active appliance alerts."}</p>
+      </header>
 
-        <section className="overview-wan-card" aria-label="WAN session and quality">
-          <header><span>WAN connection</span><b className={wanConnected ? "is-good" : "is-bad"}><i aria-hidden="true" />{connectionKnown ? wanConnected ? "Connected" : "Disconnected" : "Checking"}</b></header>
-          <div className="overview-wan-main"><div><small>Session</small><strong>PPPoE</strong></div><p><strong>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</strong><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></p></div>
-          <div className="overview-wan-quality">
-            <span><small>Latency</small><strong>{formatMetric(gatewaySummary?.latency_ms, " ms")}</strong></span>
-            <span><small>Jitter</small><strong>{formatMetric(gatewaySummary?.jitter_ms, " ms")}</strong></span>
-            <span><small>Line estimate</small><strong>{wanEstimate ? `~${wanEstimate.download_mbps.toFixed(0)} ↓ / ${wanEstimate.upload_mbps.toFixed(0)} ↑ Mbps` : wanConnected ? "Measuring…" : "Not measured"}</strong></span>
-            <span><small>Probe targets</small><strong>{gatewaySummary?.targets?.length || gatewayTargetCount}</strong></span>
-          </div>
+      <dl className="overview-headline-readings" aria-label="Headline readings">
+        <div><dt>Uptime</dt><dd>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</dd><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></div>
+        <div><dt>Latency</dt><dd>{formatMetric(gatewaySummary?.latency_ms, " ms")}</dd><small>jitter {formatMetric(gatewaySummary?.jitter_ms, " ms")}</small></div>
+        <div><dt>Line estimate</dt><dd>{wanEstimate ? `${wanEstimate.download_mbps.toFixed(0)} / ${wanEstimate.upload_mbps.toFixed(0)}` : wanConnected ? "Measuring" : "—"}</dd><small>{wanEstimate ? "Mbps down / up" : "not measured yet"}</small></div>
+      </dl>
+
+      {/* Three groups, equal weight, each a ruled list. A reading belongs to
+          exactly one of them, so nothing has to be hunted for twice. */}
+      <div className="overview-groups">
+        <section className="overview-group" aria-label="Connection">
+          <h2>Connection</h2>
+          <dl>
+            <div><dt>State</dt><dd className={wanConnected ? "is-good" : "is-bad"}>{connectionKnown ? wanConnected ? "Connected" : "Disconnected" : "Checking"}</dd></div>
+            <div><dt>Session</dt><dd>PPPoE</dd></div>
+            <div><dt>Public IP</dt><dd className="is-identifier">{runtime.public_ip || "Unavailable"}</dd></div>
+            <div><dt>MTU</dt><dd>{config.wan.mtu || 1492}</dd></div>
+            <div><dt>Probe targets</dt><dd>{gatewaySummary?.targets?.length || gatewayTargetCount}</dd></div>
+            <div><dt>LAN clients</dt><dd>{runtime.dhcp_leases?.length ?? 0}</dd></div>
+          </dl>
         </section>
 
-        <div className="overview-assurance">
-          <div><span><OverviewIcon name="shield" /></span><p><small>Update trust</small><strong>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</strong><em>{system.update_trust_configured ? "Package verification enforced" : "Signing key unavailable"}</em></p></div>
-          <div><span><OverviewIcon name="key" /></span><p><small>Last admin access</small><strong>{lastLoginTime}</strong><em>{lastLoginDetail}</em></p></div>
-        </div>
+        <section className="overview-group" aria-label="Load">
+          <h2>Load</h2>
+          <dl>
+            <div><dt>CPU state</dt><dd>{cpuIdle}</dd></div>
+            <div><dt>Load average</dt><dd>{loadAverage}</dd></div>
+            <div><dt>Conntrack</dt><dd>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</dd></div>
+            <div className="overview-request-state"><dt>Rejected requests</dt><dd>{securityCount ?? "Checking"}</dd></div>
+            <div><dt>30-day uptime</dt><dd>collecting</dd></div>
+          </dl>
+        </section>
+
+        <section className="overview-group" aria-label="Trust and access">
+          <h2>Trust &amp; access</h2>
+          <dl>
+            <div><dt>Update trust</dt><dd>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</dd><small>{system.update_trust_configured ? "Package verification enforced" : "Signing key unavailable"}</small></div>
+            <div><dt>Last admin access</dt><dd>{lastLoginTime}</dd><small>{lastLoginDetail}</small></div>
+            <div><dt>Time synchronization</dt><dd className={runtime.time_synchronized ? "is-good" : "is-warning"}>{runtime.time_synchronized ? "Synchronized" : "Not synchronized"}</dd></div>
+          </dl>
+        </section>
       </div>
 
-      <div className="overview-technical-facts" aria-label="Router identity and WAN facts">
-        <div><span>Public IP</span><strong>{runtime.public_ip || "Unavailable"}</strong></div>
-        <div><span>WAN MAC</span><strong>{runtime.wan_mac || "Unknown"}</strong></div>
-        <div><span>LAN MAC</span><strong>{runtime.lan_mac || "Unknown"}</strong></div>
-        <div><span>Uptime</span><strong>{formatUptime(runtime.uptime_seconds)}</strong></div>
-        <div><span>MTU</span><strong>{config.wan.mtu || 1492}</strong></div>
-      </div>
+      {/* Identifiers are reference material: the smallest type on the card,
+          at its foot, in the monospace face they are read in. */}
+      <footer className="overview-technical-facts" aria-label="Router identity">
+        <div><span>WAN MAC{config.wan.interface ? ` · ${config.wan.interface}` : ""}</span><strong>{runtime.wan_mac || "Unknown"}</strong></div>
+        <div><span>LAN MAC{config.lan.interface ? ` · ${config.lan.interface}` : ""}</span><strong>{runtime.lan_mac || "Unknown"}</strong></div>
+        <div><span>Guide</span><strong><a href="/help.html" target="_blank" rel="noreferrer" className="overview-help-link">Help &amp; operator guide ↗</a></strong></div>
+      </footer>
     </article>
 
-    <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={showHealthDetails} />
+    <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} />
 
     <section className="overview-diagnostic-strip" aria-label="Appliance diagnostics">
       <div><OverviewIcon name="traffic" /><span><small>Conntrack</small><strong>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}<em>{typeof runtime.conntrack_usage_percent === "number" ? `${runtime.conntrack_usage_percent.toFixed(2)}% utilized` : ""}</em></strong></span></div>

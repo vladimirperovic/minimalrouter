@@ -1,0 +1,329 @@
+/* ============================================================
+   OVERVIEW
+   The page that answers one question: is the router working.
+
+   The layout it inherited put everything in a box of its own -
+   the hero was a card, the WAN session a card inside it, and the
+   latency readings tiles inside that. Three surfaces deep, all
+   with the same weight, so nothing led and the eye had to search
+   for the answer.
+
+   This flattens the nesting to one card, gives the answer the
+   largest type on the page, and turns the readings into what
+   they are: figures on a sheet, separated by hairlines rather
+   than wrapped in boxes.
+   ============================================================ */
+
+/* ── The statement ──────────────────────────────────────────
+   The biggest thing on the page, with room around it. */
+:root:root .dashboard-app .overview-masthead h1,
+:root:root .dashboard-app .overview-masthead h2 {
+  font-size: var(--text-2xl);
+  line-height: 1.08;
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+:root:root .dashboard-app .overview-masthead > p {
+  font-size: var(--text-md);
+  line-height: var(--leading-body);
+  color: var(--text-secondary);
+  max-width: 46ch;
+  margin: 0 0 var(--gap-group);
+}
+
+:root:root .dashboard-app .overview-hero-kicker {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+}
+
+/* ── Masthead ───────────────────────────────────────────────
+   The verdict, the sentence that qualifies it, and the four
+   readings an operator checks next. Nothing competes with it. */
+:root:root .dashboard-app .overview-masthead {
+  max-width: 62ch;
+}
+
+:root:root .dashboard-app .overview-headline-readings {
+  display: grid;
+  /* The same three columns as the groups below, so the card reads as one
+     grid rather than as a four-across row sitting on a three-across one. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-section);
+  margin: var(--gap-group) 0 0;
+  padding-top: var(--gap-group);
+  border-top: 1px solid var(--classic-border);
+}
+
+:root:root .dashboard-app .overview-headline-readings dt {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+}
+
+:root:root .dashboard-app .overview-headline-readings dd {
+  margin: var(--space-2) 0 var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+:root:root .dashboard-app .overview-headline-readings small {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+/* ── Groups ─────────────────────────────────────────────────
+   Three ruled lists of equal weight. A reading belongs to
+   exactly one, so nothing has to be hunted for twice. */
+:root:root .dashboard-app .overview-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-section);
+  margin-top: var(--gap-section);
+}
+
+:root:root .dashboard-app .overview-group h2 {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--classic-text);
+}
+
+:root:root .dashboard-app .overview-group dl {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+:root:root .dashboard-app .overview-group dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--classic-border);
+}
+
+:root:root .dashboard-app .overview-group dl > div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+:root:root .dashboard-app .overview-group dt {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app .overview-group dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* An identifier is read character by character, not scanned. */
+:root:root .dashboard-app .overview-group dd.is-identifier {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+:root:root .dashboard-app .overview-group dd.is-good { color: var(--classic-green); }
+:root:root .dashboard-app .overview-group dd.is-bad { color: #a8402e; }
+:root:root .dashboard-app .overview-group dd.is-warning { color: var(--classic-orange); }
+
+/* A qualifying line under a reading spans the row. */
+:root:root .dashboard-app .overview-group dl > div > small {
+  grid-column: 1 / -1;
+  margin-top: calc(var(--space-1) * -1);
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* ── Identity footer ────────────────────────────────────────
+   The MAC addresses and the guide link are reference material, not
+   readings: they belong at the foot of the card, on the same three
+   columns as everything above it. It arrived as a five-column grid
+   holding four items, tinted like a nested cell, with 8px labels -
+   two grids fighting, and a label below any size a person reads. */
+:root:root .dashboard-app .overview-technical-facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-section);
+  margin-top: var(--gap-section);
+  padding: var(--gap-group) 0 0;
+  border-top: 1px solid var(--classic-border);
+  border-radius: 0;
+  background: none;
+}
+
+:root:root .dashboard-app .overview-technical-facts span {
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--ink-eyebrow);
+}
+
+:root:root .dashboard-app .overview-technical-facts strong {
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+/* The guide is a link, so it reads as one. */
+:root:root .dashboard-app .overview-technical-facts .overview-help-link {
+  font-family: var(--font-ui);
+  color: var(--accent-ink, var(--classic-text));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Service ribbon ─────────────────────────────────────────
+   Ten chips of equal weight made "Firewall on" shout as loudly
+   as "Squid Proxy off". What is off is not news; keep it legible
+   and let what is on, or wrong, carry the colour. */
+:root:root .dashboard-app .overview-service-ribbon {
+  gap: var(--space-2);
+}
+
+:root:root .dashboard-app .overview-service-ribbon > * {
+  font-size: var(--text-xs);
+  border-radius: var(--radius-pill);
+  min-height: var(--control-height-sm);
+}
+
+/* ── Panels below ───────────────────────────────────────────
+   The chart panels keep their card, but their empty state stops
+   reserving a screenful of nothing. */
+:root:root .dashboard-app .overview-chart-wrap {
+  min-height: 168px;
+}
+
+:root:root .dashboard-app .overview-bandwidth-now strong {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+:root:root .dashboard-app .overview-bandwidth-now small {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-eyebrow);
+}
+
+/* The boot trace was the one dark surface on the page: a hardcoded
+   #0d1725 navy panel with pale blue text, left over from a dark
+   design. A log does not need to be dark to read as a log - the
+   monospace voice and the tinted ground do that - and a black
+   rectangle in the middle of a paper sheet is simply a hole. */
+:root:root .dashboard-app .boot-terminal {
+  margin: 0;
+  background: var(--classic-soft);
+  border-color: var(--classic-border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app .boot-terminal code,
+:root:root .dashboard-app .boot-terminal .boot-prompt {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app .boot-terminal-row.is-active code {
+  color: var(--classic-text);
+}
+
+/* The health callout is a drawer sliding out from under the status
+   card, not a separate block and not a strip cutting across it.
+   Three things have to agree for that to read correctly: it starts
+   behind the card's bottom edge, it stacks underneath so the card's
+   own ground covers the overlap, and its top corners stay square so
+   the hidden part has no visible shoulder.
+
+   The rule it replaces is an ID selector, so this one is too: a
+   class cannot outrank an ID, and !important would only hide the
+   argument instead of settling it. */
+:root:root .dashboard-app .overview-status-hero {
+  position: relative;
+  z-index: 1;
+}
+
+:root:root #overview > .health-banner,
+:root:root .dashboard-app .overview-status-hero + .health-banner {
+  position: relative;
+  z-index: 0;
+  /* Same width as the card it slides from. A 22px inset left the
+     drawer's shoulders showing on both sides, which reads as
+     misalignment rather than as depth. */
+  margin: calc(var(--radius-lg) * -1) 0 0;
+  width: auto;
+  padding-top: calc(var(--card-padding) + var(--radius-lg));
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  /* The status accent runs down the drawer's left edge, and the top 14px of
+     it sit behind the card - where it appeared as a stray red tick above the
+     card's corner. Clipping the drawer to its own box hides the part that is
+     meant to be hidden. */
+  overflow: hidden;
+}
+
+/* ── Narrower ───────────────────────────────────────────────
+   The card is one grid, so it reflows as one: three columns become
+   two, then one. The readings, the groups and the identity footer
+   step together at the same widths, because a page that drops one
+   of them a breakpoint before the others reads as broken rather
+   than as responsive. */
+@media (max-width: 1100px) {
+  :root:root .dashboard-app .overview-headline-readings,
+  :root:root .dashboard-app .overview-groups,
+  :root:root .dashboard-app .overview-technical-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--gap-group);
+  }
+}
+
+@media (max-width: 680px) {
+  :root:root .dashboard-app .overview-headline-readings,
+  :root:root .dashboard-app .overview-groups,
+  :root:root .dashboard-app .overview-technical-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  :root:root .dashboard-app .overview-masthead h1,
+  :root:root .dashboard-app .overview-masthead h2 {
+    font-size: var(--text-xl);
+  }
+}
+
+@media (max-width: 900px) {
+  :root:root .dashboard-app .overview-hero-summary h1,
+  :root:root .dashboard-app .overview-hero-summary h2 {
+    font-size: var(--text-xl);
+  }
+
+  :root:root .dashboard-app .overview-hero-command {
+    gap: var(--gap-group);
+  }
+
+  :root:root .dashboard-app .overview-wan-quality > * {
+    border-left: 0;
+    padding-left: 0;
+  }
+}

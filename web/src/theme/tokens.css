@@ -1,0 +1,116 @@
+/* ============================================================
+   DESIGN TOKENS
+   The measurements behind the look. Components read these; they
+   do not invent their own sizes, weights or timings.
+
+   Loaded before look.css, which sets the palette. Anything that
+   is a *value* belongs here; anything that is a *colour* belongs
+   there, so a palette change never has to touch a rhythm.
+   ============================================================ */
+
+:root {
+  /* ── Type ────────────────────────────────────────────────
+     Two faces, one job each. The display face is a system serif:
+     the dashboard is served from the router itself and is opened
+     while the WAN is down, so a webfont would arrive as a
+     fallback exactly when it matters. The UI face carries labels,
+     inputs and controls.
+
+     One scale, no in-between sizes. Numbers use tabular figures
+     everywhere so a value changing from 8 to 11 cannot nudge the
+     column it sits in. */
+  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino,
+    "Book Antiqua", Georgia, ui-serif, serif;
+  --font-ui: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Inter, Helvetica, Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", ui-monospace, monospace;
+
+  --text-2xs: 0.6875rem; /* 11px - eyebrows and chips only, never prose */
+  --text-xs: 0.75rem;    /* 12px */
+  --text-sm: 0.8125rem;  /* 13px */
+  --text-base: 0.9375rem;/* 15px - body */
+  --text-md: 1.0625rem;  /* 17px */
+  --text-lg: 1.375rem;   /* 22px - card titles */
+  --text-xl: 1.75rem;    /* 28px */
+  --text-2xl: 2.5rem;    /* 40px - page titles */
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-body: 1.55;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --tracking-eyebrow: 0.08em;
+  --tracking-tight: -0.011em;
+
+  /* ── Space ───────────────────────────────────────────────
+     A 4px rhythm. Every padding, gap and inset is one of these,
+     so nothing lands on an arbitrary 13 or 27. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Section rhythm: the three tiers a page is allowed to use. */
+  --gap-field: var(--space-4);
+  --gap-group: var(--space-6);
+  --gap-section: var(--space-10);
+
+  /* Card interior. One value, so a settings card cannot be
+     roomier on one page than another. */
+  --card-padding: var(--space-6);
+  --card-padding-compact: var(--space-4);
+
+  /* ── Shape ───────────────────────────────────────────────── */
+  --radius-sm: 7px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* ── Controls ────────────────────────────────────────────
+     44px is the accessible minimum for a touch target, and it is
+     also simply a comfortable click target with a mouse. Inputs
+     and buttons share it so a field and its button line up. */
+  --control-height: 44px;
+  --control-height-sm: 36px;
+  --control-padding-x: var(--space-4);
+  --icon-sm: 16px;
+  --icon: 20px;
+  --icon-lg: 24px;
+  --stroke: 1.7;
+
+  /* ── Motion ──────────────────────────────────────────────
+     Short enough to feel immediate, long enough to be read as a
+     change rather than a jump. Exits are quicker than entrances. */
+  --duration-fast: 120ms;
+  --duration: 180ms;
+  --duration-slow: 260ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --ease-in: cubic-bezier(0.5, 0, 0.9, 0.4);
+
+  /* ── Layering ────────────────────────────────────────────
+     A named scale. A new overlay picks a tier; it does not invent
+     a number one higher than whatever it happened to sit under. */
+  --z-sticky: 10;
+  --z-drawer: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+}
+
+/* Motion is an explanation, not decoration: when the reader has
+   asked for less of it, keep the state change and drop the travel. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 1ms;
+    --duration: 1ms;
+    --duration-slow: 1ms;
+  }
+}
