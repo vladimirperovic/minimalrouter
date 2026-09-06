@@ -642,8 +642,8 @@
 
 .dashboard-app input:focus,
 .dashboard-app select:focus {
-  border-color: #0071e3;
-  outline: 3px solid rgba(0, 113, 227, 0.14);
+  border-color: var(--accent, #8b6f47);
+  outline: 3px solid color-mix(in srgb, var(--accent, #8b6f47) 18%, transparent);
 }
 
 .checkbox-row {
@@ -658,7 +658,7 @@
 .checkbox-row input {
   width: 17px;
   height: 17px;
-  accent-color: #0071e3;
+  accent-color: var(--accent, #8b6f47);
 }
 
 .form-note {
@@ -967,8 +967,8 @@
 .audit-category {
   border-radius: 999px;
   padding: 3px 7px;
-  background: rgba(0, 113, 227, 0.1);
-  color: #0071e3;
+  background: color-mix(in srgb, var(--accent, #8b6f47) 12%, transparent);
+  color: var(--accent, #8b6f47);
   font-size: 10px;
   font-weight: 750;
   text-transform: capitalize;
@@ -1027,7 +1027,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .wg-add-assign dd:last-child code {
-  color: #0071e3;
+  color: var(--accent, #8b6f47);
 }
 
 @media (max-width: 680px) {
@@ -1168,6 +1168,7 @@
 
 .wg-client-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
@@ -1176,6 +1177,7 @@
 
 .wg-client-title {
   display: flex;
+  flex: 1 1 260px;
   gap: 13px;
   align-items: flex-start;
   min-width: 0;
@@ -1187,8 +1189,8 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: rgba(0, 113, 227, 0.09);
-  color: #0071e3;
+  background: color-mix(in srgb, var(--accent, #8b6f47) 10%, transparent);
+  color: var(--accent, #8b6f47);
   flex: 0 0 auto;
 }
 

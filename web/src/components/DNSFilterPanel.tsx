@@ -222,7 +222,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
         <div className="elegant-table-container">
           <table className="elegant-device-table">
             <caption className="sr-only">DNS Filter device profiles</caption>
-            <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-expires" /><col className="elegant-col-w120" /><col className="elegant-col-actions" /></colgroup>
+            <colgroup><col className="elegant-col-name" /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-expires" /><col className="elegant-col-w120" /><col className="elegant-col-actions" /></colgroup>
             <thead>
               <tr><th>Profile</th><th>Devices</th><th>Services</th><th>Schedule</th><th>Status</th><th className="elegant-th-actions">Action</th></tr>
             </thead>

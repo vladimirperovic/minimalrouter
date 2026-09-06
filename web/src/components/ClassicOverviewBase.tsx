@@ -312,6 +312,7 @@ export default function ClassicOverview({
   const lastLoginTime = lastLoginDate ? lastLoginDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Checking";
   const lastLoginDetail = lastLogin && lastLoginDate ? `${lastLogin.actor} · ${lastLoginDate.toLocaleDateString()}` : "Audit event pending";
   const loss = Math.min(100, Math.max(0, gatewaySummary?.packet_loss_percent || 0));
+  const today = `${new Date().toLocaleDateString("en-GB").replaceAll("/", ".")}.`;
 
   useEffect(() => {
     if (wanEstimate || !wanConnected || document.hidden) return;
@@ -390,7 +391,7 @@ export default function ClassicOverview({
           the four readings an operator checks next. Everything else on the
           page is detail behind that answer. */}
       <header className="overview-masthead">
-        <span className="overview-hero-kicker"><i aria-hidden="true" />System status</span>
+        <span className="overview-hero-kicker"><i aria-hidden="true" className={heroState} />System status · {today}</span>
         <h1>{headline}</h1>
         <p>{verified ? "WAN, security policy and local services are operating normally." : "Review WAN connectivity and the active appliance alerts."}</p>
       </header>
@@ -398,7 +399,7 @@ export default function ClassicOverview({
       <dl className="overview-headline-readings" aria-label="Headline readings">
         <div><dt>Uptime</dt><dd>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</dd><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></div>
         <div><dt>Latency</dt><dd>{formatMetric(gatewaySummary?.latency_ms, " ms")}</dd><small>jitter {formatMetric(gatewaySummary?.jitter_ms, " ms")}</small></div>
-        <div><dt>Line estimate</dt><dd>{wanEstimate ? `${wanEstimate.download_mbps.toFixed(0)} / ${wanEstimate.upload_mbps.toFixed(0)}` : wanConnected ? "Measuring" : "—"}</dd><small>{wanEstimate ? "Mbps down / up" : "not measured yet"}</small></div>
+        <div><dt>Line estimate</dt><dd className={wanEstimate ? undefined : "is-info"}>{wanEstimate ? `${wanEstimate.download_mbps.toFixed(0)} / ${wanEstimate.upload_mbps.toFixed(0)}` : wanConnected ? "Measuring" : "—"}</dd><small>{wanEstimate ? "Mbps down / up" : "not measured yet"}</small></div>
       </dl>
 
       {/* Three groups, equal weight, each a ruled list. A reading belongs to
@@ -407,8 +408,8 @@ export default function ClassicOverview({
         <section className="overview-group" aria-label="Connection">
           <h2>Connection</h2>
           <dl>
-            <div><dt>State</dt><dd className={wanConnected ? "is-good" : "is-bad"}>{connectionKnown ? wanConnected ? "Connected" : "Disconnected" : "Checking"}</dd></div>
-            <div><dt>Session</dt><dd>PPPoE</dd></div>
+            <div><dt>State</dt><dd className={!connectionKnown ? "is-info" : wanConnected ? "is-good" : "is-bad"}>{connectionKnown ? wanConnected ? "Connected" : "Disconnected" : "Checking"}</dd></div>
+            <div><dt>Session</dt><dd className="is-info">PPPoE</dd></div>
             <div><dt>Public IP</dt><dd className="is-identifier">{runtime.public_ip || "Unavailable"}</dd></div>
             <div><dt>MTU</dt><dd>{config.wan.mtu || 1492}</dd></div>
             <div><dt>Probe targets</dt><dd>{gatewaySummary?.targets?.length || gatewayTargetCount}</dd></div>
@@ -422,8 +423,8 @@ export default function ClassicOverview({
             <div><dt>CPU state</dt><dd>{cpuIdle}</dd></div>
             <div><dt>Load average</dt><dd>{loadAverage}</dd></div>
             <div><dt>Conntrack</dt><dd>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</dd></div>
-            <div className="overview-request-state"><dt>Rejected requests</dt><dd>{securityCount ?? "Checking"}</dd></div>
-            <div><dt>30-day uptime</dt><dd>collecting</dd></div>
+            <div className="overview-request-state"><dt>Rejected requests</dt><dd className={securityCount === null ? "is-info" : undefined}>{securityCount ?? "Checking"}</dd></div>
+            <div><dt>30-day uptime</dt><dd className="is-info">collecting</dd></div>
           </dl>
         </section>
 
@@ -431,7 +432,7 @@ export default function ClassicOverview({
           <h2>Trust &amp; access</h2>
           <dl>
             <div><dt>Update trust</dt><dd>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</dd><small>{system.update_trust_configured ? "Package verification enforced" : "Signing key unavailable"}</small></div>
-            <div><dt>Last admin access</dt><dd>{lastLoginTime}</dd><small>{lastLoginDetail}</small></div>
+            <div><dt>Last admin access</dt><dd className="is-nowrap">{lastLoginTime}</dd><small>{lastLoginDetail}</small></div>
             <div><dt>Time synchronization</dt><dd className={runtime.time_synchronized ? "is-good" : "is-warning"}>{runtime.time_synchronized ? "Synchronized" : "Not synchronized"}</dd></div>
           </dl>
         </section>

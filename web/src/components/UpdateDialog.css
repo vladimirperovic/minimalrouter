@@ -209,7 +209,7 @@
 .update-dialog-channel input[type="radio"] {
   height: 15px;
   width: 15px;
-  accent-color: #2563eb;
+  accent-color: var(--accent, #8b6f47);
 }
 
 .update-dialog-upload form {
@@ -243,8 +243,8 @@
   margin-bottom: 8px;
   padding: 8px 10px;
   border-radius: 9px;
-  border: 1px solid #2563eb;
-  background: rgba(37, 99, 235, 0.12);
+  border: 1px solid var(--accent, #8b6f47);
+  background: color-mix(in srgb, var(--accent, #8b6f47) 12%, transparent);
   color: inherit;
   font: inherit;
   font-size: 0.82rem;

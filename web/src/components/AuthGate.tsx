@@ -161,6 +161,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       <main className="auth-shell">
         <section className="auth-panel auth-offline" aria-labelledby="offline-title">
           <div className="auth-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
+          <p className="auth-kicker">Secure access</p>
           <h1 id="offline-title">Router unavailable</h1>
           <p>Connect to the router LAN and try again. This page will reconnect automatically.</p>
           <button className="button primary" type="button" onClick={() => window.location.reload()}>Try again now</button>
@@ -173,6 +174,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="login-title">
         <div className="auth-brand"><span aria-hidden="true">M</span><strong>Minimal Router OS</strong></div>
+        <p className="auth-kicker">Secure access</p>
         <div className="auth-heading">
           <h1 id="login-title">Sign in</h1>
           {previewMode && <span className="auth-preview-badge">UI preview</span>}

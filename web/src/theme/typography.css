@@ -49,6 +49,16 @@
    "Online and verified" and "Protected by default" are the
    largest sentence on their page and were the only page-level
    headings still set in the UI face. */
+:root:root .dashboard-app .dashboard-section-heading h2,
+:root:root .dashboard-app .dns-filter-heading h2,
+:root:root .dashboard-app .wg-hero-copy h2 {
+  font-family: var(--font-display);
+  font-size: clamp(var(--text-xl), 3vw, var(--text-2xl));
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+}
+
 :root:root .dashboard-app .overview-masthead h1,
 :root:root .dashboard-app .overview-masthead h2,
 :root:root .dashboard-app .classic-security-hero-copy h1,
@@ -74,6 +84,8 @@
 :root:root .dashboard-app .classic-security-feed-heading h3,
 :root:root .dashboard-app .classic-security-card > h3,
 :root:root .dashboard-app .table-card > header h3,
+:root:root .dashboard-app .table-card > .card-title-row h3,
+:root:root .dashboard-app .modern-section-heading h2,
 :root:root .dashboard-app .settings-form > h3 {
   font-family: var(--font-display);
   font-size: var(--text-lg);

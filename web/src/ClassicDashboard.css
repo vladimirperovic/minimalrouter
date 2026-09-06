@@ -382,6 +382,10 @@
   width: 44px;
 }
 
+.elegant-col-name {
+  width: 240px;
+}
+
 .elegant-col-ip {
   width: 150px;
 }
@@ -787,10 +791,10 @@
   margin-inline: auto;
 }
 
-.dashboard-main > .dashboard-section:not(#overview),
+.dashboard-main > .dashboard-section:not(:where(#overview)),
 .dashboard-main > .dns-filter {
   display: grid;
-  gap: 18px;
+  gap: var(--gap-group);
 }
 
 .dashboard-main > .dashboard-section:not(#overview) > *,
@@ -1008,7 +1012,7 @@
 }
 
 .form-note {
-  max-width: 880px;
+  max-width: min(880px, 100%);
   color: var(--classic-muted);
   font-size: 11px;
 }
@@ -1309,10 +1313,10 @@
   height: 48px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgba(130, 189, 255, .17);
+  border: 1px solid var(--classic-border, rgba(139, 111, 71, .22));
   border-radius: 14px;
-  background: rgba(130, 189, 255, .09);
-  color: #7db7ff;
+  background: color-mix(in srgb, var(--classic-blue, #8b6f47) 10%, transparent);
+  color: var(--classic-blue, #8b6f47);
 }
 
 .wg-hero-icon svg {
@@ -1545,7 +1549,7 @@
 .wg-peer-details {
   display: grid;
   min-width: 0;
-  grid-template-columns: .8fr 1.2fr .85fr;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
   gap: 18px;
   margin: 0;
 }
@@ -1663,7 +1667,7 @@
 
 .classic-security-page .classic-kicker {
   margin-bottom: 8px;
-  color: #8fa9c6;
+  color: var(--ink-eyebrow, #7a5c33);
   font-size: 9px;
   font-weight: 800;
   letter-spacing: .11em;
@@ -1887,7 +1891,7 @@
 
 .classic-security-card > .classic-security-intro {
   max-width: 80ch;
-  margin: -10px 0 0;
+  margin: 8px 0 0;
   color: var(--classic-muted);
   font-size: 11px;
   line-height: 1.55;
@@ -2153,7 +2157,7 @@
 .dashboard-section-heading .ddns-lead,
 .dns-filter-heading .dns-filter-intro,
 .gateway-quality > .dashboard-section-heading small {
-  color: #b5c7dc;
+  color: var(--classic-muted);
 }
 
 .dashboard-section-heading > .classic-status-chip {
@@ -2273,10 +2277,10 @@
   height: 48px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgba(130, 189, 255, .17);
+  border: 1px solid var(--classic-border, rgba(139, 111, 71, .22));
   border-radius: 14px;
-  background: rgba(130, 189, 255, .09);
-  color: #7db7ff;
+  background: color-mix(in srgb, var(--classic-blue, #8b6f47) 10%, transparent);
+  color: var(--classic-blue, #8b6f47);
 }
 
 .classic-security-hero-icon svg { width: 24px; height: 24px; }

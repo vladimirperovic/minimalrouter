@@ -156,6 +156,97 @@ async function expectNoPageOverflow(page: Page) {
   expect(geometry.mainRight).toBeLessThanOrEqual(geometry.viewport + 1);
 }
 
+// These checks measure content inside cards: a shell with overflow-x:hidden
+// can pass the page-width check while clipping an overflowing control.
+for (const width of [390, 768, 1024, 1440]) {
+  test.describe(`card layout at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 } });
+
+    test.beforeEach(async ({ page }) => { await stubApi(page); });
+
+    test("accounting description and checkbox fit inside their card", async ({ page }) => {
+      await page.goto("/#traffic");
+      const card = page.locator(".service-inline-control");
+      await expect(card).toBeVisible();
+      const box = await card.boundingBox();
+      const copy = await card.locator(":scope > div").boundingBox();
+      const control = await card.locator(".checkbox-row").boundingBox();
+      expect(box).not.toBeNull();
+      expect(copy).not.toBeNull();
+      expect(control).not.toBeNull();
+      for (const child of [copy!, control!]) {
+        expect(child.x - box!.x).toBeGreaterThanOrEqual(12);
+        expect(box!.x + box!.width - child.x - child.width).toBeGreaterThanOrEqual(12);
+      }
+      expect(copy!.width).toBeGreaterThan(180);
+      // They may sit alongside each other or stack, but never overlap.
+      expect(control!.x >= copy!.x + copy!.width || control!.y >= copy!.y + copy!.height).toBe(true);
+      const checkbox = await card.getByRole("checkbox").boundingBox();
+      expect(checkbox!.height).toBeLessThanOrEqual(24);
+      expect(control!.height).toBeGreaterThanOrEqual(44);
+      await expectNoPageOverflow(page);
+    });
+
+    test("network form has one inset and no accumulated heading margins", async ({ page }) => {
+      await page.goto("/#network");
+      const form = page.locator("#network > .settings-form");
+      await expect(form).toBeVisible();
+      const heading = await page.locator("#network > .dashboard-section-heading").boundingBox();
+      const box = await form.boundingBox();
+      const fieldset = await form.locator(":scope > fieldset").first().boundingBox();
+      const gap = box!.y - heading!.y - heading!.height;
+      expect(gap).toBeGreaterThanOrEqual(12);
+      expect(gap).toBeLessThanOrEqual(32);
+      const input = await form.getByRole("textbox", { name: "WAN interface", exact: true }).boundingBox();
+      expect(input!.x - box!.x).toBeGreaterThanOrEqual(12);
+      expect(input!.x - box!.x).toBeLessThanOrEqual(32);
+      expect(fieldset!.x + fieldset!.width).toBeLessThan(box!.x + box!.width);
+      await expectNoPageOverflow(page);
+    });
+
+    test("multiline DNS schedules keep space above and below their text", async ({ page }) => {
+      await page.route("**/api/v1/config", route => json(route, {
+        ...CONFIG,
+        adguard: { ...CONFIG.adguard, device_profiles: [{
+          id: "kids", name: "Kids tablet", enabled: true,
+          ip_addresses: ["192.168.1.50"], services: ["youtube", "steam"],
+          schedule: { weekday_windows: [{ start: "18:00", end: "21:30" }], weekend_mode: "all_day" },
+        }] },
+      }));
+      await page.goto("/#dns-filter");
+      const table = page.getByRole("table", { name: "DNS Filter device profiles" });
+      await expect(table.getByText("Kids tablet")).toBeVisible();
+      const schedule = table.locator("tbody td").nth(3);
+      const inset = await schedule.evaluate(cell => {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        const text = range.getBoundingClientRect();
+        const bounds = cell.getBoundingClientRect();
+        return { top: text.top - bounds.top, bottom: bounds.bottom - text.bottom };
+      });
+      expect(inset.top).toBeGreaterThanOrEqual(10);
+      expect(inset.bottom).toBeGreaterThanOrEqual(10);
+      await expectNoPageOverflow(page);
+    });
+
+    test("connected device names remain readable beside fixed-width columns", async ({ page }) => {
+      await page.route("**/api/v1/system", route => json(route, {
+        ...SYSTEM,
+        runtime: { ...SYSTEM.runtime, dhcp_leases: [{
+          hostname: "workstation", ip_address: "192.168.1.50", mac: "00:00:5e:00:53:10",
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+        }] },
+      }));
+      await page.goto("/#network");
+      const name = page.locator(".modern-device-section .elegant-cell-name").filter({ hasText: "workstation" });
+      await expect(name).toBeVisible();
+      const box = await name.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(180);
+      await expectNoPageOverflow(page);
+    });
+  });
+}
+
 test.use({ viewport: { width: 390, height: 844 } });
 
 test("mobile menu pushes the page away and keeps the control fixed top-right", async ({ page, isMobile }) => {

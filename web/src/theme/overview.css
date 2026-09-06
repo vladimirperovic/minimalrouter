@@ -140,9 +140,9 @@
   font-size: var(--text-sm);
 }
 
-:root:root .dashboard-app .overview-group dd.is-good { color: var(--classic-green); }
-:root:root .dashboard-app .overview-group dd.is-bad { color: #a8402e; }
-:root:root .dashboard-app .overview-group dd.is-warning { color: var(--classic-orange); }
+:root:root .dashboard-app .overview-group dd.is-good { color: var(--classic-green); -webkit-text-fill-color: var(--classic-green); }
+:root:root .dashboard-app .overview-group dd.is-bad { color: #a8402e; -webkit-text-fill-color: #a8402e; }
+:root:root .dashboard-app .overview-group dd.is-warning { color: var(--classic-orange); -webkit-text-fill-color: var(--classic-orange); }
 
 /* A qualifying line under a reading spans the row. */
 :root:root .dashboard-app .overview-group dl > div > small {
@@ -325,5 +325,90 @@
   :root:root .dashboard-app .overview-wan-quality > * {
     border-left: 0;
     padding-left: 0;
+  }
+}
+
+/* ── Ledger ─────────────────────────────────────────────────
+   The zakoni sheet: headline readings as a bordered ledger, not
+   three loose columns. Hairlines come from a 1px gap over the
+   border colour, so wrapped rows keep their rules without extra
+   queries. The numeral leads (as on the statistics page), the
+   label follows, the note closes. Pending values read in info
+   blue; settled values stay ink; good/bad keep their greens/reds.
+   ============================================================ */
+:root:root .dashboard-app .classic-dashboard-overview {
+  --overview-info: #3d6fa8;
+}
+
+:root:root[data-theme="dark"] .dashboard-app .classic-dashboard-overview {
+  --overview-info: #8fb8dd;
+}
+
+:root:root .dashboard-app .overview-headline-readings {
+  gap: 1px;
+  padding: 0;
+  border: 1px solid var(--classic-border);
+  border-radius: 0;
+  background: var(--classic-border);
+}
+
+:root:root .dashboard-app .overview-headline-readings > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-5) var(--space-6);
+  background: var(--classic-panel);
+}
+
+:root:root .dashboard-app .overview-headline-readings dd {
+  order: -1;
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: 1.05;
+}
+
+:root:root .dashboard-app .overview-headline-readings dt {
+  order: 0;
+}
+
+:root:root .dashboard-app .overview-headline-readings small {
+  order: 1;
+}
+
+:root:root .dashboard-app .classic-dashboard-overview dd.is-info {
+  color: var(--overview-info);
+  -webkit-text-fill-color: var(--overview-info);
+}
+
+:root:root .dashboard-app .classic-dashboard-overview dd.is-nowrap {
+  white-space: nowrap;
+}
+
+:root:root .dashboard-app .overview-hero-kicker i.is-good {
+  border-color: var(--classic-green);
+  background: color-mix(in srgb, var(--classic-green) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-green) 8%, transparent);
+}
+
+:root:root .dashboard-app .overview-hero-kicker i.is-warning {
+  border-color: var(--classic-orange);
+  background: color-mix(in srgb, var(--classic-orange) 18%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--classic-orange) 8%, transparent);
+}
+
+:root:root .dashboard-app .overview-hero-kicker i.is-bad {
+  border-color: #a8402e;
+  background: color-mix(in srgb, #a8402e 16%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #a8402e 8%, transparent);
+}
+
+@media (max-width: 680px) {
+  :root:root .dashboard-app .overview-headline-readings > div {
+    padding: var(--space-4);
+  }
+
+  :root:root .dashboard-app .overview-headline-readings dd {
+    font-size: var(--text-xl);
   }
 }
