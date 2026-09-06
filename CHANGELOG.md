@@ -53,6 +53,19 @@ Next development version: **v0.1.8**.
 - **The dashboard stopped rewriting its own markup after rendering.** A
   presentation layer patched the DOM after React drew it, which is a race with
   every re-render. The patches it carried are in the components.
+- **Sign-in is built like the cards it leads to.** The sign-in page was the
+  last screen from before Studio: one white box with a brand row, a heading and
+  a stacked form, and a focus ring still drawn from the old blue token. It now
+  carries the bronze spine, the display serif in the accent, a mono meta line
+  and three hairline-separated bands — who is asking, what it wants, and the
+  one action. The sign-in behaviour, its labels and its error handling are
+  unchanged.
+- **The appliance health drawer is inset and has its gap back.** It is meant to
+  read as a drawer sliding out from under the status card, but it was the full
+  width of that card, and the rule that pulls it up by one radius also zeroed
+  its bottom margin — so it shared an edge with the Boot activity card below.
+  It is now 90% of the card's width, centred, with the ordinary card gap
+  beneath it.
 
 ### Removed
 
