@@ -269,11 +269,13 @@
 :root:root .dashboard-app .overview-status-hero + .health-banner {
   position: relative;
   z-index: 0;
-  /* Same width as the card it slides from. A 22px inset left the
-     drawer's shoulders showing on both sides, which reads as
-     misalignment rather than as depth. */
-  margin: calc(var(--radius-lg) * -1) 0 0;
-  width: auto;
+  /* Narrower than the card it slides from, and centred under it, so
+     it reads as a drawer pulled out of the card rather than as a
+     second card that happens to touch it. The bottom margin is the
+     ordinary gap between cards: without it the drawer and the Boot
+     activity card below shared an edge. */
+  margin: calc(var(--radius-lg) * -1) auto var(--gap-group);
+  width: 90%;
   padding-top: calc(var(--card-padding) + var(--radius-lg));
   border-top-left-radius: 0;
   border-top-right-radius: 0;
