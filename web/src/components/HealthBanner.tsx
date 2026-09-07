@@ -168,6 +168,9 @@ export function HealthCheckDetails({ health, unavailable, sectionRef }: HealthCh
   if (unavailable || !health) return null;
 
   const attention = health.checks.filter(needsAttention).sort((a, b) => STATE_RANK[b.state] - STATE_RANK[a.state]);
+  // Failing checks open the panel: lead with them so the reason for opening
+  // is visible without hunting through passing rows.
+  const ordered = [...attention, ...health.checks.filter((check) => !needsAttention(check))];
 
   return (
     <section className="health-checks-section" id="system-health-checks" aria-labelledby="system-health-checks-title" ref={sectionRef}>
@@ -180,7 +183,7 @@ export function HealthCheckDetails({ health, unavailable, sectionRef }: HealthCh
         <span className="health-checks-count">{health.checks.length} checks</span>
       </header>
       <ul className="health-check-list">
-        {health.checks.map((check) => (
+        {ordered.map((check) => (
           <li className={`health-check ${STATE_CLASS[check.state]}`} key={check.id}>
             <span className="health-check-dot" aria-hidden="true" />
             <div>
