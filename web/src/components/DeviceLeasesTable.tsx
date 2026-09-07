@@ -2,7 +2,7 @@ import { previewAndApplyConfig, readConfiguration } from "../lib/configuration";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
-import { insidePool, reservationConflictMessage, suggestReservationAddress } from "./deviceReservation";
+import { insidePool, liveLeaseConflictMessage, reservationConflictMessage, suggestReservationAddress } from "./deviceReservation";
 import "./DeviceLeasesTable.css";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
@@ -87,6 +87,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
   const [pauseError, setPauseError] = useState("");
   const [reservationTarget, setReservationTarget] = useState<Lease | null>(null);
   const [reservationIP, setReservationIP] = useState("");
+  const [reservationHostname, setReservationHostname] = useState("");
   const [reservationBusy, setReservationBusy] = useState(false);
   const [reservationError, setReservationError] = useState("");
   const [wakeBusyMac, setWakeBusyMac] = useState<string | null>(null);
@@ -273,11 +274,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     if (!reservationTarget) return "";
     const staticConflict = reservationConflictMessage(reservationIP, reservationTarget.mac, config.dhcp.static_leases || []);
     if (staticConflict) return staticConflict;
-    const liveCollision = leases.find(
-      (lease) => lease.ip_address === reservationIP.trim() && lease.mac.toLowerCase() !== reservationTarget.mac.toLowerCase(),
-    );
-    if (!liveCollision) return "";
-    return `${reservationIP.trim()} is currently leased to ${liveCollision.hostname || liveCollision.mac}. Choose another address.`;
+    return liveLeaseConflictMessage(reservationIP, reservationTarget.mac, leases);
   }, [config.dhcp.static_leases, leases, reservationIP, reservationTarget]);
 
   const poolConflict = Boolean(
@@ -288,6 +285,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
   const openReservationDialog = (lease: Lease) => {
     setReservationTarget(lease);
+    setReservationHostname(lease.hostname || "");
     const taken = [
       ...(config.dhcp.static_leases || []).map((item) => item.ip_address),
       ...leases.filter((item) => item.mac.toLowerCase() !== lease.mac.toLowerCase()).map((item) => item.ip_address),
@@ -302,6 +300,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     if (reservationBusy) return;
     setReservationTarget(null);
     setReservationIP("");
+    setReservationHostname("");
     setReservationError("");
   };
 
@@ -311,6 +310,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
     const target = reservationTarget;
     const requestedIP = reservationIP.trim();
+    const requestedHostname = reservationHostname.trim();
     const normalisedMac = target.mac.trim().toLowerCase();
     setReservationBusy(true);
     setReservationError("");
@@ -335,7 +335,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
           ...(next.dhcp.static_leases || []),
           {
             id: `lease-${Date.now().toString(36)}`,
-            hostname: target.hostname?.trim() || "",
+            hostname: requestedHostname,
             mac: normalisedMac,
             ip_address: requestedIP,
           },
@@ -347,6 +347,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
       setReservationTarget(null);
       setReservationIP("");
+      setReservationHostname("");
       if (onReservationSaved) {
         await onReservationSaved();
       }
@@ -425,12 +426,16 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                 <div>
                   <span className="device-reservation-kicker">DHCP reservation</span>
                   <h3 id="device-reservation-title">Reserve an IP for {reservationTarget.hostname || "this device"}</h3>
-                  <p>The MAC address is taken from the active lease. Choose the address this device should always receive.</p>
+                  <p>The MAC address is taken from the active lease. Choose a device name and the address it should always receive.</p>
                 </div>
                 <button type="button" className="device-reservation-close" onClick={closeReservationDialog} disabled={reservationBusy} aria-label="Close reservation dialog">×</button>
               </div>
 
               <div className="device-reservation-fields">
+                <label className="device-reservation-field device-reservation-name">
+                  <span>Device name</span>
+                  <input value={reservationHostname} onChange={(event) => { setReservationHostname(event.target.value); setReservationError(""); }} placeholder="macbook-air" autoComplete="off" disabled={reservationBusy} />
+                </label>
                 <label className="device-reservation-field">
                   <span>MAC address</span>
                   <input readOnly value={reservationTarget.mac} />
