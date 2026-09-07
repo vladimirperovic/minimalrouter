@@ -1,0 +1,171 @@
+/* ============================================================
+   HALO — the most beautiful dashboard for Minimal Router.
+   A single finishing layer over the Noema look. Nothing here
+   changes markup, tokens or behavior; it only deepens light,
+   depth and rhythm. Delete this file (and its import) to fall
+   back to the plain Noema look byte-for-byte.
+   ============================================================ */
+
+:root:root {
+  --halo-radius: 18px;
+  --halo-shadow:
+    0 1px 2px rgba(26, 26, 31, 0.05),
+    0 12px 32px -20px rgba(26, 26, 31, 0.22),
+    0 32px 64px -48px rgba(26, 26, 31, 0.18);
+  --halo-top-light: inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 2px 0 rgba(184, 115, 51, 0.16);
+  --halo-focus-ring: 0 0 0 3px rgba(184, 115, 51, 0.22);
+}
+
+:root:root[data-theme="dark"] {
+  --halo-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.5),
+    0 16px 40px -20px rgba(0, 0, 0, 0.65),
+    0 40px 80px -56px rgba(0, 0, 0, 0.55);
+  --halo-top-light: inset 0 1px 0 rgba(244, 239, 230, 0.09),
+    inset 0 2px 0 rgba(232, 176, 125, 0.14);
+  --halo-focus-ring: 0 0 0 3px rgba(232, 176, 125, 0.25);
+}
+
+/* ---- ground: bronze aurora over paper, nebula over night ---- */
+:root:root .dashboard-app {
+  background:
+    radial-gradient(ellipse 48% 30% at 82% -8%, rgba(184, 115, 51, 0.13) 0%, rgba(184, 115, 51, 0) 70%),
+    radial-gradient(ellipse 36% 26% at 8% 4%, rgba(184, 115, 51, 0.06) 0%, rgba(184, 115, 51, 0) 70%),
+    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(26, 26, 31, 0.05) 0%, rgba(26, 26, 31, 0) 72%),
+    linear-gradient(176deg, #f7f3ec 0%, #f5f1ea 44%, #eee8dd 100%);
+}
+
+:root:root[data-theme="dark"] .dashboard-app {
+  background:
+    radial-gradient(ellipse 48% 30% at 82% -8%, rgba(232, 176, 125, 0.10) 0%, rgba(232, 176, 125, 0) 70%),
+    radial-gradient(ellipse 40% 28% at 6% 6%, rgba(127, 167, 217, 0.05) 0%, rgba(127, 167, 217, 0) 70%),
+    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 72%),
+    linear-gradient(176deg, #0c0c0e 0%, #0a0a0c 44%, #060607 100%);
+}
+
+/* ---- text selection carries the beacon ---- */
+:root:root .dashboard-app ::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* ---- cards: deeper rest, crisper top light ---- */
+:root:root .dashboard-app .card,
+:root:root .settings-form,
+:root:root .status-list,
+:root:root .dashboard-callout,
+:root:root .speedtest-block,
+:root:root .ddns-status,
+:root:root .modern-device-section,
+:root:root .dashboard-app .boot-activity,
+:root:root .dashboard-app .overview-status-hero,
+:root:root .dashboard-app .wg-page-hero,
+:root:root .dashboard-app .classic-security-command,
+:root:root .dashboard-app .dns-filter-heading,
+:root:root .elegant-table-container {
+  border-radius: var(--halo-radius);
+  box-shadow: var(--halo-top-light), var(--halo-shadow);
+}
+
+:root:root .dashboard-app .overview-panel > .overview-panel-header {
+  border-radius: 17px 17px 0 0;
+}
+
+/* ---- sidebar: the active section earns a bronze edge ---- */
+:root:root .dashboard-sidebar nav a.is-active {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:root:root .dashboard-sidebar nav a {
+  transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+/* ---- hero numerals: bigger, tighter, tabular ---- */
+:root:root .dashboard-app .overview-headline-readings dd {
+  font-size: clamp(30px, 3vw, 42px);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+:root:root .dashboard-section-heading h2,
+:root:root .dns-filter-heading h2 {
+  letter-spacing: -0.035em;
+}
+
+/* ---- kickers with flanking rules ---- */
+:root:root .dashboard-section-heading .eyebrow,
+:root:root .dns-filter-heading .eyebrow,
+:root:root .overview-hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+:root:root .dashboard-section-heading .eyebrow::after,
+:root:root .dns-filter-heading .eyebrow::after,
+:root:root .overview-hero-kicker::after {
+  content: "";
+  height: 1px;
+  width: 72px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+}
+
+/* ---- controls: bronze focus, physical press ---- */
+:root:root .dashboard-app input:focus-visible,
+:root:root .dashboard-app select:focus-visible,
+:root:root .dashboard-app textarea:focus-visible,
+:root:root .dashboard-app button:focus-visible,
+:root:root .dashboard-app a:focus-visible {
+  outline: none;
+  box-shadow: var(--halo-focus-ring);
+}
+
+:root:root .dashboard-app .button:active:not(:disabled),
+:root:root .auth-panel .auth-submit:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
+}
+
+:root:root .dashboard-app .button {
+  transition: background 180ms ease, color 180ms ease,
+    border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease;
+}
+
+/* ---- tables: calm hover, sticky-tinted head wash ---- */
+:root:root .elegant-device-table tbody tr {
+  transition: background-color 200ms ease;
+}
+
+:root:root .elegant-device-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ---- topbar: hairline + blur over the ground ---- */
+:root:root .dashboard-topbar.classic-topbar {
+  border-bottom: var(--skin-hairline);
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ---- scrollbars whisper bronze ---- */
+:root:root .dashboard-app ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:root:root .dashboard-app ::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+:root:root .dashboard-app ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- status chips breathe ---- */
+:root:root .overview-service-chip,
+:root:root .classic-status-chip {
+  transition: border-color 200ms ease, background 200ms ease, color 200ms ease;
+}

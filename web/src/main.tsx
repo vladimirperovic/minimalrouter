@@ -20,6 +20,7 @@ import "./theme/typography.css";
 import "./theme/surfaces.css";
 import "./theme/controls.css";
 import "./theme/overview.css";
+import "./theme/halo.css";
 
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);
