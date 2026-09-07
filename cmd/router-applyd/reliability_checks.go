@@ -123,9 +123,16 @@ func requiresDDNSVerification(previous *config.SystemConfig, candidate config.Sy
 // later WAN-IP changes; unrelated router changes are not coupled to provider
 // availability.
 func verifyDDNSUpdate() error {
-	_, err := runCommandOutput(45*time.Second,
+	return verifyDDNSUpdateWithRunner(runCommandOutput)
+}
+
+func verifyDDNSUpdateWithRunner(run func(time.Duration, string, ...string) (string, error)) error {
+	_, err := run(45*time.Second,
 		"/usr/sbin/inadyn",
 		"--once", "--force", "--foreground", "--no-pidfile",
+		// Match the supervised daemon's identity so provider verification
+		// cannot recreate a root-owned cache that the daemon cannot update.
+		"--drop-privs", "inadyn:inadyn",
 		"--config", "/etc/inadyn/inadyn.conf", "--loglevel", "notice",
 	)
 	if err != nil {

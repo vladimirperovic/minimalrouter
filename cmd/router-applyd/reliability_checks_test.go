@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +10,28 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
+
+func TestDDNSProviderVerificationUsesDaemonIdentity(t *testing.T) {
+	want := errors.New("provider unavailable")
+	calls := 0
+	err := verifyDDNSUpdateWithRunner(func(timeout time.Duration, binary string, args ...string) (string, error) {
+		calls++
+		if timeout != 45*time.Second || binary != "/usr/sbin/inadyn" {
+			t.Fatalf("unbounded or unexpected provider command: %s %s", timeout, binary)
+		}
+		index := slices.Index(args, "--drop-privs")
+		if index < 0 || index+1 >= len(args) || args[index+1] != "inadyn:inadyn" {
+			t.Fatal("provider verification would create cache as root")
+		}
+		if !slices.Contains(args, "--no-pidfile") || !slices.Contains(args, "--once") {
+			t.Fatal("provider verification would interfere with the supervised daemon")
+		}
+		return "", want
+	})
+	if calls != 1 || !errors.Is(err, want) {
+		t.Fatalf("provider failure was not preserved: calls=%d error=%v", calls, err)
+	}
+}
 
 func dnsArtifactsForTest(t *testing.T, cfg config.SystemConfig) map[string]artifact {
 	t.Helper()

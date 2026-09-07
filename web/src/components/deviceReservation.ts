@@ -2,6 +2,12 @@ import type { StaticLease } from "../api-types";
 
 export const MAC_PATTERN = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
 
+export function reservationHostnameMessage(value: string): string {
+  const hostname = value.trim();
+  if (!hostname || /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(hostname)) return "";
+  return "Device name must be a hostname of up to 63 letters, numbers or hyphens, starting and ending with a letter or number.";
+}
+
 export function isValidIPv4(value: string): boolean {
   const parts = value.trim().split(".");
   if (parts.length !== 4) return false;

@@ -959,7 +959,6 @@ body {
 #overview > .overview-status-hero { order: 2; }
 #overview > .health-banner { order: 4; }
 #overview > .health-checks-section { order: 5; }
-#overview > .boot-activity-host { order: 6; }
 #overview > .overview-diagnostic-strip { order: 7; }
 #overview > .overview-content-grid { order: 8; }
 
@@ -1069,10 +1068,6 @@ body {
 @keyframes demo-checks-open {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-#overview > .boot-activity-host {
-  margin: 0 0 18px;
 }
 
 /* --- Overview diagnostics --------------------------------------------------
