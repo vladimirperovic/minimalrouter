@@ -69,7 +69,9 @@ sha256sum "$OUT/installed.raw" > "$OUT/existing-disk-before.sha256"
 disk_fingerprint "$OUT/installed.raw" "$OUT/existing-disk-before.regions"
 timeout 300 expect scripts/ci/iso-installer-safety.exp existing "$OUT/serial-test.iso" "$OUT/installed.raw" "$OUT/existing-refusal.log"
 grep -F 'EXISTING_INSTALL_GUARD_OK' "$OUT/existing-refusal.log"
-sha256sum -c "$OUT/existing-disk-before.sha256"
+# The region comparison below includes the full-disk hash, so it replaces the
+# bare sha256sum -c check and additionally localizes any violation instead of
+# aborting before the diagnosis can print under set -eu.
 disk_compare "$OUT/existing-disk-before.regions" "$OUT/installed.raw" "$OUT/existing-disk-after.regions"
 truncate -s 4G "$OUT/undersized.raw"
 sha256sum "$OUT/undersized.raw" > "$OUT/small-disk-before.sha256"
