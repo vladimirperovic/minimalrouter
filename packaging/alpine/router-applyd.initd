@@ -25,6 +25,9 @@ respawn_period=60
 retry="SIGTERM/10/SIGKILL/5"
 
 depend() {
+    if [ -f /etc/minimalrouter/installed ]; then
+        need minimalrouter-firstboot
+    fi
     before routerd
     need localmount
     # The helper owns every WAN/LAN/tunnel interface. Ordering after the
@@ -86,6 +89,7 @@ DOAS_UPDATE
 }
 
 start_pre() {
+    /usr/libexec/minimalrouter/firstboot-ready || return 1
     checkpath --directory --owner root:routerd --mode 0750 /run/minimalrouter
     checkpath --directory --owner root:root --mode 0700 /var/lib/minimalrouter-applyd
     # A startup verification hint is valid only for this helper start. Remove
@@ -123,8 +127,11 @@ publish_startup_hash() {
 # routerd must not be released merely because the supervisor was forked. The
 # socket appears only after startup reconciliation has completed successfully.
 start_post() {
+    startup_seconds=$(/usr/sbin/router-update startup-budget) || return 1
+    case "$startup_seconds" in ''|*[!0-9]*) return 1 ;; esac
+    startup_attempts=$((startup_seconds * 4))
     attempts=0
-    while [ "$attempts" -lt 360 ]; do
+    while [ "$attempts" -lt "$startup_attempts" ]; do
         if [ -S /run/minimalrouter/apply.sock ]; then
             # saveLastGood serializes config.SystemConfig with json.Marshal.
             # Hashing that exact root-owned file lets routerd prove its SQLite

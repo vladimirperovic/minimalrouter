@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { apiFetch } from "../lib/api";
+import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
 import {
   createDefaultKidsGrid,
   createEmptyGrid,
@@ -20,8 +20,9 @@ type Props = {
 };
 
 export default function DNSFilterPanel({ apiConnected, onError }: Props) {
-  const [enabled, setEnabled] = useState(false);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
+  const config = useConfiguration();
+  const enabled = Boolean(config?.adguard.enabled);
+  const profiles = (config?.adguard.device_profiles || []) as DeviceProfile[];
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("Kids");
@@ -45,20 +46,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   useEffect(() => {
-    if (!apiConnected) return;
-    void apiFetch("/api/v1/config")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Configuration load failed (${response.status})`);
-        return response.json();
-      })
-      .then((config) => {
-        setEnabled(Boolean(config.adguard?.enabled));
-        setProfiles(Array.isArray(config.adguard?.device_profiles) ? config.adguard.device_profiles : []);
-      })
-      .catch((error) => onError(error instanceof Error ? error.message : "DNS Filter configuration unavailable"));
-  }, [apiConnected, onError]);
-
-  useEffect(() => {
     const stopDrag = () => { dragValue.current = null; };
     window.addEventListener("pointerup", stopDrag);
     return () => window.removeEventListener("pointerup", stopDrag);
@@ -66,24 +53,15 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const persist = async (nextEnabled: boolean, nextProfiles: DeviceProfile[]) => {
     if (!apiConnected) throw new Error("Router API is unavailable.");
-    const currentResponse = await apiFetch("/api/v1/config");
-    if (!currentResponse.ok) throw new Error(`Configuration load failed (${currentResponse.status})`);
-    const config = await currentResponse.json();
+    const config = await readConfiguration({ cache: "reload" });
     config.adguard = {
       ...config.adguard,
       enabled: nextEnabled,
       filter_devices: [],
       device_profiles: nextProfiles,
     };
-    const response = await apiFetch("/api/v1/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `DNS Filter apply failed (${response.status})`);
-    setEnabled(nextEnabled);
-    setProfiles(nextProfiles);
+    const result = await previewAndApplyConfig(config);
+    return !result.cancelled;
   };
 
   const closeModal = () => {
@@ -138,11 +116,11 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
       });
       if (editingId) {
         const existing = profiles.find((item) => item.id === editingId);
-        await persist(true, profiles.map((item) => (
+        if (!await persist(true, profiles.map((item) => (
           item.id === editingId ? { ...profile, enabled: existing?.enabled ?? true } : item
-        )));
+        )))) return;
       } else {
-        await persist(true, [...profiles, profile]);
+        if (!await persist(true, [...profiles, profile])) return;
       }
       closeModal();
       onError("");

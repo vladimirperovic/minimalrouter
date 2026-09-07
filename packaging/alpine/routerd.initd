@@ -18,12 +18,16 @@ respawn_period=60
 retry="SIGTERM/10/SIGKILL/5"
 
 depend() {
+    if [ -f /etc/minimalrouter/installed ]; then
+        need minimalrouter-firstboot
+    fi
     need net
     need router-applyd
     use logger
 }
 
 start_pre() {
+    /usr/libexec/minimalrouter/firstboot-ready || return 1
     checkpath --directory --owner routerd:routerd --mode 0700 /var/lib/minimalrouter
     # supervise-daemon opens the log files as the unprivileged child after
     # setuid. /var/log is root-owned, so pre-create them routerd-writable or
@@ -60,10 +64,13 @@ start_pre() {
 }
 
 start_post() {
+    startup_seconds=$(/usr/sbin/router-update startup-budget) || return 1
+    case "$startup_seconds" in ''|*[!0-9]*) return 1 ;; esac
+    startup_attempts=$((startup_seconds * 4))
     # 1200 x 0.25s = 300s. Must stay above apply.ReconcileBudget (270s) so a
     # slow-but-succeeding canonical reconcile is not reported as a failed start.
     attempts=0
-    while [ "$attempts" -lt 1200 ]; do
+    while [ "$attempts" -lt "$startup_attempts" ]; do
         if [ -s /run/minimalrouter/routerd.ready ]; then
             chgrp routerd "$pidfile"
             chmod 0640 "$pidfile"

@@ -171,11 +171,12 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 			status.ConntrackUsagePercent = 100
 		}
 	}
-	status.DHCPLeases = readDHCPLeases("/var/lib/minimalrouter-dhcp/dnsmasq.leases")
+	status.DHCPLeases = CurrentDHCPLeases()
 	status.WireguardPeers = readWireGuardPeers()
 	status.WireguardActivePeers = countActive(status.WireguardPeers)
 	status.WireGuardClient = readWireGuardClientStatus()
 	status.DDNS = inspectDDNS()
+	status.QoS = readQoSStatus()
 	return status
 }
 
@@ -424,4 +425,10 @@ func readProcessMemoryBytes() uint64 {
 		total += pages * pageSize
 	}
 	return total
+}
+
+// CurrentDHCPLeases reads only the bounded, active DHCP lease table. It does
+// not collect process, storage, conntrack or WireGuard telemetry.
+func CurrentDHCPLeases() []DHCPLease {
+	return readDHCPLeases(dnsmasqLeasePath)
 }

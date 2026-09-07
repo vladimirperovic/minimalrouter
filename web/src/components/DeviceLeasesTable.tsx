@@ -1,3 +1,4 @@
+import { previewAndApplyConfig, readConfiguration } from "../lib/configuration";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
@@ -317,9 +318,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     try {
       // Re-read the authoritative configuration immediately before saving so a
       // reservation added in another session cannot be overwritten by stale UI state.
-      const configResponse = await apiFetch("/api/v1/config");
-      if (!configResponse.ok) throw new Error(`Configuration reload failed (${configResponse.status})`);
-      const next = (await configResponse.json()) as RouterConfig;
+      const next = await readConfiguration({ cache: "reload" });
       const freshConflict = reservationConflictMessage(requestedIP, normalisedMac, next.dhcp.static_leases || []);
       if (freshConflict) {
         setReservationError(freshConflict);
@@ -343,20 +342,13 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
         ],
       };
 
-      const applyResponse = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      const body = await applyResponse.json().catch(() => ({}));
-      if (!applyResponse.ok) throw new Error(body.error || `Reservation failed (${applyResponse.status})`);
+      const result = await previewAndApplyConfig(next);
+      if (result.cancelled) return;
 
       setReservationTarget(null);
       setReservationIP("");
       if (onReservationSaved) {
         await onReservationSaved();
-      } else {
-        window.location.reload();
       }
     } catch (error) {
       setReservationError(error instanceof Error ? error.message : "Reservation failed");

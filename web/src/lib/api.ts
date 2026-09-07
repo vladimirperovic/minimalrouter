@@ -1,7 +1,6 @@
 import { demoApiFetch, isDemoMode } from "./demoApi";
 
 let csrfToken = "";
-let lastCanonicalRevision: number | null = null;
 
 const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
 
@@ -32,6 +31,7 @@ const passiveGetInFlight = new Map<string, Promise<Response>>();
 let passiveGetEpoch = 0;
 
 export function setCSRFToken(token: string) {
+  if (csrfToken !== token) clearPassiveGetCache();
   csrfToken = token;
 }
 
@@ -70,22 +70,6 @@ function requestPath(input: RequestInfo | URL): string {
   } catch {
     return rawURL;
   }
-}
-
-function trackCanonicalRevision(input: RequestInfo | URL, method: string, response: Response) {
-  if (method !== "GET" || !response.ok || requestPath(input) !== "/api/v1/config") return;
-  void response.clone().json().then((body: { revision?: unknown }) => {
-    const revision = typeof body.revision === "number" ? body.revision : Number(body.revision);
-    if (!Number.isSafeInteger(revision) || revision < 0) return;
-    if (lastCanonicalRevision === null) {
-      lastCanonicalRevision = revision;
-      return;
-    }
-    if (revision > lastCanonicalRevision) {
-      lastCanonicalRevision = revision;
-      window.dispatchEvent(new CustomEvent("minimalrouter:canonical-revision", { detail: { revision } }));
-    }
-  }).catch(() => undefined);
 }
 
 function trackWANSpeedEstimate(input: RequestInfo | URL, method: string, response: Response) {
@@ -133,51 +117,6 @@ function clearPassiveGetCache() {
   passiveGetInFlight.clear();
 }
 
-type ChangePreview = {
-  changes?: string[];
-  risk?: string;
-  requires_confirmation?: boolean;
-  rollback_seconds?: number;
-  expected_interruption?: string;
-  error?: string;
-};
-
-async function confirmConfigChange(body: BodyInit | null | undefined, headers: Headers): Promise<boolean> {
-  if (!body || typeof body !== "string") return true;
-  const previewHeaders = new Headers(headers);
-  previewHeaders.set("Content-Type", "application/json");
-  const response = await fetch("/api/v1/config/preview", {
-    method: "POST",
-    headers: previewHeaders,
-    body,
-    credentials: "same-origin",
-    cache: "no-store",
-  });
-  const preview = (await response.json().catch(() => ({}))) as ChangePreview;
-  if (!response.ok) {
-    throw new Error(preview.error || `Change preview failed (${response.status})`);
-  }
-  const changes = Array.isArray(preview.changes) && preview.changes.length > 0
-    ? preview.changes.map((item) => `• ${item}`).join("\n")
-    : "• No effective configuration changes";
-  const risk = String(preview.risk || "unknown").toUpperCase();
-  const rollback = preview.requires_confirmation
-    ? `Automatic rollback: ARMED (${preview.rollback_seconds || 90}s unless confirmed)`
-    : "Automatic rollback: not required for this change";
-  const message = [
-    "Smart Change Preview",
-    "",
-    changes,
-    "",
-    `Risk: ${risk}`,
-    preview.expected_interruption || "Affected services may restart briefly.",
-    rollback,
-    "",
-    "Apply these changes?",
-  ].join("\n");
-  return window.confirm(message);
-}
-
 async function networkFetch(
   input: RequestInfo | URL,
   init: RequestInit,
@@ -195,7 +134,6 @@ async function networkFetch(
     clearPassiveGetCache();
     window.dispatchEvent(new Event("minimalrouter:unauthorized"));
   }
-  trackCanonicalRevision(input, method, response);
   trackWANSpeedEstimate(input, method, response);
   return response;
 }
@@ -204,6 +142,7 @@ export async function apiFetch(
   input: RequestInfo | URL,
   init: RequestInit = {},
 ): Promise<Response> {
+  if (init.signal?.aborted) throw init.signal.reason || new DOMException("Request aborted", "AbortError");
   if (isDemoMode) return demoApiFetch(input, init);
 
   const method = (init.method ?? "GET").toUpperCase();
@@ -224,16 +163,6 @@ export async function apiFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  if (method === "PUT" && requestPath(input) === "/api/v1/config") {
-    const confirmed = await confirmConfigChange(init.body, headers);
-    if (!confirmed) {
-      return new Response(JSON.stringify({ error: "Configuration change cancelled." }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-  }
-
   if (method === "GET") {
     const path = requestPath(input);
     const ttl = passiveTTL(path);
@@ -243,19 +172,19 @@ export async function apiFetch(
       const now = Date.now();
       // Background tabs must not keep waking the router. A stale last-known-good
       // passive snapshot is preferable until the operator returns to the page.
-      if (cached && (document.hidden || now - cached.storedAt < ttl)) {
+      if (init.cache !== "reload" && init.cache !== "no-store" && cached && (document.hidden || now - cached.storedAt < ttl)) {
         return cached.response.clone();
       }
 
       // Only coalesce requests that do not carry their own AbortSignal. A
       // component-owned signal must retain its cancellation semantics.
       if (!init.signal) {
-        const existing = passiveGetInFlight.get(key);
+        const existing = init.cache === "reload" || init.cache === "no-store" ? undefined : passiveGetInFlight.get(key);
         if (existing) return (await existing).clone();
 
         const epoch = passiveGetEpoch;
-        const inFlight = networkFetch(input, init, headers, method).then((response) => {
-          const master = response.clone();
+        const inFlight = networkFetch(input, init, headers, method).then(async (response) => {
+          const master = await materializeResponse(response);
           if (response.ok && epoch === passiveGetEpoch) {
             passiveGetCache.set(key, { response: master.clone(), storedAt: Date.now() });
           }
@@ -274,7 +203,7 @@ export async function apiFetch(
       }
 
       const epoch = passiveGetEpoch;
-      const response = await networkFetch(input, init, headers, method);
+      const response = await materializeResponse(await networkFetch(input, init, headers, method));
       if (response.ok && epoch === passiveGetEpoch) {
         passiveGetCache.set(key, { response: response.clone(), storedAt: Date.now() });
       }
@@ -287,4 +216,19 @@ export async function apiFetch(
     clearPassiveGetCache();
   }
   return response;
+}
+
+// Cache only a fully consumed body. A component abort must never poison a
+// cached stream that a later mount or another consumer will read.
+async function materializeResponse(response: Response): Promise<Response> {
+  const body = await response.arrayBuffer();
+  return new Response([204, 205, 304].includes(response.status) ? null : body, {
+    status: response.status, statusText: response.statusText, headers: response.headers,
+  });
+}
+
+export async function responseError(response: Response, fallback: string): Promise<string> {
+  const text = await response.text().catch(() => "");
+  try { return (JSON.parse(text) as { error?: string }).error || fallback; }
+  catch { return text.trim() || fallback; }
 }

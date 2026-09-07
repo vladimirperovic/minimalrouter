@@ -8,7 +8,7 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   {
-    files: ["dev/**/*.mjs"],
+    files: ["dev/**/*.mjs", "scripts/**/*.mjs"],
     languageOptions: {
       globals: globals.node,
     },

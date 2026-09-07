@@ -25,11 +25,19 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/auth/persistent"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/recovery"
 	"github.com/vladimirperovic/minimalrouter/internal/release"
 	"github.com/vladimirperovic/minimalrouter/internal/tlsutil"
 )
 
 func main() {
+	guard, err := recovery.AcquireDaemonGuard()
+	if err != nil {
+		log.Fatalf("routerd offline migration admission failed: %v", err)
+	}
+	if guard != nil {
+		defer guard.Close()
+	}
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(128 << 20)
 
@@ -503,7 +511,9 @@ func staticHandler(root string) http.Handler {
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		if filepath.Base(candidate) == "index.html" {
 			w.Header().Set("Cache-Control", "no-store")
+		} else if strings.HasPrefix(relative, "assets/") && hashedAssetName.MatchString(filepath.Base(candidate)) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
-		http.ServeFile(w, r, candidate)
+		serveStaticAsset(w, r, candidate)
 	})
 }

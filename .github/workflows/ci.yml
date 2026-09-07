@@ -30,8 +30,16 @@ jobs:
           sh -n packaging/alpine/install-dist.sh
           sh -n packaging/alpine/install-dist_test.sh
           sh -n packaging/alpine/slot-exec
+          sh -n packaging/alpine/firstboot-ready
+          sh -n packaging/alpine/firstboot_test.sh
+          sh -n scripts/ci/iso-validate.sh
+          sh -n scripts/package-dist.sh
       - name: Test offline installer dependency mode
-        run: sh packaging/alpine/install-dist_test.sh
+        run: |
+          sh packaging/alpine/install-dist_test.sh
+          sh packaging/alpine/firstboot_test.sh
+          sh packaging/alpine/slot-exec_test.sh
+          sh scripts/ci/iso-validate_test.sh
       - name: Reject private and runtime files
         run: |
           set -eu

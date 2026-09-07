@@ -2,7 +2,8 @@
 # Decide whether this tree can be delivered to an existing appliance as an
 # ordinary A/B web update, or whether it needs the full signed installer.
 #
-# router-update and router-recovery run from /usr/libexec/minimalrouter/bootstrap,
+# router-update/recovery run from /usr/libexec/minimalrouter/bootstrap;
+# router-setup is the installed firstboot verifier under /usr/sbin. All run
 # outside the A/B slot. cmd/router-update/runtime_layout.go refuses activation
 # unless the candidate's copy of each is byte-identical to the installed one,
 # because a binary that survives rollback cannot itself be rolled back by moving
@@ -19,7 +20,7 @@
 set -eu
 
 BASELINE_FILE="packaging/alpine/bootstrap-baseline.json"
-BOOTSTRAP_COMMANDS="router-update router-recovery"
+BOOTSTRAP_COMMANDS="router-update router-recovery router-setup"
 BOOTSTRAP_ARCHES="amd64 arm64"
 # Must stay in sync with GO_BOOTSTRAP_BUILD_FLAGS and GO_LDFLAGS in the Makefile.
 BOOTSTRAP_LDFLAGS="-s -w -buildid="

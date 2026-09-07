@@ -476,26 +476,38 @@ func (s *Server) handleWireGuardClientKeys(w http.ResponseWriter, r *http.Reques
 // never has to duplicate allocation logic (MR-AUD-005).
 func (s *Server) handleWireGuardProvisioningPreview(w http.ResponseWriter, r *http.Request) {
 	candidate := s.engine.GetCurrentConfig()
-	serverIP, _, err := net.ParseCIDR(candidate.WireGuard.Address)
-	if err != nil {
-		http.Error(w, "WireGuard subnet is invalid", http.StatusUnprocessableEntity)
-		return
-	}
-	clientIP, err := nextFreeWireGuardIP(serverIP, candidate.WireGuard.Address, candidate.WireGuard.Peers)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
 	endpoint := ""
 	if domain := strings.TrimSpace(candidate.Cloudflare.Domain); domain != "" {
 		endpoint = net.JoinHostPort(domain, strconv.Itoa(candidate.WireGuard.ListenPort))
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"client_ip":         clientIP,
+	preview := map[string]any{
+		"client_ip":         "",
 		"server_endpoint":   endpoint,
 		"ddns_configured":   endpoint != "",
 		"wireguard_enabled": candidate.WireGuard.Enabled,
-	})
+		// Presence comes from canonical state, never the always-redacted GET
+		// config view. This is not a waiver of enable/provision key validation.
+		"server_key_configured": candidate.WireGuard.PrivateKey != "",
+	}
+	writePreview := func(status int, message string) {
+		if message != "" {
+			preview["error"] = message
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(preview)
+	}
+	serverIP, _, err := net.ParseCIDR(candidate.WireGuard.Address)
+	if err != nil {
+		writePreview(http.StatusUnprocessableEntity, "WireGuard subnet is invalid")
+		return
+	}
+	clientIP, err := nextFreeWireGuardIP(serverIP, candidate.WireGuard.Address, candidate.WireGuard.Peers)
+	if err != nil {
+		writePreview(http.StatusConflict, err.Error())
+		return
+	}
+	preview["client_ip"] = clientIP
+	writePreview(http.StatusOK, "")
 }

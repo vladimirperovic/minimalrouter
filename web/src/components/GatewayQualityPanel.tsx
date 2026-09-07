@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useVisiblePolling } from "../lib/useVisiblePolling";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import type { GatewayHistoryPoint, GatewaySettings, GatewaySummary } from "../api-types";
 import { apiFetch } from "../lib/api";
 import "./GatewayQualityPanel.css";
@@ -105,41 +106,26 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
   const [serviceAction, setServiceAction] = useState<ServiceAction | null>(null);
   const [serviceNotice, setServiceNotice] = useState("");
 
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-    const loadHistory = async () => {
-      try {
-        const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
-        const body = (await response.json()) as { points?: GatewayHistoryPoint[] };
-        if (mounted) setPoints(Array.isArray(body.points) ? body.points : []);
-      } catch (error) {
-        if (mounted && (error as Error).name !== "AbortError") onError(error instanceof Error ? error.message : "Gateway history unavailable");
-      }
-    };
-    void loadHistory();
-    const timer = window.setInterval(loadHistory, 30000);
-    return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
+  const loadHistory = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal });
+      if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
+      const body = await response.json() as { points?: GatewayHistoryPoint[] };
+      if (!signal.aborted) setPoints(Array.isArray(body.points) ? body.points : []);
+    } catch (error) {
+      if (!signal.aborted) onError(error instanceof Error ? error.message : "Gateway history unavailable");
+    }
   }, [windowName, onError]);
-
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-    const loadInsights = async () => {
-      try {
-        const response = await apiFetch("/api/v1/gateway/insights", { signal: controller.signal });
-        if (!response.ok) throw new Error(`Gateway insights unavailable (${response.status})`);
-        const body = await response.json() as GatewayInsights;
-        if (mounted) setInsights(body);
-      } catch (error) {
-        if (mounted && (error as Error).name !== "AbortError") setInsights(null);
-      }
-    };
-    void loadInsights();
-    const timer = window.setInterval(loadInsights, 30000);
-    return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
+  const loadInsights = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch("/api/v1/gateway/insights", { signal });
+      if (!response.ok) throw new Error("Gateway insights unavailable");
+      const body = await response.json() as GatewayInsights;
+      if (!signal.aborted) setInsights(body);
+    } catch { if (!signal.aborted) setInsights(null); }
   }, []);
+  useVisiblePolling(loadHistory, 30_000);
+  useVisiblePolling(loadInsights, 30_000);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

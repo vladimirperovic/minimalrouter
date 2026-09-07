@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useModalFocus } from "../lib/useModalFocus";
 import type { WireGuardPeer } from "../api-types";
 import "./WireGuardPeerDetails.css";
 
@@ -53,17 +53,7 @@ function formatHandshake(epoch?: number) {
 }
 
 export default function WireGuardPeerDetails({ details, onClose }: Props) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!details) return;
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [details, onClose]);
+  const dialogRef = useModalFocus(Boolean(details), onClose);
 
   if (!details) return null;
 
@@ -89,13 +79,13 @@ export default function WireGuardPeerDetails({ details, onClose }: Props) {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div aria-labelledby="wg-details-title" aria-modal="true" className="wg-details-dialog" role="dialog">
+      <div ref={dialogRef} tabIndex={-1} aria-labelledby="wg-details-title" aria-modal="true" className="wg-details-dialog" role="dialog">
         <header className="wg-details-header">
           <div>
             <span className="wg-details-kicker">Remote device</span>
             <h3 id="wg-details-title">{peer.name}</h3>
           </div>
-          <button aria-label="Close device details" className="wg-details-close" onClick={onClose} ref={closeRef} type="button">×</button>
+          <button aria-label="Close device details" className="wg-details-close" onClick={onClose} type="button">×</button>
         </header>
 
         <dl className="wg-details-list">

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/runtimebudget"
 )
 
 type runtimeLayoutFile struct {
@@ -26,16 +27,18 @@ type runtimeDispatcherLink struct {
 	target     string
 }
 
-var runtimeLayoutFiles = []runtimeLayoutFile{
-	{slotPath: "compatibility.json", systemPath: "/etc/minimalrouter/compatibility.json", mode: 0o644},
-	{slotPath: "slot-exec", systemPath: "/usr/libexec/minimalrouter/slot-exec", mode: 0o755},
-	{slotPath: "init.d/routerd", systemPath: "/etc/init.d/routerd", mode: 0o755},
-	{slotPath: "init.d/router-applyd", systemPath: "/etc/init.d/router-applyd", mode: 0o755},
-	{slotPath: "init.d/pppoe-wan", systemPath: "/etc/init.d/pppoe-wan", mode: 0o755},
-	{slotPath: "sysctl/99-minimalrouter.conf", systemPath: "/etc/sysctl.d/99-minimalrouter.conf", mode: 0o644},
-	{slotPath: "modules/minimalrouter.conf", systemPath: "/etc/modules-load.d/minimalrouter.conf", mode: 0o644},
-	{slotPath: "logrotate/minimalrouter", systemPath: "/etc/logrotate.d/minimalrouter", mode: 0o644},
-	{slotPath: "ip-up.d-minimalrouter-qos", systemPath: "/etc/ppp/ip-up.d/minimalrouter-qos", mode: 0o755},
+// Only compiled role-table paths may be compared against the root filesystem.
+var runtimeLayoutFiles = layoutFilesFromRoles(false)
+
+func layoutFilesFromRoles(bootstrap bool) []runtimeLayoutFile {
+	roles, _ := firmware.ApplianceFileRoles("amd64") // non-bootstrap paths are architecture-independent
+	var files []runtimeLayoutFile
+	for _, role := range roles {
+		if role.SystemPath != "" && role.Bootstrap == bootstrap {
+			files = append(files, runtimeLayoutFile{slotPath: role.Path, systemPath: role.SystemPath, mode: role.Mode})
+		}
+	}
+	return files
 }
 
 var runtimeDispatcherLinks = []runtimeDispatcherLink{
@@ -53,22 +56,17 @@ func rootedPath(root, absolute string) string {
 }
 
 func bootstrapRuntimeFiles() ([]runtimeLayoutFile, error) {
-	arch := runtime.GOARCH
-	if arch != "amd64" && arch != "arm64" {
-		return nil, fmt.Errorf("unsupported update architecture %q", arch)
+	roles, err := firmware.ApplianceFileRoles(runtime.GOARCH)
+	if err != nil {
+		return nil, err
 	}
-	return []runtimeLayoutFile{
-		{
-			slotPath:   "bin/router-update-" + arch,
-			systemPath: "/usr/libexec/minimalrouter/bootstrap/bin/router-update-" + arch,
-			mode:       0o750,
-		},
-		{
-			slotPath:   "bin/router-recovery-" + arch,
-			systemPath: "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-" + arch,
-			mode:       0o750,
-		},
-	}, nil
+	var files []runtimeLayoutFile
+	for _, role := range roles {
+		if role.Bootstrap {
+			files = append(files, runtimeLayoutFile{slotPath: role.Path, systemPath: role.SystemPath, mode: role.Mode})
+		}
+	}
+	return files, nil
 }
 
 func verifyLayoutFiles(slotRoot, systemRoot string, files []runtimeLayoutFile) error {
@@ -158,16 +156,18 @@ func verifyRuntimeLayoutCompatibility(updateRoot, version, systemRoot string) er
 // readiness marker. The updater must allow that same bounded startup window;
 // otherwise it can manufacture a false activation failure and needless
 // rollback while the new process is still performing a legitimate recovery.
-const serviceCommandTimeout = 180 * time.Second
+const serviceCommandTimeout = runtimebudget.ServiceCommand
 
 var serviceCommand = func(args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), serviceCommandTimeout)
+	timeout := serviceTimeout(args)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/sbin/rc-service", args...)
+	configureServiceProcess(cmd)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("rc-service %s timed out after %s", strings.Join(args, " "), serviceCommandTimeout)
+			return fmt.Errorf("rc-service %s timed out after %s", strings.Join(args, " "), timeout)
 		}
 		text := strings.TrimSpace(string(output))
 		if len(text) > 300 {
@@ -179,6 +179,13 @@ var serviceCommand = func(args ...string) error {
 		return fmt.Errorf("rc-service %s: %w", strings.Join(args, " "), err)
 	}
 	return nil
+}
+
+func serviceTimeout(args []string) time.Duration {
+	if len(args) == 2 && (args[1] == "stop" || args[1] == "status") {
+		return 30 * time.Second
+	}
+	return serviceCommandTimeout
 }
 
 // restartRuntimePair eliminates mixed-slot RPC windows: stop the management
@@ -212,6 +219,9 @@ func activateAndRestart(manager firmware.SlotManager, version, systemRoot string
 	if err := verifyRuntimeLayoutCompatibility(manager.Root, version, systemRoot); err != nil {
 		return err
 	}
+	if err := verifyRuntimeLayoutCompatibility(manager.Root, state.Current, systemRoot); err != nil {
+		return fmt.Errorf("rollback baseline is incompatible: %w", err)
+	}
 	if err := ensureRuntimeDispatcherLinks(systemRoot); err != nil {
 		return err
 	}
@@ -236,7 +246,17 @@ func activateAndRestart(manager firmware.SlotManager, version, systemRoot string
 	}
 }
 
-func rollbackAndRestart(manager firmware.SlotManager) error {
+func rollbackAndRestart(manager firmware.SlotManager, systemRoot string) error {
+	state, err := manager.State()
+	if err != nil {
+		return err
+	}
+	if state.Previous == "" {
+		return errors.New("no previous release slot is available")
+	}
+	if err := verifyRuntimeLayoutCompatibility(manager.Root, state.Previous, systemRoot); err != nil {
+		return fmt.Errorf("rollback runtime is incompatible: %w", err)
+	}
 	if err := manager.Rollback(); err != nil {
 		return err
 	}

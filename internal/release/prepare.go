@@ -222,13 +222,7 @@ func PreparePublished(ctx context.Context, published Release, arch, destination 
 		return "", "", fmt.Errorf("release %s does not contain %s and %s", published.Tag, archiveName, manifestName)
 	}
 
-	if err := os.RemoveAll(destination); err != nil {
-		return "", "", err
-	}
-	if err := os.MkdirAll(destination, 0o700); err != nil {
-		return "", "", err
-	}
-	if err := os.Chmod(destination, 0o700); err != nil {
+	if err := prepareInbox(destination); err != nil {
 		return "", "", err
 	}
 	manifestPath := filepath.Join(destination, "manifest.json")
@@ -246,16 +240,34 @@ func PreparePublished(ctx context.Context, published Release, arch, destination 
 	if err := downloadReleaseFile(ctx, archiveURL, archiveFilePath, maxReleaseArchive); err != nil {
 		return "", "", fmt.Errorf("download release archive: %w", err)
 	}
-	extractRoot := filepath.Join(destination, "release")
-	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
-		return "", "", err
-	}
-	payloadRoot, err := extractReleaseArchive(archiveFilePath, extractRoot, arch)
+	payloadRoot, err := finishArchive(archiveFilePath, destination, arch)
 	if err != nil {
 		return "", "", err
 	}
-	if err := os.Remove(archiveFilePath); err != nil {
-		return "", "", err
-	}
 	return payloadRoot, manifestPath, nil
+}
+
+func prepareInbox(destination string) error {
+	if err := os.RemoveAll(destination); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(destination, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(destination, 0o700)
+}
+
+func finishArchive(archive, destination, arch string) (string, error) {
+	extractRoot := filepath.Join(destination, "release")
+	if err := os.MkdirAll(extractRoot, 0o700); err != nil {
+		return "", err
+	}
+	payloadRoot, err := extractReleaseArchive(archive, extractRoot, arch)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Remove(archive); err != nil {
+		return "", err
+	}
+	return payloadRoot, nil
 }
