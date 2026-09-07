@@ -59,10 +59,12 @@
   --v015-sidebar-width: 246px;
   --v015-frame-gutter: 0px;
 
-  --skin-radius: 10px;
-  --skin-radius-sm: 7px;
+  --skin-radius: 16px;
+  --skin-radius-sm: 10px;
   --skin-hairline: 1px solid rgba(26, 26, 31, 0.12);
   --skin-shadow: 0 22px 48px -34px rgba(26, 26, 31, 0.28);
+  /* Soft top light every panel carries: the bronze edge Noema cards wear. */
+  --skin-top-light: inset 0 1px 0 rgba(184, 115, 51, 0.22);
 
   /* The shell paints a long list of cards from these four tokens, which the
      base sheet only defines under an explicit light/dark theme. Restating them
@@ -102,6 +104,7 @@
 
   --skin-hairline: 1px solid rgba(244, 239, 230, 0.10);
   --skin-shadow: 0 22px 48px -34px rgba(0, 0, 0, 0.7);
+  --skin-top-light: inset 0 1px 0 rgba(232, 176, 125, 0.20);
 
   --classic-glass: rgba(22, 22, 27, 0.62);
   --classic-glass-strong: rgba(22, 22, 27, 0.88);
@@ -392,8 +395,8 @@
 :root:root .modern-device-section {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
-  box-shadow: var(--skin-shadow);
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
 }
 
 :root:root .settings-form { gap: 18px; padding: 8px; }
@@ -501,8 +504,8 @@
 :root:root .elegant-table-container {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
-  box-shadow: none;
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), none;
 }
 
 :root:root .elegant-device-table thead th {
@@ -560,9 +563,9 @@
 :root:root .dashboard-app .dns-filter-heading {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
   color: var(--classic-text);
-  box-shadow: var(--skin-shadow);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
 }
 
 /* The decorative ring was drawn in a pale blue meant to catch light against
