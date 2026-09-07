@@ -161,10 +161,10 @@
   color: var(--classic-muted);
 }
 
-:root:root .dashboard-nav-group + .dashboard-nav-group { margin-top: 24px; }
+:root:root .dashboard-nav-group + .dashboard-nav-group { margin-top: 16px; }
 
 :root:root .dashboard-nav-group h2 {
-  padding: 0 10px 8px;
+  padding: 0 10px 5px;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.22em;
@@ -175,8 +175,8 @@
 :root:root .dashboard-nav-group > div { gap: 1px; }
 
 :root:root .dashboard-sidebar nav a {
-  min-height: 34px;
-  gap: 11px;
+  min-height: 30px;
+  gap: 10px;
   padding: 0 10px;
   border-radius: var(--skin-radius-sm);
   font-size: 13.5px;
