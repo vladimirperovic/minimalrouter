@@ -3,7 +3,7 @@
 }
 
 .dashboard-app .elegant-device-table {
-  min-width: 640px;
+  min-width: 1100px;
 }
 
 .dashboard-app .elegant-col-expires {
@@ -15,7 +15,7 @@
 }
 
 .dashboard-app .elegant-col-actions {
-  width: 220px;
+  width: 320px;
 }
 
 .dashboard-app .elegant-device-table th,
@@ -322,4 +322,12 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.device-presence-note {
+  margin: -8px 0 16px;
+  padding: 0 24px;
+  color: var(--classic-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }

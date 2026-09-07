@@ -117,7 +117,7 @@ test("Gateway Health exposes measured availability, IP changes and fixed recover
   await expect(page.getByText("WAN reconnect completed.")).toBeVisible();
 });
 
-test("Connected devices shows activity and sends a timed Internet pause", async ({ page, isMobile }) => {
+test("Known devices shows activity and sends a timed Internet pause", async ({ page, isMobile }) => {
   await stubDashboard(page);
   let pauseRequest: { ip?: string; seconds?: number } = {};
   await page.route("**/api/v1/devices/pause", async (route) => {
@@ -128,7 +128,8 @@ test("Connected devices shows activity and sends a timed Internet pause", async 
   await page.goto("/");
   await openSection(page, isMobile, "LAN & DHCP");
   const row = page.getByRole("row", { name: /Kids iPad/ });
-  await expect(row).toContainText("Online");
+  await expect(row).toContainText("DHCP lease");
+  await expect(row).not.toContainText("Online");
   await expect(row).toContainText("New");
   await row.getByRole("button", { name: "Pause Internet" }).click();
   await page.getByRole("button", { name: "15 min" }).click();
@@ -136,6 +137,47 @@ test("Connected devices shows activity and sends a timed Internet pause", async 
   await expect(row).toContainText("Paused");
   await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
 });
+
+for (const accountingEnabled of [false, true]) {
+  test(`DHCP leases do not imply presence after a MAC change (accounting ${accountingEnabled})`, async ({ page, isMobile }, testInfo) => {
+    await stubDashboard(page);
+    const oldLease = { hostname: "test-laptop", mac: "02:00:00:00:00:14", ip_address: "192.168.1.14", expires_at: CURRENT_EPOCH + 43_200 };
+    const newLease = { hostname: "", mac: "02:00:00:00:00:36", ip_address: "192.168.1.236", expires_at: 0 };
+    const config = structuredClone(CONFIG) as RouterConfig;
+    config.accounting = { ...CONFIG.accounting, enabled: accountingEnabled };
+    config.dhcp.static_leases = [{ id: "test-reservation", hostname: oldLease.hostname, mac: oldLease.mac, ip_address: oldLease.ip_address }];
+    await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
+    await page.route("**/api/v1/system", (route) => route.fulfill({ json: { ...SYSTEM, runtime: { ...SYSTEM.runtime, dhcp_leases: [oldLease, newLease] } } }));
+    await page.goto("/");
+    await openSection(page, isMobile, "LAN & DHCP");
+    const table = page.locator(".modern-device-section");
+    await expect(table.getByRole("heading", { name: "Known devices" })).toBeVisible();
+    await expect(table).toContainText("2 DHCP leases · 1 static reservation");
+    await expect(table).toContainText("It does not confirm that the device is online.");
+    const oldRow = table.getByRole("row", { name: /test-laptop/ });
+    await expect(oldRow).toContainText("192.168.1.14");
+    await expect(oldRow).toContainText("DHCP lease · expires in");
+    await expect(oldRow).not.toContainText(/Online|Last seen|just now/);
+    await expect(oldRow.getByRole("button", { name: "Wake test-laptop" })).toBeVisible();
+    const newRow = table.getByRole("row", { name: /192\.168\.1\.236/ });
+    await expect(newRow).toContainText("DHCP lease · no expiry");
+    await expect(newRow).not.toContainText("Static");
+    for (const row of [oldRow, newRow]) {
+      const status = await row.locator(".device-activity-state").boundingBox();
+      const action = await row.locator(".device-row-actions button").first().boundingBox();
+      expect(status).not.toBeNull();
+      expect(action).not.toBeNull();
+      expect(status!.x + status!.width).toBeLessThanOrEqual(action!.x);
+    }
+    await expect(table.locator(".is-online, .is-offline")).toHaveCount(0);
+    if (accountingEnabled) {
+      const history = table.getByRole("row", { name: /Kids iPad/ });
+      await expect(history).toContainText("Last seen");
+      await expect(history).not.toContainText(/Online|Offline|DHCP lease/);
+    }
+    if (!accountingEnabled) await table.screenshot({ path: testInfo.outputPath("dhcp-presence.png") });
+  });
+}
 
 for (const name of [" office-tablet ", ""]) {
   test(`Reserve IP saves ${name ? "an edited" : "an optional empty"} device name and keeps concurrent reservations`, async ({ page, isMobile }, testInfo) => {
