@@ -394,7 +394,8 @@
 :root:root .dashboard-callout,
 :root:root .speedtest-block,
 :root:root .ddns-status,
-:root:root .modern-device-section {
+:root:root .modern-device-section,
+:root:root .dashboard-app .boot-activity {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
   background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);

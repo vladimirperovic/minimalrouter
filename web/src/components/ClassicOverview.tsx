@@ -16,11 +16,11 @@ function BootActivityPortal({ pppoeEnabled, wireGuardEnabled }: { pppoeEnabled: 
   const [host, setHost] = useState<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    const hero = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-status-hero");
-    if (!hero) return;
+    const grid = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-content-grid");
+    if (!grid) return;
     const container = document.createElement("div");
     container.className = "boot-activity-host";
-    hero.insertAdjacentElement("afterend", container);
+    grid.appendChild(container);
     setHost(container);
     return () => container.remove();
   }, []);
