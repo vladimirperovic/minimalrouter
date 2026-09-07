@@ -398,7 +398,84 @@ body,
   background: color-mix(in srgb, var(--classic-soft) 30%, var(--classic-panel));
 }
 
-/* Shared form rules live at their winning position in Demo015Preview.css. */
+/* Form system: fewer arbitrary rules, stronger sections, consistent controls. */
+.settings-form .field > span,
+.settings-form .field > span {
+  margin-bottom: 7px;
+  font-size: 11.5px;
+  font-weight: 690;
+  line-height: 1.35;
+}
+
+.settings-form input,
+.settings-form select,
+.settings-form textarea {
+  min-height: 44px;
+  border-radius: var(--demo-control-radius);
+  font-size: 13.5px;
+}
+
+.settings-form .form-note {
+  color: var(--classic-muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.settings-form .form-actions {
+  margin-top: 20px;
+  padding-top: 0;
+  border-top: 0 !important;
+}
+
+#network .settings-form > fieldset legend,
+#qos .settings-form > fieldset legend,
+#wireguard .settings-form > fieldset legend,
+#cloudflare .settings-form > fieldset legend,
+#squid .settings-form > fieldset legend,
+#wifi .settings-form > fieldset legend,
+#security .settings-form > fieldset legend {
+  padding: 0 10px;
+  margin-left: 12px;
+  background: var(--classic-panel);
+  border-radius: 999px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+/* Inside-card headings: refactored fieldsets use <div class="fieldset-title"> so the
+   heading lives in normal flow inside the card and the fieldset border stays continuous. */
+.fieldset-title {
+  margin: 0 0 14px;
+  color: var(--classic-text);
+  font-size: 13px;
+  font-weight: 770;
+  letter-spacing: -.015em;
+}
+
+/* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
+#network .demo-015-hidden-wan-toggle {
+  display: none !important;
+}
+
+#network .settings-form > fieldset {
+  position: relative;
+}
+
+#network .demo-015-fieldset-actions {
+  margin-top: 22px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+#network .demo-015-fieldset-actions .button {
+  min-width: 126px;
+}
+
+#network .demo-015-original-network-save {
+  display: none !important;
+}
 
 /* Button system. */
 .button,

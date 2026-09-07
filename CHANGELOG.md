@@ -6,16 +6,145 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.7**.
+Next development version: **v0.1.8**.
+
+## [v0.1.7] — 2026-09-06
+
+### Highlights
+
+- The dashboard tells you when a new release exists and installs it for you.
+- One appearance, rebuilt: **Studio**, and the four others are gone.
+- Eleven findings from the 2026-09-05 technical review are repaired, including
+  two that could lose a committed configuration or accept a revoked password.
 
 ### Added
 
-- A fifth dashboard appearance, **Studio**: warm paper ground, bronze accent and
-  serif display type, with measurements set large so a status page reads like a
-  printed sheet. Like the others it has a light and a dark form and is chosen
-  from the topbar. The display face is a system serif stack rather than a
-  webfont, because the dashboard is served from the appliance and is routinely
-  opened while the WAN is down.
+- **Updating from the dashboard.** A *New version* button appears at the foot
+  of the sidebar when a newer signed release is published. It states what it
+  found, what it will do and what it cannot do; the install runs behind a
+  confirmation, into the inactive slot, and is verified against the release's
+  Ed25519 manifest before anything is switched over. An update is offered only
+  when both the archive and its signed manifest are present, so the button can
+  never lead to a download that cannot be verified.
+- **Bootstrap binaries are byte-identical between builds of the same source.**
+  `router-update` and `router-recovery` embedded the commit hash and build
+  time, so two builds of one tree produced different bytes and an A/B slot
+  update could not prove it was installing the same bootstrap it was running.
+  They are now built without VCS stamping, and a CI job holds the property
+  against a recorded baseline.
+- **The dashboard has one look.** Studio — warm paper ground, bronze accent,
+  serif display type — is no longer one appearance among five; it is the
+  dashboard's design, rebuilt underneath as six small stylesheets: tokens, the
+  palette, typography, surfaces, controls and the Overview. The display face is
+  a system serif stack rather than a webfont, because the dashboard is served
+  from the appliance and is routinely opened while the WAN is down.
+
+### Changed
+
+- **Overview reads as one page rather than three stacked boxes.** The status
+  card was a card holding a card holding tiles, all at the same weight. It is
+  now a single card carrying one grid: the verdict, the three readings checked
+  next, three groups of equal weight (Connection, Load, Trust & access) and the
+  appliance identity, all on the same columns.
+- **Text meets the contrast it is required to meet.** Section copy was measured
+  at 1.65:1 against the page ground — a third of the 4.5:1 that normal text
+  requires — and set two steps below body size; the small-caps labels sat at
+  4.18:1. Both are corrected and the copy is at the body step.
+- **The dashboard stopped rewriting its own markup after rendering.** A
+  presentation layer patched the DOM after React drew it, which is a race with
+  every re-render. The patches it carried are in the components.
+- **Sign-in is built like the cards it leads to.** The sign-in page was the
+  last screen from before Studio: one white box with a brand row, a heading and
+  a stacked form, and a focus ring still drawn from the old blue token. It now
+  carries the bronze spine, the display serif in the accent, a mono meta line
+  and three hairline-separated bands — who is asking, what it wants, and the
+  one action. The sign-in behaviour, its labels and its error handling are
+  unchanged.
+- **The appliance health drawer is inset and has its gap back.** It is meant to
+  read as a drawer sliding out from under the status card, but it was the full
+  width of that card, and the rule that pulls it up by one radius also zeroed
+  its bottom margin — so it shared an edge with the Boot activity card below.
+  It is now 90% of the card's width, centred, with the ordinary card gap
+  beneath it.
+
+### Removed
+
+- The four appearances that were not chosen — Console, Atelier, Topology and
+  the previous default — along with the topbar control that selected them.
+- The standalone LAN & DHCP design gallery published at `/design/` on the
+  GitHub Pages site. It existed to compare candidate appearances against each
+  other; the comparison is over, and a page still offering them would advertise
+  a control the dashboard no longer has.
+
+### Fixed
+
+- **Recovery no longer reverts a committed configuration.** When the canonical
+  SQLite commit succeeded but the privileged helper's last-good acknowledgement
+  failed, the engine kept the pre-transaction configuration in memory while the
+  database and the running system held the new one. The recovery reconcile that
+  the failure triggers then rebuilt its request from the stale copy and pushed
+  the previous settings back onto a correctly applied revision.
+- **Traffic accounting counts every counter generation.** Each apply recreates
+  the nftables table, restarting the kernel counters. A reset was detected only
+  when the new counter was still below the last reading, so a counter that had
+  already climbed past it silently dropped a whole generation of traffic (100
+  recorded plus 200 after the reset totalled 200 instead of 300). Cursors now
+  carry the configuration revision they were sampled in.
+- **Disabling accounting deletes history even across a restart.** The decision
+  lived in a process flag that starts false, so disabling and then restarting
+  routerd before the next collection tick left the history on disk forever. The
+  outcome is now recorded durably and retried until the deletion succeeds, and
+  the API stops serving history while accounting is off.
+- **Automatic WAN recovery ignores stale and unmeasurable samples.** The
+  gateway monitor keeps its last summary when a collection round fails, so an
+  hour-old offline reading could still satisfy the "link has been down for
+  three minutes" condition. Recovery now requires a fresh, available sample and
+  treats `unknown` as unknown rather than as an outage.
+- **The speed test rejects failed measurements instead of turning them into QoS
+  suggestions.** Neither direction checked the HTTP status, and the upload rate
+  divided the *planned* byte count by the elapsed time, so a server answering
+  before reading the body produced absurd results (an HTTP 503 measured tens of
+  millions of Mbps). Both directions now require a successful status and a
+  sufficiently complete sample, and measure the bytes that actually moved.
+- **The Golden-image flasher verifies the whole pipeline.** `gzip -dc | dd`
+  reports only `dd`'s exit status, so a decompressor that failed after partial
+  output finished with "Golden image copied successfully" over a truncated
+  disk. Both stages are now checked, and the written byte count is compared
+  against the uncompressed size recorded at build time
+  (`/minimalrouter/golden.img.bytes` in the ISO).
+- **The privileged helper no longer loses the reply to a long operation.** The
+  response write deadline started when the connection was accepted, so a
+  legitimate multi-second apply could consume it before the first response byte
+  and force a transport replay. It is armed immediately before the reply, and a
+  failed delivery is logged instead of discarded.
+- **The MCP server survives router errors instead of misreporting them.** API
+  responses are status-checked, so an authentication error body can no longer be
+  decoded as configuration; a missing configuration section is refused instead
+  of panicking the process; an expired session is re-authenticated once (never
+  by replaying a single-use TOTP code); a change awaiting confirmation is
+  reported as awaiting confirmation rather than as applied; and a malformed
+  stdin stream ends the process instead of spinning forever in a decoder that
+  cannot resynchronize.
+- **TLS certificate validity is re-checked on cache hits.** The cached
+  certificate was keyed on configuration alone, so a long-running appliance
+  could keep serving an expired — or, after a clock correction, not-yet-valid —
+  certificate. The parsed validity window is now checked per handshake without
+  re-reading PEM from disk.
+
+### Security
+
+- **Session issuance is bound atomically to the credential that was verified.**
+  A login that read the password hash, was preempted by a password change, and
+  then created its session picked up the *new* authentication generation, so a
+  session proving only the revoked password passed validation. The hash and
+  generation are now read as one snapshot and the session row is inserted only
+  while that generation is still current.
+- **Concurrent Argon2id derivations are admission-controlled.** Every
+  derivation reserves 64 MiB against a 128 MiB process budget, and the login
+  rate limits bound attempts per minute, not attempts in flight. Logins,
+  password changes, recovery resets and encrypted backups now share one
+  bounded-wait gate, and an exhausted gate answers with a retryable 503 rather
+  than an incorrect-password error.
 
 ### Fixed
 

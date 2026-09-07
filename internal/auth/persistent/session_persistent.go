@@ -133,9 +133,6 @@ func (psm *PersistentSessionManager) CreateSessionWithMode(readOnly bool) *auth.
 // password/TOTP change racing between verification and this call advances the
 // epoch, so the insert is refused instead of silently adopting the new epoch.
 func (psm *PersistentSessionManager) CreateSessionWithGeneration(readOnly bool, expectedGeneration uint64) (*auth.Session, error) {
-	psm.mu.Lock()
-	defer psm.mu.Unlock()
-
 	sessionID, err := generateRandomHex(32)
 	if err != nil {
 		return nil, err
@@ -160,8 +157,10 @@ func (psm *PersistentSessionManager) CreateSessionWithGeneration(readOnly bool, 
 		CreatedAt:      now,
 		LastSeen:       now,
 	}
+	psm.mu.Lock()
 	psm.sessions[session.ID] = session
 	psm.lastPersisted[session.ID] = now
+	psm.mu.Unlock()
 	return session, nil
 }
 

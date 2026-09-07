@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import type { RouterConfig } from "./api-types";
+import { apiFetch } from "./lib/api";
 import { isDemoMode } from "./lib/demoApi";
 
 const DEMO_WAN_ESTIMATE = { download_mbps: 600, upload_mbps: 400, measured_at: Date.now() };
@@ -219,6 +221,18 @@ export default function Demo015Preview() {
     sync();
     observe();
 
+    // Interface names are only in the config, and the Overview never renders
+    // them. Fetch once on mount so the MAC labels can be annotated there rather
+    // than only after the operator has visited Recovery.
+    let cancelled = false;
+    void apiFetch("/api/v1/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: RouterConfig | null) => {
+        if (cancelled || !body) return;
+        schedule();
+      })
+      .catch(() => undefined);
+
     const trackPointer = (event: MouseEvent) => {
       const host = (event.target as HTMLElement | null)?.closest<HTMLElement>(".demo-has-tip");
       if (!host) return;
@@ -237,6 +251,7 @@ export default function Demo015Preview() {
     window.addEventListener("hashchange", schedule);
     window.addEventListener("minimalrouter:wan-speed-estimate", schedule);
     return () => {
+      cancelled = true;
       document.removeEventListener("mousemove", trackPointer);
       document.removeEventListener("focusin", anchorOnFocus);
       observer.disconnect();

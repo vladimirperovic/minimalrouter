@@ -60,18 +60,11 @@ jobs:
       - run: pnpm --dir web build
         env:
           VITE_DEMO_MODE: "true"
-      - name: Publish the LAN & DHCP design gallery alongside the demo
-        shell: bash
-        run: |
-          set -euo pipefail
-          source="web/dev/design/lan-dhcp-variants.html"
-          test -f "$source"
-          mkdir -p web/dist/design
-          cp "$source" web/dist/design/index.html
-          # The gallery is a standalone page with no bundled assets, so it is
-          # unaffected by the demo build's base path. Guard the copy anyway so a
-          # rename upstream fails the build instead of shipping a 404.
-          grep -q "LAN &amp; DHCP Directions" web/dist/design/index.html
+      # The LAN & DHCP design gallery that used to be published at /design/ is
+      # gone with the appearances it compared. Its whole purpose was to put
+      # four candidate looks side by side so one could be chosen; the choice is
+      # made, three of the four no longer exist, and a published page offering
+      # them would be advertising a control the dashboard does not have.
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:

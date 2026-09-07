@@ -468,13 +468,6 @@ html.demo-015-preview .settings-form .form-actions {
   border-top: 0 !important;
 }
 
-#network .settings-form > fieldset legend,
-#qos .settings-form > fieldset legend,
-#wireguard .settings-form > fieldset legend,
-#cloudflare .settings-form > fieldset legend,
-#squid .settings-form > fieldset legend,
-#wifi .settings-form > fieldset legend,
-#security .settings-form > fieldset legend,
 html.demo-015-preview #network .settings-form > fieldset legend,
 html.demo-015-preview #qos .settings-form > fieldset legend,
 html.demo-015-preview #wireguard .settings-form > fieldset legend,
