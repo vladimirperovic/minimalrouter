@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import type { ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch } from "../lib/api";
+import BootActivityPanel from "./BootActivityPanel";
 import ClassicOverviewBase from "./ClassicOverviewBase";
 
 type GatewayInsights = {
@@ -10,6 +11,25 @@ type GatewayInsights = {
   uptime_percent: number;
   outages: number;
 };
+
+function BootActivityPortal({ pppoeEnabled, wireGuardEnabled }: { pppoeEnabled: boolean; wireGuardEnabled: boolean }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    const grid = document.querySelector<HTMLElement>(".classic-dashboard-overview .overview-content-grid");
+    if (!grid) return;
+    const container = document.createElement("div");
+    container.className = "boot-activity-host";
+    grid.appendChild(container);
+    setHost(container);
+    return () => container.remove();
+  }, []);
+
+  return host ? createPortal(
+    <BootActivityPanel pppoeEnabled={pppoeEnabled} wireGuardEnabled={wireGuardEnabled} />,
+    host,
+  ) : null;
+}
 
 function AvailabilityPortal() {
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -68,6 +88,10 @@ export default function ClassicOverview(props: ComponentProps<typeof ClassicOver
     <>
       <ClassicOverviewBase {...props} />
       <AvailabilityPortal />
+      <BootActivityPortal
+        pppoeEnabled={props.config.wan.enabled}
+        wireGuardEnabled={props.config.wireguard.enabled}
+      />
     </>
   );
 }

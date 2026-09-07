@@ -1,7 +1,8 @@
+import { previewAndApplyConfig, readConfiguration } from "../lib/configuration";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
-import { insidePool, reservationConflictMessage, reservationHostnameMessage, suggestReservationAddress } from "./deviceReservation";
+import { insidePool, liveLeaseConflictMessage, reservationConflictMessage, reservationHostnameMessage, suggestReservationAddress } from "./deviceReservation";
 import "./DeviceLeasesTable.css";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
@@ -275,11 +276,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     if (!reservationTarget) return "";
     const staticConflict = reservationConflictMessage(reservationIP, reservationTarget.mac, config.dhcp.static_leases || []);
     if (staticConflict) return staticConflict;
-    const liveCollision = leases.find(
-      (lease) => lease.ip_address === reservationIP.trim() && lease.mac.toLowerCase() !== reservationTarget.mac.toLowerCase(),
-    );
-    if (!liveCollision) return "";
-    return `${reservationIP.trim()} is currently leased to ${liveCollision.hostname || liveCollision.mac}. Choose another address.`;
+    return liveLeaseConflictMessage(reservationIP, reservationTarget.mac, leases);
   }, [config.dhcp.static_leases, leases, reservationIP, reservationTarget]);
 
   const poolConflict = Boolean(
@@ -325,9 +322,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     try {
       // Re-read the authoritative configuration immediately before saving so a
       // reservation added in another session cannot be overwritten by stale UI state.
-      const configResponse = await apiFetch("/api/v1/config", { cache: "no-store" });
-      if (!configResponse.ok) throw new Error(`Configuration reload failed (${configResponse.status})`);
-      const next = (await configResponse.json()) as RouterConfig;
+      const next = await readConfiguration({ cache: "reload" });
       const freshConflict = reservationConflictMessage(requestedIP, normalisedMac, next.dhcp.static_leases || []);
       if (freshConflict) {
         setReservationError(freshConflict);
@@ -351,21 +346,14 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
         ],
       };
 
-      const applyResponse = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      const body = await applyResponse.json().catch(() => ({}));
-      if (!applyResponse.ok) throw new Error(body.error || `Reservation failed (${applyResponse.status})`);
+      const result = await previewAndApplyConfig(next);
+      if (result.cancelled) return;
 
       setReservationTarget(null);
       setReservationIP("");
       setReservationHostname("");
       if (onReservationSaved) {
         await onReservationSaved();
-      } else {
-        window.location.reload();
       }
     } catch (error) {
       setReservationError(error instanceof Error ? error.message : "Reservation failed");

@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import DashboardApp from "./DashboardApp";
 import Demo015Preview from "./Demo015Preview";
 import MobileNavigationBehavior from "./components/MobileNavigationBehavior";
-import RecoveryRouteTools from "./components/RecoveryRouteTools";
 import "./index.css";
 import "./UXCleanup.css";
 import "./DashboardDesign.css";
@@ -35,7 +34,6 @@ function CanonicalRevisionBoundary() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <CanonicalRevisionBoundary />
-    <RecoveryRouteTools />
     <Demo015Preview />
     <MobileNavigationBehavior />
   </StrictMode>,

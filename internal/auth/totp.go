@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
@@ -34,10 +35,26 @@ func GenerateTOTPSecret() (string, error) {
 	return base32.StdEncoding.EncodeToString(secret), nil
 }
 
+func canonicalTOTPInputs(secret, code string) (string, string) {
+	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
+	// Decode/re-encode also canonicalizes line breaks and unused padding bits
+	// accepted by the base32 decoder, without accepting previously invalid keys.
+	if decoded, err := base32.StdEncoding.DecodeString(secret); err == nil {
+		secret = base32.StdEncoding.EncodeToString(decoded)
+	}
+	return secret, strings.TrimSpace(code)
+}
+
+// TOTPReplayKey identifies a secret/code pair using the same canonical inputs
+// as ValidateTOTP. Callers must validate the code before consuming this key.
+func TOTPReplayKey(secret, code string) [sha256.Size]byte {
+	secret, code = canonicalTOTPInputs(secret, code)
+	return sha256.Sum256([]byte(secret + "\x00" + code))
+}
+
 // ValidateTOTP validates a TOTP code against the secret
 func ValidateTOTP(secret, code string) bool {
-	secret = strings.ToUpper(strings.ReplaceAll(secret, " ", ""))
-	code = strings.TrimSpace(code)
+	secret, code = canonicalTOTPInputs(secret, code)
 
 	if len(code) != TOTPDigits {
 		return false

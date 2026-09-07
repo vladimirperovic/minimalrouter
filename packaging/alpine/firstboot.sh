@@ -11,7 +11,8 @@ fail() {
     printf '\nERROR: %s\n' "$*" >&2
     printf 'First boot stopped before router services were started.\n' >&2
     printf 'A recovery shell is opening on this console. Type exit to retry on the next boot.\n\n' >&2
-    exec /bin/sh
+    /bin/sh || true
+    exit 1
 }
 
 root_partition() {
@@ -111,7 +112,15 @@ SSHD
 }
 
 main() {
-    [ -f "$DONE" ] && exit 0
+    for pending in /var/lib/minimalrouter-update/installation.json /var/lib/minimalrouter-migration/pending.json; do
+        if [ -e "$pending" ] || [ -L "$pending" ]; then
+            fail "An installation or offline migration is incomplete; finish it from this recovery console"
+        fi
+    done
+    if [ -f "$DONE" ]; then
+        /usr/libexec/minimalrouter/firstboot-ready || fail "Completed provisioning no longer passes readiness checks"
+        exit 0
+    fi
     [ -x /usr/sbin/router-setup ] || fail "router-setup is missing from the golden image"
 
     cat <<'ART'
@@ -127,13 +136,17 @@ ART
     resize_root_filesystem
 
     rm -f "$PROVISION"
-    /usr/sbin/router-setup collect --output "$PROVISION" --data-dir /var/lib/minimalrouter \
-        || fail "Router configuration was not completed"
-    [ -s "$PROVISION" ] || fail "First-boot configuration file was not created"
+    # Resume after a successful canonical save followed by a failed SSH/root
+    # setup. collect deliberately produces no file for an existing admin.
+    if ! /usr/sbin/router-setup verify --data-dir /var/lib/minimalrouter >/dev/null 2>&1; then
+        /usr/sbin/router-setup collect --output "$PROVISION" --data-dir /var/lib/minimalrouter \
+            || fail "Router configuration was not completed"
+        [ -s "$PROVISION" ] || fail "First-boot configuration file was not created"
 
-    /usr/sbin/router-setup apply --offline --input "$PROVISION" --data-dir /var/lib/minimalrouter \
-        || fail "Router configuration could not be saved"
-    rm -f "$PROVISION"
+        /usr/sbin/router-setup apply --offline --input "$PROVISION" --data-dir /var/lib/minimalrouter \
+            || fail "Router configuration could not be saved"
+        rm -f "$PROVISION"
+    fi
 
     chown -R routerd:routerd /var/lib/minimalrouter
     chmod 0700 /var/lib/minimalrouter
@@ -150,13 +163,17 @@ ART
     configure_ssh
     enable_recovery_gettys
 
+    /usr/libexec/minimalrouter/firstboot-ready --provisioned || fail "Provisioning readiness check failed"
     mkdir -p /etc/minimalrouter
     {
         printf 'version=%s\n' "$version"
         printf 'configured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf unknown)"
-    } > "$DONE"
-    chmod 0600 "$DONE"
+    } > "$DONE.new"
+    chmod 0600 "$DONE.new"
     sync
+    mv -f "$DONE.new" "$DONE"
+    sync
+    /usr/libexec/minimalrouter/firstboot-ready || fail "Provisioning readiness check failed"
 
     cat <<'ART'
 

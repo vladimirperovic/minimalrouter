@@ -17,6 +17,7 @@ func init() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR1)
 	go func() {
+		<-runtimeAdmissionReady
 		for range ch {
 			applyMu.Lock()
 			cfg, err := loadLastGood()

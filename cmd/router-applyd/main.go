@@ -93,11 +93,15 @@ func main() {
 	}
 
 	// Memory tuning for embedded appliance: GC at 1.5x live heap, hard cap at 64 MB.
+	if err := acquireDaemonGuard(); err != nil {
+		log.Fatalf("applyd offline migration admission failed: %v", err)
+	}
 	debug.SetGCPercent(50)
 	debug.SetMemoryLimit(64 << 20)
 	if err := hardenProcess(); err != nil {
 		log.Fatalf("applyd process hardening failed: %v", err)
 	}
+	close(runtimeAdmissionReady)
 
 	log.Println("Starting Minimal Router OS router-applyd (privileged execution helper)")
 
@@ -369,25 +373,17 @@ func verificationPlan(op apply.OperationType, previous *config.SystemConfig, can
 }
 
 // validatePrivilegedCandidate is the helper's own verdict on an incoming
-// candidate. It judges what the change introduces relative to the last-good
-// record rather than re-judging the whole stored state, because the management
-// plane judges the same way: a value an older release wrote must not be fatal on
-// one side of the trust boundary and excused on the other, or the appliance can
-// never be saved again. Scenario safety carries the security invariants and is
-// therefore always evaluated against the complete candidate.
+// candidate. Full validation is also required by persistence and startup: an
+// inherited fault cannot license an unbootable candidate. The previous state
+// is retained for transition/rollback decisions, never as a validation waiver.
 func validatePrivilegedCandidate(candidate config.SystemConfig, previous *config.SystemConfig) error {
-	if err := candidate.ValidateChangesFrom(previous); err != nil {
-		return err
-	}
-	return candidate.ValidateScenarioSafety()
+	return config.ValidateLiveCandidate(candidate, previous)
 }
 
 func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	// The previous configuration comes from this helper's own last-good record,
 	// never from the request: the management plane must not be able to describe
-	// what came before. Judging the change rather than the whole stored state
-	// keeps the two planes at the same verdict, so a value an older release
-	// wrote cannot make every later edit impossible on one side only.
+	// what came before. Candidate admission is strict even for legacy records.
 	loadedPrevious, previousLoadErr := loadLastGoodRaw()
 	previousConfig, previousErr := normalizeLastGood(loadedPrevious, previousLoadErr)
 	if previousErr != nil {
@@ -395,6 +391,9 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	}
 	if err := validatePrivilegedCandidate(req.Config, previousConfig); err != nil {
 		return failure(req.ID, "privileged validation rejected configuration", false)
+	}
+	if err := validateConfirmationRequest(req, previousConfig); err != nil {
+		return failure(req.ID, err.Error(), false)
 	}
 
 	generated, err := generateArtifacts(req.Config)
@@ -430,10 +429,6 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 	if err != nil {
 		return failure(req.ID, "could not capture previous artifacts", false)
 	}
-	if req.RequireConfirmation && !confirmationModeAllowed(previousConfig, req.Config) {
-		return failure(req.ID, "confirmation mode is invalid for this change", false)
-	}
-
 	if err := installAndActivate(req.Config, generated, previousConfig, req.RequireConfirmation); err != nil {
 		rollbackErr := rollback(previousConfig, &req.Config, previous)
 		if rollbackErr != nil {
@@ -496,7 +491,9 @@ func applyAll(req apply.ApplyRequest) apply.ApplyResponse {
 			}
 			return failure(req.ID, "could not persist last-good state; previous configuration restored", true)
 		}
-		_ = os.Remove(pendingPath)
+		if err := clearPendingConfirmation(); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return recoveryFailure(req.ID, "last-good saved but pending state could not be cleared; canonical reconciliation is required")
+		}
 	}
 
 	return apply.ApplyResponse{
@@ -603,7 +600,7 @@ func commitConfirmedApply(req apply.ApplyRequest) apply.ApplyResponse {
 	if err := saveLastGood(req.Config); err != nil {
 		return recoveryFailure(req.ID, "could not persist canonical last-good configuration")
 	}
-	if err := os.Remove(pendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := clearPendingConfirmation(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return recoveryFailure(req.ID, "could not clear pending confirmation; canonical reconciliation is required")
 	}
 	return apply.ApplyResponse{
@@ -1013,20 +1010,8 @@ func verifyActive(cfg config.SystemConfig, plan runtimeVerificationPlan) error {
 		return errors.New("configured LAN address is not active")
 	}
 	if cfg.WAN.Enabled && plan.WAN {
-		deadline := time.Now().Add(20 * time.Second)
-		for {
-			pppAddress, err := runFixedOutput("/sbin/ip", "-4", "addr", "show", "dev", "ppp0")
-			if err == nil && strings.Contains(pppAddress, "inet ") {
-				break
-			}
-			if time.Now().After(deadline) {
-				return errors.New("PPPoE interface has no assigned IPv4 address")
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-		pppDefaultRoute, err := runFixedOutput("/sbin/ip", "-4", "route", "show", "default", "dev", "ppp0")
-		if err != nil || strings.TrimSpace(pppDefaultRoute) == "" {
-			return errors.New("PPPoE interface has no default route")
+		if err := verifyWAN(); err != nil {
+			return err
 		}
 	}
 	if cfg.WireGuard.Enabled && plan.WireGuard {
@@ -1687,14 +1672,22 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 		return errors.New(strings.Join(errs, "; "))
 	}
 	if previousConfig != nil {
-		_ = os.Remove(pendingPath)
 		// Rollback verification is structural only: an ISP or optional-service
 		// outage must never convert a successful local rollback into RecoveryRequired.
-		return verifyActive(*previousConfig, verificationPlan(apply.OpReconcile, nil, *previousConfig))
+		if err := verifyActive(*previousConfig, verificationPlan(apply.OpReconcile, nil, *previousConfig)); err != nil {
+			return err
+		}
+	} else {
+		// Failed first-run transactions return to the setup-only LAN rather than
+		// leaving the wizard unreachable with all services stopped.
+		if err := restoreFirstRunRuntime(); err != nil {
+			return err
+		}
 	}
-	// Failed first-run transactions return to the setup-only LAN rather than
-	// leaving the wizard unreachable with all services stopped.
-	return restoreFirstRunRuntime()
+	if err := clearPendingConfirmation(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("clear pending state after verified rollback: %w", err)
+	}
+	return nil
 }
 
 func extraLANInterfaces(cfg config.SystemConfig) map[string]struct{} {
@@ -1743,7 +1736,6 @@ func cleanRemovedExtraLANs(previous, current config.SystemConfig) error {
 }
 
 func applyQoS(cfg config.SystemConfig) error {
-	clearQoS(cfg)
 	commands, err := services.QoSCommands(&cfg)
 	if err != nil {
 		return err
@@ -1751,13 +1743,10 @@ func applyQoS(cfg config.SystemConfig) error {
 	if len(commands) == 0 {
 		return nil
 	}
-	// Download shaping lives on the ifb0 dummy; create it once, raise it, and
-	// let tc attach everything else.
-	if _, err := runFixedOutput("/sbin/ip", "link", "show", "dev", services.QoSInterfaceName); err != nil {
-		if err := runFixed("/sbin/ip", "link", "add", services.QoSInterfaceName, "type", "ifb"); err != nil {
-			return fmt.Errorf("create %s: %w", services.QoSInterfaceName, err)
-		}
+	if err := ensureIFBInterface(runFixedOutput); err != nil {
+		return err
 	}
+	clearQoS(cfg)
 	if err := runFixed("/sbin/ip", "link", "set", "dev", services.QoSInterfaceName, "up"); err != nil {
 		return err
 	}
@@ -1780,7 +1769,9 @@ func clearQoS(cfg config.SystemConfig) {
 	}
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "root")
 	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", iface, "ingress")
-	_ = runFixed("/sbin/tc", "qdisc", "del", "dev", services.QoSInterfaceName, "root")
+	if output, err := runFixedOutput("/sbin/ip", "-j", "-d", "link", "show", "dev", services.QoSInterfaceName); err == nil && isIFBInterface(output) {
+		_ = runFixed("/sbin/tc", "qdisc", "del", "dev", services.QoSInterfaceName, "root")
+	}
 }
 
 func atomicWrite(path string, data []byte, mode os.FileMode) error {

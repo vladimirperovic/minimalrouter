@@ -1,35 +1,8 @@
-/* Demo-only v0.1.5 beta preview. The production dashboard is intentionally unchanged. */
+/* Shared dashboard overrides and demo-specific decorations. Consolidated form and
+   Recovery rules retain both selector scopes at the original scoped-rule position.
+   Keep import order in main.tsx: later theme controls intentionally override this sheet. */
 
-/* Inter, self-hosted.
-
-   The stock stack is "SF Pro Display", "Segoe UI", ui-sans-serif, …, so the
-   product renders in a different typeface on every operating system — SF Pro on
-   macOS, Segoe UI on Windows, whatever DejaVu-alike a Linux box has. Inter is
-   OFL-licensed and drawn for UI at small sizes, so it holds the 8–12px labels
-   this dashboard leans on.
-
-   The files are bundled rather than loaded from a CDN: the appliance serves
-   web/dist/ with no internet access, so a webfont request would simply fail,
-   and an admin interface should not be phoning out to a third party either.
-   Both subsets are the variable font — latin-ext is included because the UI
-   already carries Serbian copy and needs č/ć/š/ž/đ. */
-@font-face {
-  font-family: "Inter Variable";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("./fonts/inter-latin.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "Inter Variable";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("./fonts/inter-latin-ext.woff2") format("woff2");
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
-}
+/* Inter font faces are declared once in DashboardDesign.css (loaded before this sheet). */
 
 html.demo-015-preview body,
 html.demo-015-preview .dashboard-app {
@@ -461,6 +434,7 @@ html.demo-015-preview #firewall .firewall-rules .settings-form {
 }
 
 /* Form system: fewer arbitrary rules, stronger sections, consistent controls. */
+.settings-form .field > span,
 html.demo-015-preview .demo-unified-form .field > span,
 html.demo-015-preview .settings-form .field > span {
   margin-bottom: 7px;
@@ -469,6 +443,9 @@ html.demo-015-preview .settings-form .field > span {
   line-height: 1.35;
 }
 
+.settings-form input,
+.settings-form select,
+.settings-form textarea,
 html.demo-015-preview .settings-form input,
 html.demo-015-preview .settings-form select,
 html.demo-015-preview .settings-form textarea {
@@ -477,12 +454,14 @@ html.demo-015-preview .settings-form textarea {
   font-size: 13.5px;
 }
 
+.settings-form .form-note,
 html.demo-015-preview .settings-form .form-note {
   color: var(--classic-muted);
   font-size: 11.5px;
   line-height: 1.55;
 }
 
+.settings-form .form-actions,
 html.demo-015-preview .settings-form .form-actions {
   margin-top: 20px;
   padding-top: 0;
@@ -506,6 +485,7 @@ html.demo-015-preview #security .settings-form > fieldset legend {
   letter-spacing: -.015em;
 }
 
+.fieldset-title,
 html.demo-015-preview .fieldset-title {
   margin: 0 0 14px;
   color: var(--classic-text);
@@ -515,24 +495,29 @@ html.demo-015-preview .fieldset-title {
 }
 
 /* WAN/LAN editor: WAN is mandatory; DHCP remains a real toggle. */
+#network .demo-015-hidden-wan-toggle,
 html.demo-015-preview #network .demo-015-hidden-wan-toggle {
   display: none !important;
 }
 
+#network .settings-form > fieldset,
 html.demo-015-preview #network .settings-form > fieldset {
   position: relative;
 }
 
+#network .demo-015-fieldset-actions,
 html.demo-015-preview #network .demo-015-fieldset-actions {
   margin-top: 22px;
   padding-top: 0;
   border-top: 0;
 }
 
+#network .demo-015-fieldset-actions .button,
 html.demo-015-preview #network .demo-015-fieldset-actions .button {
   min-width: 126px;
 }
 
+#network .demo-015-original-network-save,
 html.demo-015-preview #network .demo-015-original-network-save {
   display: none !important;
 }
@@ -657,10 +642,12 @@ html.demo-015-preview .classic-security-page .security-recovery-card {
   display: none !important;
 }
 
+.demo-015-recovery-slot,
 html.demo-015-preview .demo-015-recovery-slot {
   margin-top: 4px;
 }
 
+.demo-015-recovery-moved .security-recovery-card,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card {
   margin: 0;
   overflow: visible;
@@ -670,6 +657,7 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card {
   box-shadow: none;
 }
 
+.demo-015-recovery-moved .security-recovery-card > .card-title-row,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card > .card-title-row {
   margin: 0 0 14px;
   border: 1px solid var(--classic-border);
@@ -679,6 +667,7 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card > .card-t
   box-shadow: var(--demo-shadow-soft);
 }
 
+.demo-015-recovery-moved .security-recovery-card .card-title-row h3,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row h3 {
   margin-bottom: 4px;
   font-size: 16px;
@@ -686,12 +675,14 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-tit
   letter-spacing: -.02em;
 }
 
+.demo-015-recovery-moved .security-recovery-card .card-title-row p,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card .card-title-row p {
   max-width: 760px;
   font-size: 11.5px;
   line-height: 1.45;
 }
 
+.demo-015-recovery-moved .security-recovery-card details,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details {
   margin: 0 0 12px;
   overflow: hidden;
@@ -701,6 +692,7 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details {
   box-shadow: var(--demo-shadow-soft);
 }
 
+.demo-015-recovery-moved .security-recovery-card summary,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary {
   display: flex;
   min-height: 68px;
@@ -713,14 +705,17 @@ html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary {
   font-weight: 740;
 }
 
+.demo-015-recovery-moved .security-recovery-card summary::-webkit-details-marker,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card summary::-webkit-details-marker {
   display: none;
 }
 
+.demo-015-recovery-moved .security-recovery-card details[open] > summary,
 html.demo-015-preview .demo-015-recovery-moved .security-recovery-card details[open] > summary {
   border-bottom: 1px solid var(--classic-border);
 }
 
+.demo-recovery-index,
 html.demo-015-preview .demo-recovery-index {
   display: grid;
   width: 36px;
@@ -738,6 +733,7 @@ html.demo-015-preview .demo-recovery-index.is-1 { background: var(--accent); }
 html.demo-015-preview .demo-recovery-index.is-2 { background: var(--accent); }
 html.demo-015-preview .demo-recovery-index.is-3 { background: var(--accent); }
 
+.demo-recovery-label,
 html.demo-015-preview .demo-recovery-label {
   color: var(--classic-text);
   font-size: 13.5px;
@@ -745,6 +741,7 @@ html.demo-015-preview .demo-recovery-label {
   letter-spacing: -.012em;
 }
 
+.demo-recovery-badge,
 html.demo-015-preview .demo-recovery-badge {
   display: inline-flex;
   min-height: 24px;
@@ -756,16 +753,19 @@ html.demo-015-preview .demo-recovery-badge {
   white-space: nowrap;
 }
 
+.demo-recovery-badge.is-recommended,
 html.demo-015-preview .demo-recovery-badge.is-recommended {
   background: color-mix(in srgb, var(--demo-accent-ink) 12%, transparent);
   color: var(--demo-accent-ink);
 }
 
+.demo-recovery-badge.is-migration,
 html.demo-015-preview .demo-recovery-badge.is-migration {
   background: color-mix(in srgb, var(--demo-migration-ink) 12%, transparent);
   color: var(--demo-migration-ink);
 }
 
+.demo-recovery-chevron,
 html.demo-015-preview .demo-recovery-chevron {
   display: grid;
   width: 30px;
@@ -782,15 +782,18 @@ html.demo-015-preview .demo-recovery-chevron {
   transition: transform .16s ease;
 }
 
+.demo-015-recovery-moved details[open] .demo-recovery-chevron,
 html.demo-015-preview .demo-015-recovery-moved details[open] .demo-recovery-chevron {
   transform: rotate(-90deg);
 }
 
+.demo-015-recovery-moved details .settings-form,
 html.demo-015-preview .demo-015-recovery-moved details .settings-form {
   margin: 0;
   padding: 20px 22px 22px;
 }
 
+.demo-015-recovery-moved details .form-note,
 html.demo-015-preview .demo-015-recovery-moved details .form-note {
   width: fit-content;
   max-width: 720px;
@@ -800,6 +803,7 @@ html.demo-015-preview .demo-015-recovery-moved details .form-note {
   background: color-mix(in srgb, var(--classic-blue) 4%, var(--classic-panel));
 }
 
+.demo-recovery-legend,
 html.demo-015-preview .demo-recovery-legend {
   display: flex;
   align-items: center;
@@ -814,15 +818,18 @@ html.demo-015-preview .demo-recovery-legend {
   line-height: 1.45;
 }
 
+.demo-recovery-legend > span,
 html.demo-015-preview .demo-recovery-legend > span {
   color: var(--classic-blue);
   font-size: 15px;
 }
 
+.demo-recovery-legend p,
 html.demo-015-preview .demo-recovery-legend p {
   margin: 0;
 }
 
+.demo-recovery-legend i,
 html.demo-015-preview .demo-recovery-legend i {
   width: 1px;
   height: 20px;
@@ -1347,6 +1354,7 @@ html.demo-015-preview .demo-015-quick-card strong {
    `#dns-filter`. markVisualSystem() already tags every settings form with
    `.demo-unified-form`, so drive the system from that class instead. It also
    picks up Gateway, which the hand-written list omitted. */
+.settings-form > fieldset,
 html.demo-015-preview .demo-unified-form > fieldset {
   margin: 0 0 18px;
   border: 1px solid var(--classic-border);
@@ -1356,6 +1364,7 @@ html.demo-015-preview .demo-unified-form > fieldset {
   box-shadow: var(--demo-shadow-soft);
 }
 
+.settings-form > fieldset legend,
 html.demo-015-preview .demo-unified-form > fieldset legend {
   padding: 0 10px;
   margin-left: 12px;
@@ -1367,6 +1376,8 @@ html.demo-015-preview .demo-unified-form > fieldset legend {
   letter-spacing: -.015em;
 }
 
+.settings-form > fieldset .fieldset-title,
+.dns-records-fieldset .fieldset-title,
 html.demo-015-preview .settings-form > fieldset .fieldset-title,
 html.demo-015-preview .demo-unified-form > fieldset .fieldset-title,
 html.demo-015-preview .dns-records-fieldset .fieldset-title {
@@ -1377,6 +1388,7 @@ html.demo-015-preview .dns-records-fieldset .fieldset-title {
   letter-spacing: -.015em;
 }
 
+.settings-form > fieldset:last-of-type,
 html.demo-015-preview .demo-unified-form > fieldset:last-of-type {
   margin-bottom: 0;
 }
@@ -1430,6 +1442,7 @@ html.demo-015-preview td.demo-empty-state::before {
 /* --- Focus -----------------------------------------------------------------
    This pass restyles buttons and takes over <summary>, which is the only way
    to reach the recovery steps from the keyboard. Keep the ring on both. */
+.demo-015-recovery-moved summary:focus-visible,
 html.demo-015-preview .demo-015-recovery-moved summary:focus-visible {
   outline: 2px solid var(--classic-blue);
   outline-offset: -2px;

@@ -10,7 +10,7 @@ import type { RouterConfig, StaticLease } from "../api-types";
 type Props = {
   config: RouterConfig;
   busy: boolean;
-  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => void;
+  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
   prefill?: { mac?: string; ip?: string; hostname?: string } | null;
   onPrefillConsumed?: () => void;
   liveLeases?: { mac: string }[];
@@ -73,7 +73,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
     setError("");
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     const normalisedMac = mac.trim().toLowerCase();
@@ -98,7 +98,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
       return;
     }
     if (editingId) {
-      applyConfig((next) => {
+      const saved = await applyConfig((next) => {
         next.dhcp = {
           ...next.dhcp,
           static_leases: (next.dhcp.static_leases || []).map((lease) =>
@@ -108,10 +108,10 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
           ),
         };
       }, "DHCP reservation updated.");
-      cancelEdit();
+      if (saved) cancelEdit();
       return;
     }
-    applyConfig((next) => {
+    const saved = await applyConfig((next) => {
       next.dhcp = {
         ...next.dhcp,
         static_leases: [
@@ -125,6 +125,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         ],
       };
     }, "DHCP reservation saved.");
+    if (!saved) return;
     setHostname("");
     setMac("");
     setIp("");

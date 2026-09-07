@@ -55,21 +55,35 @@ case "$command_name" in
         ;;
 esac
 
-active_binary="$active_root/bin/${command_name}-${arch}"
-if [ "$command_name" = "routerd" ]; then
-    if [ -r "$active_root/web/dist/index.html" ]; then
-        export MINIMALROUTER_WEB_DIR="$active_root/web/dist"
-    else
-        export MINIMALROUTER_WEB_DIR="$bootstrap_root/web/dist"
-    fi
+if [ -e /var/lib/minimalrouter-migration/pending.json ] || [ -L /var/lib/minimalrouter-migration/pending.json ]; then
+    echo 'ERROR: offline migration is incomplete; finish it from local recovery' >&2
+    exit 1
+fi
+if [ -e /var/lib/minimalrouter-update/installation.json ] || [ -L /var/lib/minimalrouter-update/installation.json ]; then
+    echo 'ERROR: incomplete full installation; finish it with the bootstrap recovery/updater' >&2
+    exit 1
 fi
 
-if [ -x "$active_binary" ]; then
-    exec "$active_binary" "$@"
+# Once a slot is registered, failure is explicit for the whole daemon pair.
+# Never fall back only one daemon (or only the Dashboard) to another generation.
+selected_root="$bootstrap_root"
+if [ -e /var/lib/minimalrouter-update/current ] || [ -L /var/lib/minimalrouter-update/current ]; then
+    [ -d "$active_root" ] || { echo "ERROR: active slot is unavailable" >&2; exit 1; }
+    selected_root="$active_root"
 fi
-if [ -x "$bootstrap_binary" ]; then
-    exec "$bootstrap_binary" "$@"
+for daemon in routerd router-applyd; do
+    binary="$selected_root/bin/${daemon}-${arch}"
+    [ -f "$binary" ] && [ ! -L "$binary" ] && [ -r "$binary" ] && [ -x "$binary" ] &&
+        [ "$(stat -c %a "$binary")" = 755 ] || {
+        echo "ERROR: selected slot has an unusable daemon pair; use controlled recovery" >&2
+        exit 1
+    }
+done
+[ -r "$selected_root/web/dist/index.html" ] || {
+    echo "ERROR: selected slot Dashboard is unavailable" >&2
+    exit 1
+}
+if [ "$command_name" = routerd ]; then
+    export MINIMALROUTER_WEB_DIR="$selected_root/web/dist"
 fi
-
-echo "ERROR: no runnable $command_name payload for $arch" >&2
-exit 1
+exec "$selected_root/bin/${command_name}-${arch}" "$@"

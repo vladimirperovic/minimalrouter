@@ -31,6 +31,10 @@ func TestValidateReleaseCandidateIncludesModeAndArchitectureContracts(t *testing
 	}
 	for _, path := range []string{
 		"slot-exec",
+		"firstboot",
+		"firstboot-ready",
+		"init.d/minimalrouter-firstboot",
+		"install-core.sh",
 		"install.sh",
 		"init.d/routerd",
 		"init.d/router-applyd",
@@ -40,6 +44,7 @@ func TestValidateReleaseCandidateIncludesModeAndArchitectureContracts(t *testing
 		"bin/router-applyd-amd64",
 		"bin/router-recovery-amd64",
 		"bin/router-update-amd64",
+		"bin/router-setup-amd64",
 	} {
 		writeCandidateFile(t, root, path, 0o755)
 	}

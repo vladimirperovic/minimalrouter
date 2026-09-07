@@ -243,8 +243,8 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
     <article className="card security-control-card security-recovery-card" aria-labelledby="recovery-tools-title">
       <div className="card-title-row">
         <div>
-          <h3 id="recovery-tools-title">Administration and recovery tools</h3>
-          <p>Export encrypted backups, validate restores, migrate pfSense settings, and download a redacted diagnostic bundle.</p>
+          <h3 id="recovery-tools-title">Recovery tools</h3>
+          <p>Encrypted backups, restore validation, pfSense migration and redacted diagnostics.</p>
         </div>
         <button className="button secondary" disabled={busy !== ""} onClick={() => void downloadDiagnostics()} type="button">{busy === "diagnostics" ? "Building…" : "Download diagnostics"}</button>
       </div>
@@ -252,7 +252,7 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
       {notice && <div className="dashboard-callout" role="status"><strong>Operation status</strong><p>{notice}</p></div>}
 
       <details open>
-        <summary>Encrypted backup export</summary>
+        <summary><span className="demo-recovery-index is-1">1</span><span className="demo-recovery-label">Encrypted Minimal Router backup (.mrbak)</span><span className="demo-recovery-badge is-recommended">Recommended</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={exportBackup}>
           <div className="form-grid two">
             <label className="field"><span>Current administrator password</span><input autoComplete="current-password" name="current_password" required type="password" /></label>
@@ -265,7 +265,7 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
       </details>
 
       <details>
-        <summary>Restore encrypted backup</summary>
+        <summary><span className="demo-recovery-index is-2">2</span><span className="demo-recovery-label">Restore encrypted backup</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={previewBackup}>
           <div className="form-grid two">
             <label className="field form-span"><span>Backup file</span><input accept=".mrbak,application/json" name="backup" required type="file" /></label>
@@ -285,7 +285,7 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
       </details>
 
       <details>
-        <summary>Migrate from pfSense config.xml</summary>
+        <summary><span className="demo-recovery-index is-3">3</span><span className="demo-recovery-label">Migrate from pfSense config.xml</span><span className="demo-recovery-badge is-migration">Migration only</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={previewPfSense}>
           <div className="form-grid two">
             <label className="field form-span"><span>pfSense config.xml</span><input accept=".xml,application/xml,text/xml" name="pfsense_xml" required type="file" /></label>
@@ -307,6 +307,7 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
           </div>
         )}
       </details>
+      <div className="demo-recovery-legend"><span>ⓘ</span><p><strong>.mrbak</strong> backups are for Minimal Router only.</p><i /><p><strong>pfSense config.xml</strong> is for migration only and is not a Minimal Router backup.</p></div>
     </article>
   );
 }

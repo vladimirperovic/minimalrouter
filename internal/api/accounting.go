@@ -3,13 +3,13 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
 // accountingRegistry mirrors the pattern already used for the gateway monitor:
@@ -103,16 +103,15 @@ type deviceLabel struct {
 }
 
 func deviceLabels(cfg config.SystemConfig) map[string]deviceLabel {
+	return deviceLabelsFromLeases(cfg, telemetry.CurrentDHCPLeases())
+}
+
+func deviceLabelsFromLeases(cfg config.SystemConfig, leases []telemetry.DHCPLease) map[string]deviceLabel {
 	labels := map[string]deviceLabel{}
 	for _, lease := range cfg.DHCP.StaticLeases {
 		labels[lease.IPAddress] = deviceLabel{hostname: lease.Hostname, mac: lease.MAC}
 	}
-	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/var/lib/minimalrouter"
-	}
-	runtimeStatus := runtimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
-	for _, lease := range runtimeStatus.DHCPLeases {
+	for _, lease := range leases {
 		existing, ok := labels[lease.IPAddress]
 		if ok && existing.hostname != "" {
 			continue

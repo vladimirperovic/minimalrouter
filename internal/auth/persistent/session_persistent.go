@@ -172,59 +172,64 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 	}
 
 	sessionID := cookie.Value
+	// Keep durable loads and cache insertion in the same critical section as
+	// revocation, so a concurrent cache miss cannot restore a deleted session.
+	psm.mu.Lock()
+	session, persistDue, err := psm.validateSessionLocked(sessionID)
+	psm.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if persistDue {
+		// UPDATE cannot recreate a row deleted after validation released mu.
+		psm.persistLastSeen(sessionID, session.LastSeen)
+	}
+	return session, nil
+}
 
+func (psm *PersistentSessionManager) validateSessionLocked(sessionID string) (*auth.Session, bool, error) {
 	// Check in-memory cache first
-	psm.mu.RLock()
 	session, exists := psm.sessions[sessionID]
-	psm.mu.RUnlock()
 
 	if exists {
 		currentGeneration, err := psm.store.GetAuthGeneration()
 		if err != nil {
-			return nil, auth.ErrUnauthorized
+			return nil, false, auth.ErrUnauthorized
 		}
-		psm.mu.Lock()
-		session, exists = psm.sessions[sessionID]
-		if !exists || session.AuthGeneration != currentGeneration {
+		if session.AuthGeneration != currentGeneration {
 			delete(psm.sessions, sessionID)
 			delete(psm.lastPersisted, sessionID)
-			psm.mu.Unlock()
 			_ = psm.store.DeleteSession(sessionID)
-			return nil, auth.ErrUnauthorized
+			return nil, false, auth.ErrUnauthorized
 		}
 		now := time.Now()
 		if now.Sub(session.CreatedAt) > auth.AbsoluteTimeout || now.Sub(session.LastSeen) > auth.IdleTimeout {
 			delete(psm.sessions, sessionID)
 			delete(psm.lastPersisted, sessionID)
-			psm.mu.Unlock()
 			_ = psm.store.DeleteSession(sessionID)
-			return nil, auth.ErrUnauthorized
+			return nil, false, auth.ErrUnauthorized
 		}
 		session.LastSeen = now
 		copy := *session
 		persistDue := psm.reserveLastSeenPersistenceLocked(sessionID, now)
-		psm.mu.Unlock()
-		if persistDue {
-			psm.persistLastSeen(sessionID, now)
-		}
-		return &copy, nil
+		return &copy, persistDue, nil
 	}
 
 	// Not in cache - load from SQLite
 	csrfToken, readOnly, sessionGeneration, createdAt, lastSeen, err := psm.store.GetSession(sessionID)
 	if err != nil {
-		return nil, auth.ErrUnauthorized
+		return nil, false, auth.ErrUnauthorized
 	}
 	currentGeneration, err := psm.store.GetAuthGeneration()
 	if err != nil || sessionGeneration != currentGeneration {
 		_ = psm.store.DeleteSession(sessionID)
-		return nil, auth.ErrUnauthorized
+		return nil, false, auth.ErrUnauthorized
 	}
 
 	now := time.Now()
 	if now.Sub(createdAt) > auth.AbsoluteTimeout || now.Sub(lastSeen) > auth.IdleTimeout {
 		_ = psm.store.DeleteSession(sessionID)
-		return nil, auth.ErrUnauthorized
+		return nil, false, auth.ErrUnauthorized
 	}
 
 	// Add to cache. The durable timestamp may be up to one persistence interval
@@ -238,36 +243,33 @@ func (psm *PersistentSessionManager) ValidateSession(r *http.Request) (*auth.Ses
 		CreatedAt:      createdAt,
 		LastSeen:       now,
 	}
-	psm.mu.Lock()
 	psm.sessions[sessionID] = session
 	psm.lastPersisted[sessionID] = lastSeen
 	persistDue := psm.reserveLastSeenPersistenceLocked(sessionID, now)
-	psm.mu.Unlock()
-
-	if persistDue {
-		psm.persistLastSeen(sessionID, now)
-	}
 	copy := *session
-	return &copy, nil
+	return &copy, persistDue, nil
 }
 
 // DestroySession invalidates the active session (both memory and SQLite).
-func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.ResponseWriter) {
+// A failed durable delete leaves the cookie and cache intact for a logout retry.
+func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.ResponseWriter) error {
 	cookie, err := r.Cookie(auth.SessionCookieName)
 	if err == nil && cookie.Value != "" {
 		sessionID := cookie.Value
 
 		psm.mu.Lock()
+		if err := psm.store.DeleteSession(sessionID); err != nil {
+			psm.mu.Unlock()
+			return err
+		}
 		delete(psm.sessions, sessionID)
 		delete(psm.lastPersisted, sessionID)
 		psm.mu.Unlock()
-
-		_ = psm.store.DeleteSession(sessionID)
 	}
 
 	// Expire cookie
 	if w == nil {
-		return
+		return nil
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
@@ -278,15 +280,19 @@ func (psm *PersistentSessionManager) DestroySession(r *http.Request, w http.Resp
 		Secure:   psm.secureCookies,
 		SameSite: http.SameSiteStrictMode,
 	})
+	return nil
 }
 
 // DestroyAllSessions synchronously clears the cache and persistent store.
 func (psm *PersistentSessionManager) DestroyAllSessions() error {
 	psm.mu.Lock()
+	defer psm.mu.Unlock()
+	if err := psm.store.DeleteAllSessions(); err != nil {
+		return err
+	}
 	clear(psm.sessions)
 	clear(psm.lastPersisted)
-	psm.mu.Unlock()
-	return psm.store.DeleteAllSessions()
+	return nil
 }
 
 // SetSessionCookie attaches HTTP-only, Secure, SameSite=Strict cookie to response.

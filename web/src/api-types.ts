@@ -1,5 +1,12 @@
 export type Snapshot = { id: string; revision: number; created_at: string; checksum: string };
 
+// Older backends omit the capability flag; omission is unknown, never a key-presence signal.
+export type WireGuardProvisioningPreview = {
+  client_ip?: string;
+  server_endpoint?: string;
+  server_key_configured?: boolean;
+};
+
 export type WireGuardPeer = {
   id: string;
   name: string;
@@ -179,6 +186,10 @@ export type SystemStatus = {
     conntrack_count?: number;
     conntrack_max?: number;
     conntrack_usage_percent?: number;
+    qos?: {
+      available: boolean;
+      devices: Array<{ interface: string; kind: string; root: boolean; parent?: string }>;
+    };
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
     wireguard_active_peers?: number;
     wireguard_peers?: Array<{

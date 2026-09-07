@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	dnsmasqLeasePath    = "/run/minimalrouter/dnsmasq.leases"
+	dnsmasqLeasePath    = "/var/lib/minimalrouter-dhcp/dnsmasq.leases"
 	maxDHCPLeaseBytes   = 1 << 20
 	maxDHCPLeaseEntries = 4096
 )

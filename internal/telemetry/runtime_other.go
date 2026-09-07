@@ -18,3 +18,6 @@ func RuntimeSnapshot(_, _, _ string) RuntimeStatus {
 		DHCPLeases:   []DHCPLease{},
 	}
 }
+
+// CurrentDHCPLeases is unavailable on non-appliance platforms.
+func CurrentDHCPLeases() []DHCPLease { return []DHCPLease{} }

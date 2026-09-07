@@ -81,6 +81,8 @@ export const UPDATE_PHASE_LABEL: Record<UpdateOperationState, string> = {
 export const UPDATE_BLOCK_EXPLANATION: Record<string, string> = {
   missing_trust_key: "Updates are disabled because no trusted signing key is installed on this appliance.",
   missing_update_helper: "The privileged update helper is not installed. Run the full signed distribution installer once to enable dashboard updates.",
+  unknown_installed_version: "The installed release has no verified version baseline. Run the full signed distribution installer before using dashboard updates.",
+  below_installed_version: "This release is at or below the verified installed-version minimum. Choose a newer release; rolling back does not lower that minimum.",
   missing_baseline: "No rollback baseline is registered yet. Run the full signed distribution installer before using web updates.",
   pending_activation: "A verified release is already waiting to be activated.",
   unsupported_architecture: "This architecture has no published update payload.",
@@ -121,10 +123,11 @@ export function useUpdates(enabled: boolean) {
     error: "",
     busy: false,
   });
-  const reloadedRef = useRef(false);
+  const reloadTracker = useRef(createUpdateReloadTracker());
+  const reloadedRef = useRef(new Set<string>());
   const mountedRef = useRef(true);
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const refresh = useCallback(async () => {
     if (!enabled || isDemoMode) return;
@@ -154,17 +157,22 @@ export function useUpdates(enabled: boolean) {
     return () => window.clearInterval(interval);
   }, [enabled, refresh, active, state.reconnecting]);
 
-  // A completed update is confirmed by the appliance reporting the new version
-  // as running, never by a local timer. The reload happens once.
   useEffect(() => {
-    const operation = state.status?.operation;
-    if (!operation || operation.state !== "succeeded" || reloadedRef.current) return;
-    if (state.status?.running_version && operation.target_version &&
-        state.status.running_version !== operation.target_version) return;
-    reloadedRef.current = true;
-    const timer = window.setTimeout(() => window.location.reload(), 900);
+    if (!enabled || isDemoMode || !state.status) return;
+    const completed = observeUpdateReload(reloadTracker.current, state.status);
+    if (!completed) return;
+    const identity = JSON.stringify([completed.id, completed.target]);
+    if (reloadedRef.current.has(identity)) return;
+    const timer = window.setTimeout(() => {
+      // Only current-document progress can arm this timer. Claim at execution,
+      // so unmount/disable/new operation can cancel without consuming the claim.
+      if (mountedRef.current && claimUpdateReload(completed.id, completed.target)) {
+        reloadedRef.current.add(identity);
+        window.location.reload();
+      }
+    }, 900);
     return () => window.clearTimeout(timer);
-  }, [state.status]);
+  }, [enabled, state.status]);
 
   const checkNow = useCallback(async () => {
     if (!enabled || isDemoMode) return;
@@ -247,7 +255,7 @@ export function useUpdates(enabled: boolean) {
       setState((previous) => ({
         ...previous,
         busy: false,
-        status: body.status ? { ...body.status, operation: body.operation ?? body.status.operation } : previous.status,
+        status: body.status || body.operation ? { ...previous.status, ...body.status, operation: body.operation ?? body.status?.operation } : previous.status,
       }));
       // From here the appliance owns the work: closing this dialog, or the
       // tab, no longer changes whether the update completes.
@@ -263,13 +271,13 @@ export function useUpdates(enabled: boolean) {
     setState((previous) => ({ ...previous, busy: true, error: "" }));
     try {
       const response = await apiFetch("/api/v1/firmware/upload", { method: "POST", body: data });
-      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      const body = (await response.json().catch(() => ({}))) as { error?: string; operation?: UpdateOperation };
       if (!mountedRef.current) return;
       if (!response.ok) {
         setState((previous) => ({ ...previous, busy: false, error: body.error || "The signed build was not installed." }));
         return;
       }
-      setState((previous) => ({ ...previous, busy: false }));
+      setState((previous) => ({ ...previous, busy: false, status: body.operation ? { ...previous.status, operation: body.operation } : previous.status }));
       void refresh();
     } catch {
       if (mountedRef.current) setState((previous) => ({ ...previous, busy: false, reconnecting: true }));
@@ -285,4 +293,58 @@ export type UpdatesController = ReturnType<typeof useUpdates>;
 export function updateBadgeLabel(status: FirmwareStatus | null): string | null {
   if (!status?.update_available || !status.target_version) return null;
   return `New version · v${status.target_version}`;
+}
+
+function normalizedVersion(value?: string): string {
+  return value?.trim().replace(/^v(?=\d)/, "") || "";
+}
+
+export function createUpdateReloadTracker() {
+  return { running: "", eligible: new Set<string>(), rejected: new Set<string>(), historical: new Set<string>() };
+}
+
+/** Observe progress in this document, not operation timestamps or historical success. */
+export function observeUpdateReload(tracker: ReturnType<typeof createUpdateReloadTracker>, status: FirmwareStatus): { id: string; target: string } | null {
+  const operation = status.operation;
+  const target = normalizedVersion(operation?.target_version);
+  const identity = operation?.id && target ? JSON.stringify([operation.id, target]) : "";
+  // Overlapping requests can return an already-ignored historical success late.
+  // It must neither arm a reload nor move the observed running version backwards.
+  if (identity && tracker.historical.has(identity)) return null;
+  const running = normalizedVersion(status.running_version);
+  const transitioned = Boolean(tracker.running && running && tracker.running !== running);
+  if (running) tracker.running = running;
+  if (!operation?.id || !target) return null;
+  if (["rolling_back", "rolled_back", "failed", "recovery_required"].includes(operation.state)) {
+    tracker.rejected.add(identity);
+    tracker.eligible.delete(identity);
+    return null;
+  }
+  if (["queued", "downloading", "verifying", "staging", "activating", "checking_health"].includes(operation.state)) {
+    tracker.eligible.add(identity);
+  }
+  // Another tab may start AND complete an update between our idle polls.
+  if (transitioned && operation.state === "succeeded" && running === target) tracker.eligible.add(identity);
+  if (operation.state === "succeeded" && running === target && !tracker.eligible.has(identity)) tracker.historical.add(identity);
+  return operation.state === "succeeded" && running === target && tracker.eligible.has(identity) && !tracker.rejected.has(identity)
+    ? { id: operation.id, target }
+    : null;
+}
+
+export function sameRunningVersion(running?: string, target?: string): boolean {
+  return Boolean(normalizedVersion(running) && normalizedVersion(target) && normalizedVersion(running) === normalizedVersion(target));
+}
+
+export function claimUpdateReload(id: string, target: string, storage?: Pick<Storage, "getItem" | "setItem">): boolean {
+  const key = "minimalrouter:completed-update-reload";
+  const identity = JSON.stringify([id, target.replace(/^v(?=\d)/, "")]);
+  try {
+    storage ??= window.sessionStorage;
+    if (storage.getItem(key) === identity) return false;
+    storage.setItem(key, identity);
+    return true;
+  } catch {
+    // If persistence is unavailable, automatic reload could loop forever.
+    return false;
+  }
 }

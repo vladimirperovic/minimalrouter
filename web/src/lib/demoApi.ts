@@ -219,6 +219,6 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     { address: "192.168.1.42", hostname: "living-room-tv", mac: "02:91:3D:6A:C4:38", rx_bytes: 43170000000, tx_bytes: 1870000000, total_bytes: 45040000000, last_seen_epoch: Math.floor(Date.now() / 1000) - 110 },
     { address: "192.168.1.64", hostname: "gaming-console", mac: "02:E2:49:16:BD:72", rx_bytes: 24650000000, tx_bytes: 3120000000, total_bytes: 27770000000, last_seen_epoch: Math.floor(Date.now() / 1000) - 360 },
   ] }] });
-  if (path === "/api/v1/wireguard/provisioning-preview") return json({ next_address: "10.8.0.5/32", client_ip: "10.8.0.5/32", server_endpoint: "router.example.com:51820", listen_port: 51820 });
+  if (path === "/api/v1/wireguard/provisioning-preview") return json({ server_key_configured: true, next_address: "10.8.0.5/32", client_ip: "10.8.0.5/32", server_endpoint: "router.example.com:51820", listen_port: 51820 });
   return json({});
 }

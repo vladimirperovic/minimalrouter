@@ -1,13 +1,20 @@
 /* ============================================================
-   THE LOOK
-   Warm paper ground, bronze accent, serif display type. Figures
-   are set large and quiet so a status page reads like a printed
-   sheet rather than a control panel.
+   THE LOOK — Noema
+   Noema Private palette applied to the dashboard: warm paper
+   ground, bronze beacon accent, serif display type. Figures stay
+   large and quiet so a status page reads like a printed sheet
+   rather than a control panel.
 
-   This was the "Studio" skin. It is now the dashboard's only
-   appearance, so its selectors are unscoped: nothing has to
-   remember to re-style a component for a second theme. Light and
-   dark are two forms of one look, not two looks.
+   Token NAMES are unchanged on purpose: every component reads
+   these variables, so a palette change never touches component
+   code. Light and dark are two forms of one look, not two looks.
+
+   Source palette: noemaprivate public/invoices.css :root and
+   html[data-theme="dark"]. Noema loads the Fraunces webfont; the
+   dashboard keeps the system serif stack below because it is
+   served from the router itself, often while the WAN is down,
+   when a webfont fetch would arrive as a fallback exactly when
+   it matters most.
    ============================================================ */
 
 /* The display face is a system serif stack on purpose. An appliance
@@ -20,84 +27,90 @@
   --studio-display: "Iowan Old Style", "Palatino Linotype", Palatino,
     "Book Antiqua", Georgia, ui-serif, serif;
 
-  --classic-bg: #f5f1ea;
-  --classic-panel: #fbf9f5;
-  --classic-soft: #eee8dd;
-  --classic-border: rgba(139, 111, 71, 0.22);
-  --classic-text: #0e0e10;
-  --classic-muted: #6b6760;
+  --classic-bg: #f7f3ec;
+  --classic-panel: #fbf8f2;
+  --classic-soft: #f1ece2;
+  --classic-border: rgba(26, 26, 31, 0.12);
+  --classic-text: #1a1a1f;
+  --classic-muted: #6b6b73;
 
-  /* The shell paints accents with --classic-blue. Pointing it at the bronze
-     lets every existing accent usage follow the skin without touching the
-     components that read it. */
-  --classic-blue: #8b6f47;
-  --classic-purple: #7d6386;
-  --classic-green: #6f8459;
-  --classic-orange: #a8763a;
+  /* The shell paints accents with --classic-blue. Pointing it at the Noema
+     bronze beacon lets every existing accent usage follow the look without
+     touching the components that read it. Status hues below are the Noema
+     signal/ember/azure set. */
+  --classic-blue: #b87333;
+  --classic-azure: #3a6ea5;
+  --classic-purple: #8a6d9e;
+  --classic-green: #4a7a5e;
+  --classic-orange: #c0563b;
 
-  --canvas: #f5f1ea;
-  --surface: #fbf9f5;
+  --canvas: #f7f3ec;
+  --surface: #fbf8f2;
   --surface-raised: #ffffff;
-  --surface-muted: #eee8dd;
-  --surface-subtle: #f2ede4;
-  --text: #0e0e10;
-  --text-secondary: #5d574e;
-  --text-tertiary: #837c72;
-  --separator: rgba(139, 111, 71, 0.22);
-  --accent: #8b6f47;
+  --surface-muted: #f1ece2;
+  --surface-subtle: #f6f2ea;
+  --text: #1a1a1f;
+  --text-secondary: #3d3d44;
+  --text-tertiary: #6b6b73;
+  --separator: rgba(26, 26, 31, 0.10);
+  --accent: #b87333;
 
   /* Desktop frame. FinalPolish.css reads these two from :root and applies
      them with !important, so this is the supported way to change the rail. */
   --v015-sidebar-width: 246px;
   --v015-frame-gutter: 0px;
 
-  --skin-radius: 10px;
-  --skin-radius-sm: 7px;
-  --skin-hairline: 1px solid rgba(139, 111, 71, 0.22);
-  --skin-shadow: 0 22px 48px -34px rgba(48, 36, 20, 0.42);
+  --skin-radius: 16px;
+  --skin-radius-sm: 10px;
+  --skin-hairline: 1px solid rgba(26, 26, 31, 0.12);
+  --skin-shadow: 0 22px 48px -34px rgba(26, 26, 31, 0.28);
+  /* Soft top light every panel carries: the bronze edge Noema cards wear. */
+  --skin-top-light: inset 0 1px 0 rgba(184, 115, 51, 0.22);
 
   /* The shell paints a long list of cards from these four tokens, which the
      base sheet only defines under an explicit light/dark theme. Restating them
-     here keeps service cards and peer panels on the same warm hairline as
+     here keeps service cards and peer panels on the same hairline as
      everything else instead of the cool glass they would otherwise inherit. */
-  --classic-glass: rgba(255, 253, 249, 0.62);
-  --classic-glass-strong: rgba(255, 253, 249, 0.86);
-  --classic-glass-border: rgba(139, 111, 71, 0.22);
-  --classic-glass-shadow: rgba(48, 36, 20, 0.10);
+  --classic-glass: rgba(255, 255, 255, 0.62);
+  --classic-glass-strong: rgba(255, 255, 255, 0.86);
+  --classic-glass-border: rgba(26, 26, 31, 0.10);
+  --classic-glass-shadow: rgba(26, 26, 31, 0.10);
 }
 
-/* Dark here is candlelight, not slate: the ground keeps the warm hue and the
-   bronze is lifted rather than swapped, so the two themes read as one look. */
+/* Dark here is Noema night: near-black paper, lifted bronze beacon, cool
+   signal/ember/azure status hues. Same look, after hours. */
 :root:root[data-theme="dark"] {
-  --classic-bg: #14120f;
-  --classic-panel: #1b1815;
-  --classic-soft: #23201b;
-  --classic-border: rgba(201, 168, 117, 0.22);
-  --classic-text: #f2ede4;
-  --classic-muted: #a49b8c;
+  --classic-bg: #0a0a0c;
+  --classic-panel: #0f0f12;
+  --classic-soft: #16161b;
+  --classic-border: rgba(244, 239, 230, 0.10);
+  --classic-text: #f4efe6;
+  --classic-muted: #9b958a;
 
-  --classic-blue: #c9a875;
-  --classic-purple: #b79bc0;
-  --classic-green: #9db482;
-  --classic-orange: #d9a55f;
+  --classic-blue: #e8b07d;
+  --classic-azure: #7fa7d9;
+  --classic-purple: #a68fb5;
+  --classic-green: #8ab4a1;
+  --classic-orange: #d97757;
 
-  --canvas: #14120f;
-  --surface: #1b1815;
-  --surface-raised: #211d18;
-  --surface-muted: #23201b;
-  --surface-subtle: #17150f;
-  --text: #f2ede4;
-  --text-secondary: #b5ac9d;
-  --text-tertiary: #877f72;
-  --separator: rgba(201, 168, 117, 0.22);
-  --accent: #c9a875;
+  --canvas: #0a0a0c;
+  --surface: #0f0f12;
+  --surface-raised: #16161b;
+  --surface-muted: #141317;
+  --surface-subtle: #0d0d10;
+  --text: #f4efe6;
+  --text-secondary: #d8d2c4;
+  --text-tertiary: #9b958a;
+  --separator: rgba(244, 239, 230, 0.10);
+  --accent: #e8b07d;
 
-  --skin-hairline: 1px solid rgba(201, 168, 117, 0.22);
+  --skin-hairline: 1px solid rgba(244, 239, 230, 0.10);
   --skin-shadow: 0 22px 48px -34px rgba(0, 0, 0, 0.7);
+  --skin-top-light: inset 0 1px 0 rgba(232, 176, 125, 0.20);
 
-  --classic-glass: rgba(33, 29, 24, 0.62);
-  --classic-glass-strong: rgba(33, 29, 24, 0.88);
-  --classic-glass-border: rgba(201, 168, 117, 0.20);
+  --classic-glass: rgba(22, 22, 27, 0.62);
+  --classic-glass-strong: rgba(22, 22, 27, 0.88);
+  --classic-glass-border: rgba(244, 239, 230, 0.10);
   --classic-glass-shadow: rgba(0, 0, 0, 0.34);
 }
 
@@ -107,8 +120,8 @@
    sitting on it have something to cast onto. */
 :root:root .dashboard-app {
   background:
-    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(197, 160, 106, 0.16) 0%, rgba(197, 160, 106, 0) 68%),
-    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(92, 72, 45, 0.09) 0%, rgba(92, 72, 45, 0) 72%),
+    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(184, 115, 51, 0.10) 0%, rgba(184, 115, 51, 0) 68%),
+    radial-gradient(ellipse 70% 50% at 12% 106%, rgba(26, 26, 31, 0.05) 0%, rgba(26, 26, 31, 0) 72%),
     linear-gradient(176deg, #f7f3ec 0%, #f5f1ea 44%, #efe9df 100%);
   background-attachment: fixed;
   font-family: Inter, "SF Pro Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
@@ -117,9 +130,9 @@
 
 :root:root[data-theme="dark"] .dashboard-app {
   background:
-    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(201, 168, 117, 0.10) 0%, rgba(201, 168, 117, 0) 68%),
+    radial-gradient(ellipse 62% 44% at 88% -6%, rgba(232, 176, 125, 0.08) 0%, rgba(232, 176, 125, 0) 68%),
     radial-gradient(ellipse 70% 50% at 12% 106%, rgba(0, 0, 0, 0.32) 0%, rgba(0, 0, 0, 0) 72%),
-    linear-gradient(176deg, #17140f 0%, #14120f 44%, #100e0b 100%);
+    linear-gradient(176deg, #0c0c0e 0%, #0a0a0c 44%, #070708 100%);
   background-attachment: fixed;
 }
 
@@ -148,10 +161,10 @@
   color: var(--classic-muted);
 }
 
-:root:root .dashboard-nav-group + .dashboard-nav-group { margin-top: 24px; }
+:root:root .dashboard-nav-group + .dashboard-nav-group { margin-top: 16px; }
 
 :root:root .dashboard-nav-group h2 {
-  padding: 0 10px 8px;
+  padding: 0 10px 5px;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.22em;
@@ -162,8 +175,8 @@
 :root:root .dashboard-nav-group > div { gap: 1px; }
 
 :root:root .dashboard-sidebar nav a {
-  min-height: 34px;
-  gap: 11px;
+  min-height: 30px;
+  gap: 10px;
   padding: 0 10px;
   border-radius: var(--skin-radius-sm);
   font-size: 13.5px;
@@ -381,11 +394,36 @@
 :root:root .dashboard-callout,
 :root:root .speedtest-block,
 :root:root .ddns-status,
-:root:root .modern-device-section {
+:root:root .modern-device-section,
+:root:root .dashboard-app .boot-activity {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
-  box-shadow: var(--skin-shadow);
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
+}
+
+/* Noema banded headers: the card title row sits on a lighter wash with a
+   hairline below, like the year/dialog heads. Overview panels carry 22px
+   of base padding, so their header bleeds full-width to match. */
+:root:root .dashboard-app .overview-panel > .overview-panel-header {
+  margin: -22px -22px 20px;
+  padding: 18px 22px 15px;
+  background: var(--surface-raised);
+  border-bottom: var(--skin-hairline);
+  border-radius: 15px 15px 0 0;
+}
+
+:root:root .dashboard-app .boot-activity > .boot-activity-head {
+  background: var(--surface-raised);
+  border-bottom: var(--skin-hairline);
+}
+
+:root:root .dashboard-app .modern-device-section > .modern-section-heading {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  background: var(--surface-raised);
+  border: var(--skin-hairline);
+  border-radius: 12px;
 }
 
 :root:root .settings-form { gap: 18px; padding: 8px; }
@@ -493,24 +531,25 @@
 :root:root .elegant-table-container {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
-  box-shadow: none;
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), none;
 }
 
 :root:root .elegant-device-table thead th {
-  padding: 14px 22px;
+  padding: 16px 24px;
   border-bottom: var(--skin-hairline);
   background: transparent;
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
 
 :root:root .elegant-device-table tbody td {
-  height: 58px;
-  padding: var(--space-4) var(--card-padding);
+  height: 66px;
+  padding: 20px 24px;
   border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 60%, transparent);
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;
@@ -518,6 +557,146 @@
 
 :root:root .elegant-device-table tbody tr:hover td {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Selected row: quiet wash with an accent edge, the way Noema marks the
+   open invoice. Harmless where no row carries .is-selected. */
+:root:root .elegant-device-table tbody tr.is-selected td {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:root:root .elegant-device-table .elegant-cell-num {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+:root:root .elegant-device-table .elegant-device-identity {
+  color: var(--classic-text);
+  font-weight: 600;
+}
+
+:root:root .elegant-device-table .elegant-cell-ip,
+:root:root .elegant-device-table .elegant-cell-mac,
+:root:root .elegant-device-table .elegant-cell-data {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+:root:root .elegant-device-table .elegant-badge-static,
+:root:root .elegant-device-table .device-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--classic-border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root:root .elegant-device-table .elegant-badge-static::before,
+:root:root .elegant-device-table .device-activity-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+:root:root .elegant-device-table .device-activity-state {
+  font-weight: 600;
+}
+
+/* Noema hues: azure for informational states, bronze-gold for secondary
+   time notes, green kept for healthy. */
+:root:root .overview-service-chip.is-info {
+  --service-accent: var(--classic-azure);
+  border-color: color-mix(in srgb, var(--classic-azure) 30%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-azure) 10%, var(--classic-panel));
+  color: var(--classic-azure);
+}
+
+:root:root .elegant-device-table .device-activity-state.is-info,
+:root:root .classic-status-chip.is-info {
+  color: var(--classic-azure);
+}
+
+:root:root .elegant-device-table .elegant-cell-expires small,
+:root:root .elegant-device-table .device-activity-state small {
+  color: var(--classic-blue);
+}
+
+/* Noema segmented control: the active tab is a solid bronze key, like the
+   DAY/ALL switch and the + Add button. Covers DDNS provider and traffic
+   month tabs without touching their markup. */
+:root:root .ddns-provider button.is-active,
+:root:root .traffic-month-tabs button.is-active {
+  background: var(--accent);
+  color: #14120f;
+  box-shadow: none;
+}
+
+:root:root[data-theme="dark"] .ddns-provider button.is-active,
+:root:root[data-theme="dark"] .traffic-month-tabs button.is-active {
+  color: #0a0a0c;
+}
+
+/* Time Machine stats: each headline reading carries its own hue — bronze
+   for tenure, azure for latency, green for capacity. Positional on purpose:
+   the hero always renders Uptime, Latency, Line estimate in that order. */
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(1) dd {
+  color: var(--classic-blue);
+}
+
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(2) dd {
+  color: var(--classic-azure);
+}
+
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(3) dd {
+  color: var(--classic-green);
+}
+
+/* ---- sign-in ---------------------------------------------------
+   Noema card language: gradient bronze spine, banded washes, outline
+   primary action like the + Add key. */
+:root:root .auth-panel {
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
+}
+
+:root:root .auth-panel::before {
+  height: 2.5px;
+  background: linear-gradient(90deg, transparent 4%, var(--accent) 28%, var(--accent) 72%, transparent 96%);
+}
+
+:root:root .auth-panel .auth-form {
+  background: color-mix(in srgb, var(--classic-panel) 55%, transparent);
+}
+
+:root:root .auth-panel .auth-form input {
+  background: var(--surface-muted);
+}
+
+:root:root .auth-panel .auth-submit {
+  min-height: 52px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+}
+
+:root:root .auth-panel .auth-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 :root:root .modern-section-heading h2,
@@ -552,9 +731,9 @@
 :root:root .dashboard-app .dns-filter-heading {
   border: var(--skin-hairline);
   border-radius: var(--skin-radius);
-  background: color-mix(in srgb, var(--classic-panel) 62%, transparent);
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 72%, var(--classic-panel) 100%);
   color: var(--classic-text);
-  box-shadow: var(--skin-shadow);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
 }
 
 /* The decorative ring was drawn in a pale blue meant to catch light against
@@ -595,13 +774,13 @@
   -webkit-text-fill-color: var(--text-secondary);
 }
 
-/* The hover bubble keeps a dark ground in this skin too — it floats over the
-   page rather than sitting on it — but warmed to match. */
+/* The hover bubble keeps a dark ground in both themes — it floats over the
+   page rather than sitting on it. */
 :root:root .dashboard-app .demo-metric-tip {
-  border-color: rgba(201, 168, 117, 0.24);
-  background: #241f19;
-  color: #ece3d5;
-  -webkit-text-fill-color: #ece3d5;
+  border-color: rgba(184, 115, 51, 0.30);
+  background: #16161b;
+  color: #f4efe6;
+  -webkit-text-fill-color: #f4efe6;
 }
 
 /* These heroes carry their own heading class, so the serif rule for section
