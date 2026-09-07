@@ -509,19 +509,20 @@
 }
 
 :root:root .elegant-device-table thead th {
-  padding: 14px 22px;
+  padding: 16px 24px;
   border-bottom: var(--skin-hairline);
   background: transparent;
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-tertiary);
 }
 
 :root:root .elegant-device-table tbody td {
-  height: 58px;
-  padding: var(--space-4) var(--card-padding);
+  height: 66px;
+  padding: 20px 24px;
   border-bottom: 1px solid color-mix(in srgb, var(--classic-border) 60%, transparent);
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;
@@ -529,6 +530,59 @@
 
 :root:root .elegant-device-table tbody tr:hover td {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Selected row: quiet wash with an accent edge, the way Noema marks the
+   open invoice. Harmless where no row carries .is-selected. */
+:root:root .elegant-device-table tbody tr.is-selected td {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+:root:root .elegant-device-table .elegant-cell-num {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+:root:root .elegant-device-table .elegant-device-identity {
+  color: var(--classic-text);
+  font-weight: 600;
+}
+
+:root:root .elegant-device-table .elegant-cell-ip,
+:root:root .elegant-device-table .elegant-cell-mac,
+:root:root .elegant-device-table .elegant-cell-data {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+:root:root .elegant-device-table .elegant-badge-static,
+:root:root .elegant-device-table .device-activity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--classic-border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root:root .elegant-device-table .elegant-badge-static::before,
+:root:root .elegant-device-table .device-activity-badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+:root:root .elegant-device-table .device-activity-state {
+  font-weight: 600;
 }
 
 :root:root .modern-section-heading h2,
