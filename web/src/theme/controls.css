@@ -235,13 +235,14 @@
 }
 
 :root:root .dashboard-app .button.primary {
-  background: var(--classic-blue);
-  border-color: var(--classic-blue);
-  color: #fff;
+  background: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: none;
 }
 
 :root:root .dashboard-app .button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 :root:root .dashboard-app .button.secondary {
