@@ -100,12 +100,12 @@ export default function BootActivityPanel({ pppoeEnabled, wireGuardEnabled }: Pr
   const live = Boolean(boot && !boot.completed);
 
   return (
-    <section className="boot-activity" aria-labelledby="boot-activity-title">
+    <section className="overview-panel boot-activity" aria-labelledby="boot-activity-title">
       <header className="boot-activity-head">
         <div>
           <span className="boot-activity-kicker">Startup trace</span>
           <h2 id="boot-activity-title">Boot activity</h2>
-          <p>Readable service milestones — credentials and raw command output are never shown.</p>
+          <p>Service readiness during the latest startup.</p>
         </div>
         <div className="boot-activity-actions">
           <span className={`boot-activity-state ${live ? "is-live" : ""}`}><i aria-hidden="true" />{live ? "Live" : "Last boot"}</span>

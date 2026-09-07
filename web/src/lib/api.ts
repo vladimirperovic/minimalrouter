@@ -234,7 +234,9 @@ export async function apiFetch(
     }
   }
 
-  if (method === "GET") {
+  // Explicit fresh reads (for example before editing configuration) must not
+  // reuse the passive polling cache or an older in-flight response.
+  if (method === "GET" && init.cache !== "no-store") {
     const path = requestPath(input);
     const ttl = passiveTTL(path);
     if (ttl !== null) {

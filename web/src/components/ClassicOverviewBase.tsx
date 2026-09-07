@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { ApplianceHealth, GatewayHistoryPoint, GatewaySummary, RouterConfig, SystemStatus } from "../api-types";
 import { apiFetch } from "../lib/api";
 import HealthBanner, { HealthCheckDetails } from "./HealthBanner";
+import BootActivityPanel from "./BootActivityPanel";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
 type WANSpeedEstimate = { download_mbps: number; upload_mbps: number };
@@ -485,6 +486,8 @@ export default function ClassicOverview({
         </div>
         <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
       </section>
+
+      <BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled} />
 
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
         <header className="overview-panel-header"><div><h2 id="quality-title">Gateway quality</h2><p>Live samples · rolling one-hour window</p></div><span className={`overview-live-state ${gatewayState === "healthy" ? "is-good" : "is-warning"}`}><i aria-hidden="true" />{gatewayState === "unknown" ? "Checking" : gatewayState}</span></header>

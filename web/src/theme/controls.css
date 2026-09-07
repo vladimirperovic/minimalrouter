@@ -338,6 +338,12 @@
   font-size: var(--text-base);
 }
 
+/* Search fields reserve space for the shared icon and clear button. Match
+   the text-input rule's specificity so it cannot erase that space. */
+:root:root .dashboard-app input.modern-search-input {
+  padding-inline: 43px 38px;
+}
+
 :root:root .dashboard-app input:focus-visible,
 :root:root .dashboard-app select:focus-visible,
 :root:root .dashboard-app textarea:focus-visible {

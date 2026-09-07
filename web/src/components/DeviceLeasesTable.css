@@ -199,6 +199,15 @@
   gap: 7px;
 }
 
+.device-reservation-name {
+  grid-column: 1 / -1;
+}
+
+.device-reservation-field small {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .device-reservation-field > span {
   color: var(--classic-muted);
   font-size: 10px;

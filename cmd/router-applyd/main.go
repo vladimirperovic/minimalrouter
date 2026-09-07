@@ -855,16 +855,9 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	if err := prepareDnsmasqLeaseState(); err != nil {
 		return fmt.Errorf("prepare DHCP lease state: %w", err)
 	}
-	for _, name := range restoreArtifacts {
-		item := generated[name]
-		if err := atomicWrite(item.path, item.data, item.mode); err != nil {
-			return fmt.Errorf("install %s: %w", name, err)
-		}
-	}
-	if cfg.SquidProxy.Enabled {
-		if err := secureSquidPasswordFile(); err != nil {
-			return err
-		}
+	installer := artifactInstaller{atomicWrite, secureDDNSConfiguration, secureSquidPasswordFile}
+	if err := installer.install(cfg, generated); err != nil {
+		return err
 	}
 	if err := applyKernelHardening(cfg); err != nil {
 		return err
@@ -954,9 +947,6 @@ func installAndActivate(cfg config.SystemConfig, generated map[string]artifact, 
 	}
 	if ddnsChanged {
 		if cfg.Cloudflare.DDNSEnabled {
-			if err := secureDDNSConfiguration(); err != nil {
-				return err
-			}
 			if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 				return fmt.Errorf("restart Cloudflare DDNS: %w", err)
 			}
@@ -1668,7 +1658,10 @@ func rollback(previousConfig *config.SystemConfig, candidateConfig *config.Syste
 		_ = runFixed("/sbin/rc-service", "hostapd", "stop")
 	}
 	if previousConfig != nil && previousConfig.Cloudflare.DDNSEnabled {
-		if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
+		if err := secureDDNSConfiguration(); err != nil {
+			log.Printf("rollback optional DDNS permissions degraded: %v", err)
+			_ = runFixed("/sbin/rc-service", "inadyn", "stop")
+		} else if err := runFixed("/sbin/rc-service", "inadyn", "restart"); err != nil {
 			log.Printf("rollback optional DDNS restore degraded: %v", err)
 		}
 	} else {
@@ -2128,7 +2121,15 @@ func secureDDNSConfiguration() error {
 	if err := os.Chmod("/etc/inadyn/inadyn.conf", 0640); err != nil {
 		return errors.New("could not secure DDNS configuration mode")
 	}
-	return nil
+	serviceUser, err := user.Lookup("inadyn")
+	if err != nil {
+		return errors.New("DDNS service account is unavailable")
+	}
+	uid, err := parseNumericID("inadyn uid", serviceUser.Uid)
+	if err != nil {
+		return err
+	}
+	return prepareDDNSCacheStateAt("/var/cache/inadyn", uid, gid)
 }
 
 // runNftFile replaces the helper-owned table in one atomic nft batch. When

@@ -208,6 +208,37 @@
 /* ── Panels below ───────────────────────────────────────────
    The chart panels keep their card, but their empty state stops
    reserving a screenful of nothing. */
+:root:root .dashboard-app .overview-content-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gap-group);
+}
+
+:root:root .dashboard-app .overview-content-grid > * {
+  min-width: 0;
+}
+
+:root:root .dashboard-app .overview-bandwidth-panel .overview-panel-header,
+:root:root .dashboard-app .overview-resources-panel .overview-panel-header,
+:root:root .dashboard-app .overview-content-grid .boot-activity-head {
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+:root:root .dashboard-app .overview-content-grid .boot-activity-actions {
+  width: 100%;
+  justify-content: space-between;
+}
+
+:root:root .dashboard-app .overview-bandwidth-now {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1200px) {
+  :root:root .dashboard-app .overview-content-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 :root:root .dashboard-app .overview-chart-wrap {
   min-height: 168px;
 }
@@ -248,6 +279,24 @@
 
 :root:root .dashboard-app .boot-terminal-row.is-active code {
   color: var(--classic-text);
+}
+
+:root:root .dashboard-app .boot-terminal-row code b {
+  color: var(--classic-text);
+}
+
+:root:root .dashboard-app .boot-terminal-time,
+:root:root .dashboard-app .boot-activity-kicker,
+:root:root .dashboard-app .boot-activity-state {
+  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app .boot-terminal-row + .boot-terminal-row {
+  border-top-color: var(--classic-border);
+}
+
+:root:root .dashboard-app .boot-terminal-row code {
+  overflow-wrap: anywhere;
 }
 
 /* The health callout is a drawer sliding out from under the status

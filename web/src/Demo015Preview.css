@@ -1057,7 +1057,6 @@ html.demo-015-preview #overview > .overview-status-hero { order: 2; }
 html.demo-015-preview #overview > .demo-015-quick-status-grid { order: 3; }
 html.demo-015-preview #overview > .health-banner { order: 4; }
 html.demo-015-preview #overview > .health-checks-section { order: 5; }
-html.demo-015-preview #overview > .boot-activity-host { order: 6; }
 html.demo-015-preview #overview > .overview-diagnostic-strip { order: 7; }
 html.demo-015-preview #overview > .overview-content-grid { order: 8; }
 
@@ -1167,10 +1166,6 @@ html.demo-015-preview #overview > .health-banner:has(+ .health-checks-section.de
 @keyframes demo-checks-open {
   from { opacity: 0; transform: translateY(-6px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-html.demo-015-preview #overview > .boot-activity-host {
-  margin: 0 0 18px;
 }
 
 /* --- Overview diagnostics --------------------------------------------------

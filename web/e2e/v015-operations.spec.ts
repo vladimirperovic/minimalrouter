@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import type { RouterConfig, StaticLease } from "../src/api-types";
 
 const NOW = new Date("2026-08-18T15:14:00Z");
 const CURRENT_EPOCH = Math.floor(Date.now() / 1000);
@@ -62,6 +63,7 @@ const ACCOUNTING = {
 
 async function stubDashboard(page: Page) {
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  await page.route("**/api/v1/**", (route) => json(route, {}));
   await page.route("**/api/v1/auth/session", (route) => json(route, { authenticated: true, csrf_token: "test" }));
   await page.route("**/api/v1/setup/status", (route) => json(route, { first_run: false, is_configured: true }));
   await page.route("**/api/v1/config", (route) => json(route, CONFIG));
@@ -85,6 +87,7 @@ async function stubDashboard(page: Page) {
   await page.route("**/api/v1/audit/events**", (route) => json(route, { events: [] }));
   await page.route("**/api/v1/accounting**", (route) => json(route, ACCOUNTING));
   await page.route("**/api/v1/devices/pauses", (route) => json(route, { pauses: [] }));
+  await page.route("**/api/v1/startup/boots", (route) => json(route, { boots: [{ id: "test-boot", started_at: NOW.toISOString(), completed: true, readiness: { management_seconds: 2, pppoe_seconds: 4, dns_seconds: 3, internet_seconds: 5, wireguard_seconds: 6 } }] }));
 }
 
 async function openSection(page: Page, isMobile: boolean | undefined, name: string) {
@@ -133,3 +136,111 @@ test("Connected devices shows activity and sends a timed Internet pause", async 
   await expect(row).toContainText("Paused");
   await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
 });
+
+for (const name of [" office-tablet ", ""]) {
+  test(`Reserve IP saves ${name ? "an edited" : "an optional empty"} device name and keeps concurrent reservations`, async ({ page, isMobile }, testInfo) => {
+    await stubDashboard(page);
+    let config = { ...structuredClone(CONFIG), dhcp: { ...CONFIG.dhcp, static_leases: [] as StaticLease[] } };
+    let submitted: RouterConfig | undefined;
+    await page.route("**/api/v1/config", async (route) => {
+      if (route.request().method() === "PUT") {
+        submitted = route.request().postDataJSON() as RouterConfig;
+        config = { ...config, dhcp: submitted.dhcp };
+      }
+      await route.fulfill({ json: config });
+    });
+    await page.route("**/api/v1/config/preview", (route) => route.fulfill({ json: { changes: ["Reserve device address"], risk: "low", requires_confirmation: false } }));
+    page.on("dialog", (dialog) => dialog.accept());
+
+    await page.goto("/");
+    await openSection(page, isMobile, "LAN & DHCP");
+    await page.getByRole("button", { name: "Reserve an IP address for Kids iPad" }).click();
+    const dialog = page.getByRole("dialog", { name: "Reserve an IP for Kids iPad" });
+    const deviceName = dialog.getByLabel("Device name");
+    await expect(deviceName).toHaveValue("Kids iPad");
+    await expect(dialog.getByRole("button", { name: "Reserve IP", exact: true })).toBeDisabled();
+    await deviceName.fill("temporary-name");
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Reserve an IP address for Kids iPad" }).click();
+    await expect(deviceName).toHaveValue("Kids iPad");
+    await deviceName.fill(name);
+    await dialog.getByLabel("Reserved IPv4 address").fill("192.168.1.14");
+    await expect(dialog.getByLabel("MAC address", { exact: true })).toHaveAttribute("readonly", "");
+    await dialog.screenshot({ path: testInfo.outputPath("reservation.png") });
+
+    // Another session saved a reservation after the dashboard's cached GET.
+    const concurrent = { id: "printer", hostname: "printer", mac: "00:00:5e:00:53:14", ip_address: "192.168.1.15" };
+    config.dhcp.static_leases.push(concurrent);
+    await dialog.getByRole("button", { name: "Reserve IP", exact: true }).click();
+    await expect.poll(() => submitted?.dhcp.static_leases).toEqual([
+      concurrent,
+      { id: expect.any(String), hostname: name.trim(), mac: "00:00:5e:00:53:13", ip_address: "192.168.1.14" },
+    ]);
+    await expect(dialog).not.toBeVisible();
+    const connected = page.locator(".modern-device-section");
+    await expect(connected.getByRole("row", { name: name ? /office-tablet/ : /Kids iPad/ })).toContainText("Static");
+    await expect(page.locator(".static-leases").getByRole("row", { name: name ? /office-tablet/ : /Unnamed device/ })).toContainText("192.168.1.14");
+  });
+}
+
+test("Every device search keeps the icon clear of placeholder and entered text", async ({ page, isMobile }) => {
+  await stubDashboard(page);
+  await page.goto("/");
+  for (const section of ["Overview", "LAN & DHCP"]) {
+    if (section !== "Overview") await openSection(page, isMobile, section);
+    const searches = page.locator(".modern-search-wrapper");
+    await expect(searches).toHaveCount(section === "Overview" ? 1 : 2);
+    for (const search of await searches.all()) {
+      const input = search.locator("input");
+      for (const text of ["", "tablet"]) {
+        await input.fill(text);
+        const gap = await search.evaluate((element) => {
+          const input = element.querySelector("input")!;
+          const icon = element.querySelector("svg")!;
+          const style = getComputedStyle(input);
+          return input.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) - icon.getBoundingClientRect().right;
+        });
+        expect(gap).toBeGreaterThanOrEqual(8);
+      }
+    }
+  }
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`Overview orders three cards and keeps boot text readable in ${theme} mode`, async ({ page, isMobile }, testInfo) => {
+    await stubDashboard(page);
+    await page.addInitScript((theme) => localStorage.setItem("minimalrouter:theme", theme), theme);
+    if (!isMobile) await page.setViewportSize({ width: 1600, height: 1100 });
+    await page.goto("/");
+    const grid = page.locator(".overview-content-grid");
+    await expect(grid.locator(":scope > section > header h2")).toHaveText(["Live bandwidth", "Appliance resources", "Boot activity", "Gateway quality"]);
+    const cards = grid.locator(":scope > section");
+    const boxes = await Promise.all([0, 1, 2].map((index) => cards.nth(index).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (isMobile) {
+      expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[1]!.y);
+      expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[2]!.y);
+    } else {
+      expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
+      expect(Math.abs(boxes[1]!.y - boxes[2]!.y)).toBeLessThan(1);
+      expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x);
+      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x);
+    }
+    const terminal = page.locator(".boot-terminal");
+    await expect(terminal.getByText("System", { exact: true })).toBeVisible();
+    const ratios = await terminal.evaluate((element) => {
+      const luminance = (color: string) => {
+        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((v) => v / 255).map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const background = luminance(getComputedStyle(element).backgroundColor);
+      return [...element.querySelectorAll("code, code b, .boot-terminal-time")].map((text) => {
+        const foreground = luminance(getComputedStyle(text).color);
+        return (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05);
+      });
+    });
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(4.5);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await grid.screenshot({ path: testInfo.outputPath("overview-cards.png") });
+  });
+}
