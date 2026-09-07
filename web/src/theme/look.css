@@ -39,6 +39,7 @@
      touching the components that read it. Status hues below are the Noema
      signal/ember/azure set. */
   --classic-blue: #b87333;
+  --classic-azure: #3a6ea5;
   --classic-purple: #8a6d9e;
   --classic-green: #4a7a5e;
   --classic-orange: #c0563b;
@@ -87,6 +88,7 @@
   --classic-muted: #9b958a;
 
   --classic-blue: #e8b07d;
+  --classic-azure: #7fa7d9;
   --classic-purple: #a68fb5;
   --classic-green: #8ab4a1;
   --classic-orange: #d97757;
@@ -583,6 +585,55 @@
 
 :root:root .elegant-device-table .device-activity-state {
   font-weight: 600;
+}
+
+/* Noema status hues across the dashboard: azure for informational states,
+   bronze-gold for secondary time notes, green kept for healthy. */
+:root:root .overview-service-chip.is-info {
+  --service-accent: var(--classic-azure);
+  border-color: color-mix(in srgb, var(--classic-azure) 30%, var(--classic-border));
+  background: color-mix(in srgb, var(--classic-azure) 10%, var(--classic-panel));
+  color: var(--classic-azure);
+}
+
+:root:root .elegant-device-table .device-activity-state.is-info,
+:root:root .classic-status-chip.is-info {
+  color: var(--classic-azure);
+}
+
+:root:root .elegant-device-table .elegant-cell-expires small,
+:root:root .elegant-device-table .device-activity-state small {
+  color: var(--classic-blue);
+}
+
+/* Noema segmented control: the active tab is a solid bronze key, like the
+   DAY/ALL switch and the + Add button. Covers DDNS provider and traffic
+   month tabs without touching their markup. */
+:root:root .ddns-provider button.is-active,
+:root:root .traffic-month-tabs button.is-active {
+  background: var(--accent);
+  color: #14120f;
+  box-shadow: none;
+}
+
+:root:root[data-theme="dark"] .ddns-provider button.is-active,
+:root:root[data-theme="dark"] .traffic-month-tabs button.is-active {
+  color: #0a0a0c;
+}
+
+/* Time Machine stats: each headline reading carries its own hue — bronze
+   for tenure, azure for latency, green for capacity. Positional on purpose:
+   the hero always renders Uptime, Latency, Line estimate in that order. */
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(1) dd {
+  color: var(--classic-blue);
+}
+
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(2) dd {
+  color: var(--classic-azure);
+}
+
+:root:root .dashboard-app .overview-headline-readings > div:nth-child(3) dd {
+  color: var(--classic-green);
 }
 
 :root:root .modern-section-heading h2,
