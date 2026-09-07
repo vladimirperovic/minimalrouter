@@ -209,12 +209,16 @@
    The chart panels keep their card, but their empty state stops
    reserving a screenful of nothing. */
 :root:root .dashboard-app .overview-content-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap-group);
 }
 
 :root:root .dashboard-app .overview-content-grid > * {
   min-width: 0;
+}
+
+:root:root .dashboard-app .overview-quality-panel {
+  grid-column: auto;
 }
 
 :root:root .dashboard-app .overview-bandwidth-panel .overview-panel-header,

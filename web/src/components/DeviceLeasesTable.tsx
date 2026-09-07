@@ -12,7 +12,7 @@ type DeviceRow = {
   mac?: string;
   ip_address: string;
   expires_at?: number;
-  online: boolean;
+  hasLease: boolean;
   last_seen_epoch?: number;
   is_new: boolean;
   liveLease?: Lease;
@@ -214,20 +214,21 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       usageByAddress.set(device.address, device);
     });
 
-    const liveIdentities = new Set<string>();
+    const leaseIdentities = new Set<string>();
     const result: DeviceRow[] = leases.map((lease) => {
       const identity = lease.mac.toLowerCase();
-      liveIdentities.add(identity);
+      leaseIdentities.add(identity);
       const usage = usageByIdentity.get(identity) || usageByAddress.get(lease.ip_address);
-      const lastSeen = usage?.last_seen_epoch || Math.floor(Date.now() / 1000);
-      const newEnough = Math.floor(Date.now() / 1000) - lastSeen <= 24 * 60 * 60;
+      // A DHCP expiry is not a last-seen timestamp or proof of presence.
+      const lastSeen = usage?.last_seen_epoch;
+      const newEnough = Boolean(lastSeen && Math.floor(Date.now() / 1000) - lastSeen <= 24 * 60 * 60);
       return {
         key: identity || lease.ip_address,
         hostname: staticNames.get(identity) || lease.hostname || usage?.hostname,
         mac: lease.mac || usage?.mac,
         ip_address: lease.ip_address,
         expires_at: lease.expires_at,
-        online: true,
+        hasLease: true,
         last_seen_epoch: lastSeen,
         is_new: Boolean(config.accounting?.enabled && usage && newEnough && !previousIdentities.has(deviceIdentity(usage))),
         liveLease: lease,
@@ -237,14 +238,14 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
     currentDevices.forEach((device) => {
       const identity = deviceIdentity(device);
-      const alreadyLive = (identity && liveIdentities.has(identity)) || leases.some((lease) => lease.ip_address === device.address);
-      if (alreadyLive) return;
+      const alreadyListed = (identity && leaseIdentities.has(identity)) || leases.some((lease) => lease.ip_address === device.address);
+      if (alreadyListed) return;
       result.push({
         key: identity || device.address,
         hostname: staticNames.get(identity) || device.hostname,
         mac: device.mac,
         ip_address: device.address,
-        online: false,
+        hasLease: false,
         last_seen_epoch: device.last_seen_epoch,
         is_new: false,
         monthBytes: device.total_bytes,
@@ -252,7 +253,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     });
 
     return result.sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1;
+      if (a.hasLease !== b.hasLease) return a.hasLease ? -1 : 1;
       return (b.last_seen_epoch || 0) - (a.last_seen_epoch || 0);
     });
   }, [accounting, config.accounting?.enabled, leases, staticNames]);
@@ -267,7 +268,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     );
   }, [rows, searchQuery]);
 
-  const onlineCount = rows.filter((row) => row.online).length;
+  const leaseCount = rows.filter((row) => row.hasLease).length;
   const showData = Boolean(accounting?.available);
 
   const reservationConflict = useMemo(() => {
@@ -377,8 +378,8 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     <section className="modern-device-section">
       <div className="modern-section-heading">
         <div className="modern-heading-titles">
-          <h2>Connected devices</h2>
-          <span className="modern-heading-sub">{onlineCount} online · {staticMacs.size} static reservation{staticMacs.size === 1 ? "" : "s"}{config.accounting?.enabled ? " · recent devices retained" : ""}</span>
+          <h2>Known devices</h2>
+          <span className="modern-heading-sub">{leaseCount} DHCP lease{leaseCount === 1 ? "" : "s"} · {staticMacs.size} static reservation{staticMacs.size === 1 ? "" : "s"}{config.accounting?.enabled ? " · recent devices retained" : ""}</span>
         </div>
         <div className="modern-device-tools">
           <div className="modern-search-wrapper">
@@ -389,32 +390,33 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
           <span className="modern-device-count">{searchQuery ? `${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"}` : `${rows.length} known`}</span>
         </div>
       </div>
+      <p className="device-presence-note">A DHCP lease reserves an address until it expires. It does not confirm that the device is online.</p>
       {pauseError && <div className="device-pause-error" role="alert">{pauseError}</div>}
 
       <div className="elegant-table-container">
-        <table className="elegant-device-table">
+        <table className="elegant-device-table device-lan-table">
           <colgroup><col className="elegant-col-num" /><col className="elegant-col-name" /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
-          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
+          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Lease / activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{searchQuery ? "No devices match your search." : "No devices connected yet."}</span></td></tr>
+              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{searchQuery ? "No devices match your search." : "No DHCP leases or device history available."}</span></td></tr>
             ) : filteredRows.map((row, index) => {
               const isStatic = Boolean(row.mac && staticMacs.has(row.mac.toLowerCase()));
               const pause = pauseByIP.get(row.ip_address);
               const busy = pauseBusyIP === row.ip_address;
               return (
-                <tr className={`${row.online ? "is-online" : "is-offline"}${pause ? " is-paused" : ""}`} key={row.key}>
+                <tr className={`${row.hasLease ? "has-lease" : "is-history"}${pause ? " is-paused" : ""}`} key={row.key}>
                   <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>
-                  <td className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
-                  <td className="elegant-cell-ip">{row.ip_address}</td>
-                  <td className="elegant-cell-mac">{row.mac || "Unknown"}</td>
-                    <td className="elegant-cell-expires">
-                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />Online{row.expires_at ? <small> &middot; lease {formatRelativeFuture(row.expires_at)}</small> : null}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
+                  <td data-label="Device" className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
+                  <td data-label="IP address" className="elegant-cell-ip">{row.ip_address}</td>
+                  <td data-label="MAC address" className="elegant-cell-mac">{row.mac || "Unknown"}</td>
+                    <td data-label="Lease / activity" className="elegant-cell-expires">
+                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.hasLease ? <span className="device-activity-state is-lease">DHCP lease<small>{row.expires_at ? ` · expires ${formatRelativeFuture(row.expires_at)}` : " · no expiry"}</small></span> : <span className="device-activity-state is-history" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>{row.last_seen_epoch ? `Last seen ${formatLastSeen(row.last_seen_epoch)}` : "Previously seen"}</span>}
                     </td>
-                    {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
-                  <td className="elegant-cell-actions">
+                    {showData && <td data-label="Data" className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
+                  <td data-label="Actions" className="elegant-cell-actions">
                     <div className="device-row-actions">
-                      {!row.online && row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
+                      {row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
                       {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog({ ...row.liveLease!, hostname: row.hostname })} className="device-reserve-button" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
                       {pause ? (
                         <button className="device-pause-button is-resume" disabled={busy} onClick={() => void resumeDevice(row.ip_address)} type="button">{busy ? "Working…" : "Resume"}</button>
