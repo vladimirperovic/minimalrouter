@@ -82,24 +82,24 @@ test("WG detail modal contains Tab focus and restores its trigger", async ({ pag
   await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0); await expect(trigger).toBeFocused();
 });
 
-test("provisioning preview polls only on the visible WG page", async ({ page }) => {
+test("provisioning preview polls only on the visible WG page", async ({ page, isMobile }) => {
   await page.clock.install(); const r = await router(page); await page.goto("/#network"); await expect(page.locator("#network")).toBeVisible();
   await page.clock.fastForward(16_000); expect(r.previews()).toBe(0);
-  await page.locator('a[href="#wireguard"]').click(); await expect.poll(r.previews).toBe(1);
+  await openSection(page, isMobile, "#wireguard"); await expect.poll(r.previews).toBe(1);
   await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: true }); document.dispatchEvent(new Event("visibilitychange")); });
   await page.clock.fastForward(31_000); expect(r.previews()).toBe(1);
   await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, value: false }); document.dispatchEvent(new Event("visibilitychange")); });
   await expect.poll(r.previews).toBe(2);
 });
 
-test("Recovery renders once directly and after navigation, in both appearances", async ({ page }) => {
+test("Recovery renders once directly and after navigation, in both appearances", async ({ page, isMobile }) => {
   await router(page); await page.goto("/#recovery");
   for (let i = 0; i < 2; i++) {
     await expect(page.locator("#recovery .security-recovery-card")).toHaveCount(1);
     await expect(page.getByText("Encrypted Minimal Router backup (.mrbak)", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Toggle appearance", exact: true }).click();
-    await page.locator('a[href="#security"]').click(); await expect(page.locator(".security-recovery-card")).toHaveCount(0);
-    await page.locator('a[href="#recovery"]').click();
+    await openSection(page, isMobile, "#security"); await expect(page.locator(".security-recovery-card")).toHaveCount(0);
+    await openSection(page, isMobile, "#recovery");
   }
 });
 
@@ -115,6 +115,11 @@ async function openUpdates(page: Page) {
   await page.getByTitle("Account", { exact: true }).click();
   await page.getByRole("button", { name: "Software update", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Software update" })).toBeVisible();
+}
+
+async function openSection(page: Page, isMobile: boolean | undefined, hash: string) {
+  if (isMobile) await page.getByRole("button", { name: "Open navigation" }).click();
+  await page.locator(`a[href="${hash}"]`).click();
 }
 
 async function advanceFirmwarePoll(page: Page, r: Awaited<ReturnType<typeof router>>, status: FirmwareStatus, interval: number) {
