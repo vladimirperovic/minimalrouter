@@ -402,6 +402,30 @@
   box-shadow: var(--skin-top-light), var(--skin-shadow);
 }
 
+/* Noema banded headers: the card title row sits on a lighter wash with a
+   hairline below, like the year/dialog heads. Overview panels carry 22px
+   of base padding, so their header bleeds full-width to match. */
+:root:root .dashboard-app .overview-panel > .overview-panel-header {
+  margin: -22px -22px 20px;
+  padding: 18px 22px 15px;
+  background: var(--surface-raised);
+  border-bottom: var(--skin-hairline);
+  border-radius: 15px 15px 0 0;
+}
+
+:root:root .dashboard-app .boot-activity > .boot-activity-head {
+  background: var(--surface-raised);
+  border-bottom: var(--skin-hairline);
+}
+
+:root:root .dashboard-app .modern-device-section > .modern-section-heading {
+  margin: 0 0 18px;
+  padding: 16px 20px;
+  background: var(--surface-raised);
+  border: var(--skin-hairline);
+  border-radius: 12px;
+}
+
 :root:root .settings-form { gap: 18px; padding: 8px; }
 
 :root:root .settings-form fieldset,
