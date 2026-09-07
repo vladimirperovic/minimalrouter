@@ -587,8 +587,8 @@
   font-weight: 600;
 }
 
-/* Noema status hues across the dashboard: azure for informational states,
-   bronze-gold for secondary time notes, green kept for healthy. */
+/* Noema hues: azure for informational states, bronze-gold for secondary
+   time notes, green kept for healthy. */
 :root:root .overview-service-chip.is-info {
   --service-accent: var(--classic-azure);
   border-color: color-mix(in srgb, var(--classic-azure) 30%, var(--classic-border));
@@ -634,6 +634,44 @@
 
 :root:root .dashboard-app .overview-headline-readings > div:nth-child(3) dd {
   color: var(--classic-green);
+}
+
+/* ---- sign-in ---------------------------------------------------
+   Noema card language: gradient bronze spine, banded washes, outline
+   primary action like the + Add key. */
+:root:root .auth-panel {
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--surface-raised) 0%, var(--classic-panel) 100%);
+  box-shadow: var(--skin-top-light), var(--skin-shadow);
+}
+
+:root:root .auth-panel::before {
+  height: 5px;
+  background: linear-gradient(90deg, transparent 4%, var(--accent) 28%, var(--accent) 72%, transparent 96%);
+}
+
+:root:root .auth-panel .auth-form {
+  background: color-mix(in srgb, var(--classic-panel) 55%, transparent);
+}
+
+:root:root .auth-panel .auth-form input {
+  background: var(--surface-muted);
+}
+
+:root:root .auth-panel .auth-submit {
+  min-height: 52px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+}
+
+:root:root .auth-panel .auth-submit:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 :root:root .modern-section-heading h2,
