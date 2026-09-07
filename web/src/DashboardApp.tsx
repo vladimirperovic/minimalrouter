@@ -15,7 +15,7 @@ import "./ClassicDashboard.css";
 import "./components/DashboardAdditions.css";
 
 const navigationGroups: Array<{ label: string; items: Array<[SectionID, string]> }> = [
-  { label: "Monitor", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
+  { label: "", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
   { label: "Protect", items: [["firewall", "Firewall"], ["security", "Security"], ["dns-filter", "DNS Filter"]] },
   { label: "Connect", items: [["qos", "QoS / SQM"], ["wireguard", "WireGuard"], ["cloudflare", "DynDNS"], ["wifi", "Wi-Fi AP"]] },
   { label: "Operate", items: [["traffic", "Traffic"], ["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
@@ -605,8 +605,8 @@ function Dashboard() {
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
         <div className="dashboard-brand"><div className="dashboard-brand-title"><strong>minimalrouter</strong></div></div>
         <nav className="dashboard-navigation" aria-label="Router sections">
-          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label}>
-            <h2>{group.label}</h2>
+          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label || "top"}>
+            {group.label !== "" && <h2>{group.label}</h2>}
             <div>{group.items.map(([id, label]) => (
               <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
             ))}</div>
