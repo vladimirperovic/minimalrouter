@@ -394,7 +394,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       {pauseError && <div className="device-pause-error" role="alert">{pauseError}</div>}
 
       <div className="elegant-table-container">
-        <table className="elegant-device-table">
+        <table className="elegant-device-table device-lan-table">
           <colgroup><col className="elegant-col-num" /><col className="elegant-col-name" /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
           <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Lease / activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
@@ -407,14 +407,14 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
               return (
                 <tr className={`${row.hasLease ? "has-lease" : "is-history"}${pause ? " is-paused" : ""}`} key={row.key}>
                   <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>
-                  <td className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
-                  <td className="elegant-cell-ip">{row.ip_address}</td>
-                  <td className="elegant-cell-mac">{row.mac || "Unknown"}</td>
-                    <td className="elegant-cell-expires">
+                  <td data-label="Device" className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
+                  <td data-label="IP address" className="elegant-cell-ip">{row.ip_address}</td>
+                  <td data-label="MAC address" className="elegant-cell-mac">{row.mac || "Unknown"}</td>
+                    <td data-label="Lease / activity" className="elegant-cell-expires">
                       {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.hasLease ? <span className="device-activity-state is-lease">DHCP lease<small>{row.expires_at ? ` · expires ${formatRelativeFuture(row.expires_at)}` : " · no expiry"}</small></span> : <span className="device-activity-state is-history" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>{row.last_seen_epoch ? `Last seen ${formatLastSeen(row.last_seen_epoch)}` : "Previously seen"}</span>}
                     </td>
-                    {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
-                  <td className="elegant-cell-actions">
+                    {showData && <td data-label="Data" className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
+                  <td data-label="Actions" className="elegant-cell-actions">
                     <div className="device-row-actions">
                       {row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
                       {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog({ ...row.liveLease!, hostname: row.hostname })} className="device-reserve-button" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}

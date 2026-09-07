@@ -487,8 +487,6 @@ export default function ClassicOverview({
         <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
       </section>
 
-      <BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled} />
-
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
         <header className="overview-panel-header"><div><h2 id="quality-title">Gateway quality</h2><p>Live samples · rolling one-hour window</p></div><span className={`overview-live-state ${gatewayState === "healthy" ? "is-good" : "is-warning"}`}><i aria-hidden="true" />{gatewayState === "unknown" ? "Checking" : gatewayState}</span></header>
         <div className="overview-quality-plot">
@@ -514,6 +512,8 @@ export default function ClassicOverview({
         <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss.toFixed(1)}% throughout</strong></div><progress max="100" value={loss} /></div>
         <p className="overview-quality-note">Read-only WAN quality monitor</p>
       </section>
+
+      <BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled} />
     </div>
     {healthDetailsOpen && <HealthCheckDetails health={health} unavailable={healthUnavailable} sectionRef={healthDetailsRef} />}
   </section>;

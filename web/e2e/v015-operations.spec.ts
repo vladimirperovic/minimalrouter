@@ -167,7 +167,7 @@ for (const accountingEnabled of [false, true]) {
       const action = await row.locator(".device-row-actions button").first().boundingBox();
       expect(status).not.toBeNull();
       expect(action).not.toBeNull();
-      expect(status!.x + status!.width).toBeLessThanOrEqual(action!.x);
+      expect(status!.x + status!.width <= action!.x || status!.y + status!.height <= action!.y).toBe(true);
     }
     await expect(table.locator(".is-online, .is-offline")).toHaveCount(0);
     if (accountingEnabled) {
@@ -178,6 +178,33 @@ for (const accountingEnabled of [false, true]) {
     if (!accountingEnabled) await table.screenshot({ path: testInfo.outputPath("dhcp-presence.png") });
   });
 }
+
+test("LAN tables fit laptop and phone widths without horizontal scroll or clipped actions", async ({ page, isMobile }, testInfo) => {
+  await stubDashboard(page);
+  if (!isMobile) await page.setViewportSize({ width: 1280, height: 900 });
+  const config = structuredClone(CONFIG) as RouterConfig;
+  config.dhcp.static_leases = Array.from({ length: 12 }, (_, i) => ({ id: `test-${i}`, hostname: `Office computer with a long name ${i}`, mac: `02:00:00:00:00:${(i + 20).toString(16)}`, ip_address: `192.168.1.${i + 20}` }));
+  await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
+  await page.goto("/");
+  await openSection(page, isMobile, "LAN & DHCP");
+  await expect(page.locator(".static-leases tbody tr")).toHaveCount(12);
+  for (const selector of [".modern-device-section", ".static-leases"]) {
+    const card = page.locator(selector);
+    const overflow = await card.evaluate((element) => {
+      const container = element.querySelector(".elegant-table-container")!;
+      const boundary = container.getBoundingClientRect();
+      const actions = [...container.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+      return {
+        scroll: container.scrollWidth - container.clientWidth,
+        clippedActions: actions.some((rect) => rect.left < boundary.left || rect.right > boundary.right + 1),
+        clippedLastRow: container.querySelector("tbody tr:last-child")!.getBoundingClientRect().bottom > boundary.bottom + 1,
+      };
+    });
+    expect(overflow).toEqual({ scroll: 0, clippedActions: false, clippedLastRow: false });
+  }
+  await page.locator(".static-leases").screenshot({ path: testInfo.outputPath("reservations-fit.png") });
+  await page.locator(".modern-device-section").screenshot({ path: testInfo.outputPath("devices-fit.png") });
+});
 
 for (const name of [" office-tablet ", ""]) {
   test(`Reserve IP saves ${name ? "an edited" : "an optional empty"} device name and keeps concurrent reservations`, async ({ page, isMobile }, testInfo) => {
@@ -249,24 +276,29 @@ test("Every device search keeps the icon clear of placeholder and entered text",
 });
 
 for (const theme of ["light", "dark"]) {
-  test(`Overview orders three cards and keeps boot text readable in ${theme} mode`, async ({ page, isMobile }, testInfo) => {
+  test(`Overview arranges four cards in two rows and keeps boot text readable in ${theme} mode`, async ({ page, isMobile }, testInfo) => {
     await stubDashboard(page);
     await page.addInitScript((theme) => localStorage.setItem("minimalrouter:theme", theme), theme);
     if (!isMobile) await page.setViewportSize({ width: 1600, height: 1100 });
     await page.goto("/");
     const grid = page.locator(".overview-content-grid");
-    await expect(grid.locator(":scope > section > header h2")).toHaveText(["Live bandwidth", "Appliance resources", "Boot activity", "Gateway quality"]);
+    await expect(grid.locator(":scope > section > header h2")).toHaveText(["Live bandwidth", "Appliance resources", "Gateway quality", "Boot activity"]);
     const cards = grid.locator(":scope > section");
-    const boxes = await Promise.all([0, 1, 2].map((index) => cards.nth(index).boundingBox()));
+    const boxes = await Promise.all([0, 1, 2, 3].map((index) => cards.nth(index).boundingBox()));
     expect(boxes.every(Boolean)).toBe(true);
     if (isMobile) {
       expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[1]!.y);
       expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[2]!.y);
+      expect(boxes[2]!.y + boxes[2]!.height).toBeLessThanOrEqual(boxes[3]!.y);
     } else {
       expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
-      expect(Math.abs(boxes[1]!.y - boxes[2]!.y)).toBeLessThan(1);
+      expect(Math.abs(boxes[2]!.y - boxes[3]!.y)).toBeLessThan(1);
+      expect(Math.abs(boxes[0]!.x - boxes[2]!.x)).toBeLessThan(1);
+      expect(Math.abs(boxes[1]!.x - boxes[3]!.x)).toBeLessThan(1);
+      expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[2]!.y);
+      expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[3]!.y);
       expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x);
-      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x);
+      expect(boxes[2]!.x + boxes[2]!.width).toBeLessThanOrEqual(boxes[3]!.x);
     }
     const terminal = page.locator(".boot-terminal");
     await expect(terminal.getByText("System", { exact: true })).toBeVisible();
