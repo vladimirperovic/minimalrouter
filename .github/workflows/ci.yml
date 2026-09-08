@@ -151,6 +151,11 @@ jobs:
         run: go mod verify
       - name: Run Go tests with race detector
         run: go test -race ./...
+
+      - name: Verify permanent migration worker privilege drop
+        run: |
+          go test -c ./internal/recovery -o /tmp/minimalrouter-recovery-tests
+          sudo /tmp/minimalrouter-recovery-tests -test.run '^TestMigrationWorkerLinuxPrivilegeBoundary$' -test.v
       - name: Run Go vet
         run: go vet ./...
       - name: Install pinned govulncheck
