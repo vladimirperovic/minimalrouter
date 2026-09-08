@@ -66,7 +66,9 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
   await page.screenshot({path:test.info().outputPath('security.png'),fullPage:true});
   await page.goto('/#network');await expect(page.locator('.modern-device-section tbody tr')).toHaveCount(20);
   if(width>=1440){expect(await page.locator('.modern-device-section .elegant-table-container').evaluate(e=>e.scrollWidth-e.clientWidth)).toBeLessThanOrEqual(1);const first=page.locator('.modern-device-section tbody tr').first();expect(await first.locator('.elegant-device-identity').evaluate(e=>getComputedStyle(e).flexWrap)).toBe('nowrap');await expect(first.locator('.device-hostname')).toHaveAttribute('title','Example-Notebook-Pro');}
-  await page.screenshot({path:test.info().outputPath('network.png'),fullPage:true});
+  // Long device lists at iPhone's 3x scale exceed Linux WebKit's 32767px
+  // screenshot limit. CSS scale preserves the full layout and its assertions.
+  await page.screenshot({path:test.info().outputPath('network.png'),fullPage:true,scale:'css'});
   expect(writes).toEqual([]);expect(errors).toEqual([]);
  });
 }
