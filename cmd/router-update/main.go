@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
+	"github.com/vladimirperovic/minimalrouter/internal/runtimebudget"
 )
 
 const (
@@ -43,6 +45,42 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
+	case "startup-budget":
+		if len(args) != 1 {
+			return 2
+		}
+		fmt.Fprintln(stdout, int(runtimebudget.Startup/time.Second))
+		return 0
+	case "install-preflight", "install-begin", "install-baseline":
+		if !requireRoot() {
+			return 1
+		}
+		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
+		fs.SetOutput(stderr)
+		directory := fs.String("dir", "", "root-trusted full distribution directory")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if *directory == "" || fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "ERROR: full installer requires --dir")
+			return 2
+		}
+		inventory, minimum, err := inspectInstallation(manager, *directory, systemRoot)
+		if err == nil && args[0] == "install-begin" {
+			err = manager.BeginInstallation(minimum)
+		}
+		if err == nil && args[0] == "install-baseline" {
+			err = syncInstalledIntegration(*directory, systemRoot)
+			if err == nil {
+				err = manager.InstallBaseline(*directory, inventory, minimum)
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "ERROR: full installer: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "Full installer trust/layout preflight passed; minimum version:", minimum)
+		return 0
 	case "stage":
 		if !requireRoot() {
 			return 1
@@ -126,7 +164,7 @@ func run(args []string, euid int, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "ERROR: rollback requires --confirm ROLLBACK-UPDATE")
 			return 2
 		}
-		if err := rollbackAndRestart(manager); err != nil {
+		if err := rollbackAndRestart(manager, systemRoot); err != nil {
 			fmt.Fprintf(stderr, "ERROR: %v\n", err)
 			return 1
 		}
@@ -174,5 +212,9 @@ func usage(w io.Writer) {
   activate --version VERSION --confirm ACTIVATE-UPDATE
   rollback --confirm ROLLBACK-UPDATE
   status
+  startup-budget
+  install-preflight --dir PATH
+  install-begin --dir PATH
+  install-baseline --dir PATH
   help`)
 }

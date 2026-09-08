@@ -117,7 +117,7 @@ test("Gateway Health exposes measured availability, IP changes and fixed recover
   await expect(page.getByText("WAN reconnect completed.")).toBeVisible();
 });
 
-test("Connected devices shows activity and sends a timed Internet pause", async ({ page, isMobile }) => {
+test("Known devices shows activity and sends a timed Internet pause", async ({ page, isMobile }) => {
   await stubDashboard(page);
   let pauseRequest: { ip?: string; seconds?: number } = {};
   await page.route("**/api/v1/devices/pause", async (route) => {
@@ -128,13 +128,82 @@ test("Connected devices shows activity and sends a timed Internet pause", async 
   await page.goto("/");
   await openSection(page, isMobile, "LAN & DHCP");
   const row = page.getByRole("row", { name: /Kids iPad/ });
-  await expect(row).toContainText("Online");
+  await expect(row).toContainText("DHCP lease");
+  await expect(row).not.toContainText("Online");
   await expect(row).toContainText("New");
   await row.getByRole("button", { name: "Pause Internet" }).click();
   await page.getByRole("button", { name: "15 min" }).click();
   await expect.poll(() => pauseRequest).toEqual({ ip: "192.168.1.60", seconds: 900 });
   await expect(row).toContainText("Paused");
   await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
+});
+
+for (const accountingEnabled of [false, true]) {
+  test(`DHCP leases do not imply presence after a MAC change (accounting ${accountingEnabled})`, async ({ page, isMobile }, testInfo) => {
+    await stubDashboard(page);
+    const oldLease = { hostname: "test-laptop", mac: "02:00:00:00:00:14", ip_address: "192.168.1.14", expires_at: CURRENT_EPOCH + 43_200 };
+    const newLease = { hostname: "", mac: "02:00:00:00:00:36", ip_address: "192.168.1.236", expires_at: 0 };
+    const config = structuredClone(CONFIG) as RouterConfig;
+    config.accounting = { ...CONFIG.accounting, enabled: accountingEnabled };
+    config.dhcp.static_leases = [{ id: "test-reservation", hostname: oldLease.hostname, mac: oldLease.mac, ip_address: oldLease.ip_address }];
+    await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
+    await page.route("**/api/v1/system", (route) => route.fulfill({ json: { ...SYSTEM, runtime: { ...SYSTEM.runtime, dhcp_leases: [oldLease, newLease] } } }));
+    await page.goto("/");
+    await openSection(page, isMobile, "LAN & DHCP");
+    const table = page.locator(".modern-device-section");
+    await expect(table.getByRole("heading", { name: "Known devices" })).toBeVisible();
+    await expect(table).toContainText("2 DHCP leases · 1 static reservation");
+    await expect(table).toContainText("It does not confirm that the device is online.");
+    const oldRow = table.getByRole("row", { name: /test-laptop/ });
+    await expect(oldRow).toContainText("192.168.1.14");
+    await expect(oldRow).toContainText("DHCP lease · expires in");
+    await expect(oldRow).not.toContainText(/Online|Last seen|just now/);
+    await expect(oldRow.getByRole("button", { name: "Wake test-laptop" })).toBeVisible();
+    const newRow = table.getByRole("row", { name: /192\.168\.1\.236/ });
+    await expect(newRow).toContainText("DHCP lease · no expiry");
+    await expect(newRow).not.toContainText("Static");
+    for (const row of [oldRow, newRow]) {
+      const status = await row.locator(".device-activity-state").boundingBox();
+      const action = await row.locator(".device-row-actions button").first().boundingBox();
+      expect(status).not.toBeNull();
+      expect(action).not.toBeNull();
+      expect(status!.x + status!.width <= action!.x || status!.y + status!.height <= action!.y).toBe(true);
+    }
+    await expect(table.locator(".is-online, .is-offline")).toHaveCount(0);
+    if (accountingEnabled) {
+      const history = table.getByRole("row", { name: /Kids iPad/ });
+      await expect(history).toContainText("Last seen");
+      await expect(history).not.toContainText(/Online|Offline|DHCP lease/);
+    }
+    if (!accountingEnabled) await table.screenshot({ path: testInfo.outputPath("dhcp-presence.png") });
+  });
+}
+
+test("LAN tables fit laptop and phone widths without horizontal scroll or clipped actions", async ({ page, isMobile }, testInfo) => {
+  await stubDashboard(page);
+  if (!isMobile) await page.setViewportSize({ width: 1280, height: 900 });
+  const config = structuredClone(CONFIG) as RouterConfig;
+  config.dhcp.static_leases = Array.from({ length: 12 }, (_, i) => ({ id: `test-${i}`, hostname: `Office computer with a long name ${i}`, mac: `02:00:00:00:00:${(i + 20).toString(16)}`, ip_address: `192.168.1.${i + 20}` }));
+  await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
+  await page.goto("/");
+  await openSection(page, isMobile, "LAN & DHCP");
+  await expect(page.locator(".static-leases tbody tr")).toHaveCount(12);
+  for (const selector of [".modern-device-section", ".static-leases"]) {
+    const card = page.locator(selector);
+    const overflow = await card.evaluate((element) => {
+      const container = element.querySelector(".elegant-table-container")!;
+      const boundary = container.getBoundingClientRect();
+      const actions = [...container.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
+      return {
+        scroll: container.scrollWidth - container.clientWidth,
+        clippedActions: actions.some((rect) => rect.left < boundary.left || rect.right > boundary.right + 1),
+        clippedLastRow: container.querySelector("tbody tr:last-child")!.getBoundingClientRect().bottom > boundary.bottom + 1,
+      };
+    });
+    expect(overflow).toEqual({ scroll: 0, clippedActions: false, clippedLastRow: false });
+  }
+  await page.locator(".static-leases").screenshot({ path: testInfo.outputPath("reservations-fit.png") });
+  await page.locator(".modern-device-section").screenshot({ path: testInfo.outputPath("devices-fit.png") });
 });
 
 for (const name of [" office-tablet ", ""]) {
@@ -207,24 +276,29 @@ test("Every device search keeps the icon clear of placeholder and entered text",
 });
 
 for (const theme of ["light", "dark"]) {
-  test(`Overview orders three cards and keeps boot text readable in ${theme} mode`, async ({ page, isMobile }, testInfo) => {
+  test(`Overview arranges four cards in two rows and keeps boot text readable in ${theme} mode`, async ({ page, isMobile }, testInfo) => {
     await stubDashboard(page);
     await page.addInitScript((theme) => localStorage.setItem("minimalrouter:theme", theme), theme);
     if (!isMobile) await page.setViewportSize({ width: 1600, height: 1100 });
     await page.goto("/");
     const grid = page.locator(".overview-content-grid");
-    await expect(grid.locator(":scope > section > header h2")).toHaveText(["Live bandwidth", "Appliance resources", "Boot activity", "Gateway quality"]);
+    await expect(grid.locator(":scope > section > header h2")).toHaveText(["Live bandwidth", "Appliance resources", "Gateway quality", "Boot activity"]);
     const cards = grid.locator(":scope > section");
-    const boxes = await Promise.all([0, 1, 2].map((index) => cards.nth(index).boundingBox()));
+    const boxes = await Promise.all([0, 1, 2, 3].map((index) => cards.nth(index).boundingBox()));
     expect(boxes.every(Boolean)).toBe(true);
     if (isMobile) {
       expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[1]!.y);
       expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[2]!.y);
+      expect(boxes[2]!.y + boxes[2]!.height).toBeLessThanOrEqual(boxes[3]!.y);
     } else {
       expect(Math.abs(boxes[0]!.y - boxes[1]!.y)).toBeLessThan(1);
-      expect(Math.abs(boxes[1]!.y - boxes[2]!.y)).toBeLessThan(1);
+      expect(Math.abs(boxes[2]!.y - boxes[3]!.y)).toBeLessThan(1);
+      expect(Math.abs(boxes[0]!.x - boxes[2]!.x)).toBeLessThan(1);
+      expect(Math.abs(boxes[1]!.x - boxes[3]!.x)).toBeLessThan(1);
+      expect(boxes[0]!.y + boxes[0]!.height).toBeLessThanOrEqual(boxes[2]!.y);
+      expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[3]!.y);
       expect(boxes[0]!.x + boxes[0]!.width).toBeLessThanOrEqual(boxes[1]!.x);
-      expect(boxes[1]!.x + boxes[1]!.width).toBeLessThanOrEqual(boxes[2]!.x);
+      expect(boxes[2]!.x + boxes[2]!.width).toBeLessThanOrEqual(boxes[3]!.x);
     }
     const terminal = page.locator(".boot-terminal");
     await expect(terminal.getByText("System", { exact: true })).toBeVisible();

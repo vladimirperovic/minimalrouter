@@ -13,9 +13,15 @@ fi
 
 # 2. Install system dependencies from the pinned repository.
 apk update
-apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping ca-certificates openssh-server \
+apk add --no-cache nftables ppp ppp-pppoe dnsmasq-dnssec-nftset iproute2 iputils-ping ca-certificates openssh-server \
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc logrotate
+
+dnsmasq_options="$(dnsmasq --version)" || exit 1
+if ! printf '%s\n' "$dnsmasq_options" | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)'; then
+    echo "ERROR: dnsmasq lacks required NFTSET support" >&2
+    exit 1
+fi
 
 # A real Proxmox PPPoE pilot on 2026-08-01 exposed that the candidate
 # linux-virt kernel did not provide the PPPoE kernel module required by pppd.

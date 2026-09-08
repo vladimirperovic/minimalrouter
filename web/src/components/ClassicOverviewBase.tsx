@@ -169,15 +169,8 @@ export default function ClassicOverview({
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
   const [wanEstimate, setWanEstimate] = useState<WANSpeedEstimate | null>(storedWANEstimate);
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
-  const healthDetailsRef = useRef<HTMLElement>(null);
-
   const toggleHealthDetails = () => {
-    setHealthDetailsOpen((open) => {
-      // Only scroll on the way in. Scrolling as the panel closes would move the
-      // page out from under the reader who just dismissed it.
-      if (!open) window.setTimeout(() => healthDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-      return !open;
-    });
+    setHealthDetailsOpen((open) => !open);
   };
 
   useEffect(() => {
@@ -448,7 +441,10 @@ export default function ClassicOverview({
       </footer>
     </article>
 
-    <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} />
+    <div className="overview-health-drawer">
+      <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} />
+      {healthDetailsOpen && <HealthCheckDetails health={health} unavailable={healthUnavailable} />}
+    </div>
 
     <section className="overview-diagnostic-strip" aria-label="Appliance diagnostics">
       <div><OverviewIcon name="traffic" /><span><small>Conntrack</small><strong>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}<em>{typeof runtime.conntrack_usage_percent === "number" ? `${runtime.conntrack_usage_percent.toFixed(2)}% utilized` : ""}</em></strong></span></div>
@@ -487,8 +483,6 @@ export default function ClassicOverview({
         <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
       </section>
 
-      <BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled} />
-
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
         <header className="overview-panel-header"><div><h2 id="quality-title">Gateway quality</h2><p>Live samples · rolling one-hour window</p></div><span className={`overview-live-state ${gatewayState === "healthy" ? "is-good" : "is-warning"}`}><i aria-hidden="true" />{gatewayState === "unknown" ? "Checking" : gatewayState}</span></header>
         <div className="overview-quality-plot">
@@ -514,7 +508,8 @@ export default function ClassicOverview({
         <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss.toFixed(1)}% throughout</strong></div><progress max="100" value={loss} /></div>
         <p className="overview-quality-note">Read-only WAN quality monitor</p>
       </section>
+
+      <BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled} />
     </div>
-    {healthDetailsOpen && <HealthCheckDetails health={health} unavailable={healthUnavailable} sectionRef={healthDetailsRef} />}
   </section>;
 }

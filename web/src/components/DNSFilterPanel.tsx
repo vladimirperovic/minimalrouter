@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { apiFetch } from "../lib/api";
+import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
 import {
   createDefaultKidsGrid,
   createEmptyGrid,
@@ -20,8 +20,9 @@ type Props = {
 };
 
 export default function DNSFilterPanel({ apiConnected, onError }: Props) {
-  const [enabled, setEnabled] = useState(false);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
+  const config = useConfiguration();
+  const enabled = Boolean(config?.adguard.enabled);
+  const profiles = (config?.adguard.device_profiles || []) as DeviceProfile[];
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("Kids");
@@ -45,20 +46,6 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   useEffect(() => {
-    if (!apiConnected) return;
-    void apiFetch("/api/v1/config")
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`Configuration load failed (${response.status})`);
-        return response.json();
-      })
-      .then((config) => {
-        setEnabled(Boolean(config.adguard?.enabled));
-        setProfiles(Array.isArray(config.adguard?.device_profiles) ? config.adguard.device_profiles : []);
-      })
-      .catch((error) => onError(error instanceof Error ? error.message : "DNS Filter configuration unavailable"));
-  }, [apiConnected, onError]);
-
-  useEffect(() => {
     const stopDrag = () => { dragValue.current = null; };
     window.addEventListener("pointerup", stopDrag);
     return () => window.removeEventListener("pointerup", stopDrag);
@@ -66,24 +53,29 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
 
   const persist = async (nextEnabled: boolean, nextProfiles: DeviceProfile[]) => {
     if (!apiConnected) throw new Error("Router API is unavailable.");
-    const currentResponse = await apiFetch("/api/v1/config");
-    if (!currentResponse.ok) throw new Error(`Configuration load failed (${currentResponse.status})`);
-    const config = await currentResponse.json();
+    const config = await readConfiguration({ cache: "reload" });
     config.adguard = {
       ...config.adguard,
       enabled: nextEnabled,
       filter_devices: [],
       device_profiles: nextProfiles,
     };
-    const response = await apiFetch("/api/v1/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `DNS Filter apply failed (${response.status})`);
-    setEnabled(nextEnabled);
-    setProfiles(nextProfiles);
+    const result = await previewAndApplyConfig(config);
+    return !result.cancelled;
+  };
+
+  const saveResolvers = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const resolvers = String(form.get("resolvers") || "").split(/[\s,]+/).filter(Boolean);
+    setSaving(true);
+    try {
+      const next = await readConfiguration({ cache: "reload" });
+      next.dhcp.dns_servers = resolvers;
+      const result = await previewAndApplyConfig(next);
+      if (!result.cancelled) onError("");
+    } catch (error) { onError(error instanceof Error ? error.message : "DNS update failed"); }
+    finally { setSaving(false); }
   };
 
   const closeModal = () => {
@@ -138,11 +130,11 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
       });
       if (editingId) {
         const existing = profiles.find((item) => item.id === editingId);
-        await persist(true, profiles.map((item) => (
+        if (!await persist(true, profiles.map((item) => (
           item.id === editingId ? { ...profile, enabled: existing?.enabled ?? true } : item
-        )));
+        )))) return;
       } else {
-        await persist(true, [...profiles, profile]);
+        if (!await persist(true, [...profiles, profile])) return;
       }
       closeModal();
       onError("");
@@ -208,8 +200,13 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   return (
     <section className="section-block dns-filter" id="adguard">
       <div className="section-heading dns-filter-heading has-facts">
-        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>Scheduled service access</h2><p className="dns-filter-intro">Devices use static LAN addresses. DNS answers populate nftables sets, and the firewall applies service schedules per device.</p></div><div className="dns-filter-actions"><button className="button secondary" disabled={!apiConnected || saving} onClick={toggleGlobal} type="button">{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Add device profile</button></div></div>
+        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>Scheduled service access</h2><p className="dns-filter-intro">Devices use static LAN addresses. DNS answers populate nftables sets, and the firewall applies service schedules per device.</p></div><div className="dns-filter-actions"><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Add device profile</button></div></div>
         <dl className="subpage-hero-facts"><div><dt>Filtering</dt><dd>{enabled ? "Active" : "Disabled"}</dd><small>DNS and firewall policy</small></div><div><dt>Profiles</dt><dd>{profiles.length}</dd><small>configured devices</small></div><div><dt>Active profiles</dt><dd>{profiles.filter((profile) => profile.enabled).length}</dd><small>scheduled policies</small></div><div><dt>Services</dt><dd>{new Set(profiles.flatMap((profile) => profile.services)).size}</dd><small>unique service groups</small></div></dl>
+      </div>
+
+      <div className="dns-settings-columns">
+      <section className="settings-column-card" aria-label="DNS configuration"><header><h2>Configuration</h2><p>Set the resolvers used by your network.</p></header><form className="settings-form" key={(config?.dhcp.dns_servers || []).join(",")} onSubmit={saveResolvers}><label className="field"><span>Upstream DNS resolvers</span><textarea name="resolvers" rows={4} required defaultValue={(config?.dhcp.dns_servers || []).join("\n")} placeholder="1.1.1.1\n9.9.9.9"/><small>One IP address per line. All configured resolvers are retained.</small></label><button className="button primary" disabled={!apiConnected || saving} type="submit">{saving ? "Applying…" : "Save changes"}</button></form><p className="settings-safety-note">Resolver changes use the same validation and connectivity safeguards as LAN settings.</p></section>
+      <section className="settings-column-card" aria-label="DNS preferences"><header><h2>Preferences</h2><p>Choose how scheduled access applies to your devices.</p></header><div className="dns-preference-row"><div><strong>DNS filtering</strong><p>Apply the scheduled service policies configured for your devices.</p></div><button className="button secondary" disabled={!apiConnected || saving} type="button" onClick={toggleGlobal}>{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button></div><div className="dns-preference-row"><div><strong>Device profiles</strong><p>{profiles.length} configured · {profiles.filter(p => p.enabled).length} active. Each profile retains its devices, services and full weekly schedule.</p></div><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Create a device profile</button></div><p className="settings-safety-note">Edit, pause or remove individual policies in the device table below.</p></section>
       </div>
 
       <article className="card table-card">

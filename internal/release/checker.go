@@ -74,6 +74,7 @@ type Checker struct {
 	lastAttempt  time.Time
 	backoffUntil time.Time
 	failures     int
+	releases     []Release
 }
 
 // NewChecker builds a checker for one architecture and a channel that the
@@ -116,6 +117,7 @@ func (c *Checker) Snapshot() Snapshot {
 	defer c.mu.Unlock()
 	snapshot := c.snapshot
 	snapshot.Channel = c.channel()
+	snapshot.Newest, snapshot.Candidate = SelectNewest(c.releases, snapshot.Channel, c.arch)
 	snapshot.StaleAfter = c.StaleAfter
 	snapshot.NeverSucceeded = c.snapshot.LastSuccessAt.IsZero()
 	snapshot.NextEarliest = c.backoffUntil
@@ -191,12 +193,13 @@ func (c *Checker) check(ctx context.Context) error {
 	c.snapshot.Error = ""
 	c.snapshot.RateLimited = false
 	c.snapshot.LastSuccessAt = now
-	if result.NotModified {
-		// The list is unchanged: the previous selection still stands.
-		return nil
+	if !result.NotModified {
+		c.etag = result.ETag
+		c.releases = append([]Release(nil), result.Releases...)
 	}
-	c.etag = result.ETag
-	newest, candidate := SelectNewest(result.Releases, channel, c.arch)
+	// Channel may change during Fetch or a cooldown/backoff. Snapshot also
+	// selects from this catalog, so 304 never retains another channel's result.
+	newest, candidate := SelectNewest(c.releases, c.channel(), c.arch)
 	c.snapshot.Newest = newest
 	c.snapshot.Candidate = candidate
 	return nil

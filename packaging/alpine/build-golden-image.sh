@@ -77,11 +77,17 @@ $SUDO tar --numeric-owner -xzf "$ROOTFS" -C "$MNT"
 
 # Golden-image-only first boot. router-setup is intentionally retained here even
 # though the normal distribution installer does not need it after provisioning.
-$SUDO install -m 0755 packaging/alpine/firstboot.sh "$MNT/usr/libexec/minimalrouter/firstboot"
-$SUDO install -m 0755 packaging/alpine/firstboot.initd "$MNT/etc/init.d/minimalrouter-firstboot"
+$SUDO install -m 0755 build/dist/minimalrouter-linux-amd64/firstboot "$MNT/usr/libexec/minimalrouter/firstboot"
+$SUDO install -m 0755 build/dist/minimalrouter-linux-amd64/init.d/minimalrouter-firstboot "$MNT/etc/init.d/minimalrouter-firstboot"
 $SUDO ln -sf /etc/init.d/minimalrouter-firstboot "$MNT/etc/runlevels/default/minimalrouter-firstboot"
 $SUDO install -m 0755 "build/dist/minimalrouter-linux-amd64/bin/router-setup-amd64" "$MNT/usr/sbin/router-setup"
 $SUDO rm -f "$MNT/etc/minimalrouter/firstboot-complete"
+# Ordering alone is not success dependency. Network/SSH must stop when the
+# firstboot service fails, even after an operator exits its recovery shell.
+for service in networking sshd; do
+    printf '\nrc_need="${rc_need} minimalrouter-firstboot"\n' | $SUDO tee -a "$MNT/etc/conf.d/$service" >/dev/null
+done
+
 
 cat > "$BUILD_DIR/golden-fstab" <<EOF
 UUID=$ROOT_UUID / ext4 defaults,noatime 0 1

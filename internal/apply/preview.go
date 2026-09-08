@@ -2,7 +2,6 @@ package apply
 
 import (
 	"fmt"
-	"reflect"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
@@ -34,11 +33,8 @@ func PreviewTransition(current, candidate config.SystemConfig) (ChangePreview, e
 	if candidate.System.ManagementAccess == "wireguard_only" && current.System.ManagementAccess != "wireguard_only" && !current.WireGuard.Enabled {
 		return ChangePreview{}, fmt.Errorf("enable and verify WireGuard in a separate transaction before restricting management access")
 	}
-	if err := candidate.Validate(); err != nil {
+	if err := config.ValidateLiveCandidate(candidate, &current); err != nil {
 		return ChangePreview{}, fmt.Errorf("validation failed: %w", err)
-	}
-	if err := candidate.ValidateScenarioSafety(); err != nil {
-		return ChangePreview{}, fmt.Errorf("scenario safety validation failed: %w", err)
 	}
 	if err := validateTransitionSafety(current, candidate); err != nil {
 		return ChangePreview{}, fmt.Errorf("transition safety validation failed: %w", err)
@@ -93,7 +89,7 @@ func changedSections(current, candidate config.SystemConfig) []string {
 	}
 	changes := make([]string, 0, len(sections))
 	for _, item := range sections {
-		if !reflect.DeepEqual(item.a, item.b) {
+		if !config.EqualSection(item.a, item.b) {
 			changes = append(changes, item.name)
 		}
 	}

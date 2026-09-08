@@ -88,23 +88,13 @@ func (ve ValidationErrors) Error() string {
 	return strings.Join(msgs, "; ")
 }
 
-// ValidateChangesFrom reports only the problems this configuration introduces
-// relative to previous.
-//
-// Plain Validate answers "is this configuration correct". That is the wrong
-// question for an incoming edit, because the stored configuration is not always
-// correct: an appliance upgraded from an older release can be carrying values
-// that a newer, stricter rule now rejects. Validate then fails for every write,
-// including writes that have nothing to do with the offending field, and the
-// dashboard becomes read-only with no way out of the state through the UI --
-// even the edit that would fix the field is refused, because the request
-// carries the whole configuration and the other stale fields still fail.
-//
-// So an error is fatal only when this change is what caused it. A fault that
-// was already stored stays reported by GET /config and by the health surface,
-// but it no longer blocks unrelated work. Anything the change actually breaks
-// is still rejected, and the scenario-safety and transition-safety gates run
-// unconditionally either way.
+// ValidateChangesFrom reports introduced problems for diagnostic comparisons.
+// It is NOT an admission check: inherited errors still make a candidate unsafe
+// to persist or boot. Preview, apply, persistence and startup must use Validate.
+// Legacy migration is limited to MigrateLegacyFields' explicit deterministic
+// transformations; remaining faults require local migration to a fully valid
+// baseline before live activation (see ValidateLiveCandidate). Missing secrets and unsafe network policy are
+// never guessed, silently disabled, or grandfathered into a new revision.
 func (c *SystemConfig) ValidateChangesFrom(previous *SystemConfig) error {
 	err := c.Validate()
 	if err == nil || previous == nil {

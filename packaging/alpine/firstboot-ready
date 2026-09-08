@@ -1,0 +1,25 @@
+#!/bin/sh
+# Golden-image-only admission check. A root marker alone is not provisioning.
+set -eu
+if [ -e /var/lib/minimalrouter-migration/pending.json ] || [ -L /var/lib/minimalrouter-migration/pending.json ]; then
+    echo 'ERROR: offline migration is incomplete; finish it from local recovery' >&2
+    exit 1
+fi
+if [ -e /var/lib/minimalrouter-update/installation.json ] || [ -L /var/lib/minimalrouter-update/installation.json ]; then
+    echo 'ERROR: full installation is incomplete; finish the full installer from local recovery' >&2
+    exit 1
+fi
+[ -f /etc/minimalrouter/installed ] || exit 0
+case "${1:-}" in ''|--provisioned) ;; *) exit 2;; esac
+if [ "${1:-}" != --provisioned ]; then
+done_file=/etc/minimalrouter/firstboot-complete
+[ -f "$done_file" ] && [ ! -L "$done_file" ] && [ -s "$done_file" ] || exit 1
+[ "$(stat -c '%u:%a' "$done_file")" = 0:600 ] || exit 1
+grep -q '^version=.' "$done_file"
+grep -q '^configured_at=.' "$done_file"
+fi
+/usr/sbin/router-setup verify --data-dir /var/lib/minimalrouter
+# No empty/locked root credential may accidentally accompany a success marker.
+awk -F: '$1 == "root" && $2 != "" && $2 !~ /^[!*]/ {ok=1} END {exit !ok}' /etc/shadow
+test -s /etc/ssh/ssh_host_ed25519_key
+/usr/sbin/sshd -t

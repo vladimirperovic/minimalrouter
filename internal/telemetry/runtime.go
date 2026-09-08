@@ -43,6 +43,7 @@ type RuntimeStatus struct {
 	WireguardActivePeers  int                    `json:"wireguard_active_peers,omitempty"`
 	WireguardPeers        []WireGuardPeerStatus  `json:"wireguard_peers,omitempty"`
 	WireGuardClient       *WireGuardClientStatus `json:"wireguard_client,omitempty"`
+	QoS                   QoSStatus              `json:"qos"`
 	DDNS                  DDNSStatus             `json:"ddns"`
 }
 

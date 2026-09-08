@@ -1,6 +1,6 @@
-import { type FormEvent, useEffect, useState } from "react";
-import { apiFetch } from "../lib/api";
-import type { PortForwardRule, RouterConfig } from "../api-types";
+import { type FormEvent, useState } from "react";
+import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
+import type { PortForwardRule } from "../api-types";
 
 interface Props {
   onError: (message: string) => void;
@@ -21,13 +21,11 @@ const isValidIPv4 = (value: string): boolean => {
 };
 
 export default function PortForwardsPanel({ onError }: Props) {
-  const [rules, setRules] = useState<PortForwardRule[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  // Forwards are DNAT rules bound to the WireGuard server interface, so without
-  // an enabled tunnel there is no entry point and validation rejects them.
-  // Reflect that here instead of letting every submit fail server-side.
-  const [tunnelEnabled, setTunnelEnabled] = useState(false);
-  const [tunnelAddress, setTunnelAddress] = useState("");
+  const config = useConfiguration();
+  const rules = config?.firewall.port_forwards || [];
+  const loaded = config !== null;
+  const tunnelEnabled = Boolean(config?.wireguard.enabled);
+  const tunnelAddress = config?.wireguard.address.split("/")[0] || "";
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [protocol, setProtocol] = useState("tcp");
@@ -36,43 +34,18 @@ export default function PortForwardsPanel({ onError }: Props) {
   const [internalPort, setInternalPort] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const load = async () => {
-    try {
-      const response = await apiFetch("/api/v1/config");
-      if (!response.ok) throw new Error(`Configuration load failed (${response.status})`);
-      const config = (await response.json()) as RouterConfig;
-      setRules(Array.isArray(config.firewall?.port_forwards) ? config.firewall.port_forwards : []);
-      setTunnelEnabled(Boolean(config.wireguard?.enabled));
-      setTunnelAddress(String(config.wireguard?.address || "").split("/")[0]);
-      setLoaded(true);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : "Port forwards configuration unavailable");
-    }
-  };
-
   const persist = async (next: PortForwardRule[]) => {
     setSaving(true);
     try {
-      const currentResponse = await apiFetch("/api/v1/config");
-      if (!currentResponse.ok) throw new Error(`Configuration load failed (${currentResponse.status})`);
-      const config = (await currentResponse.json()) as RouterConfig;
-      config.firewall = config.firewall ?? ({} as RouterConfig["firewall"]);
+      const config = await readConfiguration({ cache: "reload" });
       config.firewall.port_forwards = next;
-      const response = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Port forwards apply failed (${response.status})`);
-      setRules(next);
+      const result = await previewAndApplyConfig(config);
+      if (result.cancelled) return false;
       onError("");
+      return true;
     } catch (error) {
       onError(error instanceof Error ? error.message : "Port forwards update failed");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -119,12 +92,12 @@ export default function PortForwardsPanel({ onError }: Props) {
       return;
     }
     if (editingId) {
-      await persist(rules.map((rule) => (
+      const saved = await persist(rules.map((rule) => (
         rule.id === editingId
           ? { ...rule, name: name.trim(), protocol, external_port: Number(externalPort), internal_ip: internalIP, internal_port: Number(internalPort) }
           : rule
       )));
-      cancelEdit();
+      if (saved) cancelEdit();
       return;
     }
     const rule: PortForwardRule = {
@@ -136,7 +109,7 @@ export default function PortForwardsPanel({ onError }: Props) {
       internal_port: Number(internalPort),
       enabled: true,
     };
-    await persist([...rules, rule]);
+    if (!await persist([...rules, rule])) return;
     setName("");
     setExternalPort("");
     setInternalIP("");

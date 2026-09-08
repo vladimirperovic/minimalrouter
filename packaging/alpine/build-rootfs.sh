@@ -8,39 +8,15 @@ command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required to build 
 rm -f "$OUT"
 repo="$(pwd)"
 
-# The v3.22 repositories can outlive the key set baked into a previously pulled
-# Alpine container. Alpine's documented recovery path for an UNTRUSTED index is
-# to bootstrap alpine-keys with --allow-untrusted, then immediately return to a
-# normal verified apk update. We do that once in a disposable container and tag
-# the verified result back as alpine:3.22 so every later ISO-builder docker run
-# (rootfs creation, APK fetch and offline-repo validation) uses the same keys.
-# No MinimalRouter package transaction is ever performed with --allow-untrusted.
-bootstrap_name="minimalrouter-apk-bootstrap-$$"
-bootstrap_image="minimalrouter/alpine-apk-client:3.22"
-cleanup_bootstrap() {
-  docker rm -f "$bootstrap_name" >/dev/null 2>&1 || true
-}
-trap cleanup_bootstrap EXIT INT TERM
-
+# Trust starts with the pulled official builder keyring. Repository metadata
+# and any key upgrades must verify under those keys; never recover a key
+# mismatch by accepting an unauthenticated replacement trust root.
 docker pull --platform linux/amd64 alpine:3.22 >/dev/null
-docker create --platform linux/amd64 --name "$bootstrap_name" alpine:3.22 \
-  /bin/sh -ec '
-    printf "%s\n" \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /etc/apk/repositories
-    apk update --allow-untrusted >/dev/null
-    apk fix --upgrade --allow-untrusted alpine-keys >/dev/null
-    apk update >/dev/null
-    apk --version
-  ' >/dev/null
-docker start -a "$bootstrap_name"
-docker commit "$bootstrap_name" "$bootstrap_image" >/dev/null
-docker tag "$bootstrap_image" alpine:3.22
-cleanup_bootstrap
-trap - EXIT INT TERM
 
 docker run --rm --platform linux/amd64 \
   -v "$repo:/work" -w /work alpine:3.22 /bin/sh -ec '
+    apk update
+    apk add --no-cache --upgrade alpine-keys
     ROOT=/tmp/rootfs
     rm -rf "$ROOT"; mkdir -p "$ROOT/etc/apk/keys"
     printf "%s\n" \
@@ -48,13 +24,13 @@ docker run --rm --platform linux/amd64 \
       https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /tmp/repos
 
     # apk --root verifies repositories using the target roots keyring, not the
-    # apk clients own /etc/apk/keys. Seed the freshly bootstrapped official
+    # apk clients own /etc/apk/keys. Seed the signature-verified official
     # Alpine keys before the very first target-root package transaction.
     cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
 
     apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
       --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs e2fsprogs-extra \
-      grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq \
+      grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq-dnssec-nftset \
       iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
       wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
       chrony chrony-openrc logrotate

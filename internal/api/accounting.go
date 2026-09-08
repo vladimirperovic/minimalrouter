@@ -3,13 +3,13 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
 // accountingRegistry mirrors the pattern already used for the gateway monitor:
@@ -36,6 +36,8 @@ func (s *Server) configuredAccountingStore() *accounting.Store {
 // RegisterAccountingRoutes exposes the read-only per-device usage summary.
 func (s *Server) RegisterAccountingRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
+	mux.HandleFunc("GET /api/v1/firewall/activity", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleFirewallActivity))))
+	mux.HandleFunc("GET /api/v1/accounting/insights", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleAccountingInsights))))
 	mux.HandleFunc("GET /api/v1/accounting", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetAccounting))))
 }
 
@@ -103,16 +105,15 @@ type deviceLabel struct {
 }
 
 func deviceLabels(cfg config.SystemConfig) map[string]deviceLabel {
+	return deviceLabelsFromLeases(cfg, telemetry.CurrentDHCPLeases())
+}
+
+func deviceLabelsFromLeases(cfg config.SystemConfig, leases []telemetry.DHCPLease) map[string]deviceLabel {
 	labels := map[string]deviceLabel{}
 	for _, lease := range cfg.DHCP.StaticLeases {
 		labels[lease.IPAddress] = deviceLabel{hostname: lease.Hostname, mac: lease.MAC}
 	}
-	dataDir := os.Getenv("MINIMALROUTER_DATA_DIR")
-	if dataDir == "" {
-		dataDir = "/var/lib/minimalrouter"
-	}
-	runtimeStatus := runtimeSnapshot(cfg.WAN.Interface, cfg.RuntimeLANInterface(), dataDir)
-	for _, lease := range runtimeStatus.DHCPLeases {
+	for _, lease := range leases {
 		existing, ok := labels[lease.IPAddress]
 		if ok && existing.hostname != "" {
 			continue
@@ -126,4 +127,48 @@ func writeAccountingJSON(w http.ResponseWriter, snapshot accounting.Snapshot) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(snapshot)
+}
+
+func (s *Server) handleAccountingInsights(w http.ResponseWriter, r *http.Request) {
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "today"
+	}
+	now := time.Now().UTC()
+	from, until, _, err := accounting.InsightsRange(now, period)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	cfg := s.engine.GetCurrentConfig()
+	store := s.configuredAccountingStore()
+	result := accounting.Insights{Available: store != nil, Enabled: cfg.Accounting.Enabled, Period: period, From: from, Until: until, Points: []accounting.UsagePoint{}, Devices: []accounting.DeviceUsage{}}
+	if store != nil && cfg.Accounting.Enabled {
+		result, err = store.Insights(now, period)
+		if err != nil {
+			http.Error(w, "Traffic history is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		labels := deviceLabels(cfg)
+		for i := range result.Devices {
+			if label, ok := labels[result.Devices[i].Address]; ok {
+				result.Devices[i].Hostname = label.hostname
+				result.Devices[i].MAC = label.mac
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) handleFirewallActivity(w http.ResponseWriter, r *http.Request) {
+	result, err := s.configuredAccountingStore().FirewallActivity(time.Now().UTC())
+	if err != nil {
+		http.Error(w, "Firewall activity unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(result)
 }

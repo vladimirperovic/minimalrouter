@@ -1,3 +1,15 @@
+.dashboard-app .device-view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-underline-offset: 4px;
+}
+
 .dashboard-app .elegant-table-container {
   overflow-x: auto;
 }
@@ -321,5 +333,167 @@
   .device-reservation-actions > div {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+.device-presence-note {
+  margin: -8px 0 16px;
+  padding: 0 24px;
+  color: var(--classic-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* LAN tables fit their card; actions wrap instead of forcing a scrollbar. */
+.dashboard-app .modern-device-section,
+.dashboard-app .static-leases {
+  container-type: inline-size;
+}
+
+.dashboard-app .modern-device-section .elegant-table-container,
+.dashboard-app .static-leases .elegant-table-container {
+  max-height: none;
+  overflow: visible;
+  scrollbar-gutter: auto;
+}
+
+.dashboard-app .device-lan-table tbody tr {
+  height: auto;
+}
+
+.dashboard-app .device-lan-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+#network .static-leases .device-lan-table {
+  table-layout: fixed;
+}
+
+.dashboard-app .device-lan-table td,
+.dashboard-app .device-lan-table td code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+:root:root .dashboard-app .device-lan-table tbody td {
+  padding: 12px;
+}
+
+:root:root .dashboard-app .device-lan-table .elegant-cell-num {
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+
+.dashboard-app .device-lan-table .device-row-actions {
+  display: grid;
+  grid-template-columns: 56px 104px 112px;
+  align-items: center;
+  gap: 8px;
+  justify-content: end;
+}
+
+.dashboard-app .device-lan-table .device-action-wake { grid-column: 1; grid-row: 1; }
+.dashboard-app .device-lan-table .device-action-reserve { grid-column: 2; grid-row: 1; }
+.dashboard-app .device-lan-table .device-pause-control,
+.dashboard-app .device-lan-table .device-row-actions > .device-pause-button { grid-column: 3; grid-row: 1; }
+
+:root:root .dashboard-app .device-lan-table .device-row-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--control-height-sm);
+  min-height: var(--control-height-sm);
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font: 600 12px/1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.dashboard-app .device-lan-table .elegant-device-identity {
+  flex-wrap: wrap;
+  overflow: visible;
+  white-space: normal;
+}
+
+.dashboard-app .device-lan-table .device-hostname {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-app .device-lan-table thead th {
+  padding-inline: 12px;
+}
+
+.dashboard-app .device-lan-table .elegant-th-num {
+  width: auto;
+  padding-inline: 8px;
+}
+
+.dashboard-app .device-lan-table .elegant-th-actions { text-align: left; }
+
+.dashboard-app .device-lan-table .device-activity-state {
+  white-space: normal;
+}
+
+.dashboard-app .modern-device-section .elegant-col-num { width: 40px; }
+.dashboard-app .modern-device-section .elegant-col-name { width: auto; }
+.dashboard-app .modern-device-section .elegant-col-ip { width: 140px; }
+.dashboard-app .modern-device-section .elegant-col-mac { width: 160px; }
+.dashboard-app .modern-device-section .elegant-col-expires { width: 150px; }
+.dashboard-app .modern-device-section .elegant-col-data { width: 80px; }
+.dashboard-app .modern-device-section .elegant-col-actions { width: 320px; }
+.dashboard-app .static-leases .elegant-col-name { width: 25%; }
+.dashboard-app .static-leases .elegant-col-mac { width: 23%; }
+.dashboard-app .static-leases .elegant-col-ip { width: 20%; }
+.dashboard-app .static-leases .elegant-col-actions { width: 32%; }
+
+/* Keep at least 180px for names beside the optional traffic column. */
+@container (max-width: 1070px) {
+  .dashboard-app .device-lan-table,
+  .dashboard-app .device-lan-table tbody {
+    display: block;
+  }
+
+  .dashboard-app .device-lan-table colgroup,
+  .dashboard-app .device-lan-table thead,
+  .dashboard-app .device-lan-table .elegant-cell-num {
+    display: none;
+  }
+
+  .dashboard-app .device-lan-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--classic-border);
+  }
+
+  #network .static-leases .device-lan-table td,
+  :root:root .dashboard-app .device-lan-table tbody td {
+    display: block;
+    min-width: 0;
+    height: auto;
+    padding: 8px 0;
+    border: 0;
+  }
+
+  .dashboard-app .device-lan-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 4px;
+    color: var(--classic-muted);
+    font: 600 10px/1.4 var(--font-body);
+    letter-spacing: .04em;
+  }
+
+  :root:root .dashboard-app .device-lan-table tbody td.elegant-cell-num {
+    display: none;
+  }
+
+  .dashboard-app .device-lan-table .device-row-actions {
+    justify-content: flex-start;
   }
 }

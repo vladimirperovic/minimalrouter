@@ -28,9 +28,13 @@ for required in \
     "bin/router-applyd-${BIN_ARCH}" \
     "bin/router-recovery-${BIN_ARCH}" \
     "bin/router-update-${BIN_ARCH}" \
+    "bin/router-setup-${BIN_ARCH}" \
     "web/dist/index.html" \
     "slot-exec" \
     "compatibility.json" \
+    "firstboot-ready" \
+    "firstboot" \
+    "init.d/minimalrouter-firstboot" \
     "init.d/routerd" \
     "init.d/router-applyd" \
     "init.d/pppoe-wan" \
@@ -44,6 +48,9 @@ do
         exit 1
     }
 done
+
+# Trust/version/layout checks precede every package and runtime side effect.
+"bin/router-update-${BIN_ARCH}" install-preflight --dir "$SCRIPT_DIR"
 
 ALPINE_VERSION="v3.22"
 IMAGE_BUILD="${MINIMALROUTER_IMAGE_BUILD:-0}"
@@ -59,15 +66,15 @@ if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
 fi
 
-# The all-in-one ISO supplies a caller-managed local Alpine repository. Never
-# replace it with CDN URLs in offline mode: setup-disk runs later in the same
-# live environment and must remain installable with zero WAN connectivity.
-if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
-    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
-fi
+REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq-dnssec-nftset iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
 
-REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
+require_dnsmasq_nftset() {
+    dnsmasq_options="$(dnsmasq --version)" || return 1
+    if ! printf '%s\n' "$dnsmasq_options" | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)'; then
+        echo "ERROR: dnsmasq lacks required NFTSET support; install dnsmasq-dnssec-nftset" >&2
+        return 1
+    fi
+}
 
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
@@ -88,10 +95,44 @@ if [ "$OFFLINE_MODE" -eq 1 ]; then
     fi
     echo "All required dependencies already installed."
     echo "Continuing offline installation..."
-else
+    require_dnsmasq_nftset
+fi
+
+"bin/router-update-${BIN_ARCH}" install-begin --dir "$SCRIPT_DIR"
+
+# Install the admission/recovery fence durably before packages or integration
+# change, including on appliances whose old dispatcher predates the journal.
+install -d -m 0755 /usr/libexec/minimalrouter /etc/init.d /etc/conf.d
+for fence in slot-exec firstboot-ready firstboot; do
+    install -m 0755 "$fence" "/usr/libexec/minimalrouter/$fence.install-new"
+    sync
+    mv -f "/usr/libexec/minimalrouter/$fence.install-new" "/usr/libexec/minimalrouter/$fence"
+done
+install -m 0755 init.d/minimalrouter-firstboot /etc/init.d/minimalrouter-firstboot.install-new
+sync
+mv -f /etc/init.d/minimalrouter-firstboot.install-new /etc/init.d/minimalrouter-firstboot
+if [ -f /etc/minimalrouter/installed ]; then
+    for service in networking sshd; do
+        if ! grep -q 'minimalrouter-firstboot' "/etc/conf.d/$service" 2>/dev/null; then
+            printf '\nrc_need="${rc_need} minimalrouter-firstboot"\n' >> "/etc/conf.d/$service"
+        fi
+    done
+fi
+sync
+
+# The all-in-one ISO supplies a caller-managed local Alpine repository. Never
+# replace it with CDN URLs in offline mode: setup-disk runs later in the same
+# live environment and must remain installable with zero WAN connectivity.
+if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
+    echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
+fi
+
+if [ "$OFFLINE_MODE" -eq 0 ]; then
     echo "[1/7] Installing dependencies..."
     apk update
     apk add --no-cache $REQUIRED_PACKAGES
+    require_dnsmasq_nftset
 fi
 
 # Fail before replacing appliance runtime files if the running kernel cannot
@@ -195,9 +236,11 @@ install -m 0755 ip-up.d-minimalrouter-qos /etc/ppp/ip-up.d/minimalrouter-qos
 
 install -m 0755 "bin/routerd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"
 install -m 0755 "bin/router-applyd-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"
-install -m 0750 "bin/router-recovery-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}"
-install -m 0750 "bin/router-update-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}"
-install -m 0755 slot-exec /usr/libexec/minimalrouter/slot-exec
+# The recovery database worker self-execs after dropping all root credentials.
+# Recovery's ordinary CLI checks root explicitly; neither binary is set-ID.
+install -m 0755 -o root -g root "bin/router-recovery-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}"
+install -m 0750 -o root -g root "bin/router-update-${BIN_ARCH}" "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}"
+install -m 0755 "bin/router-setup-${BIN_ARCH}" /usr/sbin/router-setup
 install -m 0644 -o root -g root compatibility.json /etc/minimalrouter/compatibility.json
 
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/bin/routerd
@@ -206,14 +249,13 @@ ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-recovery
 ln -sf /usr/libexec/minimalrouter/slot-exec /usr/sbin/router-update
 
 if [ -f firmware-signing.pub ]; then
-    if [ -f /etc/minimalrouter/firmware-signing.pub ] && \
-       ! cmp -s firmware-signing.pub /etc/minimalrouter/firmware-signing.pub; then
-        echo "ERROR: refusing to replace the installed firmware trust anchor" >&2
-        exit 1
+    # Preflight/begin compare decoded keys before any mutation. Keep an existing
+    # identical key's encoding instead of rejecting it late after runtime copies.
+    if [ ! -f /etc/minimalrouter/firmware-signing.pub ]; then
+        install -m 0644 -o root -g root firmware-signing.pub /etc/minimalrouter/firmware-signing.pub
     fi
-    install -m 0644 -o root -g root firmware-signing.pub /etc/minimalrouter/firmware-signing.pub
 else
-    echo "NOTE: unsigned development archive; router-update staging remains disabled until a trusted public key is installed."
+    echo "NOTE: unsigned development archive; existing firmware key/version floor are preserved. Signed staging requires a known installed floor."
 fi
 
 echo "[4/7] Installing dashboard..."
@@ -324,55 +366,14 @@ rc-update add sshd default
 rc-update add router-applyd default
 rc-update add routerd default
 
-# Commit the first A/B rollback target only after every critical kernel/sysctl
-# check and OpenRC registration has succeeded. A failed full installer may
-# leave newly copied files for the operator to rerun, but it must never advance
-# current/state.json to a baseline that was not proven installable.
-BASELINE_HASH="$({ \
-    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}"; \
-    sha256sum "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}"; \
-    sha256sum /usr/libexec/minimalrouter/bootstrap/web/dist/index.html; \
-} | sha256sum | cut -c1-16)"
-BASELINE_VERSION="0.0.0+bootstrap.${BASELINE_HASH}"
-BASELINE_SLOT="/var/lib/minimalrouter-update/slots/${BASELINE_VERSION}"
-rm -rf "$BASELINE_SLOT"
-install -d -m 0755 -o root -g root "$BASELINE_SLOT/bin" "$BASELINE_SLOT/web/dist"
-install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/routerd-${BIN_ARCH}" "$BASELINE_SLOT/bin/routerd-${BIN_ARCH}"
-install -m 0755 "/usr/libexec/minimalrouter/bootstrap/bin/router-applyd-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-applyd-${BIN_ARCH}"
-install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-recovery-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-recovery-${BIN_ARCH}"
-install -m 0750 "/usr/libexec/minimalrouter/bootstrap/bin/router-update-${BIN_ARCH}" "$BASELINE_SLOT/bin/router-update-${BIN_ARCH}"
-cp -R /usr/libexec/minimalrouter/bootstrap/web/dist/. "$BASELINE_SLOT/web/dist/"
-chown -R root:root "$BASELINE_SLOT"
-chmod -R a+rX "$BASELINE_SLOT/web"
-
-OLD_CURRENT_TARGET="$(readlink /var/lib/minimalrouter-update/current 2>/dev/null || true)"
-OLD_CURRENT_VERSION=""
-case "$OLD_CURRENT_TARGET" in
-    slots/*) OLD_CURRENT_VERSION="${OLD_CURRENT_TARGET#slots/}" ;;
-esac
-
-rm -f /var/lib/minimalrouter-update/.current-new
-ln -s "slots/${BASELINE_VERSION}" /var/lib/minimalrouter-update/.current-new
-# BusyBox mv follows a destination symlink to a directory unless -T is used.
-# Without it, a reinstall can leave current pointing at the old slot while
-# state.json claims the new baseline is active.
-mv -fT /var/lib/minimalrouter-update/.current-new /var/lib/minimalrouter-update/current
-
-if [ -n "$OLD_CURRENT_VERSION" ] && [ "$OLD_CURRENT_VERSION" != "$BASELINE_VERSION" ] && \
-   [ -d "/var/lib/minimalrouter-update/slots/${OLD_CURRENT_VERSION}" ]; then
-    rm -f /var/lib/minimalrouter-update/.previous-new
-    ln -s "slots/${OLD_CURRENT_VERSION}" /var/lib/minimalrouter-update/.previous-new
-    mv -fT /var/lib/minimalrouter-update/.previous-new /var/lib/minimalrouter-update/previous
-else
-    rm -f /var/lib/minimalrouter-update/previous
-    OLD_CURRENT_VERSION=""
-fi
-
-STATE_TMP="/var/lib/minimalrouter-update/.state-install-$$"
-printf '{"current":"%s","previous":"%s","pending":""}\n' "$BASELINE_VERSION" "$OLD_CURRENT_VERSION" > "$STATE_TMP"
-chmod 0644 "$STATE_TMP"
-mv -f "$STATE_TMP" /var/lib/minimalrouter-update/state.json
+# Only publish a new baseline after runtime and OpenRC checks succeeded. The
+# root updater copies a complete compatibility snapshot, preserves the verified
+# version floor and closes the interrupted-install fence. A full install starts
+# a new rollback generation; it cannot safely keep an old application-only slot.
+# Persist all out-of-slot integration BEFORE the updater commits the baseline
+# and removes its journal. The updater fsyncs the complete copied slot itself.
 sync
+"bin/router-update-${BIN_ARCH}" install-baseline --dir "$SCRIPT_DIR"
 
 echo "=== Installation complete ==="
 echo "Reboot now to complete the first-run setup: the installed system finalizes Minimal Router OS on boot."

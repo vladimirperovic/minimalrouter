@@ -96,7 +96,7 @@ func migrate(db *sql.DB) error {
 		!strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("migrate accounting cursors: %w", err)
 	}
-	return nil
+	return migrateInsights(db)
 }
 
 func (s *Store) Close() error {
@@ -125,6 +125,7 @@ func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int, gen
 	}
 	defer tx2.Rollback()
 
+	recent := map[string]*DeviceUsage{}
 	apply := func(direction string, counters []Counter) error {
 		for _, counter := range counters {
 			var previous, previousGeneration uint64
@@ -148,6 +149,14 @@ func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int, gen
 			if delta == 0 {
 				continue
 			}
+			if recent[counter.Address] == nil {
+				recent[counter.Address] = &DeviceUsage{Address: counter.Address}
+			}
+			if direction == "rx" {
+				recent[counter.Address].RXBytes += delta
+			} else {
+				recent[counter.Address].TXBytes += delta
+			}
 			column := "rx_bytes"
 			if direction == "tx" {
 				column = "tx_bytes"
@@ -167,6 +176,10 @@ func (s *Store) Record(now time.Time, rx, tx []Counter, retentionMonths int, gen
 	}
 	if err := apply("tx", tx); err != nil {
 		return fmt.Errorf("record upload counters: %w", err)
+	}
+
+	if err := recordInsights(tx2, now, recent); err != nil {
+		return fmt.Errorf("record recent traffic: %w", err)
 	}
 
 	cutoff := now.UTC().AddDate(0, -retentionMonths, 0).Format("2006-01")
@@ -240,16 +253,7 @@ func (s *Store) Months(limit int) ([]MonthUsage, error) {
 
 // Reset clears all accounting history. Used when the operator disables the
 // feature so no stale per-device data lingers on disk.
-func (s *Store) Reset() error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	if _, err := s.db.Exec(`DELETE FROM device_month`); err != nil {
-		return err
-	}
-	_, err := s.db.Exec(`DELETE FROM device_cursor`)
-	return err
-}
+func (s *Store) Reset() error { return s.ClearHistory() }
 
 // ClearHistory deletes every per-device record and durably marks the
 // operator's disable as carried out, in one transaction. The flag is what
@@ -267,6 +271,11 @@ func (s *Store) ClearHistory() error {
 		return err
 	}
 	defer tx.Rollback()
+	for _, table := range []string{"traffic_hour", "device_day", "traffic_clock"} {
+		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(`DELETE FROM device_month`); err != nil {
 		return err
 	}

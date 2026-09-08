@@ -36,7 +36,8 @@ const (
 	// `wg show ... dump` and returns only sanitized fields. WireGuard dump
 	// lines carry private and preshared keys; they must never cross the
 	// privilege boundary.
-	OpWGTunnelStatus OperationType = "WG_TUNNEL_STATUS"
+	OpWGTunnelStatus   OperationType = "WG_TUNNEL_STATUS"
+	OpFirewallCounters OperationType = "FIREWALL_COUNTERS"
 )
 
 // ApplyRequest represents a size-limited RPC payload sent from routerd to router-applyd.
@@ -95,6 +96,13 @@ type TunnelStatus struct {
 	Peers         []TunnelPeerStatus `json:"peers,omitempty"`
 }
 
+// FirewallCounters contains only aggregate packet counts, never rules or addresses.
+type FirewallCounters struct {
+	Seen       uint64 `json:"seen"`
+	Accepted   uint64 `json:"accepted"`
+	Generation string `json:"generation"`
+}
+
 // ApplyResponse represents the structured execution output from router-applyd.
 type ApplyResponse struct {
 	ID               string `json:"id"`
@@ -106,7 +114,8 @@ type ApplyResponse struct {
 	RecoveryRequired bool   `json:"recovery_required,omitempty"`
 	Timestamp        int64  `json:"timestamp"`
 	// TunnelStatus is populated only by OpWGTunnelStatus responses.
-	TunnelStatus *TunnelStatus `json:"tunnel_status,omitempty"`
+	TunnelStatus     *TunnelStatus     `json:"tunnel_status,omitempty"`
+	FirewallCounters *FirewallCounters `json:"firewall_counters,omitempty"`
 }
 
 // Validate rejects contradictory privileged outcomes. The management plane must

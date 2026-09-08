@@ -1,7 +1,9 @@
+import { previewAndApplyConfig, readConfiguration } from "../lib/configuration";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
-import { insidePool, reservationConflictMessage, reservationHostnameMessage, suggestReservationAddress } from "./deviceReservation";
+import { recentDeviceActivity } from "../lib/deviceActivity";
+import { insidePool, liveLeaseConflictMessage, reservationConflictMessage, reservationHostnameMessage, suggestReservationAddress } from "./deviceReservation";
 import "./DeviceLeasesTable.css";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
@@ -12,7 +14,7 @@ type DeviceRow = {
   mac?: string;
   ip_address: string;
   expires_at?: number;
-  online: boolean;
+  hasLease: boolean;
   last_seen_epoch?: number;
   is_new: boolean;
   liveLease?: Lease;
@@ -20,6 +22,8 @@ type DeviceRow = {
 };
 
 type Props = {
+  view?: "known" | "active";
+  compact?: boolean;
   leases: Lease[];
   config: RouterConfig;
   // Kept for compatibility with the existing dashboard callers. The reserve
@@ -39,9 +43,9 @@ function formatRelativeFuture(timestamp: number) {
   return `in ${days} d`;
 }
 
-function formatLastSeen(timestamp?: number) {
+function formatLastSeen(timestamp?: number, now = Date.now() / 1000) {
   if (!timestamp) return "Previously seen";
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - timestamp);
+  const seconds = Math.max(0, Math.floor(now) - timestamp);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} min ago`;
@@ -77,9 +81,14 @@ function deviceIdentity(device: { mac?: string; address?: string }) {
   return mac || device.address || "";
 }
 
-export default function DeviceLeasesTable({ leases, config, onReservationSaved }: Props) {
+export default function DeviceLeasesTable({ leases, config, onReservationSaved, view = "known", compact = false }: Props) {
+  const activeOnly = view === "active";
   const [searchQuery, setSearchQuery] = useState("");
   const [accounting, setAccounting] = useState<AccountingSnapshot | null>(null);
+  const [activityState, setActivityState] = useState<"loading" | "ready" | "unavailable">("loading");
+  const [clock, setClock] = useState(Date.now());
+  const [serverOffset, setServerOffset] = useState(0);
+  const activityNow = (clock + serverOffset) / 1000;
   const [pauses, setPauses] = useState<DevicePause[]>([]);
   const [pauseMenuIP, setPauseMenuIP] = useState<string | null>(null);
   const [pauseBusyIP, setPauseBusyIP] = useState<string | null>(null);
@@ -98,10 +107,20 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     }
     try {
       const response = await apiFetch("/api/v1/accounting?months=2", { signal });
-      if (!response.ok) return;
-      setAccounting((await response.json()) as AccountingSnapshot);
+      if (!response.ok) throw new Error("Activity unavailable");
+      const snapshot = (await response.json()) as AccountingSnapshot;
+      if (signal?.aborted) return;
+      const serverTime = Date.parse(snapshot.updated_at);
+      if (!Number.isFinite(serverTime)) throw new Error("Activity timestamp unavailable");
+      setServerOffset(serverTime - Date.now());
+      setClock(Date.now());
+      setAccounting(snapshot);
+      setActivityState(snapshot.available && snapshot.enabled ? "ready" : "unavailable");
     } catch (error) {
-      if ((error as Error).name !== "AbortError") setAccounting(null);
+      if ((error as Error).name !== "AbortError") {
+        setAccounting(null);
+        setActivityState("unavailable");
+      }
     }
   }, [config.accounting?.enabled]);
 
@@ -121,8 +140,9 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     void loadActivity(controller.signal);
     void loadPauses(controller.signal);
     const timer = window.setInterval(() => {
-      void loadActivity();
-      void loadPauses();
+      setClock(Date.now());
+      void loadActivity(controller.signal);
+      void loadPauses(controller.signal);
     }, 30000);
     return () => {
       controller.abort();
@@ -203,7 +223,9 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
   const staticNames = useMemo(() => new Map((config.dhcp.static_leases || []).map((sl) => [sl.mac.toLowerCase(), sl.hostname])), [config.dhcp.static_leases]);
 
   const rows = useMemo<DeviceRow[]>(() => {
-    const currentDevices = accounting?.months?.[0]?.devices || [];
+    const currentDevices = activeOnly
+      ? recentDeviceActivity(config.accounting?.enabled ? accounting : null, activityNow)
+      : accounting?.months?.[0]?.devices || [];
     const previousDevices = accounting?.months?.[1]?.devices || [];
     const previousIdentities = new Set(previousDevices.map(deviceIdentity).filter(Boolean));
     const usageByIdentity = new Map<string, DeviceUsage>();
@@ -214,20 +236,23 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
       usageByAddress.set(device.address, device);
     });
 
-    const liveIdentities = new Set<string>();
+    const leaseIdentities = new Set<string>();
     const result: DeviceRow[] = leases.map((lease) => {
       const identity = lease.mac.toLowerCase();
-      liveIdentities.add(identity);
-      const usage = usageByIdentity.get(identity) || usageByAddress.get(lease.ip_address);
-      const lastSeen = usage?.last_seen_epoch || Math.floor(Date.now() / 1000);
-      const newEnough = Math.floor(Date.now() / 1000) - lastSeen <= 24 * 60 * 60;
+      leaseIdentities.add(identity);
+      // Recent activity belongs to the measured address. A reused MAC must
+      // not transfer presence from another address to this lease.
+      const usage = activeOnly ? usageByAddress.get(lease.ip_address) : usageByIdentity.get(identity) || usageByAddress.get(lease.ip_address);
+      // A DHCP expiry is not a last-seen timestamp or proof of presence.
+      const lastSeen = usage?.last_seen_epoch;
+      const newEnough = Boolean(lastSeen && Math.floor(Date.now() / 1000) - lastSeen <= 24 * 60 * 60);
       return {
-        key: identity || lease.ip_address,
+        key: activeOnly ? lease.ip_address : identity || lease.ip_address,
         hostname: staticNames.get(identity) || lease.hostname || usage?.hostname,
         mac: lease.mac || usage?.mac,
         ip_address: lease.ip_address,
         expires_at: lease.expires_at,
-        online: true,
+        hasLease: true,
         last_seen_epoch: lastSeen,
         is_new: Boolean(config.accounting?.enabled && usage && newEnough && !previousIdentities.has(deviceIdentity(usage))),
         liveLease: lease,
@@ -237,25 +262,25 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
 
     currentDevices.forEach((device) => {
       const identity = deviceIdentity(device);
-      const alreadyLive = (identity && liveIdentities.has(identity)) || leases.some((lease) => lease.ip_address === device.address);
-      if (alreadyLive) return;
+      const alreadyListed = (!activeOnly && identity && leaseIdentities.has(identity)) || leases.some((lease) => lease.ip_address === device.address);
+      if (alreadyListed) return;
       result.push({
-        key: identity || device.address,
+        key: activeOnly ? device.address : identity || device.address,
         hostname: staticNames.get(identity) || device.hostname,
         mac: device.mac,
         ip_address: device.address,
-        online: false,
+        hasLease: false,
         last_seen_epoch: device.last_seen_epoch,
         is_new: false,
         monthBytes: device.total_bytes,
       });
     });
 
-    return result.sort((a, b) => {
-      if (a.online !== b.online) return a.online ? -1 : 1;
+    return result.filter(row => !activeOnly || Boolean(row.last_seen_epoch)).sort((a, b) => {
+      if (!activeOnly && a.hasLease !== b.hasLease) return a.hasLease ? -1 : 1;
       return (b.last_seen_epoch || 0) - (a.last_seen_epoch || 0);
     });
-  }, [accounting, config.accounting?.enabled, leases, staticNames]);
+  }, [accounting, config.accounting?.enabled, leases, staticNames, activeOnly, activityNow]);
 
   const filteredRows = useMemo(() => {
     if (!searchQuery) return rows;
@@ -267,18 +292,20 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     );
   }, [rows, searchQuery]);
 
-  const onlineCount = rows.filter((row) => row.online).length;
-  const showData = Boolean(accounting?.available);
+  const leaseCount = rows.filter((row) => row.hasLease).length;
+  const showData = !activeOnly && Boolean(accounting?.available);
+  const activityUnavailable = !config.accounting?.enabled || activityState !== "ready";
+  const emptyActivity = !config.accounting?.enabled
+    ? "Device activity is unavailable while traffic accounting is off."
+    : activityState === "loading" ? "Loading device activity…"
+    : activityState === "unavailable" ? "Device activity is temporarily unavailable."
+    : "No device traffic recorded in the last 10 minutes.";
 
   const reservationConflict = useMemo(() => {
     if (!reservationTarget) return "";
     const staticConflict = reservationConflictMessage(reservationIP, reservationTarget.mac, config.dhcp.static_leases || []);
     if (staticConflict) return staticConflict;
-    const liveCollision = leases.find(
-      (lease) => lease.ip_address === reservationIP.trim() && lease.mac.toLowerCase() !== reservationTarget.mac.toLowerCase(),
-    );
-    if (!liveCollision) return "";
-    return `${reservationIP.trim()} is currently leased to ${liveCollision.hostname || liveCollision.mac}. Choose another address.`;
+    return liveLeaseConflictMessage(reservationIP, reservationTarget.mac, leases);
   }, [config.dhcp.static_leases, leases, reservationIP, reservationTarget]);
 
   const poolConflict = Boolean(
@@ -324,9 +351,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     try {
       // Re-read the authoritative configuration immediately before saving so a
       // reservation added in another session cannot be overwritten by stale UI state.
-      const configResponse = await apiFetch("/api/v1/config", { cache: "no-store" });
-      if (!configResponse.ok) throw new Error(`Configuration reload failed (${configResponse.status})`);
-      const next = (await configResponse.json()) as RouterConfig;
+      const next = await readConfiguration({ cache: "reload" });
       const freshConflict = reservationConflictMessage(requestedIP, normalisedMac, next.dhcp.static_leases || []);
       if (freshConflict) {
         setReservationError(freshConflict);
@@ -350,21 +375,14 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
         ],
       };
 
-      const applyResponse = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      const body = await applyResponse.json().catch(() => ({}));
-      if (!applyResponse.ok) throw new Error(body.error || `Reservation failed (${applyResponse.status})`);
+      const result = await previewAndApplyConfig(next);
+      if (result.cancelled) return;
 
       setReservationTarget(null);
       setReservationIP("");
       setReservationHostname("");
       if (onReservationSaved) {
         await onReservationSaved();
-      } else {
-        window.location.reload();
       }
     } catch (error) {
       setReservationError(error instanceof Error ? error.message : "Reservation failed");
@@ -373,12 +391,24 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
     }
   };
 
+  if (compact && activeOnly) return (
+    <section className="studio-card studio-device-card" id="overview-devices">
+      <header className="studio-card-header"><div><p className="studio-eyebrow">ON YOUR NETWORK</p><h2>Active devices { !activityUnavailable && <span className="studio-count">{rows.length}</span>}</h2></div><a className="studio-link" href="#network">View all devices <span aria-hidden="true">→</span></a></header>
+      <p className="studio-table-note">Traffic recorded in the last 10 minutes, sampled every 5 minutes. Quiet or local-only devices may not appear.</p>
+      <div className="studio-device-list">
+        {rows.slice(0, 5).map(row => <a className="studio-device-row" href="#network" key={row.key}><span className="studio-device-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="3" width="18" height="12" rx="2"/><path d="M8 21h8m-4-6v6"/></svg></span><span><strong className="device-hostname">{row.hostname || "Unknown device"}</strong><small>{row.ip_address}</small></span><span className="studio-device-kind" title={new Date(row.last_seen_epoch! * 1000).toLocaleString()}>Last seen <span className="device-last-seen">{formatLastSeen(row.last_seen_epoch, activityNow)}</span></span></a>)}
+        {rows.length === 0 && <p className="studio-empty">{emptyActivity}</p>}
+        {rows.length > 5 && <p className="studio-table-note">Showing the 5 most recently active of {rows.length} devices.</p>}
+      </div>
+    </section>
+  );
+
   return (
     <section className="modern-device-section">
       <div className="modern-section-heading">
         <div className="modern-heading-titles">
-          <h2>Connected devices</h2>
-          <span className="modern-heading-sub">{onlineCount} online · {staticMacs.size} static reservation{staticMacs.size === 1 ? "" : "s"}{config.accounting?.enabled ? " · recent devices retained" : ""}</span>
+          <h2>{activeOnly ? "Active devices" : "Known devices"}</h2>
+          <span className="modern-heading-sub">{activeOnly ? "Traffic recorded in the last 10 minutes" : <>{leaseCount} DHCP lease{leaseCount === 1 ? "" : "s"} · {staticMacs.size} static reservation{staticMacs.size === 1 ? "" : "s"}{config.accounting?.enabled ? " · recent devices retained" : ""}</>}</span>
         </div>
         <div className="modern-device-tools">
           <div className="modern-search-wrapper">
@@ -386,36 +416,37 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
             <input type="text" placeholder="Search name, IP or MAC" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="modern-search-input" />
             {searchQuery && <button type="button" className="modern-search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">✕</button>}
           </div>
-          <span className="modern-device-count">{searchQuery ? `${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"}` : `${rows.length} known`}</span>
+          <span className="modern-device-count">{activeOnly && activityUnavailable ? config.accounting?.enabled && activityState === "loading" ? "Loading…" : "Activity unavailable" : searchQuery ? `${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"}` : `${rows.length} ${activeOnly ? "active" : "known"}`}</span>
+          {activeOnly && <a className="device-view-all" href="#network">View all devices <span aria-hidden="true">→</span></a>}
         </div>
       </div>
+      <p className="device-presence-note">{activeOnly ? "Based on routed traffic, sampled every 5 minutes. Last seen is the collection time; quiet or local-only devices may not appear." : "A DHCP lease reserves an address until it expires. It does not confirm that the device is online."}</p>
       {pauseError && <div className="device-pause-error" role="alert">{pauseError}</div>}
 
       <div className="elegant-table-container">
-        <table className="elegant-device-table">
+        <table className="elegant-device-table device-lan-table">
           <colgroup><col className="elegant-col-num" /><col className="elegant-col-name" /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
-          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>Activity</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
+          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>{activeOnly ? "Last seen" : "Lease / activity"}</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{searchQuery ? "No devices match your search." : "No devices connected yet."}</span></td></tr>
+              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{activeOnly && activityUnavailable ? emptyActivity : searchQuery ? "No devices match your search." : activeOnly ? emptyActivity : "No DHCP leases or device history available."}</span></td></tr>
             ) : filteredRows.map((row, index) => {
               const isStatic = Boolean(row.mac && staticMacs.has(row.mac.toLowerCase()));
               const pause = pauseByIP.get(row.ip_address);
               const busy = pauseBusyIP === row.ip_address;
               return (
-                <tr className={`${row.online ? "is-online" : "is-offline"}${pause ? " is-paused" : ""}`} key={row.key}>
+                <tr className={`${row.hasLease ? "has-lease" : "is-history"}${pause ? " is-paused" : ""}`} key={row.key}>
                   <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>
-                  <td className="elegant-cell-name"><span className="elegant-device-identity">{row.hostname || "Unknown device"}{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
-                  <td className="elegant-cell-ip">{row.ip_address}</td>
-                  <td className="elegant-cell-mac">{row.mac || "Unknown"}</td>
-                    <td className="elegant-cell-expires">
-                      {pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.online ? <span className="device-activity-state is-online"><i aria-hidden="true" />Online{row.expires_at ? <small> &middot; lease {formatRelativeFuture(row.expires_at)}</small> : null}</span> : <span className="device-activity-state is-offline" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>Last seen {formatLastSeen(row.last_seen_epoch)}</span>}
+                  <td data-label="Device" className="elegant-cell-name"><span className="elegant-device-identity"><span className="device-hostname" title={row.hostname || "Unknown device"}>{row.hostname || "Unknown device"}</span>{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
+                  <td data-label="IP address" className="elegant-cell-ip">{row.ip_address}</td>
+                  <td data-label="MAC address" className="elegant-cell-mac">{row.mac || "Unknown"}</td>
+                    <td data-label={activeOnly ? "Last seen" : "Lease / activity"} className="elegant-cell-expires">
+                      {activeOnly ? <span className="device-activity-state" title={new Date(row.last_seen_epoch! * 1000).toLocaleString()}>{formatLastSeen(row.last_seen_epoch, activityNow)}{pause && <small>{pauseLabel(pause)}</small>}</span> : pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.hasLease ? <span className="device-activity-state is-lease">DHCP lease<small>{row.expires_at ? ` · expires ${formatRelativeFuture(row.expires_at)}` : " · no expiry"}</small></span> : <span className="device-activity-state is-history" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>{row.last_seen_epoch ? `Last seen ${formatLastSeen(row.last_seen_epoch)}` : "Previously seen"}</span>}
                     </td>
-                    {showData && <td className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
-                  <td className="elegant-cell-actions">
+                    {showData && <td data-label="Data" className="elegant-cell-data" title="Traffic this month">{typeof row.monthBytes === "number" ? formatBytes(row.monthBytes) : "—"}</td>}
+                  <td data-label="Actions" className="elegant-cell-actions">
                     <div className="device-row-actions">
-                      {!row.online && row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
-                      {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog({ ...row.liveLease!, hostname: row.hostname })} className="device-reserve-button" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
+                      {row.mac && <button type="button" disabled={wakeBusyMac === row.mac} onClick={() => void wakeDevice(row.mac!)} className="device-reserve-button device-action-wake" title="Send a Wake-on-LAN magic packet" aria-label={`Wake ${row.hostname || row.mac}`}>{wakeBusyMac === row.mac ? "Waking…" : "Wake"}</button>}
                       {pause ? (
                         <button className="device-pause-button is-resume" disabled={busy} onClick={() => void resumeDevice(row.ip_address)} type="button">{busy ? "Working…" : "Resume"}</button>
                       ) : (
@@ -424,6 +455,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved }
                           {pauseMenuIP === row.ip_address && <div className="device-pause-menu" role="menu"><button onClick={() => void setDevicePause(row.ip_address, 900)} type="button">15 min</button><button onClick={() => void setDevicePause(row.ip_address, 3600)} type="button">1 hour</button><button onClick={() => void setDevicePause(row.ip_address, 0)} type="button">Until resumed</button></div>}
                         </div>
                       )}
+                      {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog({ ...row.liveLease!, hostname: row.hostname })} className="device-reserve-button device-action-reserve" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
                     </div>
                   </td>
                 </tr>

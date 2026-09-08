@@ -10,7 +10,7 @@ import type { RouterConfig, StaticLease } from "../api-types";
 type Props = {
   config: RouterConfig;
   busy: boolean;
-  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => void;
+  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
   prefill?: { mac?: string; ip?: string; hostname?: string } | null;
   onPrefillConsumed?: () => void;
   liveLeases?: { mac: string }[];
@@ -73,7 +73,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
     setError("");
   };
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     const normalisedMac = mac.trim().toLowerCase();
@@ -98,7 +98,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
       return;
     }
     if (editingId) {
-      applyConfig((next) => {
+      const saved = await applyConfig((next) => {
         next.dhcp = {
           ...next.dhcp,
           static_leases: (next.dhcp.static_leases || []).map((lease) =>
@@ -108,10 +108,10 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
           ),
         };
       }, "DHCP reservation updated.");
-      cancelEdit();
+      if (saved) cancelEdit();
       return;
     }
-    applyConfig((next) => {
+    const saved = await applyConfig((next) => {
       next.dhcp = {
         ...next.dhcp,
         static_leases: [
@@ -125,6 +125,7 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
         ],
       };
     }, "DHCP reservation saved.");
+    if (!saved) return;
     setHostname("");
     setMac("");
     setIp("");
@@ -169,8 +170,8 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
       </div>
 
       <div className="elegant-table-container">
-        <table className="elegant-device-table">
-          <colgroup><col className="elegant-col-num" /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-actions" /></colgroup>
+        <table className="elegant-device-table device-lan-table">
+          <colgroup><col className="elegant-col-name" /><col className="elegant-col-mac" /><col className="elegant-col-ip" /><col className="elegant-col-actions" /></colgroup>
           <thead>
             <tr><th>Device</th><th>MAC</th><th>Reserved address</th><th className="elegant-th-actions">Action</th></tr>
           </thead>
@@ -180,10 +181,10 @@ export default function StaticLeasesEditor({ config, busy, applyConfig, prefill,
             ) : (
               filteredLeases.map((lease) => (
                 <tr key={lease.id}>
-                  <td className="elegant-cell-name">{lease.hostname || "Unnamed device"}</td>
-                  <td className="elegant-cell-mac"><code>{lease.mac}</code></td>
-                  <td className="elegant-cell-ip"><code>{lease.ip_address}</code></td>
-                  <td className="elegant-cell-actions">
+                  <td data-label="Device" className="elegant-cell-name">{lease.hostname || "Unnamed device"}</td>
+                  <td data-label="MAC address" className="elegant-cell-mac"><code>{lease.mac}</code></td>
+                  <td data-label="IP address" className="elegant-cell-ip"><code>{lease.ip_address}</code></td>
+                  <td data-label="Actions" className="elegant-cell-actions">
                     <div className="device-row-actions">
                       <button className="button secondary small" disabled={busy} onClick={() => startEdit(lease)} type="button">Edit</button>
                       <button className="button secondary small" disabled={busy} onClick={() => void wakeOnLan(lease.mac)} title="Send a Wake-on-LAN magic packet" type="button">Wake</button>

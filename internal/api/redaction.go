@@ -39,3 +39,46 @@ func redactTransaction(tx *apply.Transaction) *apply.Transaction {
 	public.Config = redactConfig(tx.Config)
 	return &public
 }
+
+// restoreRedactedConfig resolves unchanged secret placeholders before either
+// preview or apply. It never mutates the public candidate or canonical state.
+func restoreRedactedConfig(candidate, current config.SystemConfig) config.SystemConfig {
+	candidate = candidate.DeepCopy()
+	if candidate.WAN.Password == redactedSecret {
+		candidate.WAN.Password = current.WAN.Password
+	}
+	if candidate.WireGuard.PrivateKey == redactedSecret {
+		candidate.WireGuard.PrivateKey = current.WireGuard.PrivateKey
+	}
+	if candidate.WGClient.PrivateKey == redactedSecret {
+		candidate.WGClient.PrivateKey = current.WGClient.PrivateKey
+	}
+	if candidate.WGClient.PresharedKey == redactedSecret {
+		candidate.WGClient.PresharedKey = current.WGClient.PresharedKey
+	}
+	for i := range candidate.WireGuard.Peers {
+		if candidate.WireGuard.Peers[i].PresharedKey != redactedSecret {
+			continue
+		}
+		for _, existing := range current.WireGuard.Peers {
+			if existing.ID == candidate.WireGuard.Peers[i].ID {
+				candidate.WireGuard.Peers[i].PresharedKey = existing.PresharedKey
+				break
+			}
+		}
+	}
+	if candidate.Cloudflare.APIToken == redactedSecret {
+		candidate.Cloudflare.APIToken = current.Cloudflare.APIToken
+	}
+	if candidate.Cloudflare.TunnelToken == redactedSecret {
+		candidate.Cloudflare.TunnelToken = current.Cloudflare.TunnelToken
+	}
+	if candidate.SquidProxy.Password == redactedSecret {
+		candidate.SquidProxy.Password = current.SquidProxy.Password
+	}
+	if candidate.WiFi.Passphrase == redactedSecret {
+		candidate.WiFi.Passphrase = current.WiFi.Passphrase
+	}
+
+	return candidate
+}

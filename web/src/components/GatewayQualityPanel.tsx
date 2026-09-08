@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useVisiblePolling } from "../lib/useVisiblePolling";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import type { GatewayHistoryPoint, GatewaySettings, GatewaySummary } from "../api-types";
 import { apiFetch } from "../lib/api";
 import "./GatewayQualityPanel.css";
@@ -105,41 +106,26 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
   const [serviceAction, setServiceAction] = useState<ServiceAction | null>(null);
   const [serviceNotice, setServiceNotice] = useState("");
 
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-    const loadHistory = async () => {
-      try {
-        const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal: controller.signal });
-        if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
-        const body = (await response.json()) as { points?: GatewayHistoryPoint[] };
-        if (mounted) setPoints(Array.isArray(body.points) ? body.points : []);
-      } catch (error) {
-        if (mounted && (error as Error).name !== "AbortError") onError(error instanceof Error ? error.message : "Gateway history unavailable");
-      }
-    };
-    void loadHistory();
-    const timer = window.setInterval(loadHistory, 30000);
-    return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
+  const loadHistory = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal });
+      if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
+      const body = await response.json() as { points?: GatewayHistoryPoint[] };
+      if (!signal.aborted) setPoints(Array.isArray(body.points) ? body.points : []);
+    } catch (error) {
+      if (!signal.aborted) onError(error instanceof Error ? error.message : "Gateway history unavailable");
+    }
   }, [windowName, onError]);
-
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-    const loadInsights = async () => {
-      try {
-        const response = await apiFetch("/api/v1/gateway/insights", { signal: controller.signal });
-        if (!response.ok) throw new Error(`Gateway insights unavailable (${response.status})`);
-        const body = await response.json() as GatewayInsights;
-        if (mounted) setInsights(body);
-      } catch (error) {
-        if (mounted && (error as Error).name !== "AbortError") setInsights(null);
-      }
-    };
-    void loadInsights();
-    const timer = window.setInterval(loadInsights, 30000);
-    return () => { mounted = false; controller.abort(); window.clearInterval(timer); };
+  const loadInsights = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch("/api/v1/gateway/insights", { signal });
+      if (!response.ok) throw new Error("Gateway insights unavailable");
+      const body = await response.json() as GatewayInsights;
+      if (!signal.aborted) setInsights(body);
+    } catch { if (!signal.aborted) setInsights(null); }
   }, []);
+  useVisiblePolling(loadHistory, 30_000);
+  useVisiblePolling(loadInsights, 30_000);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -206,7 +192,16 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
       <HistoryChart points={points} />
     </article>
 
-    <article className="card">
+    <article className="card gateway-ip-history">
+      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div>{insights?.public_ip_changes?.length ? <span className="quiet-meta">{insights.public_ip_changes.length} change{insights.public_ip_changes.length === 1 ? "" : "s"}</span> : null}</div>
+      {insights?.public_ip_changes?.length ? (
+        <div className="gateway-ip-scroll" tabIndex={0} role="region" aria-label="Public IP address changes">
+          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code className="is-old">{change.old_ip}</code><span aria-hidden="true">→</span><code className="is-new">{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
+        </div>
+      ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
+    </article>
+
+    <article className="card gateway-diagnostics-card">
       <div className="card-title-row"><div><h3>Network diagnostics</h3><p>One bounded check across PPPoE, public reachability, DNS and HTTPS. No configuration is changed.</p></div><button className="button secondary" disabled={busy || diagnosing} onClick={() => void diagnose()} type="button">{diagnosing ? "Diagnosing…" : "Diagnose connection"}</button></div>
       {diagnostics && (
         <div className="diag">
@@ -227,7 +222,7 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
     </article>
 
     <article className="card gateway-service-controls">
-      <div className="card-title-row"><div><h3>Service recovery</h3><p>Fixed, allowlisted recovery actions through router-applyd. They do not expose arbitrary service or shell execution.</p></div></div>
+      <div className="card-title-row"><div><h3>Service recovery</h3><p>Restart a connection or network service when troubleshooting. Active connections may briefly disconnect.</p></div></div>
       <div className="gateway-service-grid">
         <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">
           <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg></span>
@@ -245,15 +240,10 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
       {serviceNotice && <p className="gateway-service-notice" role="status">{serviceNotice}</p>}
     </article>
 
-    <article className="card gateway-ip-history">
-      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div>{insights?.public_ip_changes?.length ? <span className="quiet-meta">{insights.public_ip_changes.length} change{insights.public_ip_changes.length === 1 ? "" : "s"}</span> : null}</div>
-      {insights?.public_ip_changes?.length ? (
-        <div className="gateway-ip-scroll">
-          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code className="is-old">{change.old_ip}</code><span aria-hidden="true">→</span><code className="is-new">{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
-        </div>
-      ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
-    </article>
-
+    <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
+      <fieldset aria-labelledby="gateway-targets-title"><div className="fieldset-title" id="gateway-targets-title">Monitoring targets</div><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
+      <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply monitoring settings</button></div>
+    </form>
     <article className="card rec-card">
       <div className="rec-head">
         <div><h3>Automatic recovery</h3><p>Conservative PPPoE auto-recovery after a verified 3-minute link outage — it never reacts to packet loss, DNS failure or one unreachable website.</p></div>
@@ -262,9 +252,5 @@ export default function GatewayQualityPanel({ summary, settings, busy, onApply, 
       <p className="rec-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress. Current reconnect counters: {summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0} (1h / 24h).</p>
     </article>
 
-    <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
-      <fieldset aria-labelledby="gateway-targets-title"><div className="fieldset-title" id="gateway-targets-title">Monitoring targets</div><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
-      <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply monitoring settings</button></div>
-    </form>
   </section>;
 }

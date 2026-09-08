@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/api"
@@ -33,6 +35,29 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
+	firewallDone := make(chan struct{})
+	go func() {
+		defer close(firewallDone)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		client := apply.NewUnixClient("")
+		for {
+			queryCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+			response, err := client.Apply(queryCtx, apply.ApplyRequest{ID: fmt.Sprintf("fwstats-%d", time.Now().UnixNano()), Op: apply.OpFirewallCounters})
+			stop()
+			if err == nil && response.Success && response.FirewallCounters != nil {
+				c := response.FirewallCounters
+				if err := store.RecordFirewall(time.Now().UTC(), c.Generation, c.Seen, c.Accepted); err != nil {
+					log.Printf("[FIREWALL] Activity storage failed: %v", err)
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -43,6 +68,7 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 	return func() {
 		cancel()
 		<-done
+		<-firewallDone
 		server.ConfigureAccountingStore(nil)
 		if err := store.Close(); err != nil {
 			log.Printf("[ACCOUNTING] Failed to close accounting store: %v", err)

@@ -1,3 +1,8 @@
+import FirewallActivityPanel from "./FirewallActivityPanel";
+import { useCallback } from "react";
+import { qosStatus } from "../lib/qos";
+import RecoveryToolsPanel from "./RecoveryToolsPanel";
+import { useVisiblePolling } from "../lib/useVisiblePolling";
 import React, { useState } from "react";
 import type { FormEvent } from "react";
 import { apiFetch } from "../lib/api";
@@ -10,7 +15,7 @@ import FirewallRulesEditor from "./FirewallRulesEditor";
 import FirewallPresets from "./FirewallPresets";
 import WireGuardPeerDetails, { type PeerDetails } from "./WireGuardPeerDetails";
 import TrafficPanel from "./TrafficPanel";
-import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer } from "../api-types";
+import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
 
 export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs" | "traffic";
@@ -257,7 +262,7 @@ type DNSRecordRow = { name: string; ip: string };
 // named dns_record_name_<i> / dns_record_ip_<i> so the parent form's
 // the shared per-section handler picks them up; add/remove stays local state
 // until "Save records".
-// The key={config.revision} remount resets unsaved rows after every apply.
+// Reset only when canonical DNS records change; unrelated saves retain drafts.
 // dhcp.dns_servers takes IPv4 addresses only.
 const IPV4_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
@@ -412,6 +417,7 @@ export default function DashboardSections({
   load, applyConfig, applyGatewayMonitoring, markSectionSaved, savedSection, submitCloudflare, submitSquid,
   submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, deleteSnapshot, setError, onNavigate }: Props) {
   const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
+  const qosState = qosStatus(config, runtime.qos);
   const lanPrefix = Number(String(config.lan.cidr || "").split("/")[1]) || 24;
 
   // Pool size and occupancy are derived, not stored, so the DHCP section can
@@ -434,7 +440,7 @@ export default function DashboardSections({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const section = submitter?.value || "";
+    const section = event.currentTarget.dataset.section || submitter?.value || "";
 
     if (section === "wan") {
       const ok = await applyConfig((next) => {
@@ -531,34 +537,34 @@ export default function DashboardSections({
   const [peerActionError, setPeerActionError] = useState("");
   const [renamingPeer, setRenamingPeer] = useState<{ id: string; name: string } | null>(null);
   const [peerDetails, setPeerDetails] = useState<PeerDetails | null>(null);
-  const [wgPreview, setWgPreview] = useState<{ client_ip: string, server_endpoint: string } | null>(null);
+  const [wgPreview, setWgPreview] = useState<(WireGuardProvisioningPreview & { configRevision: number }) | null>(null);
+  // Secret placeholders intentionally reveal no key-presence information.
+  const serverKeyConfigured = wgPreview?.configRevision === config.revision ? wgPreview.server_key_configured : undefined;
+  const needsWireGuardSetup = !config.wireguard.enabled && serverKeyConfigured === false;
+  const wireGuardSetupUnknown = !config.wireguard.enabled && typeof serverKeyConfigured !== "boolean";
 
-  const submitPeerRename = () => {
+  const submitPeerRename = async () => {
     if (!renamingPeer) return;
     const name = renamingPeer.name.trim();
-    applyConfig((next) => {
+    const saved = await applyConfig((next) => {
       const selected = next.wireguard.peers?.find((item: WireGuardPeer) => item.id === renamingPeer.id);
       if (selected && name) selected.name = name;
     }, `Peer renamed to ${name}.`);
-    setRenamingPeer(null);
+    if (saved) setRenamingPeer(null);
   };
 
   // Authoritative allocation preview from the backend (MR-AUD-005): the UI
   // never re-implements next-free-IP or endpoint resolution.
-  React.useEffect(() => {
-    let cancelled = false;
-    const loadPreview = () => {
-      apiFetch("/api/v1/wireguard/provisioning-preview")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body: { client_ip: string, server_endpoint: string } | null) => {
-          if (!cancelled) setWgPreview(body);
-        })
-        .catch(() => { if (!cancelled) setWgPreview(null); });
-    };
-    loadPreview();
-    const timer = window.setInterval(loadPreview, 15000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [config.wireguard.peers?.length, config.cloudflare.domain, config.wireguard.address]);
+  const refreshWGPreview = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch("/api/v1/wireguard/provisioning-preview", { signal });
+      const body = await response.json() as WireGuardProvisioningPreview;
+      // Allocation can be blocked (WAN/domain/capacity) while key status remains authoritative.
+      if (!response.ok && typeof body.server_key_configured !== "boolean") throw new Error("WireGuard preview unavailable");
+      if (!signal.aborted) setWgPreview({ ...body, configRevision: config.revision });
+    } catch { if (!signal.aborted) setWgPreview(null); }
+  }, [config.revision]);
+  useVisiblePolling(refreshWGPreview, 15_000, active === "wireguard");
 
   const handleAddPeer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -653,13 +659,13 @@ export default function DashboardSections({
   };
 
   return <>
-{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} /></section>}
+{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable view="active" leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} /></section>}
 
 {active === "gateway" && <GatewayQualityPanel busy={busy} onApply={applyGatewayMonitoring} onError={setError} settings={gatewaySettings} summary={gatewaySummary} />}
 
 {active === "network" && <section className="dashboard-section" id="network">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2><p className="section-copy">Configure the uplink, local gateway, address allocation and local DNS records from one controlled network workspace.</p></div><span className={`classic-status-chip ${config.wan.enabled ? "" : "is-off"}`}>WAN {config.wan.enabled ? "Connected" : "Disabled"}</span></div><dl className="subpage-hero-facts"><div><dt>Uplink</dt><dd>{config.wan.enabled ? "PPPoE" : "Off"}</dd><small>{config.wan.interface || "No interface"}</small></div><div><dt>LAN gateway</dt><dd>{config.lan.ip_address}</dd><small>{config.lan.interface}</small></div><div><dt>DHCP</dt><dd>{config.dhcp.enabled ? "Active" : "Disabled"}</dd><small>{config.dhcp.range_start} – {config.dhcp.range_end}</small></div><div><dt>DNS resolvers</dt><dd>{config.dhcp.dns_servers?.length || 0}</dd><small>{config.dhcp.enabled ? "router answers DNS" : "upstream only"}</small></div></dl></div>
-  <form className="settings-form" key={`network-${config.revision}`} onSubmit={submitNetworkSection}>
+  <form className="settings-form" data-section="wan" key={JSON.stringify([config.wan.interface, config.wan.mtu, config.wan.username, config.wan.password])} onSubmit={submitNetworkSection}>
     <fieldset aria-labelledby="network-wan-title">
       <div className="fieldset-title" id="network-wan-title">WAN / PPPoE</div>
       <label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => changeWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label>
@@ -672,6 +678,8 @@ export default function DashboardSections({
       <SectionSave busy={busy} label="Save WAN" saved={savedSection === "wan"} section="wan" />
     </fieldset>
 
+  </form>
+  <form className="settings-form" data-section="lan" key={JSON.stringify(config.lan)} onSubmit={submitNetworkSection}>
     <fieldset aria-labelledby="network-lan-title">
       <div className="fieldset-title" id="network-lan-title">LAN interface</div>
       <div className="form-grid three">
@@ -683,6 +691,8 @@ export default function DashboardSections({
       <SectionSave busy={busy} label="Save LAN" saved={savedSection === "lan"} section="lan" />
     </fieldset>
 
+  </form>
+  <form className="settings-form" data-section="dhcp" key={JSON.stringify([config.dhcp.range_start, config.dhcp.range_end, config.dhcp.lease_time])} onSubmit={submitNetworkSection}>
     <fieldset aria-labelledby="network-dhcp-title">
       <div className="fieldset-title" id="network-dhcp-title">DHCP server</div>
       <label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => changeDHCP(e.target.checked)} /><span>Enable DHCP server</span></label>
@@ -698,6 +708,8 @@ export default function DashboardSections({
       <SectionSave busy={busy} label="Save DHCP" saved={savedSection === "dhcp"} section="dhcp" />
     </fieldset>
 
+  </form>
+  <form className="settings-form" data-section="dns" key={JSON.stringify([config.dhcp.dns_enabled, config.dhcp.dns_servers])} onSubmit={submitNetworkSection}>
     <fieldset aria-labelledby="network-dns-title">
       <div className="fieldset-title" id="network-dns-title">DNS</div>
       <label className="checkbox-row is-unavailable"><input checked={false} disabled name="dns_enabled" readOnly type="checkbox" /><span>Encrypt upstream DNS (DNS-over-HTTPS)<small>Unavailable until a verified local resolver ships with the appliance. The router already answers DNS for LAN clients whenever DHCP is on; this would only encrypt the upstream hop.</small></span></label>
@@ -708,14 +720,17 @@ export default function DashboardSections({
       <SectionSave busy={busy} label="Save DNS" saved={savedSection === "dns"} section="dns" />
     </fieldset>
 
-    <StaticDNSRecordsEditor busy={busy} disabled={busy} key={config.revision} records={config.dns?.records || []} saved={savedSection === "records"} />
+  </form>
+  <form className="settings-form" data-section="records" onSubmit={submitNetworkSection}>
+    <StaticDNSRecordsEditor busy={busy} disabled={busy} key={JSON.stringify(config.dns?.records || [])} records={config.dns?.records || []} saved={savedSection === "records"} />
   </form>
   <DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} />
   <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} liveLeases={leases} prefill={staticPrefill} onPrefillConsumed={() => setStaticPrefill(null)} />
 </section>}
 
 {active === "firewall" && <section className="dashboard-section" id="firewall">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2><p className="section-copy">Review the enforced WAN posture, state tracking and the only paths permitted into the local network.</p></div><span className={`classic-status-chip ${config.firewall.stateful_firewall ? "" : "is-warning"}`}>{config.firewall.stateful_firewall ? "Policy enforced" : "Attention required"}</span></div><dl className="subpage-hero-facts"><div><dt>WAN input</dt><dd>Deny</dd><small>unsolicited traffic blocked</small></div><div><dt>State tracking</dt><dd>{config.firewall.stateful_firewall ? "On" : "Invalid"}</dd><small>established traffic tracked</small></div><div><dt>Remote entry</dt><dd>WireGuard</dd><small>{config.firewall.wan_ingress_mode || "wireguard_only"}</small></div><div><dt>Tunnel forwards</dt><dd>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</dd><small>WAN remains closed</small></div></dl></div>
+  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2><p className="section-copy">Review the enforced WAN posture, state tracking and the only paths permitted into the local network.</p></div></div><dl className="subpage-hero-facts"><div><dt>WAN input</dt><dd>Deny</dd><small>unsolicited traffic blocked</small></div><div><dt>State tracking</dt><dd>{config.firewall.stateful_firewall ? "On" : "Invalid"}</dd><small>established traffic tracked</small></div><div><dt>Remote entry</dt><dd>WireGuard</dd><small>{config.firewall.wan_ingress_mode || "wireguard_only"}</small></div><div><dt>Tunnel forwards</dt><dd>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</dd><small>WAN remains closed</small></div></dl></div>
+  <FirewallActivityPanel />
   <FirewallRulesEditor applyConfig={applyConfig} busy={busy} config={config} />
   <FirewallPresets applyConfig={applyConfig} busy={busy} config={config} />
 </section>}
@@ -723,7 +738,7 @@ export default function DashboardSections({
 {active === "traffic" && <TrafficPanel applyConfig={applyConfig} busy={busy} config={config} />}
 
 {active === "qos" && <section className="dashboard-section" id="qos">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Applied to {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${config.qos.enabled ? "" : "is-off"}`}>QoS {config.qos.enabled ? "Active" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Algorithm</dt><dd>{config.qos.algorithm}</dd><small>{config.qos.enabled ? "qdisc applied" : "inactive"}</small></div><div><dt>Download</dt><dd>{config.qos.download_limit_mbps} Mbps</dd><small>ingress limit</small></div><div><dt>Upload</dt><dd>{config.qos.upload_limit_mbps} Mbps</dd><small>egress limit</small></div><div><dt>Interface</dt><dd>{config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}</dd><small>shaping target</small></div></dl></div>
+  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Configured target: {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${qosState === "Active" ? "" : "is-off"}`}>{qosState === "QoS unavailable" ? qosState : `QoS ${qosState}`}</span></div><dl className="subpage-hero-facts"><div><dt>Algorithm</dt><dd>{config.qos.algorithm}</dd><small>{qosState === "Active" ? "qdisc detected" : qosState === "Off" ? "inactive" : qosState}</small></div><div><dt>Download</dt><dd>{config.qos.download_limit_mbps} Mbps</dd><small>ingress limit</small></div><div><dt>Upload</dt><dd>{config.qos.upload_limit_mbps} Mbps</dd><small>egress limit</small></div><div><dt>Interface</dt><dd>{config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}</dd><small>shaping target</small></div></dl></div>
   <div className="qos-speedtest">
     <div className="qos-speedtest-head">
       <div><h4>Speed test</h4><p>Measures your real WAN speed and suggests QoS limits (90% of the result — the standard CAKE/SQM recommendation).</p></div>
@@ -752,7 +767,7 @@ export default function DashboardSections({
     )}
   </div>
   <label className="checkbox-row"><input checked={config.qos.enabled} type="checkbox" onChange={(e) => toggleQoS(e.target.checked)} /><span>Enable QoS traffic shaping</span></label>
-  <form className="settings-form" key={`qos-${config.revision}`} onSubmit={submitQoS}>
+  <form className="settings-form" key={JSON.stringify(config.qos)} onSubmit={submitQoS}>
     <div className="form-grid two">
       <label className="field"><span>Algorithm</span><select defaultValue={config.qos.algorithm} name="algorithm"><option value="cake">CAKE (recommended)</option><option value="fq_codel">FQ-CoDel</option></select></label>
       <label className="field"><span>Download limit (Mbps)</span><input defaultValue={config.qos.download_limit_mbps} max="100000" min="1" name="download_limit_mbps" required type="number" /></label>
@@ -765,7 +780,7 @@ export default function DashboardSections({
   {config.qos.enabled ? (
     <div className="speedtest-note" role="status">
       <strong>Speed test unavailable</strong>
-      <span>Disable QoS first. An active shaper (currently {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps) would report its own limit — not your real line speed — and suggested limits would be wrong.</span>
+      <span>Disable QoS first. The configured shaper ( {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps) would report its own limit — not your real line speed — and suggested limits would be wrong.</span>
     </div>
   ) : (
     <div className="speedtest-block">
@@ -797,9 +812,15 @@ export default function DashboardSections({
       </div>
       <div className="wg-hero-actions">
         <span className={`wg-interface-state ${config.wireguard.enabled ? "is-active" : ""}`}><i aria-hidden="true" />{config.wireguard.enabled ? "Interface active" : "Interface disabled"}</span>
-        <button className="wg-interface-toggle" disabled={busy} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable interface" : "Enable interface"}</button>
+        {needsWireGuardSetup ? (
+          <button className="wg-interface-toggle" disabled={busy} aria-describedby="wg-setup-note" onClick={() => document.getElementById("wg-device-name")?.focus()} type="button">Set up WireGuard</button>
+        ) : (
+          <button className="wg-interface-toggle" disabled={busy} aria-describedby={wireGuardSetupUnknown ? "wg-setup-unknown" : undefined} onClick={() => void applyConfig((next) => { next.wireguard.enabled = !next.wireguard.enabled; }, `WireGuard ${config.wireguard.enabled ? "disabled" : "enabled"}.`)} type="button">{config.wireguard.enabled ? "Disable interface" : wireGuardSetupUnknown ? "Check and enable" : "Enable interface"}</button>
+        )}
       </div>
     </div>
+    {needsWireGuardSetup && <p className="form-note" id="wg-setup-note">Add your first remote device below to set up and enable WireGuard.</p>}
+    {wireGuardSetupUnknown && <p className="form-note" id="wg-setup-unknown">Server setup status is unavailable. Enabling will check the saved configuration first; add a remote device below if setup is needed.</p>}
     <dl className="wg-hero-metrics">
       <div><dt>Interface</dt><dd>{config.wireguard.interface}</dd><small>{config.wireguard.address}</small></div>
       <div><dt>Listen port</dt><dd>{config.wireguard.listen_port}</dd><small>UDP</small></div>
@@ -834,7 +855,7 @@ export default function DashboardSections({
               <div><dt>Transfer</dt><dd><span className="is-rx">↓ {formatBytes(live?.rx_bytes || 0)}</span><span>↑ {formatBytes(live?.tx_bytes || 0)}</span></dd></div>
             </dl>
             <div className="wg-peer-actions">
-              <button className="wg-peer-config" disabled={busy} onClick={() => setPeerDetails({ peer, live, endpoint, online, handshake })} type="button">More info</button>
+              <button className="wg-peer-config" disabled={busy} onClick={(event) => { event.currentTarget.focus(); setPeerDetails({ peer, live, endpoint, online, handshake }); }} type="button">More info</button>
               {renamingPeer?.id === peer.id ? (
                 <>
                   <button className="wg-peer-config" disabled={busy || peerActionID !== null || !renamingPeer.name.trim()} onClick={() => void submitPeerRename()} type="button">Save</button>
@@ -896,7 +917,7 @@ export default function DashboardSections({
       <form className="settings-form" onSubmit={handleAddPeer}>
         <div className="wg-add-form">
           <div className="wg-add-input">
-            <label className="field"><span>Device name</span><input name="name" placeholder="e.g. MacBook Air" required autoFocus /></label>
+            <label className="field"><span>Device name</span><input id="wg-device-name" name="name" placeholder="e.g. MacBook Air" required autoFocus /></label>
           </div>
           <div className="wg-add-summary">
             <div className="wg-add-assign">
@@ -936,7 +957,7 @@ export default function DashboardSections({
     <button type="button" className={ddnsTab === "cloudflare" ? "is-active" : ""} role="tab" aria-selected={ddnsTab === "cloudflare"} onClick={() => setDdnsTab("cloudflare")}>Cloudflare</button>
   </div>
 
-  <form className="settings-form ddns-form" key={`ddns-${config.revision}-${ddnsTab}`} onSubmit={submitCloudflare}>
+  <form className="settings-form ddns-form" key={JSON.stringify([config.cloudflare, ddnsTab])} onSubmit={submitCloudflare}>
     <input type="hidden" name="provider" value={ddnsTab} />
     <label className="checkbox-row">
       <input
@@ -984,7 +1005,7 @@ export default function DashboardSections({
       <div className="service-config-title"><span className="service-config-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M6 7v10a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V7M9 4h6M9 12h6" /></svg></span><div><p>Service controls</p><h3>Authenticated proxy listener</h3><span>One compact workspace for access, identity and the local listening port.</span></div></div>
       <label className="service-toggle"><input checked={config.squid_proxy.enabled} type="checkbox" onChange={(e) => toggleSquid(e.target.checked)} /><span><b>{config.squid_proxy.enabled ? "Enabled" : "Disabled"}</b><small>Non-caching proxy</small></span></label>
     </header>
-    <form className="settings-form" key={`squid-${config.revision}`} onSubmit={submitSquid}><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} max={65535} min={1} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} maxLength={64} name="username" pattern="^[A-Za-z0-9][A-Za-z0-9_.-]*$" title="Letters, numbers, dot, underscore or hyphen; must start with a letter or number" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" maxLength={1024} minLength={8} name="password" placeholder="Leave blank to keep stored secret" title="At least 8 characters" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
+    <form className="settings-form" key={JSON.stringify(config.squid_proxy)} onSubmit={submitSquid}><div className="form-grid two"><label className="field"><span>Port</span><input defaultValue={config.squid_proxy.port} max={65535} min={1} name="port" type="number" /></label><label className="field"><span>Username</span><input defaultValue={config.squid_proxy.username} maxLength={64} name="username" pattern="^[A-Za-z0-9][A-Za-z0-9_.-]*$" title="Letters, numbers, dot, underscore or hyphen; must start with a letter or number" /></label><label className="field form-span"><span>New password</span><input autoComplete="new-password" maxLength={1024} minLength={8} name="password" placeholder="Leave blank to keep stored secret" title="At least 8 characters" type="password" /></label></div><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
   </article>
 </section>}
 
@@ -997,14 +1018,15 @@ export default function DashboardSections({
       <div className="service-config-title"><span className="service-config-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a11 11 0 0 1 14 0M8.5 16a6 6 0 0 1 7 0M12 20h.01M2 9a16 16 0 0 1 20 0" /></svg></span><div><p>Radio controls</p><h3>Local wireless network</h3><span>Identity, spectrum and access policy in a single card.</span></div></div>
       <label className="service-toggle"><input checked={config.wifi.enabled} type="checkbox" onChange={(e) => toggleWiFi(e.target.checked)} /><span><b>{config.wifi.enabled ? "Enabled" : "Disabled"}</b><small>Access point</small></span></label>
     </header>
-    <form className="settings-form" key={`wifi-${config.revision}`} onSubmit={submitWiFi}><div className="form-grid two"><label className="field"><span>Radio interface</span><input defaultValue={config.wifi.interface} name="interface" /></label><label className="field"><span>SSID</span><input defaultValue={config.wifi.ssid} maxLength={32} name="ssid" /></label><WiFiRadioFields band={config.wifi.band} channel={config.wifi.channel} /><label className="field form-span"><span>New passphrase</span><input autoComplete="new-password" maxLength={63} minLength={12} name="passphrase" placeholder="Leave blank to keep stored secret" title="12-63 characters" type="password" /></label></div><label className="checkbox-row"><input defaultChecked={config.wifi.hide_ssid} name="hide_ssid" type="checkbox" /><span>Hide SSID</span></label><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
+    <form className="settings-form" key={JSON.stringify(config.wifi)} onSubmit={submitWiFi}><div className="form-grid two"><label className="field"><span>Radio interface</span><input defaultValue={config.wifi.interface} name="interface" /></label><label className="field"><span>SSID</span><input defaultValue={config.wifi.ssid} maxLength={32} name="ssid" /></label><WiFiRadioFields band={config.wifi.band} channel={config.wifi.channel} /><label className="field form-span"><span>New passphrase</span><input autoComplete="new-password" maxLength={63} minLength={12} name="passphrase" placeholder="Leave blank to keep stored secret" title="12-63 characters" type="password" /></label></div><label className="checkbox-row"><input defaultChecked={config.wifi.hide_ssid} name="hide_ssid" type="checkbox" /><span>Hide SSID</span></label><div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div></form>
   </article>
 </section>}
 
 {active === "recovery" && <section className="dashboard-section" id="recovery">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Recoverability</p><h2>Snapshots and local console</h2><p className="section-copy">Create verified configuration restore points and keep destructive recovery operations on the physical console.</p></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><dl className="subpage-hero-facts"><div><dt>Snapshots</dt><dd>{snapshots.length}</dd><small>verified restore points</small></div><div><dt>Current revision</dt><dd>{config.revision}</dd><small>active configuration</small></div><div><dt>Network recovery</dt><dd>Console only</dd><small>no remote endpoint</small></div><div><dt>Rollback</dt><dd>Automatic</dd><small>critical changes protected</small></div></dl></div>
+  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Recoverability</p><h2>Recovery</h2><p className="section-copy">Back up your Minimal Router configuration, restore from an encrypted backup, or migrate settings from pfSense.</p></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><dl className="subpage-hero-facts"><div><dt>Snapshots</dt><dd>{snapshots.length}</dd><small>verified restore points</small></div><div><dt>Current revision</dt><dd>{config.revision}</dd><small>active configuration</small></div><div><dt>Network recovery</dt><dd>Console only</dd><small>no remote endpoint</small></div><div><dt>Rollback</dt><dd>Automatic</dd><small>critical changes protected</small></div></dl></div>
   <div className="dashboard-callout"><strong>Network recovery is intentionally unavailable.</strong><p>Password/TOTP reset, LAN repair, snapshot recovery, and factory reset use <code>router-recovery</code> on the local console.</p></div>
   <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Signed local restore points retained by the appliance.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="elegant-table-container"><table className="elegant-device-table"><colgroup><col className="elegant-col-expires" /><col className="elegant-col-w100" /><col /><col className="elegant-col-actions" /></colgroup><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th className="elegant-th-actions">Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td className="elegant-cell-data">{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td className="elegant-cell-ip"><code>{snapshot.checksum.slice(0, 16)}…</code></td><td className="elegant-cell-actions"><div className="device-row-actions"><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button><button className="button secondary small danger" disabled={busy} onClick={() => void deleteSnapshot(snapshot.id)} type="button">Delete</button></div></td></tr>)}</tbody></table></div></article>
+  <div className="production-recovery-tools-host demo-015-recovery-slot demo-015-recovery-moved"><RecoveryToolsPanel config={config} onError={setError} /></div>
 </section>}
 
 {active === "logs" && <AuditLogPanel />}

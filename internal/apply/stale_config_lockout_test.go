@@ -20,7 +20,7 @@ type applydGuardClient struct {
 func (c *applydGuardClient) Apply(_ context.Context, req ApplyRequest) (*ApplyResponse, error) {
 	if req.Op == OpApplyAll {
 		c.sawApply = true
-		if err := req.Config.ValidateChangesFrom(&c.lastGood); err != nil {
+		if err := config.ValidateLiveCandidate(req.Config, &c.lastGood); err != nil {
 			return &ApplyResponse{ID: req.ID, Success: false, Error: "privileged validation rejected configuration"}, nil
 		}
 		if err := req.Config.ValidateScenarioSafety(); err != nil {
@@ -46,32 +46,29 @@ func staleApplianceConfig(t *testing.T) config.SystemConfig {
 	return cfg
 }
 
-// The regression this closes: delta validation in routerd alone left the helper
-// judging the whole stored state, so every save was still refused -- just with
-// an opaque error instead of a field-specific one.
-func TestUnrelatedEditSavesBesideAStaleFault(t *testing.T) {
+// A candidate must satisfy the same rules at preview, apply, persistence and
+// startup. Legacy faults are reported before any privileged side effect.
+func TestUnrelatedEditRequiresLegacyRepairBeforeApply(t *testing.T) {
 	stored := staleApplianceConfig(t)
 	client := &applydGuardClient{lastGood: stored}
 	engine := NewEngineWithClient(stored, nil, client)
-
-	next := stored
+	next := stored.DeepCopy()
 	next.Accounting.Enabled = true
-
+	if _, err := PreviewTransition(stored, next); err == nil {
+		t.Fatal("preview accepted unrepaired legacy candidate")
+	}
 	tx, err := engine.ProcessTransaction("tx-stale-unrelated", next)
-	if err != nil {
-		t.Fatalf("an unrelated toggle must save beside an untouched stale fault: %v (state=%s, %s)", err, tx.CurrentState, tx.Error)
+	if err == nil || tx.CurrentState != StateRejected || !strings.Contains(tx.Error, "wan.password") {
+		t.Fatalf("expected early field-specific rejection: tx=%+v err=%v", tx, err)
 	}
-	if !client.sawApply {
-		t.Fatal("the transaction never reached the privileged helper")
-	}
-	if tx.CurrentState != StateCommitted && tx.CurrentState != StateVerified {
-		t.Fatalf("unexpected terminal state %s: %s", tx.CurrentState, tx.Error)
+	if client.sawApply {
+		t.Fatal("invalid candidate reached privileged helper")
 	}
 }
 
-// Repairing the stale field must also go through, since that is the edit the
-// operator actually needs to make.
-func TestRepairingTheStaleFieldSaves(t *testing.T) {
+// A live repair cannot start when a failed commit could only roll back to an
+// invalid configuration. Require local migration before any privileged apply.
+func TestRepairingLegacyCandidateRequiresValidRollbackBaseline(t *testing.T) {
 	stored := staleApplianceConfig(t)
 	client := &applydGuardClient{lastGood: stored}
 	engine := NewEngineWithClient(stored, nil, client)
@@ -79,8 +76,18 @@ func TestRepairingTheStaleFieldSaves(t *testing.T) {
 	next := stored
 	next.WAN.Password = "a-real-pppoe-secret"
 
-	if _, err := engine.ProcessTransaction("tx-stale-repair", next); err != nil {
-		t.Fatalf("repairing the stale field must be accepted: %v", err)
+	if _, err := engine.ProcessTransaction("tx-stale-repair", next); err == nil || !strings.Contains(err.Error(), "local configuration migration") {
+		t.Fatalf("invalid baseline should require local migration: %v", err)
+	}
+	if client.sawApply {
+		t.Fatal("repair with an invalid rollback target reached privileged apply")
+	}
+	// After explicit migration, a restarted engine has a valid recovery target.
+	client.lastGood = next
+	engine = NewEngineWithClient(next, nil, client)
+	next.Accounting.Enabled = !next.Accounting.Enabled
+	if _, err := engine.ProcessTransaction("tx-after-migration", next); err != nil {
+		t.Fatalf("valid migrated baseline should accept subsequent edits: %v", err)
 	}
 }
 

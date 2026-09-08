@@ -132,7 +132,7 @@ func (sm *SessionManager) ValidateSession(r *http.Request) (*Session, error) {
 }
 
 // DestroySession invalidates the active session.
-func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter) {
+func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter) error {
 	cookie, err := r.Cookie(SessionCookieName)
 	if err == nil && cookie.Value != "" {
 		sm.mu.Lock()
@@ -142,7 +142,7 @@ func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter)
 
 	// Expire cookie
 	if w == nil {
-		return
+		return nil
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -153,6 +153,7 @@ func (sm *SessionManager) DestroySession(r *http.Request, w http.ResponseWriter)
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 	})
+	return nil
 }
 
 // DestroyAllSessions invalidates every active administrator session.

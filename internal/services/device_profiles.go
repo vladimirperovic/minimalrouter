@@ -94,8 +94,10 @@ func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 				if _, supported := ServiceDomains[service]; !supported {
 					continue
 				}
-				for _, day := range orderedScheduleDays {
-					writeAllowedWindows(buf, ip, service, day, dayWindows[day])
+				for index, day := range orderedScheduleDays {
+					// nft's weekday ABI is Sunday=0 through Saturday=6. Numeric
+					// values avoid the case-sensitive symbolic parser on Alpine.
+					writeAllowedWindows(buf, ip, service, (index+1)%7, dayWindows[day])
 				}
 				buf.WriteString(fmt.Sprintf("    ip saddr %s ip daddr @svc_%s drop\n", ip, service))
 			}
@@ -104,11 +106,16 @@ func writeDeviceProfileObjects(buf *bytes.Buffer, cfg *config.SystemConfig) {
 	buf.WriteString("    return\n  }\n\n")
 }
 
-func writeAllowedWindows(buf *bytes.Buffer, ip, service, day string, windows []config.AccessWindow) {
+func writeAllowedWindows(buf *bytes.Buffer, ip, service string, day int, windows []config.AccessWindow) {
 	for _, window := range windows {
+		end := window.End
+		if end == "23:59" {
+			// The UI uses this sentinel for an allowed day through midnight.
+			end = "23:59:59"
+		}
 		buf.WriteString(fmt.Sprintf(
-			"    ip saddr %s ip daddr @svc_%s meta day %s meta hour \"%s\"-\"%s\" return\n",
-			ip, service, day, window.Start, window.End,
+			"    ip saddr %s ip daddr @svc_%s meta day %d meta hour \"%s\"-\"%s\" return\n",
+			ip, service, day, window.Start, end,
 		))
 	}
 }

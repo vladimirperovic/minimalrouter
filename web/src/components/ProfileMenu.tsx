@@ -11,7 +11,7 @@ type AuditEvent = {
 };
 
 type Props = {
-  changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  changePassword: (event: FormEvent<HTMLFormElement>) => Promise<boolean>;
   logout: () => Promise<void>;
   error: string;
   setError: (message: string) => void;
@@ -20,7 +20,7 @@ type Props = {
   updateAvailable: boolean;
 };
 
-export default function ProfileMenu({ changePassword, logout, error, setError, openUpdates, updateAvailable }: Props) {
+export default function ProfileMenu({ changePassword, logout, setError, openUpdates, updateAvailable }: Props) {
   const [open, setOpen] = useState(false);
   const [panel, setPanel] = useState<"account" | "password">("account");
   const [lastLogin, setLastLogin] = useState<AuditEvent | null>(null);
@@ -50,8 +50,7 @@ export default function ProfileMenu({ changePassword, logout, error, setError, o
 
   const submitPassword = async (event: FormEvent<HTMLFormElement>) => {
     setError("");
-    await changePassword(event);
-    if (!error) setOpen(false);
+    if (await changePassword(event)) setOpen(false);
   };
 
   return (

@@ -28,6 +28,16 @@ fi
 
 SETUP_BIN="$SCRIPT_DIR/bin/router-setup-${BIN_ARCH}"
 CORE_INSTALLER="$SCRIPT_DIR/install-core.sh"
+# Refuse trust/layout/version failures before provisioning or package writes.
+"$SCRIPT_DIR/bin/router-update-${BIN_ARCH}" install-preflight --dir "$SCRIPT_DIR"
+if [ "${1:-}" = "--offline" ] || [ "${MINIMALROUTER_OFFLINE:-0}" = "1" ]; then
+    dnsmasq_options="$(dnsmasq --version)" || exit 1
+    if ! printf '%s\n' "$dnsmasq_options" | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)'; then
+        echo "ERROR: offline installation requires dnsmasq-dnssec-nftset with NFTSET support" >&2
+        exit 1
+    fi
+fi
+
 PROVISION_FILE=/run/minimalrouter-console-setup.json
 LIVE_LAN_FILE=/run/minimalrouter-live-lan
 INTERACTIVE_SETUP=0
