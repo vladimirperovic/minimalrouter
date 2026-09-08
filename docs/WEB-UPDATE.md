@@ -11,22 +11,23 @@ An A/B web update replaces the *slot*: `routerd`, `router-applyd` and the
 dashboard bundle. It cannot replace anything that has to keep working when the
 update is rolled back.
 
-Two binaries are deliberately outside the slot:
+Three runtime tools are deliberately outside the slot:
 
 ```text
 /usr/libexec/minimalrouter/bootstrap/bin/router-update-<arch>
 /usr/libexec/minimalrouter/bootstrap/bin/router-recovery-<arch>
+/usr/sbin/router-setup
 ```
 
 `router-update` performs the activation and the rollback; `router-recovery` is
-the local console used when the management plane cannot be reached. Neither can
+the local console used when the management plane cannot be reached. The installed `router-setup` also verifies canonical provisioning before services start. These tools cannot
 be rolled back by moving a symlink, because the code doing the rollback would be
 the code being rolled back. So `verifyRuntimeLayoutCompatibility` refuses to
 activate a candidate whose copies of them are not **byte-identical** to the ones
 already installed ([runtime_layout.go](../cmd/router-update/runtime_layout.go)).
 
-The same applies to the nine OS integration files (init scripts, sysctl, module
-list, logrotate, `slot-exec`, `compatibility.json`, the PPP QoS hook): they run
+The same applies to the OS integration files (init scripts, firstboot scripts,
+sysctl, module list, logrotate, `slot-exec`, `compatibility.json`, the PPP QoS hook): they run
 as root outside the slot, so an A/B update requires an exact match there too.
 
 A release that changes any of those is not defective — it simply has to arrive
@@ -84,18 +85,61 @@ If the check reports drift that is not acknowledged, it fails. The fix is to
 record the change and document the installer step — **never** to relax the
 byte-identity check in `cmd/router-update`.
 
-## Current state (v0.1.7)
+## Current checkout and installation boundary
 
-`router-update` is unchanged since v0.1.6. `router-recovery` changed, because it
-links `internal/config` and the firewall-source and lease-time validators were
-corrected after v0.1.6; the recovery console must validate exactly like the
-release it ships with.
+This checkout changes the installed updater, recovery/firstboot contract and
+runtime integration. Published v0.1.7 and earlier appliances require the full
+distribution installer. Changing a version label cannot make their bootstrap
+bytes compatible. `router-setup` now uses the same deterministic build flags as
+the updater/recovery tools and participates in the byte comparison. Before a new
+release is published, update VERSION and the matching bootstrap acknowledgement;
+this working-tree change does not retroactively alter the existing v0.1.7 ISO.
 
-So:
+The compiled `internal/firmware/appliance_roles.go` table describes required
+payload files, architecture-specific binaries, modes and installed comparison
+paths. The manifest cannot choose arbitrary privileged destination paths.
+`firstboot`, `firstboot-ready`, `init.d/minimalrouter-firstboot`, `install-core.sh`
+and `bin/router-setup-<arch>` are required alongside the existing runtime files.
+Readable static assets, including `.gz` files, are signed and normalized to 0644.
+Both daemons must come from the same complete slot; an invalid active slot fails
+startup rather than selecting a different daemon or Dashboard generation.
 
-- **v0.1.6 → v0.1.7:** full signed distribution installer, once.
-- **v0.1.7 onward:** web-updatable whenever the check reports
-  `WEB_UPDATE_SUPPORTED=true` for the release.
+`state.json.minimum_version` is the monotonic installed release floor.
+`UpgradeFloor()` takes the maximum of that floor and a real current release.
+A synthetic `0.0.0+bootstrap.<digest>` directory identifies payload contents, not
+a trusted release version. An unknown legacy/development baseline therefore
+refuses web staging; build-info display values never establish update trust.
+Normal stage/activate requires a strictly newer version. Explicit rollback keeps
+the high-water mark and also verifies the previous slot's installed integration.
+
+The root-operated full installer verifies its pinned key, signed manifest,
+architecture, complete inventory and modes before package/runtime writes. Signed
+distributions include `release-manifest.json`; VERSION and all payload files are
+signed before it is copied into the archive. A same-version signed full reinstall
+is allowed. An unsigned development installation is a separate explicit root
+operation: it preserves any known floor and trust key, and cannot create a known
+floor for an otherwise unknown installation.
+
+Before mutation, `BeginInstallation` rechecks the floor under the slot lock and
+persists `installation.json`. The dispatcher/admission guard is installed and
+synchronized before package or remaining integration changes. Pending installation
+or offline migration blocks daemon startup while bootstrap recovery/updater remain
+available. This is a forward-repair fence: after interruption, rerun the complete
+installer from local recovery; do not delete its journal to resume mixed runtime.
+
+The installer synchronizes system writes before final commit. The updater checks
+and fsyncs installed integration, copies and verifies a complete baseline, fsyncs
+all copied files/directories, and rechecks the floor under the commit lock before
+publishing the baseline and clearing the fence. A stale preflight cannot lower or
+erase a higher committed or interrupted-install floor. Each full install starts
+a new rollback generation, clearing previous/pending A/B pointers because a slot
+rollback cannot undo OS integration changes.
+
+Startup allows 300 seconds, above the 270-second canonical reconcile budget.
+Updater service starts allow 330 seconds plus a bounded pipe-drain allowance;
+stop/status calls remain bounded at 30 seconds. Cancellation also terminates
+OpenRC command children before recovery continues. Shared constants live in the
+dependency-free `internal/runtimebudget` package.
 
 ## The dashboard flow
 

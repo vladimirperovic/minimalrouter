@@ -71,3 +71,49 @@ export function reservationConflictMessage(ip: string, mac: string, leases: Stat
 
   return "";
 }
+
+export type LiveLease = {
+  ip_address: string;
+  mac: string;
+  hostname?: string;
+  /** Lease expiry as unix epoch seconds; missing or zero means unknown. */
+  expires_at?: number;
+};
+
+// liveLeaseConflictMessage blocks a reservation only while another device
+// actively holds the address. A stale (expired) lease entry stays on file
+// in dnsmasq after a device is forgotten, but the address is effectively
+// free, so re-reserving it must not wait for housekeeping. Unknown expiry
+// stays blocked: failing closed beats guessing.
+export function liveLeaseConflictMessage(
+  ip: string,
+  targetMac: string,
+  leases: readonly LiveLease[],
+  now: number = Date.now(),
+): string {
+  const normalisedIP = ip.trim();
+  const normalisedMac = targetMac.trim().toLowerCase();
+  const collision = leases.find(
+    (lease) => lease.ip_address.trim() === normalisedIP && lease.mac.trim().toLowerCase() !== normalisedMac,
+  );
+  if (!collision) return "";
+  if (typeof collision.expires_at === "number" && collision.expires_at > 0 && collision.expires_at * 1000 <= now) {
+    return "";
+  }
+  const holder = collision.hostname?.trim() || collision.mac;
+  const expiry =
+    typeof collision.expires_at === "number" && collision.expires_at > 0
+      ? `, ${formatLeaseCountdown(collision.expires_at, now)}`
+      : "";
+  return `${normalisedIP} is currently leased to ${holder} (${collision.mac}${expiry}). Choose another address.`;
+}
+
+function formatLeaseCountdown(expiresAt: number, now: number): string {
+  const diff = expiresAt * 1000 - now;
+  if (diff <= 0) return "expired";
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `in ${Math.max(1, minutes)} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `in ${hours} h`;
+  return `in ${Math.floor(hours / 24)} d`;
+}

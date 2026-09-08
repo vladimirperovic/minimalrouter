@@ -165,7 +165,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
               <h1 id="offline-title">Router unavailable</h1>
               <p className="auth-meta">Minimal Router OS · reconnecting</p>
             </div>
-            <span className="auth-mark" aria-hidden="true">M</span>
           </div>
           <div className="auth-section auth-note">
             <p>Connect to the router LAN and try again. This page will reconnect automatically.</p>
@@ -187,7 +186,6 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             <p className="auth-meta">Minimal Router OS · secure access</p>
             {previewMode && <span className="auth-chip">UI preview</span>}
           </div>
-          <span className="auth-mark" aria-hidden="true">M</span>
         </div>
         <form onSubmit={login}>
           <div className="auth-section auth-form">

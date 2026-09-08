@@ -1,6 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { apiFetch } from "../lib/api";
-import type { RouterConfig } from "../api-types";
+import { FormEvent, useState } from "react";
+import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
 
 type Props = {
   onError: (message: string) => void;
@@ -24,45 +23,24 @@ function isValidCidr(value: string): boolean {
 }
 
 export default function TrustedNetworksPanel({ onError }: Props) {
-  const [networks, setNetworks] = useState<string[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const config = useConfiguration();
+  const networks = config?.trusted_networks || [];
+  const loaded = config !== null;
   const [saving, setSaving] = useState(false);
   const [input, setInput] = useState("");
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const load = async () => {
-    try {
-      const response = await apiFetch("/api/v1/config");
-      if (!response.ok) throw new Error(`Configuration load failed (${response.status})`);
-      const config = (await response.json()) as RouterConfig;
-      setNetworks(Array.isArray(config.trusted_networks) ? config.trusted_networks : []);
-      setLoaded(true);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : "Trusted networks configuration unavailable");
-    }
-  };
 
   const persist = async (next: string[]) => {
     setSaving(true);
     try {
-      const currentResponse = await apiFetch("/api/v1/config");
-      if (!currentResponse.ok) throw new Error(`Configuration load failed (${currentResponse.status})`);
-      const config = (await currentResponse.json()) as RouterConfig;
+      const config = await readConfiguration({ cache: "reload" });
       config.trusted_networks = next;
-      const response = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Trusted networks apply failed (${response.status})`);
-      setNetworks(next);
+      const result = await previewAndApplyConfig(config);
+      if (result.cancelled) return false;
       onError("");
+      return true;
     } catch (error) {
       onError(error instanceof Error ? error.message : "Trusted networks update failed");
+      return false;
     } finally {
       setSaving(false);
     }
@@ -79,8 +57,7 @@ export default function TrustedNetworksPanel({ onError }: Props) {
       onError(`${value} is already on the trusted list.`);
       return;
     }
-    await persist([...networks, value]);
-    setInput("");
+    if (await persist([...networks, value])) setInput("");
   };
 
   const remove = async (network: string) => {

@@ -16,7 +16,7 @@ func writeExecutableFixture(t *testing.T, root string, manifest *FirmwareManifes
 		mode := os.FileMode(0o644)
 		if filepath.Dir(path) == "bin" || path == "slot-exec" || path == "install.sh" ||
 			path == "init.d/routerd" || path == "init.d/router-applyd" || path == "init.d/pppoe-wan" ||
-			path == "ip-up.d-minimalrouter-qos" {
+			path == "ip-up.d-minimalrouter-qos" || path == "firstboot-ready" || path == "firstboot" || path == "install-core.sh" || path == "init.d/minimalrouter-firstboot" {
 			mode = 0o755
 		}
 		if err := os.WriteFile(full, []byte(path), mode); err != nil {
@@ -47,5 +47,34 @@ func TestValidateApplianceFileModesRejectsNonExecutableApplyd(t *testing.T) {
 	}
 	if err := ValidateApplianceFileModes(root, manifest); err == nil {
 		t.Fatal("signed payload with non-executable helper was accepted")
+	}
+}
+
+func TestRecoveryWorkerRequiresUnprivilegedExecuteWhileUpdaterStaysPrivate(t *testing.T) {
+	for _, arch := range []string{"amd64", "arm64"} {
+		if got := ApplianceFileMode("bin/router-recovery-" + arch); got != 0o755 {
+			t.Fatalf("%s recovery mode = %04o; dropped worker needs 0755", arch, got)
+		}
+		if got := ApplianceFileMode("bin/router-update-" + arch); got != 0o750 {
+			t.Fatalf("%s updater mode = %04o; must remain 0750", arch, got)
+		}
+	}
+	root := t.TempDir()
+	manifest := completeAMD64ManifestForTest()
+	writeExecutableFixture(t, root, manifest)
+	checkMode := func(name string, mode os.FileMode) {
+		t.Helper()
+		if err := os.Chmod(filepath.Join(root, "bin", name+"-amd64"), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	checkMode("router-update", 0o750)
+	checkMode("router-recovery", 0o750)
+	if err := ValidateApplianceFileModes(root, manifest); err == nil {
+		t.Fatal("root-only recovery accepted even though dropped worker cannot exec it")
+	}
+	checkMode("router-recovery", 0o755)
+	if err := ValidateApplianceFileModes(root, manifest); err != nil {
+		t.Fatalf("worker-executable recovery with private updater rejected: %v", err)
 	}
 }

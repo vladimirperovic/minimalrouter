@@ -250,12 +250,11 @@ test("capture the dark theme overview", async ({ page }) => {
   await stub(page);
   await page.goto("/");
   await page.waitForTimeout(700);
-  const toggle = page.getByRole("button", { name: /theme|dark|light/i }).first();
-  if (await toggle.count()) {
-    await toggle.click();
-    await page.waitForTimeout(500);
-    await page.screenshot({ path: resolve(OUT, "15-overview-dark.png") });
-  }
+  const toggle = page.getByRole("button", { name: "Toggle appearance", exact: true });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: resolve(OUT, "15-overview-dark.png") });
 });
 
 test("capture the setup wizard", async ({ page }) => {

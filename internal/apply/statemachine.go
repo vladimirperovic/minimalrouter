@@ -216,18 +216,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		tx.Error = "enable and verify WireGuard in a separate transaction before restricting management access"
 		return tx, fmt.Errorf("%s", tx.Error)
 	}
-	// Judge the change, not the whole stored state: a configuration written by
-	// an older release can already violate a newer rule, and that must not make
-	// every later edit impossible. Scenario and transition safety below still
-	// see the complete candidate.
-	if err := newCfg.ValidateChangesFrom(&e.currentConfig); err != nil {
+	// Admit exactly the configuration that persistence and startup can accept.
+	// Legacy faults require an explicit repair, not an inherited waiver.
+	if err := config.ValidateLiveCandidate(newCfg, &e.currentConfig); err != nil {
 		tx.CurrentState = StateRejected
 		tx.Error = fmt.Sprintf("Validation failed: %v", err)
-		return tx, err
-	}
-	if err := newCfg.ValidateScenarioSafety(); err != nil {
-		tx.CurrentState = StateRejected
-		tx.Error = fmt.Sprintf("Scenario safety validation failed: %v", err)
 		return tx, err
 	}
 	if !allowInterfaceChange {
@@ -409,12 +402,7 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 }
 
 func requiresConfirmation(current, candidate config.SystemConfig) bool {
-	wireGuardManagementChanged := (current.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") && !reflect.DeepEqual(current.WireGuard, candidate.WireGuard)
-	wifiChanged := !reflect.DeepEqual(current.WiFi, candidate.WiFi) && (current.WiFi.Enabled || candidate.WiFi.Enabled)
-	wgClientChanged := !reflect.DeepEqual(current.WGClient, candidate.WGClient)
-	trustedNetworksChanged := !reflect.DeepEqual(current.TrustedNetworks, candidate.TrustedNetworks)
-	return current.LAN.IPAddress != candidate.LAN.IPAddress || current.LAN.CIDR != candidate.LAN.CIDR ||
-		current.System.ManagementAccess != candidate.System.ManagementAccess || wifiChanged || wireGuardManagementChanged || wgClientChanged || trustedNetworksChanged
+	return config.RequiresConfirmation(current, candidate)
 }
 
 func (e *Engine) GetPendingTransaction() *Transaction {
@@ -647,10 +635,34 @@ func (e *Engine) Reconcile(ctx context.Context) error {
 		e.requireRecovery(reason)
 		return fmt.Errorf("%s", reason)
 	}
-	if !resp.Success || !resp.Verified {
-		reason := fmt.Sprintf("boot reconciliation was not verified: %s", resp.Error)
+	if resp == nil || !resp.Success || !resp.Verified || resp.RecoveryRequired {
+		detail := "no helper response"
+		if resp != nil {
+			detail = resp.Error
+		}
+		reason := fmt.Sprintf("boot reconciliation was not verified: %s", detail)
 		e.requireRecovery(reason)
 		return fmt.Errorf("%s", reason)
+	}
+	// A verified reconcile has installed and acknowledged the canonical config.
+	// It completes an already committed candidate, or restores the previous
+	// canonical state when the operator had not confirmed the candidate yet.
+	if pending := e.pending; pending != nil {
+		if pending.timer != nil {
+			pending.timer.Stop()
+		}
+		pending.tx.ConfirmationDeadline = nil
+		if pending.canonicalCommitted {
+			now := time.Now()
+			pending.tx.ConfirmedAt = &now
+			pending.tx.CurrentState = StateCommitted
+			pending.tx.Error = ""
+		} else {
+			pending.tx.CurrentState = StateRolledBack
+			pending.tx.Error = "unconfirmed candidate discarded; canonical configuration restored"
+		}
+		e.activeTx = pending.tx
+		e.pending = nil
 	}
 	e.recoveryRequired = false
 	e.recoveryReason = ""

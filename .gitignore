@@ -53,3 +53,9 @@ alpine-standard-3.21.3-x86_64.iso
 /SESSION6_SUMMARY.md
 /implementation_plan.md
 /web/e2e/e2edbg*.spec.ts
+
+# Dependency caches and browser test output
+/node_modules/
+/web/node_modules/
+/web/test-results/
+/web/playwright-report/

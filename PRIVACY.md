@@ -19,6 +19,27 @@ Depending on enabled features, the appliance may store:
 This information can identify a household, office, network, or device inventory
 and must be treated as sensitive.
 
+## Local activity history
+
+Optional per-device traffic accounting records IP-address byte totals, sampled
+from routed traffic every five minutes. Monthly totals follow the configured
+retention; recent hourly totals and per-address daily totals are retained for
+32 days. Device names and MAC labels are resolved from current DHCP leases and
+reservations, rather than copied into this usage database. Disabling accounting
+immediately hides this history from the API and deletes it on the next collector
+round. Overview activity means a positive byte delta recorded within ten minutes;
+it is not a live presence scan and may omit quiet or local-only devices.
+
+The firewall also retains aggregate allowed/blocked input and forwarded packet
+counts in minute buckets for at most 25 hours, independently of optional device
+accounting. These aggregates contain no per-device identifiers, browsing
+categories, destinations, packet contents or payloads. Collection gaps and counter
+resets are excluded. Both histories remain on the appliance and require an
+administrator session from a trusted management network to read.
+
+Dashboard design and light/dark preferences are stored in the local browser.
+They do not change router configuration or send data to an external service.
+
 ## Network traffic
 
 Packet forwarding remains in the Linux networking stack. Minimal Router OS does

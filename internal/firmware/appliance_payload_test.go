@@ -7,6 +7,10 @@ func completeManifestForArchForTest(arch string) *FirmwareManifest {
 	for _, path := range []string{
 		"web/dist/index.html",
 		"slot-exec",
+		"firstboot",
+		"firstboot-ready",
+		"init.d/minimalrouter-firstboot",
+		"install-core.sh",
 		"compatibility.json",
 		"install.sh",
 		"init.d/routerd",
@@ -20,6 +24,7 @@ func completeManifestForArchForTest(arch string) *FirmwareManifest {
 		"bin/router-applyd-" + arch,
 		"bin/router-recovery-" + arch,
 		"bin/router-update-" + arch,
+		"bin/router-setup-" + arch,
 	} {
 		files[path] = "00"
 	}
@@ -67,6 +72,7 @@ func TestValidateAppliancePayloadRejectsMixedArchitectures(t *testing.T) {
 		"bin/router-applyd-arm64",
 		"bin/router-recovery-arm64",
 		"bin/router-update-arm64",
+		"bin/router-setup-arm64",
 	} {
 		manifest.Files[path] = "00"
 	}

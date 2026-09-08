@@ -1,8 +1,11 @@
 package main
 
 import (
-	"reflect"
+	"errors"
+	"os"
+	"path/filepath"
 
+	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
 )
 
@@ -15,14 +18,33 @@ func confirmationModeAllowed(previous *config.SystemConfig, candidate config.Sys
 	if previous == nil || previous.LAN.Interface != candidate.LAN.Interface {
 		return false
 	}
-	lanChanged := previous.LAN.IPAddress != candidate.LAN.IPAddress ||
-		previous.LAN.CIDR != candidate.LAN.CIDR
-	managementChanged := previous.System.ManagementAccess != candidate.System.ManagementAccess
-	topologyChanged := previous.WiFi.Enabled != candidate.WiFi.Enabled ||
-		previous.WiFi.Interface != candidate.WiFi.Interface
-	wireGuardManagementChanged :=
-		(previous.System.ManagementAccess == "wireguard_only" || candidate.System.ManagementAccess == "wireguard_only") &&
-			!reflect.DeepEqual(previous.WireGuard, candidate.WireGuard)
-	wgClientChanged := !reflect.DeepEqual(previous.WGClient, candidate.WGClient)
-	return lanChanged || managementChanged || topologyChanged || wireGuardManagementChanged || wgClientChanged
+	return config.RequiresConfirmation(*previous, candidate)
+}
+
+// Validate the requested mode independently of routerd. Recovery and initial
+// provisioning have no provisional mode; an ordinary apply cannot suppress a
+// required confirmation merely by omitting the flag.
+func validateConfirmationRequest(req apply.ApplyRequest, previous *config.SystemConfig) error {
+	if req.RequireConfirmation {
+		if req.Op != apply.OpApplyAll || req.DeferLastGood || !confirmationModeAllowed(previous, req.Config) {
+			return errors.New("confirmation mode is invalid for this change")
+		}
+	} else if req.Op == apply.OpApplyAll && previous != nil && config.RequiresConfirmation(*previous, req.Config) {
+		return errors.New("this change requires confirmation")
+	}
+	return nil
+}
+
+// Clearing the journal is an acknowledgement, so persist its removal before
+// reporting success. Also sync on retry after an ambiguous earlier unlink.
+func clearPendingFile(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }

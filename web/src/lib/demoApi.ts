@@ -214,11 +214,25 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/snapshots") return json({ snapshots });
   if (path === "/api/v1/transactions/pending") return json({});
   if (path === "/api/v1/audit/events") return json(audit);
+  if (path === "/api/v1/accounting/insights") {
+    const period=url.searchParams.get('period')||'today';const now=new Date();const day=new Date(now);day.setUTCHours(0,0,0,0);
+    const days=period==='30d'?30:period==='7d'?7:1;const hourly=days===1;const from=new Date(day.getTime()-(period==='yesterday'?1:days-1)*86400000);const until=period==='yesterday'?day:now;
+    const count=hourly?Math.max(1,Math.ceil((until.getTime()-from.getTime())/3600000)):days;
+    const points=Array.from({length:count},(_,i)=>{const rx=Math.round((1.2+Math.sin(i*.55)*.4+i%5*.1)*1e9);const tx=Math.round(rx*.19);return {start:new Date(from.getTime()+i*(hourly?3600000:86400000)).toISOString(),rx_bytes:rx,tx_bytes:tx,total_bytes:rx+tx,samples:hourly?12:288,observed_seconds:hourly?3600:86400};});
+    const rx=points.reduce((n,p)=>n+p.rx_bytes,0),tx=points.reduce((n,p)=>n+p.tx_bytes,0);const total=rx+tx;
+    const devices=[['Studio MacBook','192.168.1.101',.43],['Living room TV','192.168.1.102',.28],['Home server','192.168.1.103',.16],['Workstation','192.168.1.104',.09],['Other device','192.168.1.105',.04]].map(([hostname,address,share])=>({hostname,address,rx_bytes:Math.floor(rx*Number(share)),tx_bytes:Math.floor(tx*Number(share)),total_bytes:Math.floor(total*Number(share))}));
+    devices[devices.length-1].total_bytes=total-devices.slice(0,-1).reduce((n,d)=>n+d.total_bytes,0);
+    return json({available:true,enabled:config.accounting.enabled,period,from:from.toISOString(),until:until.toISOString(),history_started_at:new Date(day.getTime()-31*86400000).toISOString(),collected_at:now.toISOString(),points,devices,rx_bytes:rx,tx_bytes:tx,total_bytes:total,peak_sample_mbps:412,observed_seconds:count*(hourly?3600:86400)});
+  }
+  if(path==='/api/v1/firewall/activity') {
+    const now=new Date();const points=Array.from({length:48},(_,i)=>({start:new Date(now.getTime()-(47-i)*1800000).toISOString(),allowed:Math.round(22000+Math.sin(i*.4)*9000+i%7*1500),blocked:i%9+1,samples:30}));
+    return json({available:true,collected_at:now.toISOString(),points,allowed:points.reduce((n,p)=>n+p.allowed,0),blocked:points.reduce((n,p)=>n+p.blocked,0)});
+  }
   if (path === "/api/v1/accounting") return json({ available: true, enabled: true, updated_at: new Date().toISOString(), months: [{ month: new Date().toISOString().slice(0, 7), total_bytes: 143684000000, devices: [
     { address: "192.168.1.20", hostname: "studio-mac", mac: "02:4A:71:2C:90:11", rx_bytes: 61420000000, tx_bytes: 8310000000, total_bytes: 69730000000, last_seen_epoch: Math.floor(Date.now() / 1000) - 42 },
     { address: "192.168.1.42", hostname: "living-room-tv", mac: "02:91:3D:6A:C4:38", rx_bytes: 43170000000, tx_bytes: 1870000000, total_bytes: 45040000000, last_seen_epoch: Math.floor(Date.now() / 1000) - 110 },
     { address: "192.168.1.64", hostname: "gaming-console", mac: "02:E2:49:16:BD:72", rx_bytes: 24650000000, tx_bytes: 3120000000, total_bytes: 27770000000, last_seen_epoch: Math.floor(Date.now() / 1000) - 360 },
   ] }] });
-  if (path === "/api/v1/wireguard/provisioning-preview") return json({ next_address: "10.8.0.5/32", client_ip: "10.8.0.5/32", server_endpoint: "router.example.com:51820", listen_port: 51820 });
+  if (path === "/api/v1/wireguard/provisioning-preview") return json({ server_key_configured: true, next_address: "10.8.0.5/32", client_ip: "10.8.0.5/32", server_endpoint: "router.example.com:51820", listen_port: 51820 });
   return json({});
 }

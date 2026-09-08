@@ -1,0 +1,100 @@
+/* Scrollable content must not determine the height of its neighbouring card. */
+:root:root .dashboard-app #gateway .gateway-ip-history { display:flex; flex-direction:column; min-height:0; }
+:root:root .dashboard-app #gateway .gateway-ip-scroll {
+  flex:1 1 0px; contain:size; height:0; min-height:0; max-height:none; overflow-y:auto;
+  overscroll-behavior:contain; scrollbar-gutter:stable; padding:8px 20px;
+}
+:root:root .dashboard-app #gateway .gateway-ip-event { padding:14px 0; border-bottom:1px solid var(--separator); border-radius:0; }
+:root:root .dashboard-app #gateway .gateway-ip-event:last-child { border-bottom:0; }
+:root:root .dashboard-app #gateway .gateway-ip-scroll:focus-visible { outline:2px solid var(--classic-azure); outline-offset:-3px; }
+@media(max-width:1100px) {
+  :root:root .dashboard-app #gateway .gateway-ip-scroll { flex:auto; contain:none; height:auto; max-height:300px; }
+}
+
+/* Sticky table cells need an opaque surface in every design and color mode. */
+:root:root .dashboard-app :is(.elegant-device-table,.classic-security-table,.traffic-table) {
+  border-collapse:separate; border-spacing:0;
+}
+:root:root .dashboard-app :is(.elegant-device-table,.classic-security-table,.traffic-table) thead th {
+  background:var(--surface-raised); background-clip:border-box;
+  border-top:0; box-shadow:0 1px 0 var(--separator); white-space:nowrap;
+}
+:root:root .dashboard-app .elegant-table-container { isolation:isolate; }
+
+/* Status remains textual; blue is the readable positive/information signal. */
+:root:root { --status-positive:#315f8c; --status-warning:#964327; }
+:root:root[data-theme="dark"] { --status-positive:#9ac4ef; --status-warning:#edb48b; }
+:root:root .dashboard-app :is(.classic-status-chip,.classic-state-pill) {
+  --status-ink:var(--status-positive);
+  display:inline-flex; align-items:center; gap:8px; min-height:32px;
+  padding:6px 12px; border:1px solid color-mix(in srgb,var(--status-ink) 30%,var(--surface));
+  border-radius:999px; background:color-mix(in srgb,var(--status-ink) 10%,var(--surface));
+  color:var(--status-ink); font:600 11px/1.4 var(--font-ui);
+  letter-spacing:.025em; text-transform:none; white-space:nowrap;
+}
+:root:root .dashboard-app :is(.classic-status-chip.is-off,.classic-state-pill.is-off) { --status-ink:var(--text-secondary); }
+:root:root .dashboard-app :is(.classic-status-chip.is-warning,.classic-state-pill.is-warn) { --status-ink:var(--status-warning); }
+:root:root .dashboard-app :is(.classic-status-chip.is-bad,.classic-state-pill.is-bad) { --status-ink:var(--status-warning); }
+:root:root .dashboard-app :is(.classic-status-chip::before,.classic-state-pill .classic-dot) { background:currentColor; box-shadow:none; flex-shrink:0; }
+
+/* One connector reaches the next centred milestone without gaps or offsets. */
+:root:root .dashboard-app .startup-timeline .tl-item { grid-template-rows:18px 20px auto; row-gap:0; }
+:root:root .dashboard-app .startup-timeline .tl-item::before { display:none; }
+:root:root .dashboard-app .startup-timeline .tl::before { display:none; }
+:root:root .dashboard-app .startup-timeline .tl-item::after { top:27px; left:50%; width:100%; height:2px; background:var(--separator); }
+:root:root .dashboard-app .startup-timeline .tl-dot { position:relative; top:auto; left:auto; margin:0; justify-self:center; align-self:center; transform:none; }
+:root:root .dashboard-app .startup-timeline .tl-time { text-align:center; }
+
+/* Nested security controls share the Preferences card's inset and hierarchy. */
+:root:root .dashboard-app .settings-column-card .security-totp-card { border-radius:0; overflow:visible; }
+:root:root .dashboard-app .settings-column-card .security-totp-card > .card-title-row {
+  background:transparent; border-radius:0; box-shadow:none; align-items:flex-start;
+  flex-wrap:wrap; gap:12px; padding:22px 0 16px;
+}
+:root:root .dashboard-app .settings-column-card .security-totp-card > .card-title-row h3 { font:600 18px/1.4 var(--font-ui); letter-spacing:-.02em; }
+:root:root .dashboard-app .settings-column-card .security-totp-card > .card-title-row p { font-size:12px; line-height:1.65; margin-top:8px; }
+:root:root .dashboard-app .settings-column-card .security-totp-card .settings-form { gap:18px; }
+:root:root .dashboard-app .settings-column-card .security-totp-card details { padding:18px 0; border-top:1px solid var(--separator); }
+:root:root .dashboard-app .firewall-presets > .firewall-presets-note { margin:0; padding:20px var(--card-padding); line-height:1.65; }
+:root:root .dashboard-app .firewall-presets-table :is(.elegant-cell-mac,.elegant-cell-actions) { white-space:nowrap; }
+
+/* Desktop device rows keep identities and actions on one line. A bounded
+   horizontal scroller preserves columns when the available width is smaller. */
+@container (min-width:1071px) {
+  :root:root .dashboard-app .modern-device-section .elegant-table-container { overflow-x:auto; overflow-y:auto; max-height:720px; scrollbar-gutter:stable; }
+  :root:root .dashboard-app .modern-device-section .device-lan-table { min-width:1071px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-name { width:auto; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-num { width:32px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-ip { width:120px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-mac { width:146px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-data { width:64px; }
+  :root:root .dashboard-app .modern-device-section .device-lan-table :is(td,th) { padding-inline:8px; }
+  :root:root .dashboard-app .modern-device-section .device-lan-table tbody td { font-size:12px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-expires { width:136px; }
+  :root:root .dashboard-app .modern-device-section .elegant-col-actions { width:280px; }
+  :root:root .dashboard-app .modern-device-section .elegant-device-identity { flex-wrap:nowrap; gap:7px; }
+  :root:root .dashboard-app .modern-device-section .device-hostname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; }
+  :root:root .dashboard-app .modern-device-section :is(.elegant-badge-static,.device-activity-badge) { flex-shrink:0; margin:0; padding:4px 7px; font-size:9px; letter-spacing:.045em; }
+  :root:root .dashboard-app .modern-device-section :is(.elegant-cell-ip,.elegant-cell-mac,.elegant-cell-data) { white-space:nowrap; }
+}
+/* Keep the two common actions adjacent; the optional reservation follows. */
+:root:root .dashboard-app .modern-device-section .device-row-actions { grid-template-columns:48px 108px 96px; gap:6px; }
+:root:root .dashboard-app .modern-device-section .device-action-reserve { grid-column:3; }
+:root:root .dashboard-app .modern-device-section :is(.device-pause-control,.device-row-actions > .device-pause-button) { grid-column:2; }
+@media(max-width:900px) {
+  :root:root .dashboard-app .firewall-presets > .firewall-presets-note { padding:18px var(--card-padding-compact); }
+}
+
+/* The toolbar and page use the same centred measure on wide displays. */
+@media(min-width:901px) {
+  :root:root .dashboard-app .dashboard-main > :is(.dashboard-topbar.classic-topbar,.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview) {
+    width:100%; max-width:1480px; margin-inline:auto !important;
+  }
+  :root:root .dashboard-app .dashboard-topbar.classic-topbar { padding-inline:0 !important; }
+}
+
+/* Keep the theme's canvas beneath long pages and translucent surfaces. */
+:root:root, :root:root body { background:var(--canvas); }
+:root:root[data-theme] .dashboard-app { background-color:var(--canvas); }
+:root:root .dashboard-app .classic-security-feed,
+:root:root .dashboard-app .security-full-width > .classic-security-card { background:var(--surface); }

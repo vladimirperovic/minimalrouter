@@ -1,14 +1,14 @@
 .PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
 
 GO_BUILD_FLAGS := -trimpath
-# router-update and router-recovery are bootstrap binaries: they run from
-# /usr/libexec/minimalrouter/bootstrap, outside the A/B slot, and every A/B
+# router-update/recovery and the installed router-setup firstboot verifier
+# run outside the A/B slot, and every A/B
 # activation requires the candidate's copy to be byte-identical to the
 # installed one (cmd/router-update/runtime_layout.go). Go stamps the commit
 # hash and derived module version into every binary by default, so two
 # releases built from otherwise identical bootstrap source still differ —
 # which made web updates between published releases impossible for a reason
-# that has nothing to do with compatibility. Traceability for these two is
+# that has nothing to do with compatibility. Traceability for these binaries is
 # carried by the signed release manifest, not by an embedded commit.
 GO_BOOTSTRAP_BUILD_FLAGS := $(GO_BUILD_FLAGS) -buildvcs=false
 BUILD_VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
@@ -51,7 +51,7 @@ build:
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
 	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
 	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup ./cmd/router-setup
+	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup ./cmd/router-setup
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-sign ./cmd/firmware-sign
 	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-keygen ./cmd/firmware-keygen
 
@@ -65,7 +65,7 @@ build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-amd64 ./cmd/router-setup
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-amd64 ./cmd/router-setup
 
 build-linux-amd64: build-linux
 
@@ -75,7 +75,7 @@ build-linux-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-arm64 ./cmd/router-setup
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-arm64 ./cmd/router-setup
 
 web-build:
 	pnpm --dir web build
@@ -107,77 +107,12 @@ run-applyd:
 iso: web-build
 	sh packaging/alpine/build-iso.sh
 
-# Build distributable tarball for arm64 (Apple Silicon / Raspberry Pi)
+# Keep architecture-specific builds explicit; only packaging is shared.
 dist-arm64: build-linux-arm64 web-build
-	@echo "=== Building Minimal Router OS distribution (arm64) ==="
-	@rm -rf build/dist/minimalrouter-linux-arm64
-	@mkdir -p \
-		build/dist/minimalrouter-linux-arm64/bin \
-		build/dist/minimalrouter-linux-arm64/web/dist \
-		build/dist/minimalrouter-linux-arm64/init.d \
-		build/dist/minimalrouter-linux-arm64/sysctl \
-		build/dist/minimalrouter-linux-arm64/modules \
-		build/dist/minimalrouter-linux-arm64/logrotate
-	@cp bin/routerd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/routerd-arm64
-	@cp bin/router-applyd-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-applyd-arm64
-	@cp bin/router-recovery-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-recovery-arm64
-	@cp bin/router-update-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-update-arm64
-	@cp bin/router-setup-linux-arm64 build/dist/minimalrouter-linux-arm64/bin/router-setup-arm64
-	@sh scripts/fetch-cloudflared.sh arm64 build/dist/minimalrouter-linux-arm64/bin/cloudflared-arm64
-	@cp -R web/dist/. build/dist/minimalrouter-linux-arm64/web/dist/
-	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-arm64/slot-exec
-	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-arm64/compatibility.json
-	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-arm64/init.d/routerd
-	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-arm64/init.d/router-applyd
-	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan
-	@cp packaging/alpine/cloudflared.initd build/dist/minimalrouter-linux-arm64/init.d/cloudflared
-	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-arm64/sysctl/99-minimalrouter.conf
-	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-arm64/modules/minimalrouter.conf
-	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-arm64/logrotate/minimalrouter
-	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-arm64/ip-up.d-minimalrouter-qos
-	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-arm64/install.sh
-	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-arm64/install-core.sh
-	@chmod +x build/dist/minimalrouter-linux-arm64/install.sh build/dist/minimalrouter-linux-arm64/install-core.sh build/dist/minimalrouter-linux-arm64/slot-exec build/dist/minimalrouter-linux-arm64/init.d/routerd build/dist/minimalrouter-linux-arm64/init.d/router-applyd build/dist/minimalrouter-linux-arm64/init.d/pppoe-wan build/dist/minimalrouter-linux-arm64/init.d/cloudflared build/dist/minimalrouter-linux-arm64/ip-up.d-minimalrouter-qos
-	@tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64
-	@sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
-	@echo "=== Distribution: build/minimalrouter-linux-arm64.tar.gz ==="
-	@ls -lh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256
+	@sh scripts/package-dist.sh arm64 "$(BUILD_VERSION)"
 
-# Build distributable tarball for amd64 (x86_64 servers)
 dist-amd64: build-linux-amd64 web-build
-	@echo "=== Building Minimal Router OS distribution (amd64) ==="
-	@rm -rf build/dist/minimalrouter-linux-amd64
-	@mkdir -p \
-		build/dist/minimalrouter-linux-amd64/bin \
-		build/dist/minimalrouter-linux-amd64/web/dist \
-		build/dist/minimalrouter-linux-amd64/init.d \
-		build/dist/minimalrouter-linux-amd64/sysctl \
-		build/dist/minimalrouter-linux-amd64/modules \
-		build/dist/minimalrouter-linux-amd64/logrotate
-	@cp bin/routerd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/routerd-amd64
-	@cp bin/router-applyd-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-applyd-amd64
-	@cp bin/router-recovery-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-recovery-amd64
-	@cp bin/router-update-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-update-amd64
-	@cp bin/router-setup-linux-amd64 build/dist/minimalrouter-linux-amd64/bin/router-setup-amd64
-	@sh scripts/fetch-cloudflared.sh amd64 build/dist/minimalrouter-linux-amd64/bin/cloudflared-amd64
-	@cp -R web/dist/. build/dist/minimalrouter-linux-amd64/web/dist/
-	@cp packaging/alpine/slot-exec build/dist/minimalrouter-linux-amd64/slot-exec
-	@cp packaging/alpine/compatibility.json build/dist/minimalrouter-linux-amd64/compatibility.json
-	@cp packaging/alpine/routerd.initd build/dist/minimalrouter-linux-amd64/init.d/routerd
-	@cp packaging/alpine/router-applyd.initd build/dist/minimalrouter-linux-amd64/init.d/router-applyd
-	@cp packaging/alpine/pppoe-wan.initd build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan
-	@cp packaging/alpine/cloudflared.initd build/dist/minimalrouter-linux-amd64/init.d/cloudflared
-	@cp packaging/alpine/99-minimalrouter.conf build/dist/minimalrouter-linux-amd64/sysctl/99-minimalrouter.conf
-	@cp packaging/alpine/minimalrouter.modules build/dist/minimalrouter-linux-amd64/modules/minimalrouter.conf
-	@cp packaging/alpine/minimalrouter.logrotate build/dist/minimalrouter-linux-amd64/logrotate/minimalrouter
-	@cp packaging/alpine/ip-up.d-minimalrouter-qos build/dist/minimalrouter-linux-amd64/ip-up.d-minimalrouter-qos
-	@cp packaging/alpine/install-console.sh build/dist/minimalrouter-linux-amd64/install.sh
-	@cp packaging/alpine/install-dist.sh build/dist/minimalrouter-linux-amd64/install-core.sh
-	@chmod +x build/dist/minimalrouter-linux-amd64/install.sh build/dist/minimalrouter-linux-amd64/install-core.sh build/dist/minimalrouter-linux-amd64/slot-exec build/dist/minimalrouter-linux-amd64/init.d/routerd build/dist/minimalrouter-linux-amd64/init.d/router-applyd build/dist/minimalrouter-linux-amd64/init.d/pppoe-wan build/dist/minimalrouter-linux-amd64/init.d/cloudflared build/dist/minimalrouter-linux-amd64/ip-up.d-minimalrouter-qos
-	@tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64
-	@sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
-	@echo "=== Distribution: build/minimalrouter-linux-amd64.tar.gz ==="
-	@ls -lh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256
+	@sh scripts/package-dist.sh amd64 "$(BUILD_VERSION)"
 
 signed-dist-amd64:
 	@test -n "$(RELEASE_VERSION)" || { echo 'ERROR: RELEASE_VERSION is required (for example 0.1.3)' >&2; exit 1; }
@@ -195,7 +130,8 @@ signed-dist-amd64:
 			--commit "$$commit" \
 			--public-key-output build/dist/minimalrouter-linux-amd64/firmware-signing.pub \
 			--output build/minimalrouter-linux-amd64.manifest.json; \
-		tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64; \
+		cp build/minimalrouter-linux-amd64.manifest.json build/dist/minimalrouter-linux-amd64/release-manifest.json; \
+		COPYFILE_DISABLE=1 tar czf build/minimalrouter-linux-amd64.tar.gz -C build/dist minimalrouter-linux-amd64; \
 		sh scripts/checksum-file.sh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.tar.gz.sha256; \
 		echo "=== Signed distribution ready ==="; \
 		ls -lh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.manifest.json build/minimalrouter-linux-amd64.tar.gz.sha256
@@ -216,7 +152,8 @@ signed-dist-arm64:
 			--commit "$$commit" \
 			--public-key-output build/dist/minimalrouter-linux-arm64/firmware-signing.pub \
 			--output build/minimalrouter-linux-arm64.manifest.json; \
-		tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64; \
+		cp build/minimalrouter-linux-arm64.manifest.json build/dist/minimalrouter-linux-arm64/release-manifest.json; \
+		COPYFILE_DISABLE=1 tar czf build/minimalrouter-linux-arm64.tar.gz -C build/dist minimalrouter-linux-arm64; \
 		sh scripts/checksum-file.sh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.tar.gz.sha256; \
 		echo "=== Signed distribution ready ==="; \
 		ls -lh build/minimalrouter-linux-arm64.tar.gz build/minimalrouter-linux-arm64.manifest.json build/minimalrouter-linux-arm64.tar.gz.sha256

@@ -1,9 +1,13 @@
 import { FormEvent, MouseEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "./components/AuthGate";
+import AppearancePicker from "./components/AppearancePicker";
+import StudioOverview from "./components/StudioOverview";
+import { DESIGN_STORAGE_KEY, THEME_STORAGE_KEY, initialDesign, initialDark } from "./theme/preferences";
 import ClassicOverview from "./components/ClassicOverview";
 import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
 import UpdateDialog from "./components/UpdateDialog";
+import { clearConfiguration, previewAndApplyConfig, readConfiguration, useConfiguration } from "./lib/configuration";
 import { apiFetch } from "./lib/api";
 import { updateBadgeLabel, useUpdates } from "./lib/updates";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
@@ -14,7 +18,7 @@ import "./ClassicDashboard.css";
 import "./components/DashboardAdditions.css";
 
 const navigationGroups: Array<{ label: string; items: Array<[SectionID, string]> }> = [
-  { label: "Monitor", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
+  { label: "", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
   { label: "Protect", items: [["firewall", "Firewall"], ["security", "Security"], ["dns-filter", "DNS Filter"]] },
   { label: "Connect", items: [["qos", "QoS / SQM"], ["wireguard", "WireGuard"], ["cloudflare", "DynDNS"], ["wifi", "Wi-Fi AP"]] },
   { label: "Operate", items: [["traffic", "Traffic"], ["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
@@ -44,39 +48,13 @@ const navIcons: Record<SectionID, ReactNode> = {
   traffic: <><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></>,
 };
 
-const THEME_STORAGE_KEY = "minimalrouter:theme";
-
-function initialTheme(): boolean {
-  try {
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "dark") return true;
-    if (stored === "light") return false;
-  } catch {
-    // Private-mode browsers can throw on access; fall through to the OS hint.
-  }
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
-}
-
 function field(form: FormData, name: string) {
   return String(form.get(name) ?? "").trim();
 }
 
-const REQUIRED_CONFIG_SECTIONS = [
-  "wan", "lan", "dhcp", "firewall", "wireguard",
-  "cloudflare", "squid_proxy", "adguard", "qos", "wifi",
-] as const;
-
-function isRenderableConfig(value: RouterConfig | null): value is RouterConfig {
-  if (!value || typeof value !== "object") return false;
-  return REQUIRED_CONFIG_SECTIONS.every((section) => {
-    const item = (value as unknown as Record<string, unknown>)[section];
-    return item !== null && typeof item === "object";
-  });
-}
-
 function Dashboard() {
   const [active, setActive] = useState<SectionID>(sectionFromHash);
-  const [config, setConfig] = useState<RouterConfig | null>(null);
+  const config = useConfiguration();
   const [system, setSystem] = useState<SystemStatus>({});
   const [gatewaySummary, setGatewaySummary] = useState<GatewaySummary | null>(null);
   const [gatewaySettings, setGatewaySettings] = useState<GatewaySettings>({ enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 });
@@ -85,10 +63,9 @@ function Dashboard() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [dark, setDark] = useState(initialTheme);
-  // A successful apply bumps config.revision, which remounts DashboardSections.
-  // The per-section "Saved" confirmation therefore has to live here, above the
-  // remount, or it is destroyed the moment the save it reports succeeds.
+  const [dark, setDark] = useState(initialDark);
+  const [design, setDesign] = useState(initialDesign);
+  // Save feedback survives canonical updates alongside independent form drafts.
   const [savedSection, setSavedSection] = useState("");
   const savedSectionTimer = useRef(0);
   const [pendingTx, setPendingTx] = useState<PendingTransaction | null>(null);
@@ -110,7 +87,7 @@ function Dashboard() {
     pollController.current = controller;
     try {
       const [configResult, systemResult, gatewayResult, gatewaySettingsResult, snapshotsResult, pendingResult] = await Promise.allSettled([
-        apiFetch("/api/v1/config", { signal: controller.signal }),
+        readConfiguration({ signal: controller.signal }),
         apiFetch("/api/v1/system", { signal: controller.signal }),
         apiFetch("/api/v1/gateway/summary", { signal: controller.signal }),
         apiFetch("/api/v1/gateway/settings", { signal: controller.signal }),
@@ -118,10 +95,9 @@ function Dashboard() {
         apiFetch("/api/v1/transactions/pending", { signal: controller.signal }),
       ]);
       if (sequence !== pollSequence.current) return;
-      if (configResult.status === "fulfilled" && configResult.value.ok) {
-        const body = (await configResult.value.json()) as RouterConfig | null;
-        if (!isRenderableConfig(body)) throw new Error("Configuration unavailable");
-        setConfig(body);
+      if (configResult.status === "fulfilled") {
+        const body = configResult.value;
+        if (!body) throw new Error("Configuration unavailable");
       } else {
         throw new Error("Configuration unavailable");
       }
@@ -204,6 +180,22 @@ function Dashboard() {
     };
   }, [load]);
 
+  useEffect(() => {
+    const applied = (event: Event) => {
+      const { transaction: tx, refreshError } = (event as CustomEvent<{ transaction: PendingTransaction; refreshError?: string }>).detail;
+      if (refreshError) setError(refreshError);
+      setPendingTx(tx?.state === "AwaitingConfirmation" ? tx : null);
+    };
+    const clear = () => clearConfiguration();
+    window.addEventListener("minimalrouter:config-applied", applied);
+    window.addEventListener("minimalrouter:unauthorized", clear);
+    return () => {
+      window.removeEventListener("minimalrouter:config-applied", applied);
+      window.removeEventListener("minimalrouter:unauthorized", clear);
+      clearConfiguration();
+    };
+  }, []);
+
   // Depend on the deadline value rather than the object identity: the 30-second
   // poll replaces pendingTx with an equal-but-new object, which used to restart
   // this interval on every dashboard refresh.
@@ -228,6 +220,11 @@ function Dashboard() {
       // break the dashboard.
     }
   }, [dark]);
+
+  useEffect(() => {
+    document.documentElement.dataset.design = design;
+    try { localStorage.setItem(DESIGN_STORAGE_KEY, design); } catch { /* Storage is optional. */ }
+  }, [design]);
 
   useEffect(() => () => window.clearTimeout(savedSectionTimer.current), []);
 
@@ -273,17 +270,11 @@ function Dashboard() {
     setNotice("");
     setError("");
     try {
-      const response = await apiFetch("/api/v1/config");
-      if (!response.ok) throw new Error(`Configuration reload failed (${response.status})`);
-      const next = (await response.json()) as RouterConfig;
+      const next = await readConfiguration({ cache: "reload" });
       mutate(next);
-      const applyResponse = await apiFetch("/api/v1/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
-      });
-      const body = await applyResponse.json().catch(() => ({}));
-      if (!applyResponse.ok) throw new Error(body.error || `Apply failed (${applyResponse.status})`);
+      const result = await previewAndApplyConfig(next);
+      if (result.cancelled) return false;
+      const body = result.transaction;
       if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
       setNotice(body.state === "AwaitingConfirmation" ? "Change is provisionally active and is waiting for access confirmation." : success);
       await load();
@@ -548,12 +539,12 @@ function Dashboard() {
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const oldPassword = field(form, "old_password");
-    const newPassword = field(form, "new_password");
-    const confirm = field(form, "confirm_password");
+    const oldPassword = String(form.get("old_password") ?? "");
+    const newPassword = String(form.get("new_password") ?? "");
+    const confirm = String(form.get("confirm_password") ?? "");
     if (newPassword.length < 12 || newPassword !== confirm) {
       setError("New password must be at least 12 characters and both entries must match.");
-      return;
+      return false;
     }
     setBusy(true);
     try {
@@ -564,16 +555,25 @@ function Dashboard() {
       });
       if (!response.ok) throw new Error(`Password change failed (${response.status})`);
       window.dispatchEvent(new Event("minimalrouter:unauthorized"));
+      return true;
     } catch (passwordError) {
       setError(passwordError instanceof Error ? passwordError.message : "Password change failed");
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
   const logout = async () => {
-    await apiFetch("/api/v1/auth/logout", { method: "POST" }).catch(() => undefined);
-    window.dispatchEvent(new Event("minimalrouter:unauthorized"));
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/v1/auth/logout", { method: "POST" });
+      if (!response.ok && response.status !== 401) throw new Error(`Sign out failed (${response.status}). Your session may still be active. Try signing out again.`);
+      clearConfiguration();
+      window.dispatchEvent(new Event("minimalrouter:unauthorized"));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Sign out failed. Your session may still be active. Try again.");
+    } finally { setBusy(false); }
   };
 
   const runtime = system.runtime || {};
@@ -596,13 +596,15 @@ function Dashboard() {
         ? "No active appliance alerts. All health checks are passing."
         : `${failingChecks.length} check(s) need attention: ${failingChecks.map((check) => check.label).join(", ")}.`;
 
+  const Overview = design === "studio" ? StudioOverview : ClassicOverview;
+
   return (
     <div className="dashboard-app">
       <aside className={menuOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
-        <div className="dashboard-brand"><div className="dashboard-brand-title"><strong>minimalrouter</strong></div></div>
+        <div className="dashboard-brand">{design === "studio" && <span className="studio-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M7 24V8l9 9 9-9v16" fill="none" stroke="currentColor" strokeWidth="3"/></svg></span>}<div className="dashboard-brand-title"><strong>{design === "studio" ? "minimal." : "minimalrouter"}</strong>{design === "studio" && <small>ROUTER OS</small>}</div></div>
         <nav className="dashboard-navigation" aria-label="Router sections">
-          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label}>
-            <h2>{group.label}</h2>
+          {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label || "top"}>
+            {group.label !== "" && <h2>{group.label}</h2>}
             <div>{group.items.map(([id, label]) => (
               <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
             ))}</div>
@@ -625,7 +627,8 @@ function Dashboard() {
           <div className="classic-page-heading"><h1>{activeLabel}</h1></div>
           <div className="classic-topbar-actions">
             <div className="classic-live-sync"><i aria-hidden="true" /><span><strong>Live</strong><small>{lastRefresh ? `Updated ${lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Connecting"}</small></span></div>
-            <button className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
+            <AppearancePicker design={design} onDesign={setDesign} dark={dark} onDark={setDark} />
+            <button title={dark ? "Switch to light mode" : "Switch to dark mode"} aria-pressed={dark} className="classic-topbar-button" onClick={() => setDark((value) => !value)} type="button" aria-label="Toggle appearance">
               {dark
                 ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
                 : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.8" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>}
@@ -644,11 +647,10 @@ function Dashboard() {
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary classic-alert-recover" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <ClassicOverview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
+        {active === "overview" && <Overview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
-        {active !== "security" && (
+        {active !== "security" && !(active === "overview" && design === "studio") && (
           <DashboardSections
-            key={`dashboard-sections-${config.revision}`}
             active={active}
             applyConfig={applyConfig}
             markSectionSaved={markSectionSaved}

@@ -21,6 +21,72 @@ components:
       name: X-CSRF-Token
 
   schemas:
+    DeviceUsage:
+      type: object
+      required: [address, rx_bytes, tx_bytes, total_bytes]
+      properties:
+        address: {type: string, description: Measured device IP address}
+        hostname: {type: string, description: Label resolved from current DHCP configuration}
+        mac: {type: string}
+        rx_bytes: {type: integer, format: int64, minimum: 0}
+        tx_bytes: {type: integer, format: int64, minimum: 0}
+        total_bytes: {type: integer, format: int64, minimum: 0}
+        last_seen_epoch:
+          type: integer
+          format: int64
+          description: Collection time of a positive byte delta; not a presence probe or lease expiry.
+    TrafficUsagePoint:
+      type: object
+      required: [start, rx_bytes, tx_bytes, total_bytes, samples, observed_seconds]
+      properties:
+        start: {type: string, format: date-time}
+        rx_bytes: {type: integer, format: int64, minimum: 0}
+        tx_bytes: {type: integer, format: int64, minimum: 0}
+        total_bytes: {type: integer, format: int64, minimum: 0}
+        samples: {type: integer, minimum: 0, description: Zero means no samples rather than measured zero traffic}
+        observed_seconds: {type: integer, format: int64, minimum: 0}
+    TrafficInsights:
+      type: object
+      required: [available, enabled, period, from, until, points, devices, rx_bytes, tx_bytes, total_bytes, observed_seconds]
+      properties:
+        available: {type: boolean}
+        enabled: {type: boolean}
+        period: {type: string, enum: [today, yesterday, 7d, 30d]}
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        history_started_at: {type: string, format: date-time, nullable: true}
+        collected_at: {type: string, format: date-time, nullable: true}
+        points:
+          type: array
+          items: {$ref: '#/components/schemas/TrafficUsagePoint'}
+        devices:
+          type: array
+          items: {$ref: '#/components/schemas/DeviceUsage'}
+        rx_bytes: {type: integer, format: int64, minimum: 0}
+        tx_bytes: {type: integer, format: int64, minimum: 0}
+        total_bytes: {type: integer, format: int64, minimum: 0}
+        observed_seconds: {type: integer, format: int64, minimum: 0}
+        peak_sample_mbps: {type: number, nullable: true, description: Maximum average rate over a collection interval}
+    FirewallActivity:
+      type: object
+      required: [available, from, until, collected_at, points, allowed, blocked]
+      properties:
+        available: {type: boolean, description: A collection is fresh within three minutes}
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        collected_at: {type: string, format: date-time, nullable: true}
+        allowed: {type: integer, format: int64, minimum: 0}
+        blocked: {type: integer, format: int64, minimum: 0}
+        points:
+          type: array
+          items:
+            type: object
+            required: [start, allowed, blocked, samples]
+            properties:
+              start: {type: string, format: date-time}
+              allowed: {type: integer, format: int64, minimum: 0}
+              blocked: {type: integer, format: int64, minimum: 0}
+              samples: {type: integer, minimum: 0}
     InterfaceInfo:
       type: object
       required: [name, up, carrier, physical, default_route, score]
@@ -212,6 +278,74 @@ components:
           description: Compatibility JSON key; user-facing name is DNS Filter
 
 paths:
+  /accounting:
+    get:
+      summary: Read retained monthly device traffic totals
+      description: Local optional accounting; updated_at is API response time. Disabled accounting returns no device history.
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: query
+          name: months
+          schema: {type: integer, minimum: 1, maximum: 24, default: 3}
+      responses:
+        '200':
+          description: No-store monthly snapshot from a trusted management network
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: {type: boolean}
+                  enabled: {type: boolean}
+                  updated_at: {type: string, format: date-time}
+                  months:
+                    type: array
+                    nullable: true
+                    items:
+                      type: object
+                      properties:
+                        month: {type: string, example: '2026-01'}
+                        total_bytes: {type: integer, format: int64}
+                        devices:
+                          type: array
+                          items: {$ref: '#/components/schemas/DeviceUsage'}
+        '400': {description: Invalid month limit}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+        '503': {description: Accounting storage unavailable}
+  /accounting/insights:
+    get:
+      summary: Read bounded local traffic history and device distribution
+      description: UTC hourly or daily aggregates sampled every five minutes; no historical backfill. Disabled accounting hides retained device history.
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: query
+          name: period
+          schema: {type: string, enum: [today, yesterday, 7d, 30d], default: today}
+      responses:
+        '200':
+          description: No-store bounded snapshot; missing samples are gaps
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TrafficInsights'}
+        '400': {description: Unsupported period}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+        '503': {description: Traffic storage unavailable}
+  /firewall/activity:
+    get:
+      summary: Read the last 24 hours of aggregate firewall packet activity
+      description: Local input/forward allowed and blocked packets, grouped into half-hour buckets from minute samples. Independent of device accounting; resets and collection gaps are excluded. Current connection count remains in the system runtime endpoint.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: No-store aggregate snapshot with freshness and sample counts
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FirewallActivity'}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+        '503': {description: Activity storage unavailable}
   /auth/login:
     post:
       summary: Authenticate administrator and establish session

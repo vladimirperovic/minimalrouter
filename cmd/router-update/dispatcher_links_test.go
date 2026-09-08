@@ -12,6 +12,7 @@ func TestActivationRepairsStaleDispatcherLinks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "updates")
 	systemRoot := filepath.Join(t.TempDir(), "system")
 	seedCurrentSlot(t, root, "1.0.0")
+	writeLayoutFixture(t, root, "1.0.0", systemRoot, false)
 	writeLayoutFixture(t, root, "1.1.0", systemRoot, false)
 
 	for _, item := range runtimeDispatcherLinks {

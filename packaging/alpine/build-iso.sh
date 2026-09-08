@@ -194,12 +194,14 @@ fi
 [ -x "$DIST_DIR/bin/routerd-amd64" ] || { echo "ERROR: distribution is missing routerd-amd64" >&2; exit 1; }
 [ -x "$DIST_DIR/bin/router-applyd-amd64" ] || { echo "ERROR: distribution is missing router-applyd-amd64" >&2; exit 1; }
 if [ "$REQUIRE_SIGNED_DIST" = "1" ]; then
-    [ -s "$DIST_DIR/firmware-signing.pub" ] || {
+    [ -s "$DIST_DIR/firmware-signing.pub" ] && [ -s "$DIST_DIR/release-manifest.json" ] || {
         echo "ERROR: release ISO requires a signed distribution with firmware-signing.pub" >&2
         exit 1
     }
 fi
-printf '%s\n' "$VERSION" > "$DIST_DIR/VERSION"
+# VERSION is part of the pre-signed distribution. Never append or rewrite it
+# after signing, even when constructing the Golden image from that payload.
+[ "$(cat "$DIST_DIR/VERSION")" = "$VERSION" ] || { echo "ERROR: distribution VERSION mismatch" >&2; exit 1; }
 sh packaging/alpine/build-rootfs.sh
 
 echo "[2/6] Building the bootable golden disk image..."

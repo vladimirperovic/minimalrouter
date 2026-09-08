@@ -3,7 +3,7 @@
 # Slow TCG stages need several minutes, but a missing boot/prompt should not hold
 # the runner indefinitely. Most awaited stages use seven minutes; the raw golden
 # disk copy gets ten because hosted-runner TCG throughput varies substantially.
-set timeout 420
+set timeout 720
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
 set logpath [lindex $argv 2]
@@ -86,7 +86,7 @@ expect {
 
 # Raw image decompression + copy is the one stage whose wall time varies heavily
 # under GitHub-hosted TCG. A healthy observed run exceeded the generic 420s stage
-# budget, so give only this operation a 600s allowance. The outer 1500s workflow
+# budget, so give only this operation a 600s allowance. The outer 2100s workflow
 # limit and every functional assertion remain unchanged.
 set timeout 600
 expect {
@@ -98,7 +98,7 @@ expect {
     timeout { puts stderr "timeout waiting for golden image copy"; exit 15 }
     eof { puts stderr "QEMU exited before golden image copy completed"; exit 16 }
 }
-set timeout 420
+set timeout 720
 
 expect {
     -re {Rebooting into the prebuilt appliance now} {}
@@ -176,7 +176,7 @@ expect {
     eof { puts stderr "QEMU exited while disabling installed-system tty echo"; exit 45 }
 }
 
-send -- "i=0; while \[ \"\$i\" -lt 360 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; if \[ \"\$i\" -ge 360 \]; then echo ROUTERD_DIAGNOSTICS_BEGIN; rc-service router-applyd status 2>&1 || true; rc-service routerd status 2>&1 || true; ls -l /run/minimalrouter 2>&1 || true; echo ROUTERD_LOG; tail -n 120 /var/log/routerd.log 2>&1 || true; echo ROUTERD_ERR; tail -n 120 /var/log/routerd.err 2>&1 || true; echo APPLYD_LOG; tail -n 80 /var/log/router-applyd.log 2>&1 || true; echo APPLYD_ERR; tail -n 80 /var/log/router-applyd.err 2>&1 || true; echo ROUTERD_DIAGNOSTICS_END; echo INSTALLED_SERVICES_TIMEOUT; fi\r"
+send -- "i=0; while \[ \"\$i\" -lt 660 \]; do if ip -4 addr | grep -q '192.168.1.1/24' && ss -lnt | grep -q ':22 ' && nft list ruleset | grep -q 'tcp dport 22 accept' && test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ':8443 '; then echo INSTALLED_SERVICES_READY; break; fi; i=\$((i+1)); sleep 1; done; if \[ \"\$i\" -ge 660 \]; then echo ROUTERD_DIAGNOSTICS_BEGIN; rc-service router-applyd status 2>&1 || true; rc-service routerd status 2>&1 || true; ls -l /run/minimalrouter 2>&1 || true; echo ROUTERD_LOG; tail -n 120 /var/log/routerd.log 2>&1 || true; echo ROUTERD_ERR; tail -n 120 /var/log/routerd.err 2>&1 || true; echo APPLYD_LOG; tail -n 80 /var/log/router-applyd.log 2>&1 || true; echo APPLYD_ERR; tail -n 80 /var/log/router-applyd.err 2>&1 || true; echo ROUTERD_DIAGNOSTICS_END; echo INSTALLED_SERVICES_TIMEOUT; fi\r"
 expect {
     # TTY echo is disabled above, so matching the token itself is safe and more
     # portable than requiring a specific CR/LF sequence from QEMU's serial PTY.
@@ -206,6 +206,7 @@ set checks {
     {grep -q '^installed_by=golden-image$' /etc/minimalrouter/installed && echo CHECK_GOLDEN_MARKER_OK}
     {test -s /etc/minimalrouter/firstboot-complete && echo CHECK_FIRSTBOOT_OK}
     {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
+    {dnsmasq --version | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)' && echo CHECK_DNSMASQ_NFTSET_OK}
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
@@ -234,6 +235,7 @@ foreach marker {
     CHECK_GOLDEN_MARKER_OK
     CHECK_FIRSTBOOT_OK
     CHECK_STATE_DB_OK
+    CHECK_DNSMASQ_NFTSET_OK
     CHECK_KERNEL_MODULE_MATCH_OK
     CHECK_SSHD_ENABLED
     CHECK_SERIAL_GETTY_OK

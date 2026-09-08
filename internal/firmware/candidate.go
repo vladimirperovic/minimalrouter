@@ -41,12 +41,15 @@ func ValidateApplianceArchitecture(manifest *FirmwareManifest, arch string) erro
 	if manifest == nil {
 		return errors.New("missing appliance manifest")
 	}
-	if arch != "amd64" && arch != "arm64" {
-		return fmt.Errorf("unsupported update architecture %q", arch)
+	roles, err := ApplianceFileRoles(arch)
+	if err != nil {
+		return err
 	}
-	for _, name := range []string{"routerd", "router-applyd", "router-recovery", "router-update"} {
-		path := "bin/" + name + "-" + arch
-		if _, ok := manifest.Files[path]; !ok {
+	for _, role := range roles {
+		if !role.ArchitectureBinary || !role.Required {
+			continue
+		}
+		if _, ok := manifest.Files[role.Path]; !ok {
 			return fmt.Errorf("signed appliance is not built for %s", arch)
 		}
 	}

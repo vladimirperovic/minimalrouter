@@ -137,26 +137,23 @@ func (c *Collector) collectOnce(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	if len(rx) == 0 && len(tx) == 0 {
-		return
-	}
 	if err := c.store.Record(time.Now(), rx, tx, settings.RetentionMonths, settings.Generation); err != nil {
 		log.Printf("[ACCOUNTING] could not record counters: %v", err)
 	}
 }
 
-// readCounters treats a missing set as "nothing to record". The table is
+// A failed or missing counter read leaves a gap in recent history. The table is
 // recreated on every apply, so between enabling accounting and the next apply
 // the sets legitimately do not exist yet.
 func (c *Collector) readCounters(ctx context.Context, name string) ([]Counter, error) {
 	raw, err := c.reader.ReadSet(ctx, name)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 	counters, parseErr := ParseCounters(raw)
 	if parseErr != nil {
 		log.Printf("[ACCOUNTING] could not parse %s: %v", name, parseErr)
-		return nil, nil
+		return nil, parseErr
 	}
 	return counters, nil
 }

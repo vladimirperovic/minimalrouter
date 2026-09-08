@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import DashboardApp from "./DashboardApp";
 import Demo015Preview from "./Demo015Preview";
 import MobileNavigationBehavior from "./components/MobileNavigationBehavior";
-import RecoveryRouteTools from "./components/RecoveryRouteTools";
 import "./index.css";
 import "./UXCleanup.css";
 import "./DashboardDesign.css";
@@ -22,6 +21,14 @@ import "./theme/surfaces.css";
 import "./theme/controls.css";
 import "./theme/overview.css";
 
+import "./theme/studio.css";
+import "./theme/appearance.css";
+import "./theme/insights.css";
+import "./theme/refinements.css";
+import { initializeAppearance } from "./theme/preferences";
+
+initializeAppearance();
+
 function CanonicalRevisionBoundary() {
   const [generation, setGeneration] = useState(0);
   useEffect(() => {
@@ -35,7 +42,6 @@ function CanonicalRevisionBoundary() {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <CanonicalRevisionBoundary />
-    <RecoveryRouteTools />
     <Demo015Preview />
     <MobileNavigationBehavior />
   </StrictMode>,

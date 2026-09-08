@@ -423,6 +423,14 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	buf.WriteString("table inet minimalrouter {\n")
 	writeDeviceProfileObjects(&buf, cfg)
 	writeAccountingSets(&buf, cfg)
+	// Observation chains have no verdict rules. Accept policy in these base
+	// chains continues to the next hook priority; the original default-deny
+	// chains at priority 0 remain the sole policy enforcement point.
+	buf.WriteString("  counter mr_seen { }\n  counter mr_accepted { }\n")
+	for _, hook := range []string{"input", "forward"} {
+		fmt.Fprintf(&buf, "  chain observe_%s_before { type filter hook %s priority -1; policy accept; counter name mr_seen; }\n", hook, hook)
+		fmt.Fprintf(&buf, "  chain observe_%s_after { type filter hook %s priority 1; policy accept; counter name mr_accepted; }\n", hook, hook)
+	}
 
 	// Input Chain
 	buf.WriteString("  chain input {\n")

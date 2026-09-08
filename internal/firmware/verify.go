@@ -155,35 +155,25 @@ func ValidateAppliancePayload(manifest *FirmwareManifest) error {
 	if manifest == nil {
 		return errors.New("missing appliance manifest")
 	}
-	required := []string{
-		"web/dist/index.html",
-		"slot-exec",
-		"compatibility.json",
-		"install.sh",
-		"init.d/routerd",
-		"init.d/router-applyd",
-		"init.d/pppoe-wan",
-		"sysctl/99-minimalrouter.conf",
-		"modules/minimalrouter.conf",
-		"logrotate/minimalrouter",
-		"ip-up.d-minimalrouter-qos",
-	}
-	for _, path := range required {
-		if _, ok := manifest.Files[path]; !ok {
-			return fmt.Errorf("incomplete appliance payload: missing %s", path)
+	for _, role := range applianceFileRoles {
+		if !role.Required || role.ArchitectureBinary {
+			continue
+		}
+		if _, ok := manifest.Files[role.Path]; !ok {
+			return fmt.Errorf("incomplete appliance payload: missing %s", role.Path)
 		}
 	}
 
-	archSets := [][]string{
-		{"bin/routerd-amd64", "bin/router-applyd-amd64", "bin/router-recovery-amd64", "bin/router-update-amd64"},
-		{"bin/routerd-arm64", "bin/router-applyd-arm64", "bin/router-recovery-arm64", "bin/router-update-arm64"},
-	}
 	completeArchitectures := 0
-	for _, set := range archSets {
+	for _, arch := range supportedArchitectures {
+		roles, _ := ApplianceFileRoles(arch)
 		complete := true
 		present := false
-		for _, path := range set {
-			if _, ok := manifest.Files[path]; ok {
+		for _, role := range roles {
+			if !role.Required || !role.ArchitectureBinary {
+				continue
+			}
+			if _, ok := manifest.Files[role.Path]; ok {
 				present = true
 			} else {
 				complete = false

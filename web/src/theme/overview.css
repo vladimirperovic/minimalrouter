@@ -209,12 +209,16 @@
    The chart panels keep their card, but their empty state stops
    reserving a screenful of nothing. */
 :root:root .dashboard-app .overview-content-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap-group);
 }
 
 :root:root .dashboard-app .overview-content-grid > * {
   min-width: 0;
+}
+
+:root:root .dashboard-app .overview-quality-panel {
+  grid-column: auto;
 }
 
 :root:root .dashboard-app .overview-bandwidth-panel .overview-panel-header,
@@ -314,8 +318,9 @@
   z-index: 1;
 }
 
-:root:root #overview > .health-banner,
-:root:root .dashboard-app .overview-status-hero + .health-banner {
+:root:root #overview > .overview-health-drawer {
+  order: 4;
+  flex: none;
   position: relative;
   z-index: 0;
   /* Narrower than the card it slides from, and centred under it, so
@@ -325,14 +330,41 @@
      activity card below shared an edge. */
   margin: calc(var(--radius-lg) * -1) auto var(--gap-group);
   width: 90%;
-  padding-top: calc(var(--card-padding) + var(--radius-lg));
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   /* The status accent runs down the drawer's left edge, and the top 14px of
      it sit behind the card - where it appeared as a stray red tick above the
      card's corner. Clipping the drawer to its own box hides the part that is
      meant to be hidden. */
   overflow: hidden;
+}
+
+/* Header and checks share one normal-flow drawer. Its actual height pushes
+   the charts down on open, and the header remains the close control. */
+:root:root .overview-health-drawer > .health-banner {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root:root .overview-health-drawer .health-banner-main {
+  padding: calc(var(--radius-lg) + var(--space-4)) var(--space-5) var(--space-4);
+}
+
+:root:root .overview-health-drawer > .health-checks-section {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--separator);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* ── Narrower ───────────────────────────────────────────────

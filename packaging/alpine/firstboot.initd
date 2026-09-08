@@ -16,7 +16,7 @@ depend() {
 }
 
 start_pre() {
-    [ -f /etc/minimalrouter/firstboot-complete ] && return 0
+    /usr/libexec/minimalrouter/firstboot-ready && return 0
     if [ -f /etc/inittab ]; then
         sed -i \
             -e 's#^tty1::respawn:#\# MR-FIRSTBOOT tty1::respawn:#' \
@@ -27,15 +27,33 @@ start_pre() {
     return 0
 }
 
+restore_console_gettys() {
+    if [ -f /etc/inittab ]; then
+        sed -i \
+            -e 's#^\# MR-FIRSTBOOT tty1::respawn:#tty1::respawn:#' \
+            -e 's#^\# MR-FIRSTBOOT ttyS0::respawn:#ttyS0::respawn:#' \
+            /etc/inittab
+        kill -HUP 1 2>/dev/null || true
+    fi
+}
+
 start() {
-    if [ -f /etc/minimalrouter/firstboot-complete ]; then
+    if /usr/libexec/minimalrouter/firstboot-ready; then
         ebegin "MinimalRouter first boot already completed"
         eend 0
         return 0
     fi
-    ebegin "Running MinimalRouter first-boot configuration"
+    # Even an existing marker can be damaged. firstboot opens local recovery
+    # on that path; returning the checker failure directly would strand a
+    # console whose getty was disabled by start_pre.
+    ebegin "Running MinimalRouter first-boot configuration or recovery"
     "$command"
     rc=$?
+    if [ "$rc" -eq 0 ]; then
+        /usr/libexec/minimalrouter/firstboot-ready
+        rc=$?
+    fi
+    restore_console_gettys
     eend "$rc"
     return "$rc"
 }

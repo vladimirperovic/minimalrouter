@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
+import TrafficInsightsPanel from "./TrafficInsightsPanel";
 import type { AccountingSnapshot, RouterConfig } from "../api-types";
 
 // Per-device traffic is measured by two dynamic nftables sets in the forward
@@ -76,9 +77,11 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
   return (
     <section className="dashboard-section" id="traffic">
       <div className="dashboard-section-heading has-facts">
-        <div className="subpage-hero-head"><div><p className="eyebrow">Usage</p><h2>Traffic per device</h2><p className="section-copy">Monthly byte totals per LAN device, counted in the firewall forward chain. Only totals per address are stored — no destinations, ports or payload.</p></div><span className={`classic-status-chip ${config.accounting?.enabled ? "" : "is-off"}`}>Accounting {config.accounting?.enabled ? "On" : "Off"}</span></div>
+        <div className="subpage-hero-head"><div><p className="eyebrow">Usage</p><h2>Traffic insights</h2><p className="section-copy">See transferred data over time, your busiest devices and their share of the connection. Only byte totals are stored.</p></div><span className={`classic-status-chip ${config.accounting?.enabled ? "" : "is-off"}`}>Accounting {config.accounting?.enabled ? "On" : "Off"}</span></div>
         <dl className="subpage-hero-facts"><div><dt>Collection</dt><dd>{config.accounting?.enabled ? unavailable ? "Unavailable" : "Active" : "Disabled"}</dd><small>local firewall counters</small></div><div><dt>Current period</dt><dd>{active ? monthLabel(active.month) : "Collecting"}</dd><small>calendar month</small></div><div><dt>Total traffic</dt><dd>{active ? formatBytes(active.total_bytes) : "—"}</dd><small>download and upload</small></div><div><dt>Devices</dt><dd>{active?.devices.length || 0}</dd><small>{config.accounting?.retention_months || 13} months retained</small></div></dl>
       </div>
+
+      <TrafficInsightsPanel enabled={Boolean(config.accounting?.enabled)} />
 
       <article className="service-inline-control"><div><strong>Per-device accounting</strong><p>Local byte totals only; destinations, ports and payloads are never retained.</p></div><label className="checkbox-row"><input checked={Boolean(config.accounting?.enabled)} onChange={(event) => toggle(event.target.checked)} type="checkbox" /><span>Count traffic per device</span></label></article>
 
@@ -92,7 +95,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
       {config.accounting?.enabled && !unavailable && months.length === 0 && (
         <div className="dashboard-callout">
           <strong>Collecting.</strong>
-          <p>Counters are read once a minute. Totals appear after the first collection round following a configuration apply.</p>
+          <p>Counters are read every five minutes. Totals appear after the first collection round following a configuration apply.</p>
         </div>
       )}
 
