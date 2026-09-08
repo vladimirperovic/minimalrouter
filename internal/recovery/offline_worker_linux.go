@@ -78,7 +78,9 @@ func restrictMigrationDBWorker(uid, gid uint32) error {
 	runtime.LockOSThread()
 	r, e, s := unix.Getresuid()
 	gr, ge, gs := unix.Getresgid()
-	if uid == 0 || gid == 0 || r != int(uid) || e != int(uid) || s != int(uid) || gr != int(gid) || ge != int(gid) || gs != int(gid) {
+	// Compare in a signed width that represents every uint32 ID without
+	// truncation, including on 32-bit hosts; negative syscall values must fail.
+	if uid == 0 || gid == 0 || int64(r) != int64(uid) || int64(e) != int64(uid) || int64(s) != int64(uid) || int64(gr) != int64(gid) || int64(ge) != int64(gid) || int64(gs) != int64(gid) {
 		return errors.New("migration database worker must have permanently dropped all user/group IDs")
 	}
 	groups, err := unix.Getgroups()

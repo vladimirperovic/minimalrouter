@@ -76,9 +76,9 @@ func TestMigrationWorkerLinuxPrivilegeBoundary(t *testing.T) {
 	if err := os.WriteFile(privateFile, []byte("root-private-input-fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	start := func(dir string, drop bool) (*migrationDBWorker, error) {
+	start := func(dir string, drop bool, expectedUID, expectedGID uint32) (*migrationDBWorker, error) {
 		cmd := exec.Command(childPath, "-test.run=^TestMigrationRestrictedWorkerChild$")
-		cmd.Env = []string{"MINIMALROUTER_RESTRICTED_TEST_WORKER=1", "MINIMALROUTER_TEST_UID=65534", "MINIMALROUTER_TEST_GID=65534", "MINIMALROUTER_TEST_PRIVATE_FILE=" + privateFile}
+		cmd.Env = []string{"MINIMALROUTER_RESTRICTED_TEST_WORKER=1", "MINIMALROUTER_TEST_UID=" + strconv.FormatUint(uint64(expectedUID), 10), "MINIMALROUTER_TEST_GID=" + strconv.FormatUint(uint64(expectedGID), 10), "MINIMALROUTER_TEST_PRIVATE_FILE=" + privateFile}
 		if drop {
 			cmd.SysProcAttr = migrationWorkerCredentials(uid, gid)
 		}
@@ -96,7 +96,7 @@ func TestMigrationWorkerLinuxPrivilegeBoundary(t *testing.T) {
 	if err := os.Chown(filepath.Join(data, "minimalrouter.db"), int(uid), int(gid)); err != nil {
 		t.Fatal(err)
 	}
-	w, err := start(data, true)
+	w, err := start(data, true, uid, gid)
 	if err != nil {
 		t.Fatalf("dropped worker failed credential/private-file checks: %v", err)
 	}
@@ -106,9 +106,17 @@ func TestMigrationWorkerLinuxPrivilegeBoundary(t *testing.T) {
 	if err := w.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if w, err := start(data, false); err == nil {
+	if w, err := start(data, false, uid, gid); err == nil {
 		w.Close()
 		t.Fatal("root worker served SQLite")
+	}
+	for _, unexpected := range []uint32{0, 1 << 31, 1<<32 - 1} {
+		for _, ids := range [][2]uint32{{unexpected, gid}, {uid, unexpected}} {
+			if w, err := start(data, true, ids[0], ids[1]); err == nil {
+				w.Close()
+				t.Fatalf("worker accepted mismatched UID/GID %v", ids)
+			}
+		}
 	}
 	// Model the exact checked-regular-file -> symlink substitution window.
 	victim := filepath.Join(privateDir, "victim")
@@ -134,7 +142,7 @@ func TestMigrationWorkerLinuxPrivilegeBoundary(t *testing.T) {
 	if err := os.Symlink(victimDB, link); err != nil {
 		t.Fatal(err)
 	}
-	if w, err := start(redirect, true); err == nil {
+	if w, err := start(redirect, true, uid, gid); err == nil {
 		w.Close()
 		t.Fatal("worker followed redirect into root-only SQLite")
 	}
