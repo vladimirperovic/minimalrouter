@@ -59,7 +59,7 @@ func TestGenerateDynamicDNSUsesNativeNoIPProvider(t *testing.T) {
 		`password = "S3cret!with:special#chars"`,
 		`hostname = "all.ddnskey.com"`,
 		"period = 300",
-		"forced-update = 2592000",
+		"forced-update = 604800",
 		"secure-ssl = true",
 		"checkip-server = api.ipify.org",
 		"checkip-path = /",
