@@ -8,10 +8,7 @@ import (
 )
 
 func (s *Server) handleDiscoverSetupInterfaces(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	configured := s.adminHash != ""
-	s.mu.RUnlock()
-	if configured {
+	if s.administratorConfigured() {
 		http.NotFound(w, r)
 		return
 	}

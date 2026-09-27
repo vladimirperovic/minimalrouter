@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -104,5 +105,33 @@ func TestImportPfSenseRequiresExplicitSafeMappingAndReportsUnsupported(t *testin
 
 	if _, err := ImportPfSenseXMLWithMapping(xmlData, PfSenseInterfaceMapping{WAN: "eth0", LAN: "eth0"}); err == nil {
 		t.Fatal("duplicate target interface mapping was accepted")
+	}
+}
+
+// pfSense's everyday dual-protocol forward and alias targets must not make the
+// whole import fail validation.
+func TestImportPfSenseMapsDualProtocolAndSkipsAliasTargets(t *testing.T) {
+	xmlData := []byte(`<pfsense>
+		<interfaces><lan><ipaddr>192.168.1.1</ipaddr><subnet>24</subnet></lan></interfaces>
+		<nat>
+			<rule><descr>Game</descr><interface>wan</interface><protocol>tcp/udp</protocol>
+				<destination><port>27015</port></destination><target>192.168.1.40</target><local-port>27015</local-port></rule>
+			<rule><descr>Alias</descr><interface>wan</interface><protocol>tcp</protocol>
+				<destination><port>8080</port></destination><target>WebServers</target><local-port>80</local-port></rule>
+			<rule><descr>GRE</descr><interface>wan</interface><protocol>gre</protocol>
+				<target>192.168.1.41</target></rule>
+		</nat>
+	</pfsense>`)
+	report, err := ImportPfSenseXMLWithMapping(xmlData, PfSenseInterfaceMapping{WAN: "enp1s0", LAN: "enp2s0"})
+	if err != nil {
+		t.Fatalf("import rejected: %v", err)
+	}
+	forwards := report.Config.Firewall.PortForwards
+	if len(forwards) != 1 || forwards[0].Protocol != "both" || forwards[0].ExternalPort != 27015 || forwards[0].Enabled {
+		t.Fatalf("port forwards = %+v", forwards)
+	}
+	warnings := strings.Join(report.Warnings, "\n")
+	if !strings.Contains(warnings, `"Alias"`) || !strings.Contains(warnings, `"GRE"`) {
+		t.Fatalf("skipped rules were not reported: %s", warnings)
 	}
 }

@@ -11,6 +11,7 @@ package faultinject
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -52,6 +53,17 @@ func Run(phase string) {
 		return
 	}
 	path := filepath.Join(dir, phase)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return
+	}
+	// router-applyd runs the hook through /bin/sh as root. Only a hook that
+	// nobody but root (or this process's own user) could have written may
+	// run, so a misplaced lab directory cannot become a privilege bridge.
+	if err := hookSourceTrusted(dir, path, info); err != nil {
+		log.Printf("faultinject: hook %q ignored: %v", phase, err)
+		return
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return
@@ -71,4 +83,31 @@ func Run(phase string) {
 	if len(out) > 0 {
 		log.Printf("faultinject: hook %q output: %s", phase, strings.TrimSpace(string(out)))
 	}
+}
+
+// hookSourceTrusted accepts a regular hook file whose file and directory are
+// owned by root or the current user and writable by nobody else.
+func hookSourceTrusted(dir, path string, info os.FileInfo) error {
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	dirInfo, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	for _, item := range []struct {
+		path string
+		info os.FileInfo
+	}{{dir, dirInfo}, {path, info}} {
+		if item.info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("%s is writable by group or others", item.path)
+		}
+		if err := ownedByRootOrSelf(item.path, item.info); err != nil {
+			return err
+		}
+	}
+	return nil
 }

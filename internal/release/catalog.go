@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -257,9 +258,27 @@ func (c Catalog) Fetch(ctx context.Context, etag string) (FetchResult, error) {
 				result.Releases = append(result.Releases, converted)
 			}
 		}
-		endpoint = nextPageURL(resp.Header.Get("Link"))
+		next := nextPageURL(resp.Header.Get("Link"))
+		if next != "" && !sameOrigin(c.endpoint(), next) {
+			// Pagination may only continue on the release API itself; a Link
+			// header pointing elsewhere ends paging with what was fetched.
+			next = ""
+		}
+		endpoint = next
 	}
 	return result, nil
+}
+
+func sameOrigin(base, candidate string) bool {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	candidateURL, err := url.Parse(candidate)
+	if err != nil {
+		return false
+	}
+	return candidateURL.Scheme == baseURL.Scheme && strings.EqualFold(candidateURL.Host, baseURL.Host)
 }
 
 func convertRelease(item githubRelease) (Release, bool) {

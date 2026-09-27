@@ -24,9 +24,7 @@ type WizardSetupRequest struct {
 }
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	isConfigured := s.adminHash != ""
-	s.mu.RUnlock()
+	isConfigured := s.administratorConfigured()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -65,12 +63,18 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SECURITY: Guard against re-running wizard after initial setup per SECURITY.md §8
-	s.mu.RLock()
-	alreadyConfigured := s.adminHash != ""
-	s.mu.RUnlock()
-
-	if alreadyConfigured {
+	// SECURITY: Guard against re-running wizard after initial setup per SECURITY.md §8.
+	// The canonical store decides: a credential created by the local console
+	// while routerd was running must close this unauthenticated endpoint too.
+	existingHash, err := s.adminCredentialHash()
+	if err != nil {
+		log.Printf("[AUTH] Setup refused: administrator state unavailable: %v\n", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Administrator state is unavailable."})
+		return
+	}
+	if existingHash != "" {
 		log.Printf("[AUTH] Blocked wizard re-run attempt from %s\n", r.RemoteAddr)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -113,6 +117,10 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := config.DefaultConfig()
+	// First-run setup replaces the pre-setup revision exactly once, like the
+	// console setup does. A revision advanced by the recovery console before
+	// setup (for example set-wan) must not make the wizard permanently stale.
+	cfg.Revision = s.engine.GetCurrentConfig().Revision
 
 	// Optional external and wireless integrations are always opt-in. Keep them
 	// explicitly disabled during first-run setup even if another default changes

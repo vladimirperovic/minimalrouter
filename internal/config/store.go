@@ -11,11 +11,93 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // Pure-Go SQLite driver (no CGO required)
 )
+
+// Snapshot kinds. Automatic restore points (pre-apply, recovery undo) and
+// operator-created ones are retained in separate pools, so a burst of routine
+// saves can never prune a snapshot the operator deliberately took.
+const (
+	SnapshotKindAutomatic = "automatic"
+	SnapshotKindManual    = "manual"
+)
+
+const (
+	snapshotRetentionPerKind = 20
+	auditRetention           = 5000
+	// highVolumeAuditRetention bounds the share of the audit log that request
+	// rejections may occupy, so a flood of them can never displace more than
+	// this many entries of the remaining incident history.
+	highVolumeAuditRetention = 1000
+)
+
+var (
+	pruneAutomaticSnapshotsSQL = fmt.Sprintf(`
+		DELETE FROM snapshots
+		WHERE kind <> '%[1]s' AND id NOT IN (
+			SELECT id FROM snapshots WHERE kind <> '%[1]s' ORDER BY created_at DESC, id DESC LIMIT %[2]d
+		)`, SnapshotKindManual, snapshotRetentionPerKind)
+	pruneManualSnapshotsSQL = fmt.Sprintf(`
+		DELETE FROM snapshots
+		WHERE kind = '%[1]s' AND id NOT IN (
+			SELECT id FROM snapshots WHERE kind = '%[1]s' ORDER BY created_at DESC, id DESC LIMIT %[2]d
+		)`, SnapshotKindManual, snapshotRetentionPerKind)
+	pruneAuditSQL = fmt.Sprintf(`
+		DELETE FROM audit_events
+		WHERE id NOT IN (
+			SELECT id FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT %d
+		)`, auditRetention)
+	pruneHighVolumeAuditSQL = fmt.Sprintf(`
+		DELETE FROM audit_events
+		WHERE event_type IN (%[1]s) AND id NOT IN (
+			SELECT id FROM audit_events WHERE event_type IN (%[1]s) ORDER BY timestamp DESC, id DESC LIMIT %[2]d
+		)`, quotedSQLList(highVolumeAuditEventTypes), highVolumeAuditRetention)
+)
+
+// highVolumeAuditEventTypes are recorded for requests rejected before
+// authentication or before any privileged work, so their rate is chosen by
+// whoever sends the requests. They share one bounded retention pool.
+var highVolumeAuditEventTypes = []string{
+	"access.trusted_network_rejected",
+	"auth.unauthorized",
+	"auth.login_rate_limited",
+	"auth.cross_site_rejected",
+	"auth.origin_rejected",
+	"auth.csrf_rejected",
+	"auth.read_only_rejected",
+}
+
+// IsHighVolumeAuditEvent reports whether eventType belongs to the
+// request-rejection class whose volume is controlled by the requester.
+func IsHighVolumeAuditEvent(eventType string) bool {
+	for _, candidate := range highVolumeAuditEventTypes {
+		if candidate == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+// quotedSQLList renders fixed, compile-time identifiers as an SQL string list.
+// It must never be used for caller-supplied values.
+func quotedSQLList(values []string) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	return strings.Join(quoted, ", ")
+}
+
+func pruneSnapshotsSQL(kind string) string {
+	if kind == SnapshotKindManual {
+		return pruneManualSnapshotsSQL
+	}
+	return pruneAutomaticSnapshotsSQL
+}
 
 // Snapshot represents an immutable, checksummed point-in-time configuration state.
 type Snapshot struct {
@@ -23,6 +105,7 @@ type Snapshot struct {
 	Revision   Revision `json:"revision"`
 	CreatedAt  string   `json:"created_at"`
 	Checksum   string   `json:"checksum"`
+	Kind       string   `json:"kind,omitempty"`
 	ConfigJSON string   `json:"config_json,omitempty"`
 }
 
@@ -128,7 +211,8 @@ func runMigrations(db *sql.DB) error {
 		revision INTEGER NOT NULL,
 		created_at DATETIME NOT NULL,
 		checksum TEXT NOT NULL,
-		config_json TEXT NOT NULL
+		config_json TEXT NOT NULL,
+		kind TEXT NOT NULL DEFAULT 'automatic'
 	);
 
 	CREATE TABLE IF NOT EXISTS admin_credentials (
@@ -161,6 +245,11 @@ func runMigrations(db *sql.DB) error {
 		timestamp DATETIME NOT NULL,
 		details_json TEXT NOT NULL
 	);
+
+	-- Every audit append prunes by recency; without these indexes each write
+	-- sorted the whole retained log.
+	CREATE INDEX IF NOT EXISTS idx_audit_events_time ON audit_events(timestamp, id);
+	CREATE INDEX IF NOT EXISTS idx_audit_events_type_time ON audit_events(event_type, timestamp, id);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		return err
@@ -176,6 +265,7 @@ func runMigrations(db *sql.DB) error {
 		{"sessions", "read_only", "read_only INTEGER NOT NULL DEFAULT 0"},
 		{"sessions", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
 		{"admin_credentials", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
+		{"snapshots", "kind", "kind TEXT NOT NULL DEFAULT '" + SnapshotKindAutomatic + "'"},
 	} {
 		exists, err := sqliteColumnExists(db, migration.table, migration.column)
 		if err != nil {
@@ -296,8 +386,19 @@ func (s *SQLiteStore) SaveConfig(cfg SystemConfig) error {
 	return nil
 }
 
-// CreateSnapshot creates an immutable checksummed snapshot per ARCHITECTURE.md §8.
+// CreateSnapshot creates an immutable checksummed automatic restore point per
+// ARCHITECTURE.md §8.
 func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
+	return s.createSnapshot(cfg, SnapshotKindAutomatic)
+}
+
+// CreateManualSnapshot stores an operator-requested restore point. It is
+// retained independently of the automatic pre-apply snapshots.
+func (s *SQLiteStore) CreateManualSnapshot(cfg SystemConfig) (Snapshot, error) {
+	return s.createSnapshot(cfg, SnapshotKindManual)
+}
+
+func (s *SQLiteStore) createSnapshot(cfg SystemConfig, kind string) (Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -313,7 +414,9 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("generate snapshot ID: %w", err)
 	}
 	id := fmt.Sprintf("snap-%d-%x", time.Now().UnixNano(), entropy)
-	createdAt := time.Now().Format(time.RFC3339)
+	// UTC keeps created_at ordering consistent with recovery snapshots, which
+	// SQLite and the recovery console compare as text.
+	createdAt := time.Now().UTC().Format(time.RFC3339)
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -321,19 +424,14 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 	}
 
 	_, err = tx.Exec(
-		"INSERT INTO snapshots (id, revision, created_at, checksum, config_json) VALUES (?, ?, ?, ?, ?)",
-		id, int64(cfg.Revision), createdAt, checksum, string(data),
+		"INSERT INTO snapshots (id, revision, created_at, checksum, config_json, kind) VALUES (?, ?, ?, ?, ?, ?)",
+		id, int64(cfg.Revision), createdAt, checksum, string(data), kind,
 	)
 	if err != nil {
 		tx.Rollback()
 		return Snapshot{}, fmt.Errorf("failed to insert snapshot: %w", err)
 	}
-	if _, err := tx.Exec(`
-		DELETE FROM snapshots
-		WHERE id NOT IN (
-			SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 20
-		)
-	`); err != nil {
+	if _, err := tx.Exec(pruneSnapshotsSQL(kind)); err != nil {
 		_ = tx.Rollback()
 		return Snapshot{}, fmt.Errorf("failed to prune snapshots: %w", err)
 	}
@@ -347,18 +445,21 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 		Revision:  cfg.Revision,
 		CreatedAt: createdAt,
 		Checksum:  checksum,
+		Kind:      kind,
 	}
 
 	return snap, nil
 }
 
-// ListSnapshots returns all stored snapshots ordered by creation time (newest first).
+// ListSnapshots returns all stored snapshots ordered by creation time (newest
+// first). An unreadable row fails the listing instead of silently shortening
+// the restore-point history an operator is choosing from.
 func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.Query(
-		"SELECT id, revision, created_at, checksum FROM snapshots ORDER BY created_at DESC",
+		"SELECT id, revision, created_at, checksum, kind FROM snapshots ORDER BY created_at DESC, id DESC",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
@@ -369,11 +470,14 @@ func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	for rows.Next() {
 		var snap Snapshot
 		var rev int64
-		if err := rows.Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum); err != nil {
-			continue
+		if err := rows.Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind); err != nil {
+			return nil, fmt.Errorf("failed to read snapshot: %w", err)
 		}
 		snap.Revision = Revision(rev)
 		snapshots = append(snapshots, snap)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate snapshots: %w", err)
 	}
 
 	return snapshots, nil
@@ -403,8 +507,8 @@ func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 	var snap Snapshot
 	var rev int64
 	err := s.db.QueryRow(
-		"SELECT id, revision, created_at, checksum, config_json FROM snapshots WHERE id = ?", id,
-	).Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.ConfigJSON)
+		"SELECT id, revision, created_at, checksum, kind, config_json FROM snapshots WHERE id = ?", id,
+	).Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind, &snap.ConfigJSON)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshot not found: %s", id)
 	}
@@ -449,12 +553,16 @@ func (s *SQLiteStore) AppendAuditEvent(eventType, actor string, details map[stri
 		return fmt.Errorf("insert audit event: %w", err)
 	}
 	// Bound local metadata growth without weakening recent incident history.
-	if _, err := tx.Exec(`
-		DELETE FROM audit_events
-		WHERE id NOT IN (
-			SELECT id FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT 5000
-		)
-	`); err != nil {
+	// Request rejections are pruned within their own pool first, so their
+	// volume can never push authentication, configuration or update events
+	// out of the retained window.
+	if IsHighVolumeAuditEvent(eventType) {
+		if _, err := tx.Exec(pruneHighVolumeAuditSQL); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("prune high-volume audit events: %w", err)
+		}
+	}
+	if _, err := tx.Exec(pruneAuditSQL); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("prune audit events: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Server) handleGetAuditEvents(w http.ResponseWriter, r *http.Request) {
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil || session.ReadOnly {
 		http.Error(w, "Administrator session required", http.StatusForbidden)
 		return

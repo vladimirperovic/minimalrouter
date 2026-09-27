@@ -49,7 +49,9 @@ type Server struct {
 	// check and the durable record of an accepted update. Explicit ownership,
 	// rather than a package-level registry keyed by *Server.
 	updates updateService
-	mu      sync.RWMutex
+	// auditLimiter bounds how often request rejections reach the audit log.
+	auditLimiter auditThrottle
+	mu           sync.RWMutex
 }
 
 // runtimeSnapshotTTL bounds how stale a telemetry read may be.
@@ -161,6 +163,12 @@ func (w *auditResponseWriter) Write(data []byte) (int, error) {
 	return w.ResponseWriter.Write(data)
 }
 
+// Unwrap lets http.ResponseController reach the connection, which upload
+// handlers need to extend their read deadline.
+func (w *auditResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func auditActor(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err == nil && host != "" {
@@ -173,6 +181,14 @@ func auditActor(remoteAddr string) string {
 }
 
 func (s *Server) appendAudit(eventType, actor string, details map[string]string) {
+	if config.IsHighVolumeAuditEvent(eventType) {
+		s.appendThrottledAudit(eventType, actor, details, time.Now())
+		return
+	}
+	s.persistAudit(eventType, actor, details)
+}
+
+func (s *Server) persistAudit(eventType, actor string, details map[string]string) {
 	store := s.store
 	if store == nil && s.engine != nil {
 		store = s.engine.GetStore()
@@ -233,12 +249,35 @@ func NewServerWithAuth(engine *apply.Engine, sessionMgr SessionManagerInterface,
 	}
 }
 
+type sessionContextKey struct{}
+
+// requestSession returns the session authMiddleware already validated for this
+// request. Handlers must not validate the cookie a second time: a revocation
+// landing between the two checks (a password change in another tab) would
+// otherwise hand them a nil session.
+func (s *Server) requestSession(r *http.Request) (*auth.Session, error) {
+	if sess, ok := r.Context().Value(sessionContextKey{}).(*auth.Session); ok && sess != nil {
+		return sess, nil
+	}
+	sess, err := s.sessionMgr.ValidateSession(r)
+	if err != nil {
+		return nil, err
+	}
+	if sess == nil {
+		return nil, auth.ErrUnauthorized
+	}
+	return sess, nil
+}
+
 // authMiddleware validates session cookie and CSRF token for protected endpoints.
 // Returns 401 Unauthorized if session is invalid or expired.
 // Returns 403 Forbidden if CSRF token mismatches on mutating methods.
 func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess, err := s.sessionMgr.ValidateSession(r)
+		if err == nil && sess == nil {
+			err = auth.ErrUnauthorized
+		}
 		if err != nil {
 			log.Printf("[AUTH] Unauthorized request to %s from %s\n", r.URL.Path, r.RemoteAddr)
 			s.appendAudit("auth.unauthorized", auditActor(r.RemoteAddr), map[string]string{
@@ -305,6 +344,7 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		r = r.WithContext(context.WithValue(r.Context(), sessionContextKey{}, sess))
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			next(w, r)
 			return
@@ -501,14 +541,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !match {
 		log.Printf("[AUTH] Failed login from %s\n", ip)
 		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "invalid_credentials"})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		// A wrong password and a missing TOTP respond identically so a
-		// caller cannot learn which credential component was correct.
-		json.NewEncoder(w).Encode(map[string]string{
-			"error":         "TOTP code required",
-			"totp_required": "true",
-		})
+		writeLoginRejected(w)
 		return
 	}
 
@@ -526,20 +559,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if err == nil && totpSecret != "" {
 			// TOTP is configured - require code
 			if req.TOTPCode == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]string{
-					"error":         "TOTP code required",
-					"totp_required": "true",
-				})
+				writeLoginRejected(w)
 				return
 			}
 			if !auth.ValidateTOTP(totpSecret, req.TOTPCode) || !s.consumeTOTP(totpSecret, req.TOTPCode) {
 				log.Printf("[AUTH] Invalid TOTP code from %s\n", ip)
 				s.appendAudit("auth.login_failed", ip, map[string]string{"result": "invalid_totp"})
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+				writeLoginRejected(w)
 				return
 			}
 		}
@@ -552,9 +578,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, auth.ErrGenerationChanged) {
 		log.Printf("[AUTH] Login from %s raced a credential change and was refused\n", ip)
 		s.appendAudit("auth.login_failed", ip, map[string]string{"result": "credentials_changed"})
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid credentials"})
+		writeLoginRejected(w)
 		return
 	}
 	if err != nil || session == nil {
@@ -572,6 +596,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"success":    true,
 		"csrf_token": session.CSRFToken,
 		"read_only":  session.ReadOnly,
+	})
+}
+
+// writeLoginRejected answers every credential failure identically. A wrong
+// password, a missing second factor and a wrong or replayed one must not be
+// distinguishable: otherwise any submitted code would reveal whether the
+// password was correct and the second factor would stop protecting it.
+func writeLoginRejected(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":         "TOTP code required",
+		"totp_required": "true",
 	})
 }
 
@@ -656,7 +693,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
-	sess, _ := s.sessionMgr.ValidateSession(r)
+	sess, err := s.requestSession(r)
+	if err != nil {
+		writeSessionRequired(w)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"authenticated": true,
@@ -677,24 +718,17 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mu.RLock()
-	currentHash := s.adminHash
-	s.mu.RUnlock()
-
-	// Verify old password
-	if currentHash != "" {
-		match, err := auth.VerifyPassword(req.OldPassword, currentHash)
-		if errors.Is(err, kdf.ErrBusy) {
-			w.Header().Set("Retry-After", "5")
-			http.Error(w, "Authentication is busy; retry shortly", http.StatusServiceUnavailable)
+	// The current password is always required. An empty stored credential is
+	// not a licence to set one without proof: it only means setup never ran.
+	if ok, err := s.verifyCurrentPassword(req.OldPassword); !ok {
+		if err != nil {
+			writeCredentialCheckFailure(w, err)
 			return
 		}
-		if err != nil || !match {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Current password is incorrect"})
-			return
-		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Current password is incorrect"})
+		return
 	}
 
 	// Hash and store new password
@@ -711,7 +745,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if store := s.engine.GetStore(); store != nil {
+	if store := s.credentialStore(); store != nil {
 		if err := store.SetAdminHash(newHash); err != nil {
 			http.Error(w, "Failed to persist password", http.StatusInternalServerError)
 			return
@@ -748,7 +782,11 @@ func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess, _ := s.sessionMgr.ValidateSession(r)
+	sess, err := s.requestSession(r)
+	if err != nil {
+		writeSessionRequired(w)
+		return
+	}
 	s.mu.Lock()
 	pending, ok := s.pendingTOTP[sess.ID]
 	if ok && time.Now().After(pending.expiresAt) {
@@ -819,7 +857,11 @@ func (s *Server) handleTOTPQR(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to generate TOTP secret", http.StatusInternalServerError)
 		return
 	}
-	sess, _ := s.sessionMgr.ValidateSession(r)
+	sess, err := s.requestSession(r)
+	if err != nil {
+		writeSessionRequired(w)
+		return
+	}
 	s.mu.Lock()
 	s.pendingTOTP[sess.ID] = pendingTOTPEnrollment{
 		secret: newSecret, expiresAt: time.Now().Add(10 * time.Minute),
@@ -894,10 +936,14 @@ func (s *Server) handleGetSnapshots(w http.ResponseWriter, r *http.Request) {
 
 	snapshots, err := store.ListSnapshots()
 	if err != nil {
+		// An empty list here would tell the operator there is nothing to
+		// restore when the history is merely unreadable.
 		log.Printf("[API] Failed to list snapshots: %v\n", err)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"snapshots": []interface{}{}})
+		http.Error(w, "Snapshot history is unavailable", http.StatusInternalServerError)
 		return
+	}
+	if snapshots == nil {
+		snapshots = []config.Snapshot{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -916,7 +962,7 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := s.engine.GetCurrentConfig()
-	snap, err := store.CreateSnapshot(cfg)
+	snap, err := store.CreateManualSnapshot(cfg)
 	if err != nil {
 		log.Printf("[API] Failed to create snapshot: %v\n", err)
 		http.Error(w, fmt.Sprintf("Snapshot creation failed: %v", err), http.StatusInternalServerError)
@@ -1025,6 +1071,7 @@ func (s *Server) handlePfSenseImportPreview(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "Content-Type must be application/xml", http.StatusUnsupportedMediaType)
 		return
 	}
+	extendUploadReadDeadline(w, configUploadReadTimeout)
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))
 	if err != nil {
 		http.Error(w, "pfSense configuration is too large", http.StatusRequestEntityTooLarge)
@@ -1041,7 +1088,7 @@ func (s *Server) handlePfSenseImportPreview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil {
 		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
 		return
@@ -1081,7 +1128,7 @@ func (s *Server) handlePfSenseImportPreview(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request) {
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil {
 		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
 		return
@@ -1291,7 +1338,12 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 	}
 	tx, err := s.engine.ConfirmTransaction(r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "Transaction confirmation failed", http.StatusConflict)
+		// The engine's reason (for example a WireGuard client without a
+		// handshake) is operator guidance, not a secret, and tells the
+		// operator whether to retry or let the automatic rollback run.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Transaction confirmation failed: " + err.Error()})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1329,14 +1381,82 @@ func (s *Server) handleGetPendingTransaction(w http.ResponseWriter, _ *http.Requ
 
 // ── Backup Encryption Handlers (P1) ──
 
+// configUploadReadTimeout bounds the body of the multi-megabyte configuration
+// uploads (backup restore, pfSense import): 18 MiB at 0.5 Mbit/s.
+const configUploadReadTimeout = 5 * time.Minute
+
+// extendUploadReadDeadline replaces the server-wide ReadTimeout, which covers
+// the entire request body, for one authenticated upload. At 10 seconds a
+// release archive needed a sustained ~15 Mbit/s, which a remote WireGuard
+// session often lacks. It is only called behind authMiddleware, so an
+// anonymous client can never hold a connection open this way.
+func extendUploadReadDeadline(w http.ResponseWriter, timeout time.Duration) {
+	err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(timeout))
+	if err != nil && !errors.Is(err, http.ErrNotSupported) {
+		log.Printf("[API] Could not extend upload read deadline: %v", err)
+	}
+}
+
+var errAuthenticationStateUnavailable = errors.New("authentication state unavailable")
+
+// credentialStore is the canonical home of the administrator credential.
+func (s *Server) credentialStore() *config.SQLiteStore {
+	if s.store != nil {
+		return s.store
+	}
+	if s.engine != nil {
+		return s.engine.GetStore()
+	}
+	return nil
+}
+
+// adminCredentialHash returns the administrator password hash from the same
+// source login uses. The local recovery console resets credentials directly in
+// SQLite while routerd keeps running, so a hash cached at startup would keep
+// accepting the revoked password, and refusing the new one, for every
+// re-authentication until a restart. The in-memory copy is only consulted when
+// no store is attached, exactly as handleLogin does.
+func (s *Server) adminCredentialHash() (string, error) {
+	if s.store != nil {
+		hash, _, err := s.store.GetAdminAuthState()
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		return hash, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.adminHash, nil
+}
+
+// administratorConfigured reports whether first-run setup committed an
+// administrator credential. An unreadable store is reported as configured so
+// the unauthenticated setup surface fails closed.
+func (s *Server) administratorConfigured() bool {
+	hash, err := s.adminCredentialHash()
+	if err != nil {
+		log.Printf("[AUTH] Administrator state unavailable: %v", err)
+		return true
+	}
+	return hash != ""
+}
+
 // verifyCurrentPassword reports whether the supplied password matches, and
 // separately whether the check could not run at all. Admission control on the
 // memory-hard KDF (see internal/kdf) makes "busy" a real outcome that must not
 // be reported to the operator as a wrong password.
 func (s *Server) verifyCurrentPassword(password string) (bool, error) {
-	s.mu.RLock()
-	hash := s.adminHash
-	s.mu.RUnlock()
+	hash, err := s.adminCredentialHash()
+	if err != nil {
+		log.Printf("[AUTH] Administrator state unavailable for re-authentication: %v", err)
+		return false, errAuthenticationStateUnavailable
+	}
+	if hash == "" {
+		return false, nil
+	}
 	match, err := auth.VerifyPassword(password, hash)
 	if errors.Is(err, kdf.ErrBusy) {
 		return false, err
@@ -1345,14 +1465,25 @@ func (s *Server) verifyCurrentPassword(password string) (bool, error) {
 }
 
 // writeCredentialCheckFailure answers a failed credential check: a KDF
-// admission rejection is a retryable service condition, a mismatch is 401.
+// admission rejection or an unreadable credential store is a retryable
+// service condition, a mismatch is 401.
 func writeCredentialCheckFailure(w http.ResponseWriter, err error) {
-	if errors.Is(err, kdf.ErrBusy) {
+	switch {
+	case errors.Is(err, kdf.ErrBusy):
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "Authentication is busy; retry shortly", http.StatusServiceUnavailable)
-		return
+	case errors.Is(err, errAuthenticationStateUnavailable):
+		w.Header().Set("Retry-After", "5")
+		http.Error(w, "Authentication service unavailable", http.StatusServiceUnavailable)
+	default:
+		http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
 	}
-	http.Error(w, "Current administrator password is incorrect", http.StatusUnauthorized)
+}
+
+func writeSessionRequired(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized or expired session"})
 }
 
 func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
@@ -1385,6 +1516,7 @@ func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Request) {
+	extendUploadReadDeadline(w, configUploadReadTimeout)
 	r.Body = http.MaxBytesReader(w, r.Body, 18<<20)
 	if err := r.ParseMultipartForm(18 << 20); err != nil {
 		http.Error(w, "Invalid or oversized backup upload", http.StatusBadRequest)
@@ -1415,7 +1547,7 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Backup could not be authenticated or validated", http.StatusUnprocessableEntity)
 		return
 	}
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil {
 		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
 		return
@@ -1451,7 +1583,7 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request) {
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil {
 		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
 		return
@@ -1497,8 +1629,11 @@ func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hwAddr, err := net.ParseMAC(req.MAC)
-	if err != nil {
-		http.Error(w, "Invalid MAC address", http.StatusBadRequest)
+	if err != nil || len(hwAddr) != 6 {
+		// A magic packet repeats a 48-bit Ethernet address. ParseMAC also
+		// accepts EUI-64 and 20-byte IPoIB forms, which would be truncated
+		// into a packet no network card recognises.
+		http.Error(w, "Invalid MAC address: a 48-bit Ethernet address is required", http.StatusBadRequest)
 		return
 	}
 	packet := make([]byte, 102)

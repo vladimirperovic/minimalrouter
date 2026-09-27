@@ -52,3 +52,28 @@ describe("passive response cache", () => {
     expect(await (await apiFetch("/api/v1/config")).json()).toEqual({ revision: 5 });
   });
 });
+
+describe("unauthorized responses", () => {
+  it("keep a live session when a re-authentication check fails", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response("Current administrator password is incorrect", { status: 401 }))
+      .mockResolvedValueOnce(Response.json({ csrf_token: "still-valid" }));
+    vi.stubGlobal("fetch", fetch);
+    const { apiFetch, setCSRFToken } = await import("./api");
+    setCSRFToken("still-valid");
+    const response = await apiFetch("/api/v1/backup/export", { method: "POST", body: "{}" });
+    expect(response.status).toBe(401);
+    expect(fetch.mock.calls[1][0]).toBe("/api/v1/auth/session");
+    expect(window.dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it("return to sign-in once the session itself no longer validates", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: "Unauthorized or expired session" }, { status: 401 }))
+      .mockResolvedValueOnce(Response.json({ error: "Unauthorized or expired session" }, { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    const { apiFetch } = await import("./api");
+    await apiFetch("/api/v1/system");
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "minimalrouter:unauthorized" }));
+  });
+});

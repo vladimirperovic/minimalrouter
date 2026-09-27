@@ -160,7 +160,8 @@ func extractReleaseArchive(archivePath, destination, arch string) (string, error
 			if clean == prefix {
 				seenRoot = true
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
+			// archive/tar already reports legacy TypeRegA entries as TypeReg.
 			if header.Size < 0 || header.Size > maxReleaseArchive || expanded > maxExpandedRelease-header.Size {
 				return "", errors.New("expanded release exceeds size limit")
 			}

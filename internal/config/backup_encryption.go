@@ -161,6 +161,10 @@ func DecryptConfigBackup(data []byte, passphrase string) (SystemConfig, error) {
 	if payload.Product != "Minimal Router OS" || payload.FormatVersion != backupFormatVersion {
 		return SystemConfig{}, errors.New("backup payload version is unsupported")
 	}
+	// A backup taken by an older release gets the same deterministic legacy
+	// migration as the canonical store applies on load; otherwise a backup of
+	// a configuration this release still boots could never be restored.
+	payload.Config.MigrateLegacyFields()
 	if err := payload.Config.Validate(); err != nil {
 		return SystemConfig{}, fmt.Errorf("backup configuration is invalid: %w", err)
 	}

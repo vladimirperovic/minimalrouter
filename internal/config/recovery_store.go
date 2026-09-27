@@ -107,11 +107,7 @@ func (s *SQLiteStore) RecoverySaveConfig(current, next SystemConfig, passwordHas
 	); err != nil {
 		return Snapshot{}, fmt.Errorf("insert recovery snapshot: %w", err)
 	}
-	if _, err := tx.Exec(`
-		DELETE FROM snapshots
-		WHERE id NOT IN (
-			SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 20
-		)`); err != nil {
+	if _, err := tx.Exec(pruneAutomaticSnapshotsSQL); err != nil {
 		return Snapshot{}, fmt.Errorf("prune recovery snapshots: %w", err)
 	}
 	if _, err := tx.Exec(

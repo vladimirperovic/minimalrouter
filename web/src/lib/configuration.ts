@@ -46,12 +46,22 @@ export async function previewAndApplyConfig(candidate: RouterConfig): Promise<Co
   const response = await apiFetch("/api/v1/config", { method: "PUT", body });
   if (!response.ok) throw new Error(await responseError(response, `Configuration apply failed (${response.status})`));
   const transaction = await response.json() as PendingTransaction;
+  const refreshError = await publishAppliedTransaction(transaction);
+  return { cancelled: false, transaction, refreshError };
+}
+
+// publishAppliedTransaction refreshes the canonical configuration and tells the
+// dashboard about a transaction the router accepted, so a provisional change
+// shows its confirmation banner at once instead of on the next poll. Every
+// path that applies configuration (edits, backup restore, pfSense migration)
+// must go through it.
+export async function publishAppliedTransaction(transaction: PendingTransaction): Promise<string | undefined> {
   // Never infer the canonical state from a provisional candidate.
   let refreshError: string | undefined;
   try { await readConfiguration({ cache: "reload" }); }
   catch { refreshError = "The configuration change was accepted, but its current state could not be refreshed. Refresh before making another change."; }
   window.dispatchEvent(new CustomEvent("minimalrouter:config-applied", { detail: { transaction, refreshError } }));
-  return { cancelled: false, transaction, refreshError };
+  return refreshError;
 }
 
 type ChangePreview = {

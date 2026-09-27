@@ -45,8 +45,10 @@ func (s *SQLiteStore) MaintainStorage() error {
 	defer tx.Rollback() //nolint:errcheck
 	statements := []string{
 		`DELETE FROM config_revisions WHERE revision NOT IN (SELECT revision FROM config_revisions ORDER BY revision DESC LIMIT 100)`,
-		`DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 20)`,
-		`DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY timestamp DESC, id DESC LIMIT 5000)`,
+		pruneAutomaticSnapshotsSQL,
+		pruneManualSnapshotsSQL,
+		pruneHighVolumeAuditSQL,
+		pruneAuditSQL,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {

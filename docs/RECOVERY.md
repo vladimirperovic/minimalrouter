@@ -83,7 +83,9 @@ printf '%s\n' 'a-new-password-of-at-least-12-characters' |
 ```
 
 The operation stores a new Argon2id hash, optionally removes the TOTP secret,
-and revokes every existing session.
+and revokes every existing session. A running routerd uses the new credential
+immediately for login and for every re-authentication prompt; no restart is
+required.
 
 ## Recover LAN access
 

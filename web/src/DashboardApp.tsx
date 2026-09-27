@@ -8,7 +8,7 @@ import SecuritySettings from "./components/SecuritySettings";
 import ProfileMenu from "./components/ProfileMenu";
 import UpdateDialog from "./components/UpdateDialog";
 import { clearConfiguration, previewAndApplyConfig, readConfiguration, useConfiguration } from "./lib/configuration";
-import { apiFetch } from "./lib/api";
+import { apiFetch, responseError } from "./lib/api";
 import { updateBadgeLabel, useUpdates } from "./lib/updates";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
@@ -130,6 +130,8 @@ function Dashboard() {
       if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
         const body = await snapshotsResult.value.json();
         setSnapshots(Array.isArray(body) ? body : Array.isArray(body.snapshots) ? body.snapshots : []);
+      } else {
+        unavailable.push("restore points");
       }
       if (pendingResult.status === "fulfilled" && pendingResult.value.ok) {
         const body = (await pendingResult.value.json()) as PendingTransaction;
@@ -205,11 +207,19 @@ function Dashboard() {
       setCountdown(0);
       return;
     }
-    const tick = () => setCountdown(Math.max(0, Math.ceil((new Date(confirmationDeadline).getTime() - Date.now()) / 1000)));
+    // At the deadline the router rolls back on its own. Re-read the pending
+    // state shortly after, so the banner never offers to confirm a transaction
+    // that no longer exists.
+    let resync = 0;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((new Date(confirmationDeadline).getTime() - Date.now()) / 1000));
+      setCountdown(remaining);
+      if (remaining === 0 && !resync) resync = window.setTimeout(() => void load(), 3000);
+    };
     tick();
     const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [confirmationDeadline]);
+    return () => { window.clearInterval(timer); window.clearTimeout(resync); };
+  }, [confirmationDeadline, load]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -478,12 +488,14 @@ function Dashboard() {
     setBusy(true);
     try {
       const response = await apiFetch(`/api/v1/transactions/${encodeURIComponent(pendingTx.id)}/confirm`, { method: "POST" });
-      if (!response.ok) throw new Error(`Confirmation failed (${response.status})`);
+      if (!response.ok) throw new Error(await responseError(response, `Confirmation failed (${response.status})`));
       setPendingTx(null);
       setNotice("Connectivity confirmed; configuration committed.");
       await load();
     } catch (confirmationError) {
       setError(confirmationError instanceof Error ? confirmationError.message : "Confirmation failed");
+      // The transaction may already have been rolled back or replaced.
+      await load();
     } finally {
       setBusy(false);
     }
@@ -553,7 +565,7 @@ function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
       });
-      if (!response.ok) throw new Error(`Password change failed (${response.status})`);
+      if (!response.ok) throw new Error(await responseError(response, `Password change failed (${response.status})`));
       window.dispatchEvent(new Event("minimalrouter:unauthorized"));
       return true;
     } catch (passwordError) {

@@ -182,3 +182,25 @@ func TestDraftsAndInvalidTagsAreNotReleases(t *testing.T) {
 		t.Fatal("a non-semver tag must never be offered")
 	}
 }
+
+func TestFetchDoesNotFollowPaginationOffTheAPIOrigin(t *testing.T) {
+	var foreignHits int
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		foreignHits++
+		fmt.Fprintf(w, "[%s]", releaseJSON("v9.9.9", false, amd64Assets()...))
+	}))
+	defer foreign.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Link", fmt.Sprintf(`<%s/next>; rel="next"`, foreign.URL))
+		fmt.Fprintf(w, "[%s]", releaseJSON("v0.1.0", false, amd64Assets()...))
+	}))
+	defer server.Close()
+
+	result, err := Catalog{APIURL: server.URL}.Fetch(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if foreignHits != 0 || len(result.Releases) != 1 {
+		t.Fatalf("followed a foreign Link header: hits=%d releases=%d", foreignHits, len(result.Releases))
+	}
+}

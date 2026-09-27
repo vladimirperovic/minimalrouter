@@ -40,10 +40,22 @@ func (m Manager) RestoreLatestSnapshot() (config.Snapshot, string, error) {
 	}
 	latest := snapshots[0]
 	for _, candidate := range snapshots[1:] {
-		if candidate.CreatedAt > latest.CreatedAt {
+		if snapshotNewer(candidate.CreatedAt, latest.CreatedAt) {
 			latest = candidate
 		}
 	}
 	undo, err := m.RestoreSnapshot(latest.ID)
 	return undo, latest.ID, err
+}
+
+// snapshotNewer compares snapshot timestamps as instants. Older releases wrote
+// local-offset RFC3339 values while recovery wrote UTC, so a text comparison
+// could pick an older snapshot whenever the appliance clock was east of UTC.
+func snapshotNewer(candidate, current string) bool {
+	candidateTime, candidateErr := time.Parse(time.RFC3339, candidate)
+	currentTime, currentErr := time.Parse(time.RFC3339, current)
+	if candidateErr != nil || currentErr != nil {
+		return candidate > current
+	}
+	return candidateTime.After(currentTime)
 }
