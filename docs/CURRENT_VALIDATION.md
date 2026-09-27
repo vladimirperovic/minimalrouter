@@ -6,10 +6,40 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.1.7 — Beta / controlled pilot.**
+**Minimal Router OS v0.1.8 — Beta / controlled pilot.**
 
-The build tree (`VERSION`, `web/package.json`) is v0.1.7. It is not recommended
+The build tree (`VERSION`, `web/package.json`) is v0.1.8. It is not recommended
 as an unattended replacement for pfSense/OpenWrt.
+
+v0.1.8 changes the bootstrap tools that run outside the A/B slot
+(`router-update`, `router-recovery`, `router-setup`), so an existing v0.1.7
+appliance takes v0.1.8 once through the signed full distribution installer
+rather than the dashboard updater (see [`WEB-UPDATE.md`](WEB-UPDATE.md)). The
+Golden flasher and installer scripts are unchanged from v0.1.7.
+
+Evidence for this line, precisely:
+
+- pull request #156 ran every required workflow, including **Build, flash and
+  boot minimalrouter golden ISO**, the **WAN, router and LAN namespace
+  laboratory** and the ARM64 QEMU smoke test. That is CI evidence on a
+  pull-request branch;
+- a local live suite drove a real `routerd` through the production dashboard in
+  macOS preview mode, where privileged Linux operations are simulated: first-run
+  setup, DHCP, DNS, reservations, Dynamic DNS, firewall rules and presets, QoS,
+  trusted networks with confirmation, WireGuard provisioning, tunnel port
+  forwards, snapshots, encrypted backup export/restore, password change, 2FA,
+  audit throttling, sign-in rate limiting, Wi-Fi, outbound-tunnel automatic
+  rollback and pfSense migration. It is control-plane, API and persistence
+  evidence, not data-plane evidence.
+
+The signed release workflow rebuilds the exact tagged commit and repeats the
+full E2E install before publication; the release claim rests on that run.
+
+No new owner-Proxmox or ISP evidence has been produced for v0.1.8.
+
+## v0.1.7 line (previous release)
+
+**Minimal Router OS v0.1.7 — Beta / controlled pilot.**
 
 v0.1.7 changes the Golden-image flasher's write verification, so the inherited
 v0.1.5 ISO evidence below does not carry forward on its own and the blank-disk

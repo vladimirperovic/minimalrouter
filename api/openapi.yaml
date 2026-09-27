@@ -376,7 +376,11 @@ paths:
               schema:
                 type: string
         '401':
-          description: Invalid password or TOTP
+          description: >-
+            Invalid password, or a missing, wrong or replayed TOTP code. Every
+            credential failure returns the same body
+            (`{"error": "TOTP code required", "totp_required": "true"}`) so the
+            response never reveals which factor was wrong.
         '429':
           description: Rate limit exceeded
 
@@ -535,14 +539,20 @@ paths:
   /snapshots:
     get:
       summary: List all immutable configuration snapshots
+      description: >-
+        Each snapshot carries `kind`: `automatic` (taken before every applied
+        change and by the recovery console) or `manual` (created through this
+        API). The newest 20 of each kind are retained independently.
       operationId: listSnapshots
       security:
         - sessionCookie: []
       responses:
         '200':
           description: List of snapshots
+        '500':
+          description: Snapshot history could not be read
     post:
-      summary: Create an immutable checksummed configuration snapshot
+      summary: Create an immutable checksummed manual configuration snapshot
       operationId: createSnapshot
       security:
         - sessionCookie: []
@@ -597,6 +607,8 @@ paths:
       responses:
         '200':
           description: Peer committed; one-time client .conf and PNG QR returned
+        '202':
+          description: Peer provisionally applied; connectivity confirmation required before it becomes canonical
         '409':
           description: WAN is not configured
         '422':
@@ -623,6 +635,8 @@ paths:
           description: Peer provisionally deleted; connectivity confirmation required
         '404':
           description: Peer not found
+        '409':
+          description: Several peers share the identifier; correct the configuration first
         '422':
           description: Deletion rejected by configuration safety validation
 
@@ -889,12 +903,18 @@ paths:
         - sessionCookie: []
           csrfToken: []
       responses:
-        '200': { description: Magic packet sent }
+        '204': { description: Magic packet sent }
+        '400': { description: Invalid JSON or not a 48-bit Ethernet MAC address }
 
   /qos/speedtest:
     post:
       summary: Measure real WAN download and upload speed, and suggest 90% QoS limits
-      description: Rejected with 409 while QoS shaping is enabled, because an active shaper reports its own limit rather than the line speed.
+      description: >-
+        QoS shaping is bypassed for the duration of the measurement and the
+        canonical configuration is reconciled afterwards
+        (`qos_temporarily_bypassed`). Each phase stops after a fixed transfer
+        time, so slow lines return a smaller sample instead of failing. Returns
+        409 while another speed test is running.
       operationId: runSpeedTest
       security:
         - sessionCookie: []

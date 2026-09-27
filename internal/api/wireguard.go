@@ -31,7 +31,7 @@ type wireGuardPeerConfigurationRequest struct {
 }
 
 func validateWireGuardEndpoint(value string) error {
-	if len(value) == 0 || len(value) > 255 || strings.IndexAny(value, "\r\n\t\x00") >= 0 {
+	if len(value) == 0 || len(value) > 255 || strings.ContainsAny(value, "\r\n\t\x00") {
 		return fmt.Errorf("server_endpoint must be a host and UDP port")
 	}
 	host, portText, err := net.SplitHostPort(value)
@@ -152,6 +152,29 @@ func nextFreeWireGuardIP(serverIP net.IP, subnet string, peers []config.WireGuar
 		}
 	}
 	return "", fmt.Errorf("no free address available in WireGuard subnet %s", subnet)
+}
+
+// findWireGuardPeer resolves a peer identifier to exactly one peer. Identifiers
+// are generated uniquely, but a configuration written through PUT /config or a
+// restored backup may repeat one; acting on the first match would then rekey
+// or delete a different device than the one the operator selected.
+func findWireGuardPeer(w http.ResponseWriter, peers []config.WireGuardPeer, id string) (int, bool) {
+	index := -1
+	for i := range peers {
+		if id == "" || peers[i].ID != id {
+			continue
+		}
+		if index >= 0 {
+			http.Error(w, "Several WireGuard peers share this identifier; correct the configuration before changing them", http.StatusConflict)
+			return -1, false
+		}
+		index = i
+	}
+	if index < 0 {
+		http.Error(w, "WireGuard peer not found", http.StatusNotFound)
+		return -1, false
+	}
+	return index, true
 }
 
 // handleProvisionWireGuardPeer generates the client key locally, persists only
@@ -288,6 +311,9 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
+	if tx.CurrentState == apply.StateAwaitingConfirmation {
+		w.WriteHeader(http.StatusAccepted)
+	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"peer": map[string]any{
 			"id":         peerID,
@@ -313,15 +339,8 @@ func (s *Server) handleReissueWireGuardPeerConfiguration(w http.ResponseWriter, 
 	}
 
 	candidate := s.engine.GetCurrentConfig()
-	peerIndex := -1
-	for i := range candidate.WireGuard.Peers {
-		if candidate.WireGuard.Peers[i].ID == r.PathValue("id") {
-			peerIndex = i
-			break
-		}
-	}
-	if peerIndex < 0 {
-		http.Error(w, "WireGuard peer not found", http.StatusNotFound)
+	peerIndex, ok := findWireGuardPeer(w, candidate.WireGuard.Peers, r.PathValue("id"))
+	if !ok {
 		return
 	}
 
@@ -416,19 +435,11 @@ func (s *Server) handleReissueWireGuardPeerConfiguration(w http.ResponseWriter, 
 
 func (s *Server) handleDeleteWireGuardPeer(w http.ResponseWriter, r *http.Request) {
 	candidate := s.engine.GetCurrentConfig()
-	peerIndex := -1
-	var removed config.WireGuardPeer
-	for i, peer := range candidate.WireGuard.Peers {
-		if peer.ID == r.PathValue("id") {
-			peerIndex = i
-			removed = peer
-			break
-		}
-	}
-	if peerIndex < 0 {
-		http.Error(w, "WireGuard peer not found", http.StatusNotFound)
+	peerIndex, ok := findWireGuardPeer(w, candidate.WireGuard.Peers, r.PathValue("id"))
+	if !ok {
 		return
 	}
+	removed := candidate.WireGuard.Peers[peerIndex]
 	candidate.WireGuard.Peers = append(candidate.WireGuard.Peers[:peerIndex], candidate.WireGuard.Peers[peerIndex+1:]...)
 	if err := candidate.Validate(); err != nil {
 		w.Header().Set("Content-Type", "application/json")

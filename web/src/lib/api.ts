@@ -129,8 +129,11 @@ async function networkFetch(
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (response.status === 401) {
-    csrfToken = "";
+  // A 401 is also how the router rejects a failed re-authentication inside a
+  // live session (wrong current password, invalid TOTP code). Only a session
+  // that no longer validates may send the operator back to the sign-in screen;
+  // otherwise the form and its error message would vanish with the dashboard.
+  if (response.status === 401 && !(await refreshSession())) {
     clearPassiveGetCache();
     window.dispatchEvent(new Event("minimalrouter:unauthorized"));
   }

@@ -47,3 +47,33 @@ func TestRunBlocks(t *testing.T) {
 		t.Fatalf("hook returned too early: %v", elapsed)
 	}
 }
+
+// TestRunRefusesWritableHook verifies a hook that another user could have
+// written is never executed: router-applyd runs hooks as root.
+func TestRunRefusesWritableHook(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "marker")
+	hook := filepath.Join(dir, PostProvisionalApply)
+	if err := os.WriteFile(hook, []byte("touch "+marker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(hook, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(HookDirEnv, dir)
+	Run(PostProvisionalApply)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("world-writable hook was executed")
+	}
+
+	if err := os.Chmod(hook, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	Run(PostProvisionalApply)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("hook in a world-writable directory was executed")
+	}
+}

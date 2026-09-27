@@ -6,7 +6,14 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.8**.
+## [v0.1.8] — 2026-09-27
+
+### Upgrade
+
+- v0.1.8 changes the bootstrap tools outside the A/B slot (`router-update`,
+  `router-recovery`, `router-setup`). A v0.1.7 appliance installs it once with
+  the signed full distribution installer; the dashboard updater refuses it by
+  design. Configuration is preserved; the A/B rollback generation restarts.
 
 ### Added
 
@@ -26,6 +33,57 @@ Next development version: **v0.1.8**.
   navigation. DHCP reservations retain editable device names.
 - Render measured charts with SVG geometry and external CSS under the existing
   Content Security Policy. Missing measurements remain gaps or unavailable.
+- Manual restore points are retained separately from the automatic pre-apply
+  snapshots, so routine saves no longer prune a snapshot the operator took.
+- The speed test measures each phase for a bounded time, so slow lines report
+  a smaller sample instead of failing.
+
+### Fixed
+
+- After `router-recovery reset-auth`, password change, TOTP management and
+  backup export/import accepted only the revoked password until routerd
+  restarted. Every credential check now reads the canonical store.
+- A correct password combined with a wrong TOTP code produced a different login
+  response than a wrong password, revealing the password. All credential
+  failures now answer identically.
+- Requests rejected before authentication were each written to the audit log,
+  so any LAN client could churn it. They are now rate-limited with suppression
+  counts and kept in a bounded share of the log.
+- The setup wizard failed permanently with a stale revision after any recovery
+  console change made before first-run setup.
+- Offline firmware, backup and pfSense uploads were cut off by the 10 second
+  request read timeout on slower links.
+- Wake-on-LAN rejects non-48-bit addresses instead of sending a malformed
+  packet; an unreadable snapshot history is reported instead of shown empty.
+- WireGuard preshared keys and peer actions resolve only a unique peer.
+- Lab fault-injection hooks run only from files that nobody but root (or the
+  service user) can write.
+- pfSense imports map the common `tcp/udp` port-forward protocol and skip
+  alias-targeted or non-TCP/UDP forwards with a warning instead of rejecting
+  the whole file.
+- Encrypted backups taken by older releases receive the same legacy migration
+  as the stored configuration, so they can be restored again.
+- `router-recovery restore-last-good` compares snapshot times as instants;
+  mixed local-offset and UTC timestamps could select an older snapshot.
+- Release-list pagination only follows links on the release API origin.
+- Provisioning a WireGuard peer that awaits confirmation answers 202, like
+  reissue and delete.
+- Audit appends use indexes instead of sorting the whole retained log.
+- Diagnostic exports no longer include the PPPoE username or the WireGuard
+  public keys and endpoints of remote devices and the outbound tunnel.
+- The suggested firewall rules could never be switched on: the theme gave
+  their selection checkboxes zero width in both designs.
+- A wrong current password (backup, password change, 2FA) no longer signs the
+  dashboard out; the router's own reason is shown instead of a status code.
+- Backup restore and pfSense migration show their confirmation banner at once,
+  the banner clears itself after an automatic rollback instead of offering to
+  confirm a transaction that no longer exists, and a refused confirmation
+  (for example a WireGuard client without a handshake) states why.
+
+### Removed
+
+- A stray Windows helper script with an embedded account password and an
+  obsolete code-generation script were removed from the repository root.
 
 
 ## [v0.1.7] — 2026-09-06

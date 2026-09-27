@@ -334,6 +334,9 @@ func (c SystemConfig) DeepCopy() SystemConfig {
 	}
 	out.SquidProxy.RestrictedIPs = slices.Clone(c.SquidProxy.RestrictedIPs)
 	out.AdGuard.FilterDevices = slices.Clone(c.AdGuard.FilterDevices)
+	for i := range out.AdGuard.FilterDevices {
+		out.AdGuard.FilterDevices[i].BlockedServices = slices.Clone(c.AdGuard.FilterDevices[i].BlockedServices)
+	}
 	out.AdGuard.DeviceProfiles = deepCopyDeviceProfiles(c.AdGuard.DeviceProfiles)
 	return out
 }

@@ -8,7 +8,11 @@ import (
 )
 
 var (
-	guardOnce             sync.Once
+	guardOnce sync.Once
+	// daemonGuard is never read, but it must stay referenced: dropping the
+	// *os.File would let its finalizer close the descriptor and release the
+	// offline-migration lock while the helper is still running.
+	//lint:ignore U1000 the reference itself holds the lock for the process lifetime
 	daemonGuard           *os.File
 	daemonGuardError      error
 	runtimeAdmissionReady = make(chan struct{})

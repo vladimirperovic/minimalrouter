@@ -65,7 +65,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       }
     };
     void initialize();
-    const unauthorized = () => setState("login");
+    // "Unauthorized" reports a lost session, so it only ends an authenticated
+    // one. Requests made before sign-in also answer 401, and their verdict can
+    // arrive after the router state probe: it must not replace the first-run
+    // wizard or a pending probe with the sign-in form.
+    const unauthorized = () => setState((current) => (current === "authenticated" ? "login" : current));
     window.addEventListener("minimalrouter:unauthorized", unauthorized);
     return () => {
       active = false;

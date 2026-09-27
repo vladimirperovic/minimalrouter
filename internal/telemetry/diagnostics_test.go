@@ -79,3 +79,27 @@ func TestRedactionDoesNotMutateCanonicalConfig(t *testing.T) {
 		t.Fatal("canonical config was mutated by diagnostics/redaction")
 	}
 }
+
+// A diagnostic export can travel beyond the dashboard session, so it omits
+// identifiers the dashboard itself may show: the PPPoE subscriber login and the
+// WireGuard identities and endpoints of remote devices and the outbound tunnel.
+func TestDiagnosticBundleOmitsAccountAndTunnelIdentifiers(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAN.Username = "subscriber-login@isp.example"
+	cfg.WireGuard.Peers = []config.WireGuardPeer{{ID: "p1", PublicKey: "PeerPublicKeyIdentifierAAAAAAAAAAAAAAAAAAAA=", Endpoint: "198.51.100.7:40000"}}
+	cfg.WGClient.PublicKey = "RemoteSitePublicKeyAAAAAAAAAAAAAAAAAAAAAAAA="
+	cfg.WGClient.Endpoint = "office.example.net:51820"
+
+	bundle, err := BuildDiagnosticBundle(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identifier := range []string{"subscriber-login@isp.example", "PeerPublicKeyIdentifier", "198.51.100.7", "RemoteSitePublicKey", "office.example.net"} {
+		if strings.Contains(string(bundle), identifier) {
+			t.Errorf("diagnostic bundle exposed %q", identifier)
+		}
+	}
+	if cfg.WAN.Username != "subscriber-login@isp.example" || cfg.WireGuard.Peers[0].PublicKey == "" {
+		t.Fatal("redaction mutated the canonical configuration")
+	}
+}

@@ -31,6 +31,9 @@ const (
 	maxFirmwareUploadBody     = 131 << 20
 	maxFirmwareManifestUpload = 1 << 20
 	maxFirmwareArchiveUpload  = 128 << 20
+	// firmwareUploadReadTimeout replaces the 10 s server ReadTimeout for the
+	// offline upload: 131 MiB still arrives at about 1 Mbit/s.
+	firmwareUploadReadTimeout = 20 * time.Minute
 	// updateFreeSpaceBytes must cover the compressed download, the expanded
 	// payload and the new slot, while current and previous both stay intact.
 	updateFreeSpaceBytes = 700 << 20
@@ -597,6 +600,7 @@ func (s *Server) handleFirmwareUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	current := currentApplianceVersion(state)
 
+	extendUploadReadDeadline(w, firmwareUploadReadTimeout)
 	r.Body = http.MaxBytesReader(w, r.Body, maxFirmwareUploadBody)
 	reader, err := r.MultipartReader()
 	if err != nil {
@@ -723,7 +727,7 @@ func writeFirmwareJSON(w http.ResponseWriter, status int, value interface{}) {
 // boundary is still the helper; this only avoids offering an action the
 // session may not take.
 func (s *Server) sessionIsReadOnly(r *http.Request) bool {
-	session, err := s.sessionMgr.ValidateSession(r)
+	session, err := s.requestSession(r)
 	if err != nil || session == nil {
 		return true
 	}

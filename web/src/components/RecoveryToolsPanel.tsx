@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-import type { RouterConfig } from "../api-types";
+import type { PendingTransaction, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
+import { publishAppliedTransaction } from "../lib/configuration";
 
 type Props = {
   config: RouterConfig;
@@ -162,8 +163,9 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
     try {
       const response = await apiFetch(`/api/v1/import/backup/${encodeURIComponent(backupPreview.import_id)}/apply`, { method: "POST" });
       if (!response.ok) throw new Error(await responseError(response, `Backup restore failed (${response.status})`));
-      const body = await response.json().catch(() => ({})) as { state?: string };
+      const body = await response.json().catch(() => ({})) as PendingTransaction;
       setBackupPreview(null);
+      await publishAppliedTransaction(body);
       setNotice(body.state === "AwaitingConfirmation"
         ? "Backup is provisionally active. Use the dashboard confirmation banner to prove the new management path."
         : "Backup restored successfully.");
@@ -223,8 +225,9 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
     try {
       const response = await apiFetch(`/api/v1/import/pfsense/${encodeURIComponent(pfPreview.import_id)}/apply`, { method: "POST" });
       if (!response.ok) throw new Error(await responseError(response, `pfSense import failed (${response.status})`));
-      const body = await response.json().catch(() => ({})) as { state?: string };
+      const body = await response.json().catch(() => ({})) as PendingTransaction;
       setPfPreview(null);
+      await publishAppliedTransaction(body);
       setNotice(body.state === "AwaitingConfirmation"
         ? "pfSense migration is provisionally active. Confirm the management path from the dashboard banner before the rollback deadline."
         : "pfSense migration applied successfully.");

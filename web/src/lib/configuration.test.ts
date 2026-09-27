@@ -52,3 +52,16 @@ it("does not republish an in-flight configuration after logout clears its genera
   finish(Response.json(config));
   await expect(pending).rejects.toMatchObject({ name: "AbortError" });
 });
+
+it("publishes a restore or migration transaction so its confirmation banner appears at once", async () => {
+  const fetch = vi.fn().mockResolvedValue(Response.json({ error: "not needed" }, { status: 503 }));
+  vi.stubGlobal("fetch", fetch);
+  const { publishAppliedTransaction } = await import("./configuration");
+  const transaction = { id: "backup-restore-1", state: "AwaitingConfirmation", confirmation_deadline: "2026-09-27T20:00:00Z" } as Parameters<typeof publishAppliedTransaction>[0];
+  await publishAppliedTransaction(transaction);
+  expect(fetch.mock.calls[0][0]).toBe("/api/v1/config");
+  expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+    type: "minimalrouter:config-applied",
+    detail: expect.objectContaining({ transaction }),
+  }));
+});

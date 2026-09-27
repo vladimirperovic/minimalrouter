@@ -231,11 +231,26 @@ func ImportPfSenseXMLWithMapping(xmlContent []byte, mapping PfSenseInterfaceMapp
 		if extPort > 0 && intPort == 0 {
 			intPort = extPort
 		}
+		// pfSense writes "tcp/udp" for the common dual-protocol forward; that
+		// is this model's "both". Other protocols have no port to forward.
+		proto := strings.ToLower(strings.TrimSpace(r.Protocol))
+		switch proto {
+		case "", "tcp":
+			proto = "tcp"
+		case "udp":
+		case "tcp/udp":
+			proto = "both"
+		default:
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Skipped NAT rule %q because protocol %q cannot be port-forwarded.", r.Descr, r.Protocol))
+			continue
+		}
+		// Targets may be pfSense aliases or host names, which have no
+		// equivalent here. Skipping one rule must not reject the whole file.
+		if r.Target != "" && parseIPv4(r.Target) == nil {
+			report.Warnings = append(report.Warnings, fmt.Sprintf("Skipped NAT rule %q because its target %q is not an IPv4 address.", r.Descr, r.Target))
+			continue
+		}
 		if extPort > 0 && intPort > 0 && r.Target != "" {
-			proto := strings.ToLower(r.Protocol)
-			if proto == "" {
-				proto = "tcp"
-			}
 			name := r.Descr
 			if name == "" {
 				name = fmt.Sprintf("Rule %d", i+1)

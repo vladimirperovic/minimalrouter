@@ -103,6 +103,18 @@
   padding: 0;
 }
 
+/* The suggested firewall rules select column uses bare native checkboxes.
+   Without this the generic input's 42px minimum height and 14px side padding
+   leave them no content box: zero pixels wide, so no rule could be ticked and
+   every "Turn on" stayed disabled. */
+:root:root .dashboard-app .firewall-presets-select input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  min-height: 17px;
+  margin: 0;
+  padding: 0;
+}
+
 :root:root .dashboard-app .checkbox-row > span {
   min-width: 0;
   overflow-wrap: anywhere;
