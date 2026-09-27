@@ -33,6 +33,12 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 	if clean.WAN.Password != "" {
 		clean.WAN.Password = "[REDACTED]"
 	}
+	// The PPPoE login names the subscriber's ISP account. Troubleshooting
+	// needs only whether one is set, and a support bundle travels further
+	// than the dashboard session that may display it.
+	if clean.WAN.Username != "" {
+		clean.WAN.Username = "[REDACTED]"
+	}
 	if clean.SquidProxy.Password != "" {
 		clean.SquidProxy.Password = "[REDACTED]"
 	}
@@ -53,10 +59,16 @@ func RedactedSystemConfig(cfg config.SystemConfig) config.SystemConfig {
 	}
 	for i := range clean.WireGuard.Peers {
 		clean.WireGuard.Peers[i].Name = ""
+		// Public keys and endpoints are not secrets, but they identify each
+		// remote device and where it connects from; diagnostics never need them.
+		clean.WireGuard.Peers[i].PublicKey = ""
+		clean.WireGuard.Peers[i].Endpoint = ""
 		if clean.WireGuard.Peers[i].PresharedKey != "" {
 			clean.WireGuard.Peers[i].PresharedKey = "[REDACTED]"
 		}
 	}
+	clean.WGClient.PublicKey = ""
+	clean.WGClient.Endpoint = ""
 	for i := range clean.AdGuard.DeviceProfiles {
 		clean.AdGuard.DeviceProfiles[i].Name = ""
 	}

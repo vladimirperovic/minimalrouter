@@ -69,6 +69,8 @@ compatibility may still change between releases.
 - Provisioning a WireGuard peer that awaits confirmation answers 202, like
   reissue and delete.
 - Audit appends use indexes instead of sorting the whole retained log.
+- Diagnostic exports no longer include the PPPoE username or the WireGuard
+  public keys and endpoints of remote devices and the outbound tunnel.
 - The suggested firewall rules could never be switched on: the theme gave
   their selection checkboxes zero width in both designs.
 - A wrong current password (backup, password change, 2FA) no longer signs the

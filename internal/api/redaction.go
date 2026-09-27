@@ -10,6 +10,13 @@ const redactedSecret = "[REDACTED]"
 // redactConfig returns a detached public view. The deep copy guarantees the
 // redaction can never mutate canonical engine state, including preshared keys
 // inside the peer slice.
+//
+// Only secrets are replaced. Identifiers the authenticated administrator
+// manages on this page stay visible: WireGuard public keys (the dashboard shows
+// and compares them, and they grant nothing without the device's private key)
+// and the PPPoE username (edited in the WAN form). Diagnostic exports, which
+// are meant to leave the appliance, remove those as well; see
+// telemetry.RedactedSystemConfig.
 func redactConfig(cfg config.SystemConfig) config.SystemConfig {
 	public := cfg.DeepCopy()
 
