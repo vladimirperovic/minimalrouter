@@ -6,7 +6,14 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
-Next development version: **v0.1.8**.
+## [v0.1.8] — 2026-09-27
+
+### Upgrade
+
+- v0.1.8 changes the bootstrap tools outside the A/B slot (`router-update`,
+  `router-recovery`, `router-setup`). A v0.1.7 appliance installs it once with
+  the signed full distribution installer; the dashboard updater refuses it by
+  design. Configuration is preserved; the A/B rollback generation restarts.
 
 ### Added
 
