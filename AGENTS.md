@@ -22,7 +22,7 @@ Before changing anything under `packaging/alpine/`, `.github/workflows/iso.yml`,
 `scripts/ci/iso-full-install.exp` or the release ISO path, read
 [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) completely.
 
-v0.1.8 continues the Golden installation model introduced in v0.1.4:
+v0.1.9 continues the Golden installation model introduced in v0.1.4:
 
 - CI/build infrastructure builds Alpine, kernel, modules, MinimalRouter and the Dashboard;
 - CI produces one bootable Golden disk image;
