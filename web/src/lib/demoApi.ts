@@ -160,6 +160,8 @@ function parseBody(init: RequestInit) {
   try { return JSON.parse(init.body) as Record<string, unknown>; } catch { return null; }
 }
 
+let dnsSettings = { enabled: true, retention_days: 30 };
+
 export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   const url = new URL(raw, window.location.origin);
@@ -201,6 +203,12 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");
   if (path === "/api/v1/backup/export" && method === "POST") return download("MINIMALROUTER PUBLIC DEMO BACKUP\nNo router data is included.\n", "application/octet-stream");
+  if (path === "/api/v1/dns-activity/clear" && method === "POST") return json({ cleared: true });
+  if (path === "/api/v1/dns-activity/settings" && method === "PUT") {
+    const next = parseBody(init);
+    if (next) dnsSettings = { enabled: Boolean(next.enabled), retention_days: Number(next.retention_days) || 30 };
+    return json({ available: true, ...dnsSettings });
+  }
   if (method !== "GET") return json({ state: "Committed", demo: true });
 
   if (path === "/api/v1/auth/session") return json({ authenticated: true, csrf_token: "public-demo", read_only: false, totp_enabled: false });
@@ -223,6 +231,28 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     const devices=[['Studio MacBook','192.168.1.101',.43],['Living room TV','192.168.1.102',.28],['Home server','192.168.1.103',.16],['Workstation','192.168.1.104',.09],['Other device','192.168.1.105',.04]].map(([hostname,address,share])=>({hostname,address,rx_bytes:Math.floor(rx*Number(share)),tx_bytes:Math.floor(tx*Number(share)),total_bytes:Math.floor(total*Number(share))}));
     devices[devices.length-1].total_bytes=total-devices.slice(0,-1).reduce((n,d)=>n+d.total_bytes,0);
     return json({available:true,enabled:config.accounting.enabled,period,from:from.toISOString(),until:until.toISOString(),history_started_at:new Date(day.getTime()-31*86400000).toISOString(),collected_at:now.toISOString(),points,devices,rx_bytes:rx,tx_bytes:tx,total_bytes:total,peak_sample_mbps:412,observed_seconds:count*(hourly?3600:86400)});
+  }
+  if (path === "/api/v1/dns-activity/settings") return json({ available: true, ...dnsSettings });
+  if (path === "/api/v1/dns-activity/recent") {
+    const now = Date.now();
+    const names = [["192.168.1.20", "studio-mac", "api.github.com", "github.com"], ["192.168.1.42", "living-room-tv", "rr2---sn-demo.googlevideo.com", "googlevideo.com"], ["192.168.1.64", "gaming-console", "apis.roblox.com", "roblox.com"], ["192.168.1.20", "studio-mac", "fonts.gstatic.com", "gstatic.com"], ["192.168.1.42", "living-room-tv", "www.youtube.com", "youtube.com"]];
+    return json({ available: true, enabled: dnsSettings.enabled, entries: Array.from({ length: 20 }, (_, i) => { const [address, hostname, name, site] = names[i % names.length]; return { at: new Date(now - i * 47000).toISOString(), address, hostname, name, site, category: site === "youtube.com" || site === "googlevideo.com" ? "youtube" : site === "roblox.com" ? "roblox" : undefined, count: 1 + (i % 3) }; }) });
+  }
+  if (path === "/api/v1/dns-activity") {
+    const period = url.searchParams.get("period") || "today"; const device = url.searchParams.get("device") || ""; const search = url.searchParams.get("q") || "";
+    const now = new Date(); const day = new Date(now); day.setUTCHours(0, 0, 0, 0);
+    const days = period === "30d" ? 30 : period === "7d" ? 7 : 1; const hourly = days === 1;
+    const from = new Date(day.getTime() - (period === "yesterday" ? 1 : days - 1) * 86400000); const until = period === "yesterday" ? day : now;
+    const count = hourly ? Math.max(1, Math.ceil((until.getTime() - from.getTime()) / 3600000)) : days;
+    const scale = device ? 0.35 : 1;
+    const points = Array.from({ length: count }, (_, i) => ({ start: new Date(from.getTime() + i * (hourly ? 3600000 : 86400000)).toISOString(), lookups: Math.round((hourly ? 420 + Math.sin(i * .5) * 180 : 9800 + (i % 4) * 900) * scale), observed: true }));
+    const total = points.reduce((n, p) => n + p.lookups, 0); const last = Math.floor(now.getTime() / 1000) - 60;
+    const sites = [["googlevideo.com", "youtube", .18, 2], ["apple.com", "", .12, 3], ["github.com", "", .1, 1], ["roblox.com", "roblox", .08, 1], ["youtube.com", "youtube", .07, 2], ["gstatic.com", "", .06, 3], ["netflix.com", "", .05, 1], ["cloudflare.com", "", .04, 3], ["wikipedia.org", "wiki", .02, 2]]
+      .filter(([site]) => !search || String(site).includes(search))
+      .map(([site, category, share, devices]) => ({ site, category: category || undefined, lookups: Math.round(total * Number(share)), devices: device ? 1 : devices, first_seen: last - 30000, last_seen: last }));
+    const devices = [["studio-mac", "192.168.1.20", .46, 214], ["living-room-tv", "192.168.1.42", .31, 58], ["gaming-console", "192.168.1.64", .23, 41]].filter(([, address]) => !device || address === device).map(([hostname, address, share, siteCount]) => ({ address, hostname, lookups: Math.round(total * Number(share) / scale * (device ? scale : 1)), sites: siteCount, last_seen: last }));
+    const flagged = [["192.168.1.42", "living-room-tv", "googlevideo.com", "youtube", 2810], ["192.168.1.42", "living-room-tv", "youtube.com", "youtube", 640], ["192.168.1.64", "gaming-console", "roblox.com", "roblox", 1120]].filter(([address]) => !device || address === device).map(([address, hostname, site, category, lookups]) => ({ address, hostname, site, category, lookups: Math.round(Number(lookups) * days), first_seen: last - 30000, last_seen: last }));
+    return json({ available: true, enabled: dnsSettings.enabled, retention_days: dnsSettings.retention_days, period, from: from.toISOString(), until: until.toISOString(), device: device || undefined, search: search || undefined, history_started_at: new Date(day.getTime() - 21 * 86400000).toISOString(), collected_at: now.toISOString(), total_lookups: total, unitemized_lookups: 0, site_count: device ? 120 : 412, points, devices, sites, flagged });
   }
   if(path==='/api/v1/firewall/activity') {
     const now=new Date();const points=Array.from({length:48},(_,i)=>({start:new Date(now.getTime()-(47-i)*1800000).toISOString(),allowed:Math.round(22000+Math.sin(i*.4)*9000+i%7*1500),blocked:i%9+1,samples:30}));

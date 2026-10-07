@@ -21,7 +21,7 @@ const navigationGroups: Array<{ label: string; items: Array<[SectionID, string]>
   { label: "", items: [["overview", "Overview"], ["gateway", "Gateway Quality"], ["network", "LAN & DHCP"]] },
   { label: "Protect", items: [["firewall", "Firewall"], ["security", "Security"], ["dns-filter", "DNS Filter"]] },
   { label: "Connect", items: [["qos", "QoS / SQM"], ["wireguard", "WireGuard"], ["cloudflare", "DynDNS"], ["wifi", "Wi-Fi AP"]] },
-  { label: "Operate", items: [["traffic", "Traffic"], ["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
+  { label: "Operate", items: [["traffic", "Traffic"], ["dns-activity", "DNS Activity"], ["squid", "Squid Proxy"], ["recovery", "Recovery"], ["logs", "Logs"]] },
 ];
 
 const navigation = navigationGroups.flatMap((group) => group.items);
@@ -46,6 +46,7 @@ const navIcons: Record<SectionID, ReactNode> = {
   security: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></>,
   logs: <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8" />,
   traffic: <><path d="M3 3v18h18" /><path d="m7 15 4-4 3 3 5-6" /></>,
+  "dns-activity": <><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></>,
 };
 
 function field(form: FormData, name: string) {

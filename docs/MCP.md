@@ -69,6 +69,17 @@ Read-only mode advertises:
 |---|---|
 | `get_router_status` | Read redacted runtime status |
 | `get_full_config` | Read the redacted canonical configuration |
+| `get_health` | Read appliance health checks |
+| `get_security_events` | Read the metadata-only audit log (sign-ins, rejected requests, applies, rollbacks); available to read-only sessions from v0.1.9 |
+| `get_firewall_activity` | Read 24 hours of aggregate allowed/blocked packet counts |
+| `get_traffic_insights` | Read per-device traffic history, if accounting is enabled |
+| `get_dns_activity` | Read DNS lookups per device and site, including categorized sites such as adult, if DNS activity recording is enabled |
+| `get_recent_dns_lookups` | Read the newest lookups with full hostnames from router memory, if DNS activity recording is enabled |
+
+DNS activity is browsing history. An AI client with these tools can read which
+sites each device looked up for the retained period; configure MCP only for
+people who may see that history. Recording itself can only be switched on or
+off from the dashboard.
 
 Explicit admin mode additionally advertises validated DNS updates and
 snapshot/rollback operations. Enable it only in a controlled local session:

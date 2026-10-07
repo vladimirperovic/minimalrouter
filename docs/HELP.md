@@ -6,13 +6,13 @@ This guide explains the appliance for people who do not need to know Linux netwo
 
 There are two recommended deployment paths.
 
-### Option A — v0.1.8 Golden ISO install
+### Option A — v0.1.9 Golden ISO install
 
 Use the Golden Appliance ISO when you want the cleanest, most repeatable AMD64/Proxmox deployment.
 
 1. Create a new blank VM in Proxmox using the profile in `PROXMOX.md`.
 2. Attach two NICs with deliberate LAN and WAN bridge roles.
-3. Attach `minimalrouter-0.1.8-amd64.iso`, boot it, and let the verified Golden-image flasher install to the blank VM disk.
+3. Attach `minimalrouter-0.1.9-amd64.iso`, boot it, and let the verified Golden-image flasher install to the blank VM disk.
 4. After the automatic reboot, complete the installed **firstboot on the selected noVNC/tty1 or ttyS0 console**. Confirm WAN/LAN interfaces, optional PPPoE credentials, the Dashboard administrator password, and the recovery/root password there.
 5. Wait for firstboot to finish and for `routerd`/`router-applyd` to become ready. Do not configure a second competing network stack in Alpine.
 6. Open the dashboard from the trusted LAN side and verify the configuration collected during firstboot.

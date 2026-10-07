@@ -11,6 +11,9 @@
 //     a reset, never as negative traffic.
 //   - routerd is unprivileged. It reads the counters through two exact
 //     doas-allowlisted `nft -j list set` argument vectors and nothing else.
+//
+// The same store also holds the separately opt-in DNS activity history (see
+// dns.go), which is browsing history by nature and is documented as such.
 package accounting
 
 import (

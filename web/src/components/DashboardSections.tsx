@@ -15,10 +15,11 @@ import FirewallRulesEditor from "./FirewallRulesEditor";
 import FirewallPresets from "./FirewallPresets";
 import WireGuardPeerDetails, { type PeerDetails } from "./WireGuardPeerDetails";
 import TrafficPanel from "./TrafficPanel";
+import DNSActivityPanel from "./DNSActivityPanel";
 import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
 
-export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs" | "traffic";
+export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs" | "traffic" | "dns-activity";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
 type ApplyConfig = (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
@@ -736,6 +737,7 @@ export default function DashboardSections({
 </section>}
 
 {active === "traffic" && <TrafficPanel applyConfig={applyConfig} busy={busy} config={config} />}
+{active === "dns-activity" && <DNSActivityPanel busy={busy} />}
 
 {active === "qos" && <section className="dashboard-section" id="qos">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Bufferbloat control</p><h2>QoS / Smart Queue Management</h2><p className="dns-filter-intro">Shapes WAN bandwidth with CAKE or FQ-CoDel to keep latency low under load. Configured target: {config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}.</p></div><span className={`classic-status-chip ${qosState === "Active" ? "" : "is-off"}`}>{qosState === "QoS unavailable" ? qosState : `QoS ${qosState}`}</span></div><dl className="subpage-hero-facts"><div><dt>Algorithm</dt><dd>{config.qos.algorithm}</dd><small>{qosState === "Active" ? "qdisc detected" : qosState === "Off" ? "inactive" : qosState}</small></div><div><dt>Download</dt><dd>{config.qos.download_limit_mbps} Mbps</dd><small>ingress limit</small></div><div><dt>Upload</dt><dd>{config.qos.upload_limit_mbps} Mbps</dd><small>egress limit</small></div><div><dt>Interface</dt><dd>{config.wan.enabled ? "ppp0" : config.wan.interface || "eth0"}</dd><small>shaping target</small></div></dl></div>

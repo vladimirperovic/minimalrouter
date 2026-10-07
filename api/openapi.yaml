@@ -67,6 +67,77 @@ components:
         total_bytes: {type: integer, format: int64, minimum: 0}
         observed_seconds: {type: integer, format: int64, minimum: 0}
         peak_sample_mbps: {type: number, nullable: true, description: Maximum average rate over a collection interval}
+    DNSActivitySettings:
+      type: object
+      required: [available, enabled, retention_days]
+      properties:
+        available: {type: boolean}
+        enabled: {type: boolean}
+        retention_days: {type: integer, minimum: 1, maximum: 90}
+    DNSActivity:
+      type: object
+      required: [available, enabled, retention_days, period, from, until, total_lookups, unitemized_lookups, site_count, points, devices, sites, flagged]
+      properties:
+        available: {type: boolean}
+        enabled: {type: boolean}
+        retention_days: {type: integer, minimum: 0, maximum: 90}
+        period: {type: string, enum: [today, yesterday, 7d, 30d]}
+        from: {type: string, format: date-time}
+        until: {type: string, format: date-time}
+        device: {type: string, description: IP address the summary is limited to}
+        search: {type: string}
+        history_started_at: {type: string, format: date-time, nullable: true}
+        collected_at: {type: string, format: date-time, nullable: true}
+        total_lookups: {type: integer, format: int64, minimum: 0}
+        unitemized_lookups: {type: integer, format: int64, minimum: 0, description: Lookups counted after a memory or per-day row bound was reached, without a device or site}
+        site_count: {type: integer, minimum: 0}
+        points:
+          type: array
+          items:
+            type: object
+            required: [start, lookups, observed]
+            properties:
+              start: {type: string, format: date-time}
+              lookups: {type: integer, format: int64, minimum: 0}
+              observed: {type: boolean}
+        devices:
+          type: array
+          items:
+            type: object
+            required: [address, lookups, sites, last_seen]
+            properties:
+              address: {type: string}
+              hostname: {type: string}
+              mac: {type: string}
+              lookups: {type: integer, format: int64, minimum: 0}
+              sites: {type: integer, minimum: 0}
+              last_seen: {type: integer, format: int64}
+        sites:
+          type: array
+          items:
+            type: object
+            required: [site, lookups, devices, first_seen, last_seen]
+            properties:
+              site: {type: string}
+              category: {type: string, description: Device-profile service the site belongs to, e.g. adult}
+              lookups: {type: integer, format: int64, minimum: 0}
+              devices: {type: integer, minimum: 0}
+              first_seen: {type: integer, format: int64}
+              last_seen: {type: integer, format: int64}
+        flagged:
+          type: array
+          description: Per-device use of sites that belong to a device-profile service category
+          items:
+            type: object
+            required: [address, site, lookups, first_seen, last_seen]
+            properties:
+              address: {type: string}
+              hostname: {type: string}
+              site: {type: string}
+              category: {type: string}
+              lookups: {type: integer, format: int64, minimum: 0}
+              first_seen: {type: integer, format: int64}
+              last_seen: {type: integer, format: int64}
     FirewallActivity:
       type: object
       required: [available, from, until, collected_at, points, allowed, blocked]
@@ -332,6 +403,119 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Untrusted management network}
         '503': {description: Traffic storage unavailable}
+  /dns-activity:
+    get:
+      summary: Read DNS lookup statistics per device and site
+      description: Opt-in. Daily lookup counts per device and registrable site, UTC hourly totals for the chart, and per-device use of categorized sites. Individual queries are not stored. Disabled DNS activity hides retained history, which the collector then deletes.
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: query
+          name: period
+          schema: {type: string, enum: [today, yesterday, 7d, 30d], default: today}
+        - in: query
+          name: device
+          schema: {type: string, description: IPv4 or IPv6 address}
+        - in: query
+          name: q
+          schema: {type: string, maxLength: 64, pattern: '^[a-z0-9._-]*$'}
+      responses:
+        '200':
+          description: No-store bounded summary
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSActivity'}
+        '400': {description: Unsupported period, device or search}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+        '503': {description: DNS activity storage unavailable}
+  /dns-activity/settings:
+    get:
+      summary: Read the DNS activity recording setting
+      description: Kept in routerd's local accounting store, not in the canonical configuration. Recording is off until enabled.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Current setting
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSActivitySettings'}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+        '503': {description: DNS activity unavailable}
+    put:
+      summary: Turn DNS activity recording on or off and set retention
+      description: Takes effect within seconds. Enabling installs a fixed dnsmasq drop-in that logs queries to tmpfs and restarts dnsmasq; if dnsmasq rejects it, the drop-in is removed again. Disabling removes the drop-in and deletes recorded history. Changes are audited.
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled, retention_days]
+              properties:
+                enabled: {type: boolean}
+                retention_days: {type: integer, minimum: 1, maximum: 90}
+      responses:
+        '200':
+          description: Stored setting
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSActivitySettings'}
+        '400': {description: Invalid setting}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network, missing CSRF token or read-only session}
+        '503': {description: DNS activity unavailable}
+  /dns-activity/recent:
+    get:
+      summary: Read the most recent DNS lookups held in memory
+      description: Full hostnames from the last collection rounds. Held only in routerd memory (at most 2,000 entries) and lost on restart.
+      security: [{sessionCookie: []}]
+      parameters:
+        - in: query
+          name: device
+          schema: {type: string}
+        - in: query
+          name: limit
+          schema: {type: integer, minimum: 1, maximum: 2000, default: 200}
+      responses:
+        '200':
+          description: Newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available, enabled, entries]
+                properties:
+                  available: {type: boolean}
+                  enabled: {type: boolean}
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      required: [at, address, name, site, count]
+                      properties:
+                        at: {type: string, format: date-time}
+                        address: {type: string}
+                        hostname: {type: string}
+                        name: {type: string}
+                        site: {type: string}
+                        category: {type: string}
+                        count: {type: integer, minimum: 1}
+        '400': {description: Invalid device or limit}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+  /dns-activity/clear:
+    post:
+      summary: Delete all DNS activity history
+      description: Deletes stored daily and hourly statistics and the in-memory recent list. Recorded in the audit log.
+      security: [{sessionCookie: []}]
+      responses:
+        '200': {description: History deleted}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network, missing CSRF token or read-only session}
+        '503': {description: DNS activity unavailable}
   /firewall/activity:
     get:
       summary: Read the last 24 hours of aggregate firewall packet activity
@@ -704,6 +888,7 @@ paths:
   /audit/events:
     get:
       summary: List bounded metadata-only security audit events
+      description: Readable by administrator and read-only (MCP) sessions.
       operationId: listAuditEvents
       security:
         - sessionCookie: []

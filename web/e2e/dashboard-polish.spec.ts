@@ -34,7 +34,7 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
   expect(await scroll.evaluate(e=>e.scrollHeight>e.clientHeight)).toBe(true);
   expect((await page.locator('.gateway-ip-history').boundingBox())!.height).toBeLessThan(650);
   await scroll.focus();await page.keyboard.press('End');await expect.poll(()=>scroll.evaluate(e=>e.scrollTop)).toBeGreaterThan(0);
-  for(const route of ['overview','gateway','network','firewall','security','dns-filter','qos','wireguard','cloudflare','wifi','traffic','squid','recovery','logs']) {
+  for(const route of ['overview','gateway','network','firewall','security','dns-filter','qos','wireguard','cloudflare','wifi','traffic','dns-activity','squid','recovery','logs']) {
    await page.goto('/#'+route);await expect(page.locator('.dashboard-app')).toBeVisible();
    expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth),route+' overflow').toBeLessThanOrEqual(1);
    if(width>900){

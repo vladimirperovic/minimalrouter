@@ -121,6 +121,8 @@ func main() {
 	}
 
 	log.Printf("router-applyd listening on unix://%s", apply.DefaultSocketPath)
+	go runDNSActivityCollector()
+	go startDNSActivityListener()
 	available := make(chan struct{}, 8)
 	for {
 		available <- struct{}{}

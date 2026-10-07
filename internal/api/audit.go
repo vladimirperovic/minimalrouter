@@ -7,8 +7,10 @@ import (
 )
 
 func (s *Server) handleGetAuditEvents(w http.ResponseWriter, r *http.Request) {
-	session, err := s.requestSession(r)
-	if err != nil || session.ReadOnly {
+	// Read-only sessions (the MCP bridge) may read the metadata-only audit
+	// log; they authenticate with the administrator password and the auth
+	// middleware still rejects every mutation they attempt.
+	if _, err := s.requestSession(r); err != nil {
 		http.Error(w, "Administrator session required", http.StatusForbidden)
 		return
 	}

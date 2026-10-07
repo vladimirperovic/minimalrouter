@@ -6,10 +6,36 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.1.8 — Beta / controlled pilot.**
+**Minimal Router OS v0.1.9 — Beta / controlled pilot.**
 
-The build tree (`VERSION`, `web/package.json`) is v0.1.8. It is not recommended
+The build tree (`VERSION`, `web/package.json`) is v0.1.9. It is not recommended
 as an unattended replacement for pfSense/OpenWrt.
+
+v0.1.9 adds opt-in DNS activity statistics and read-only MCP insight tools. It
+does not change the bootstrap tools that run outside the A/B slot:
+`scripts/ci/bootstrap-compatibility.sh v0.1.8` builds `router-update`,
+`router-recovery` and `router-setup` byte-identical to v0.1.8 for amd64 and
+arm64, so a v0.1.8 appliance can take v0.1.9 as a dashboard web update. The
+Golden flasher and installer scripts are unchanged from v0.1.8.
+
+Evidence for this line, precisely:
+
+- pull request #158 runs every required workflow, including **Build, flash and
+  boot minimalrouter golden ISO** and the **WAN, router and LAN namespace
+  laboratory**. That is CI evidence on a pull-request branch;
+- unit and API tests cover the dnsmasq log parser and its memory and IPC
+  bounds, fail-closed enabling of the dnsmasq drop-in, the SQLite store and its
+  per-day/total bounds and retention, deletion on disable, storage-pressure
+  shedding and the authenticated API;
+- the owner appliance's `/etc/dnsmasq.conf` was read and contains
+  `conf-dir=/etc/dnsmasq.d/,*.conf`, which the drop-in relies on. DNS activity
+  recording has not yet been exercised on a real appliance.
+
+No new owner-Proxmox or ISP evidence has been produced for v0.1.9.
+
+## v0.1.8 line (previous release)
+
+**Minimal Router OS v0.1.8 — Beta / controlled pilot.**
 
 v0.1.8 changes the bootstrap tools that run outside the A/B slot
 (`router-update`, `router-recovery`, `router-setup`), so an existing v0.1.7

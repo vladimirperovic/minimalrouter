@@ -15,8 +15,8 @@
     "in the same pull request and document the one-time installer step - never relax the",
     "byte-identity check to make a release pass."
   ],
-  "bootstrap_baseline_ref": "v0.1.7",
-  "bootstrap_baseline_version": "0.1.7",
+  "bootstrap_baseline_ref": "v0.1.8",
+  "bootstrap_baseline_version": "0.1.8",
   "bootstrap_commands": [
     "router-update",
     "router-recovery",
@@ -26,9 +26,9 @@
     "amd64",
     "arm64"
   ],
-  "bootstrap_change_acknowledged_version": "0.1.8",
-  "bootstrap_change_reason": "Since v0.1.7, router-update gained the root-operated full-installation fence (install-preflight/install-begin/install-baseline with a persisted installation journal), a runtime layout check that also verifies the rollback baseline, and detached service-restart handling. router-recovery gained the offline migrate-config command and shares canonical configuration code whose snapshot retention, audit retention and backup legacy-migration behaviour changed. router-setup now verifies canonical provisioning. These binaries run outside the A/B slot and survive rollback, so published v0.1.7 and earlier appliances take v0.1.8 once through the signed full distribution installer; later releases sharing these bytes are web-updatable again.",
-  "requires_full_installer_from": "0.1.8",
+  "bootstrap_change_acknowledged_version": "",
+  "bootstrap_change_reason": "",
+  "requires_full_installer_from": "0.1.7",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [
     "Releases up to and including v0.1.6 were built without -buildvcs=false, so Go stamped the",

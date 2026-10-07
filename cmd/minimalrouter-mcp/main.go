@@ -373,6 +373,59 @@ func getToolList() []MCPTool {
 				Properties: map[string]PropSchema{},
 			},
 		},
+		{
+			Name:        "get_dns_activity",
+			Description: "DNS lookup statistics, if the operator enabled DNS activity recording: lookups per device and registrable site, hourly or daily totals, and per-device use of categorized sites (adult, youtube, tiktok, roblox, ...). Devices are identified by IP address and DHCP hostname. Lookups that bypass the router's resolver (browser encrypted DNS, VPNs, mobile data) are not included.",
+			InputSchema: ToolSchema{
+				Type: "object",
+				Properties: map[string]PropSchema{
+					"period": {Type: "string", Description: "today, yesterday, 7d or 30d (UTC days); default today"},
+					"device": {Type: "string", Description: "Optional device IP address to limit the summary to"},
+					"search": {Type: "string", Description: "Optional site name fragment, e.g. 'porn' or 'roblox'"},
+				},
+			},
+		},
+		{
+			Name:        "get_recent_dns_lookups",
+			Description: "Most recent DNS lookups with full hostnames, held only in router memory (at most 2,000, lost on restart). Requires DNS activity recording to be enabled.",
+			InputSchema: ToolSchema{
+				Type: "object",
+				Properties: map[string]PropSchema{
+					"device": {Type: "string", Description: "Optional device IP address"},
+					"limit":  {Type: "number", Description: "1-2000, default 200"},
+				},
+			},
+		},
+		{
+			Name:        "get_security_events",
+			Description: "Router audit log: sign-ins and failed sign-ins, rejected requests from untrusted networks, configuration applies and rollbacks, firmware and recovery actions.",
+			InputSchema: ToolSchema{
+				Type: "object",
+				Properties: map[string]PropSchema{
+					"limit": {Type: "number", Description: "Number of newest events, default 100"},
+				},
+			},
+		},
+		{
+			Name:        "get_firewall_activity",
+			Description: "Last 24 hours of aggregate firewall packet counts (allowed and blocked input and forwarded packets) in half-hour buckets.",
+			InputSchema: ToolSchema{Type: "object", Properties: map[string]PropSchema{}},
+		},
+		{
+			Name:        "get_traffic_insights",
+			Description: "Per-device transferred bytes over time, if traffic accounting is enabled.",
+			InputSchema: ToolSchema{
+				Type: "object",
+				Properties: map[string]PropSchema{
+					"period": {Type: "string", Description: "today, yesterday, 7d or 30d; default today"},
+				},
+			},
+		},
+		{
+			Name:        "get_health",
+			Description: "Appliance health checks: services, storage pressure, WAN, DNS and firewall readiness.",
+			InputSchema: ToolSchema{Type: "object", Properties: map[string]PropSchema{}},
+		},
 	}
 	if !allowMutations {
 		return tools
@@ -433,6 +486,35 @@ func executeToolCall(name string, args map[string]interface{}) (string, error) {
 			return "", fmt.Errorf("failed to fetch config: %w", err)
 		}
 		return string(body), nil
+
+	case "get_dns_activity":
+		query := url.Values{}
+		addStringArg(query, "period", args, "period")
+		addStringArg(query, "device", args, "device")
+		addStringArg(query, "q", args, "search")
+		return readOnlyCall("/api/v1/dns-activity", query, "DNS activity")
+
+	case "get_recent_dns_lookups":
+		query := url.Values{}
+		addStringArg(query, "device", args, "device")
+		addNumberArg(query, "limit", args, "limit")
+		return readOnlyCall("/api/v1/dns-activity/recent", query, "recent DNS lookups")
+
+	case "get_security_events":
+		query := url.Values{}
+		addNumberArg(query, "limit", args, "limit")
+		return readOnlyCall("/api/v1/audit/events", query, "security events")
+
+	case "get_firewall_activity":
+		return readOnlyCall("/api/v1/firewall/activity", nil, "firewall activity")
+
+	case "get_traffic_insights":
+		query := url.Values{}
+		addStringArg(query, "period", args, "period")
+		return readOnlyCall("/api/v1/accounting/insights", query, "traffic insights")
+
+	case "get_health":
+		return readOnlyCall("/api/v1/health", nil, "health")
 
 	case "add_port_forward":
 		cfg, err := fetchConfig()
@@ -533,6 +615,31 @@ func mcpInstructions() string {
 		return "Minimal Router OS MCP Server in explicit admin mode. Configuration-changing calls still pass through router validation, CSRF protection, snapshots, and rollback."
 	}
 	return "Minimal Router OS MCP Server in read-only mode. AI clients can inspect redacted status and configuration but cannot change router state."
+}
+
+// readOnlyCall performs one GET. Arguments only ever become query
+// parameters; the router validates them.
+func readOnlyCall(path string, query url.Values, what string) (string, error) {
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	body, _, err := callAPI(http.MethodGet, path, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch %s: %w", what, err)
+	}
+	return string(body), nil
+}
+
+func addStringArg(query url.Values, key string, args map[string]interface{}, name string) {
+	if value, ok := args[name].(string); ok && strings.TrimSpace(value) != "" {
+		query.Set(key, strings.TrimSpace(value))
+	}
+}
+
+func addNumberArg(query url.Values, key string, args map[string]interface{}, name string) {
+	if value, ok := args[name].(float64); ok && value > 0 {
+		query.Set(key, fmt.Sprintf("%d", int(value)))
+	}
 }
 
 func isMutationTool(name string) bool {

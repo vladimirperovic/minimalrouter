@@ -9,6 +9,8 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/api"
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
+	"github.com/vladimirperovic/minimalrouter/internal/dnsactivity"
+	"github.com/vladimirperovic/minimalrouter/internal/storage"
 )
 
 // configureAccounting starts the per-device traffic collector. Like gateway
@@ -65,13 +67,53 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 	}()
 	log.Println("[ACCOUNTING] Per-device byte accounting collector started")
 
+	// A failed settings read keeps the last known setting: treating it as
+	// "disabled" would delete the history on a transient database error.
+	var lastDNSSettings accounting.DNSSettings
+	dnsCollector := accounting.NewDNSCollector(store, dnsActivitySource{client: dnsactivity.NewClient()}, func() accounting.DNSSettings {
+		settings, err := store.DNSSettings()
+		if err != nil {
+			log.Printf("[DNS] could not read DNS activity setting: %v", err)
+			return lastDNSSettings
+		}
+		lastDNSSettings = settings
+		return settings
+	}, func() bool { return storage.AllowNonessentialWrite(dataDir) })
+	server.ConfigureDNSActivity(dnsCollector)
+	dnsDone := make(chan struct{})
+	go func() {
+		defer close(dnsDone)
+		dnsCollector.Run(ctx)
+	}()
+
 	return func() {
 		cancel()
 		<-done
 		<-firewallDone
+		<-dnsDone
+		server.ConfigureDNSActivity(nil)
 		server.ConfigureAccountingStore(nil)
 		if err := store.Close(); err != nil {
 			log.Printf("[ACCOUNTING] Failed to close accounting store: %v", err)
 		}
 	}
+}
+
+// dnsActivitySource converges router-applyd on the setting and drains DNS
+// lookups over the dedicated socket. Only validated client addresses, names
+// and counts cross the privilege boundary.
+type dnsActivitySource struct {
+	client *dnsactivity.Client
+}
+
+func (s dnsActivitySource) Drain(ctx context.Context, enabled bool) (accounting.DNSDrain, error) {
+	response, err := s.client.Drain(ctx, enabled)
+	if err != nil {
+		return accounting.DNSDrain{}, err
+	}
+	drain := accounting.DNSDrain{Enabled: response.Enabled, Dropped: response.Dropped, More: response.More, Lookups: make([]accounting.DNSLookup, 0, len(response.Entries))}
+	for _, entry := range response.Entries {
+		drain.Lookups = append(drain.Lookups, accounting.DNSLookup{Client: entry.Client, Name: entry.Name, Count: entry.Count, LastSeen: entry.LastSeen})
+	}
+	return drain, nil
 }

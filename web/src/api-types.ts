@@ -320,3 +320,19 @@ export type TrafficInsights = {
   devices: DeviceUsage[]; rx_bytes: number; tx_bytes: number; total_bytes: number;
   peak_sample_mbps: number | null; observed_seconds: number;
 };
+
+export type DNSActivity = {
+  available: boolean; enabled: boolean; retention_days: number; period: string; from: string; until: string;
+  device?: string; search?: string;
+  history_started_at: string | null; collected_at: string | null;
+  total_lookups: number; unitemized_lookups: number; site_count: number;
+  points: Array<{ start: string; lookups: number; observed: boolean }>;
+  devices: Array<{ address: string; hostname?: string; mac?: string; lookups: number; sites: number; last_seen: number }>;
+  sites: Array<{ site: string; category?: string; lookups: number; devices: number; first_seen: number; last_seen: number }>;
+  flagged: Array<{ address: string; hostname?: string; site: string; category?: string; lookups: number; first_seen: number; last_seen: number }>;
+};
+
+export type DNSRecentLookups = {
+  available: boolean; enabled: boolean;
+  entries: Array<{ at: string; address: string; hostname?: string; name: string; site: string; category?: string; count: number }>;
+};

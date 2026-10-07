@@ -6,6 +6,41 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.1.9] — 2026-10-07
+
+### Upgrade
+
+- v0.1.9 keeps the bootstrap tools outside the A/B slot byte-identical to
+  v0.1.8, so v0.1.8 appliances take it as a dashboard web update. v0.1.7 and
+  older appliances still need the signed full distribution installer once.
+
+### Added
+
+- Opt-in DNS activity statistics (Operate → DNS Activity). Enabling installs a
+  fixed dnsmasq drop-in that logs queries to tmpfs; router-applyd drains the
+  log every minute over a dedicated socket, and routerd keeps daily lookup
+  counts per device and registrable site, hourly totals for the chart, and
+  highlights sites from the device-profile categories (Adult includes common
+  adult CDNs for highlighting). Individual lookups and full hostnames stay in
+  memory only. History is kept for up to 90 days (30 by default), written once
+  every five minutes, bounded per day and in total, skipped under critical disk
+  pressure, and deleted when recording is turned off or from Delete history.
+  The setting lives in routerd's local store, so this release stays
+  web-updatable from v0.1.8.
+- Read-only MCP tools for DNS activity, recent lookups, the audit log, firewall
+  activity, traffic insights and appliance health.
+
+### Changed
+
+- Read-only sessions, which the MCP bridge uses, may read the metadata-only
+  audit log. Every mutation from such a session is still rejected.
+
+### Security
+
+- Dashboard build tooling overrides `brace-expansion` (≥ 5.0.11) and
+  `source-map-js` (≥ 1.2.2) for GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p and
+  GHSA-68fv-2mgg-jv7q. The shipped bundle is unaffected.
+
 ## [v0.1.8] — 2026-09-27
 
 ### Upgrade
