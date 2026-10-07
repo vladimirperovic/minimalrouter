@@ -888,6 +888,7 @@ paths:
   /audit/events:
     get:
       summary: List bounded metadata-only security audit events
+      description: Readable by administrator and read-only (MCP) sessions.
       operationId: listAuditEvents
       security:
         - sessionCookie: []

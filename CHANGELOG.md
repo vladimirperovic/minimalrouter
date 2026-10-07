@@ -30,6 +30,11 @@ compatibility may still change between releases.
 - Read-only MCP tools for DNS activity, recent lookups, the audit log, firewall
   activity, traffic insights and appliance health.
 
+### Changed
+
+- Read-only sessions, which the MCP bridge uses, may read the metadata-only
+  audit log. Every mutation from such a session is still rejected.
+
 ### Security
 
 - Dashboard build tooling overrides `brace-expansion` (≥ 5.0.11) and

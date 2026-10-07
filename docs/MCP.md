@@ -70,7 +70,7 @@ Read-only mode advertises:
 | `get_router_status` | Read redacted runtime status |
 | `get_full_config` | Read the redacted canonical configuration |
 | `get_health` | Read appliance health checks |
-| `get_security_events` | Read the audit log (sign-ins, rejected requests, applies, rollbacks) |
+| `get_security_events` | Read the metadata-only audit log (sign-ins, rejected requests, applies, rollbacks); available to read-only sessions from v0.1.9 |
 | `get_firewall_activity` | Read 24 hours of aggregate allowed/blocked packet counts |
 | `get_traffic_insights` | Read per-device traffic history, if accounting is enabled |
 | `get_dns_activity` | Read DNS lookups per device and site, including categorized sites such as adult, if DNS activity recording is enabled |

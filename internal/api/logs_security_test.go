@@ -57,3 +57,27 @@ func TestLogsFeedRequiresAuthenticationAndReturnsAuditMetadata(t *testing.T) {
 		t.Fatal("authenticated logs feed did not return the recorded audit event")
 	}
 }
+
+func TestReadOnlySessionReadsAuditLogButCannotMutate(t *testing.T) {
+	server, _, handler, tempDir := setupTestServer(t)
+	defer os.RemoveAll(tempDir)
+	server.appendAudit("test.read_only_visible", "127.0.0.1", nil)
+	session := server.sessionMgr.CreateSessionWithMode(true)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/audit/events?limit=10", nil)
+	request.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("read-only audit read returned %d: %s", response.Code, response.Body.String())
+	}
+
+	mutation := httptest.NewRequest(http.MethodPost, "/api/v1/snapshots", nil)
+	mutation.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: session.ID})
+	mutation.Header.Set(auth.CSRFHeaderName, session.CSRFToken)
+	mutationResponse := httptest.NewRecorder()
+	handler.ServeHTTP(mutationResponse, mutation)
+	if mutationResponse.Code != http.StatusForbidden {
+		t.Fatalf("read-only session mutation returned %d, want 403", mutationResponse.Code)
+	}
+}
