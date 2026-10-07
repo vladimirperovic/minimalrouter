@@ -1,0 +1,25 @@
+:root:root .dashboard-app .dns-activity-actions,
+:root:root .dashboard-app .dns-activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+:root:root .dashboard-app .dns-activity-flagged { display: grid; gap: 18px; }
+:root:root .dashboard-app .dns-activity-category h4 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; font-size: 14px; font-weight: 600; }
+:root:root .dashboard-app .dns-activity-category h4 small { color: var(--text-tertiary); font-size: 12px; font-weight: 450; }
+:root:root .dashboard-app .dns-activity-category ul,
+:root:root .dashboard-app .dns-activity-recent { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+:root:root .dashboard-app .dns-activity-category li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-muted); font-size: 13px; }
+:root:root .dashboard-app .dns-activity-category li span { min-width: 0; overflow-wrap: anywhere; }
+:root:root .dashboard-app .dns-activity-category li span small { display: block; color: var(--text-tertiary); font-size: 11px; }
+:root:root .dashboard-app .dns-activity-category li > small { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
+:root:root .dashboard-app .dns-activity-category.is-sensitive li { border-left: 3px solid var(--danger); }
+:root:root .dashboard-app .dns-activity-recent li { display: grid; grid-template-columns: auto minmax(0, 0.8fr) minmax(0, 1.4fr) auto; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+:root:root .dashboard-app .dns-activity-recent li > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:root:root .dashboard-app .dns-activity-recent time { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+:root:root .dashboard-app .dns-activity-recent li.is-sensitive code,
+:root:root .dashboard-app tr.is-sensitive code { color: var(--danger); font-weight: 600; }
+:root:root .dashboard-app .dns-activity-search { min-width: 0; width: min(240px, 100%); padding: 8px 12px; border: 1px solid var(--separator); border-radius: 10px; background: var(--surface); color: var(--text-primary); font: inherit; font-size: 13px; }
+@media (max-width: 720px) {
+  :root:root .dashboard-app .dns-activity-category li { grid-template-columns: minmax(0, 1fr) auto; }
+  :root:root .dashboard-app .dns-activity-category li code { grid-column: 1 / -1; order: 3; }
+  :root:root .dashboard-app .dns-activity-category li > small { grid-column: 1 / -1; order: 4; }
+  :root:root .dashboard-app .dns-activity-recent li { grid-template-columns: auto minmax(0, 1fr); }
+  :root:root .dashboard-app .dns-activity-recent li code { grid-column: 1 / -1; }
+}

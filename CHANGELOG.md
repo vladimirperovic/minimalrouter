@@ -6,6 +6,22 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in DNS activity statistics (Operate → DNS Activity). Enabling installs a
+  fixed dnsmasq drop-in that logs queries to tmpfs; router-applyd drains the
+  log every minute over a dedicated socket, and routerd keeps daily lookup
+  counts per device and registrable site, hourly totals for the chart, and
+  highlights sites from the device-profile categories (Adult includes common
+  adult CDNs for highlighting). Individual lookups and full hostnames stay in
+  memory only. History is kept for up to 90 days (30 by default), written once
+  every five minutes, bounded per day and in total, skipped under critical disk
+  pressure, and deleted when recording is turned off or from Delete history.
+  The setting lives in routerd's local store, so this release stays
+  web-updatable from v0.1.8.
+- Read-only MCP tools for DNS activity, recent lookups, the audit log, firewall
+  activity, traffic insights and appliance health.
+
 ## [v0.1.8] — 2026-09-27
 
 ### Upgrade

@@ -40,6 +40,39 @@ administrator session from a trusted management network to read.
 Dashboard design and light/dark preferences are stored in the local browser.
 They do not change router configuration or send data to an external service.
 
+## DNS activity
+
+Optional DNS activity statistics are **off by default**. They are browsing
+history: while enabled, the router records which sites each LAN or WireGuard
+client looks up through the router's DNS resolver.
+
+- The setting is stored in `routerd`'s local accounting database, not in the
+  canonical configuration, so it is not part of configuration backups.
+- While enabled, `router-applyd` installs the fixed dnsmasq drop-in
+  `/etc/dnsmasq.d/minimalrouter-dns-activity.conf`, and dnsmasq writes query
+  lines to `/run/minimalrouter-dns-queries.log` on tmpfs. `router-applyd`
+  drains and truncates that file every minute and passes only validated client
+  addresses, query names and counts to `routerd`. Reverse lookups,
+  single-label names and the router's own lookups are ignored.
+- `routerd` keeps the most recent lookups (at most 2,000, with full hostnames)
+  in memory only; they are lost on restart.
+- On disk, in the local accounting database, `routerd` stores per UTC day,
+  device address and registrable site a lookup count with first and last time
+  seen, plus hourly lookup totals per device. Full hostnames, query types and
+  answers are not stored. Writes happen every five minutes in one transaction
+  and are skipped under critical disk pressure.
+- History is retained for the configured number of days (at most 90, 30 by
+  default), bounded to 20,000 device/site rows per day and 1,000,000 rows in
+  total. Lookups beyond a bound are counted without a device or site.
+- Turning recording off removes the tmpfs log and in-memory data, hides the
+  history from the API immediately and deletes it on the next collection round.
+  The page's **Delete history** action deletes it at once and is audited.
+
+Read-only MCP clients configured with the administrator password can read
+this history (see `docs/MCP.md`). Lookups that bypass the router's resolver
+(encrypted DNS in the browser, VPNs, mobile data) are not seen. Recording other people's browsing may be
+regulated where you live; inform the people using the network.
+
 ## Network traffic
 
 Packet forwarding remains in the Linux networking stack. Minimal Router OS does

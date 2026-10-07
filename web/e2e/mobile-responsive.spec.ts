@@ -85,6 +85,7 @@ const SECTIONS = [
   ["cloudflare", "DynDNS"],
   ["wifi", "Wi-Fi AP"],
   ["traffic", "Traffic"],
+  ["dns-activity", "DNS Activity"],
   ["squid", "Squid Proxy"],
   ["recovery", "Recovery"],
   ["logs", "Logs"],

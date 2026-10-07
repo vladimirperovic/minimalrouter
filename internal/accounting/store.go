@@ -96,7 +96,10 @@ func migrate(db *sql.DB) error {
 		!strings.Contains(err.Error(), "duplicate column name") {
 		return fmt.Errorf("migrate accounting cursors: %w", err)
 	}
-	return migrateInsights(db)
+	if err := migrateInsights(db); err != nil {
+		return err
+	}
+	return migrateDNS(db)
 }
 
 func (s *Store) Close() error {
