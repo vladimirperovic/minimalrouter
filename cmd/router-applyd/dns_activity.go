@@ -157,7 +157,13 @@ func collectDNSQueryLog(now time.Time) {
 		}
 		return
 	}
-	defer file.Close()
+	// The handle is opened for writing only to truncate; nothing is buffered,
+	// but a close failure is still reported rather than silently dropped.
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Printf("[DNS] could not close query log: %v", err)
+		}
+	}()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
 		log.Printf("[DNS] query log is not a regular file; ignoring it")
