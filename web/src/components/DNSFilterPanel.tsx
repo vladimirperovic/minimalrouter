@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import type { RouterConfig } from "../api-types";
+import NetworkDNSProtection from "./NetworkDNSProtection";
 import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
 import {
   createDefaultKidsGrid,
@@ -6,6 +8,7 @@ import {
   createKidsProfile,
   describeSchedule,
   DeviceProfile,
+  DayWindows,
   gridToDayWindows,
   HourGrid,
   managedServices,
@@ -30,6 +33,9 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   const [services, setServices] = useState<string[]>(["youtube", "steam", "wiki"]);
   const [grid, setGrid] = useState<HourGrid>(() => createDefaultKidsGrid());
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editBase = useRef<RouterConfig | null>(null);
+  const [scheduleChanged, setScheduleChanged] = useState(false);
+  const [preciseWindows, setPreciseWindows] = useState<DayWindows | null>(null);
   const dragValue = useRef<boolean | null>(null);
 
   const gridFromProfile = (profile: DeviceProfile): HourGrid => {
@@ -51,16 +57,19 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
     return () => window.removeEventListener("pointerup", stopDrag);
   }, []);
 
-  const persist = async (nextEnabled: boolean, nextProfiles: DeviceProfile[]) => {
+  const persist = async (nextEnabled: boolean, nextProfiles: DeviceProfile[], base = config) => {
     if (!apiConnected) throw new Error("Router API is unavailable.");
-    const config = await readConfiguration({ cache: "reload" });
-    config.adguard = {
-      ...config.adguard,
+    if (!base) throw new Error("Reload the configuration before saving.");
+    // Keep the revision that produced these profiles. A fresh revision with
+    // stale profiles would bypass the server's concurrent-edit protection.
+    const candidate = structuredClone(base);
+    candidate.adguard = {
+      ...candidate.adguard,
       enabled: nextEnabled,
       filter_devices: [],
       device_profiles: nextProfiles,
     };
-    const result = await previewAndApplyConfig(config);
+    const result = await previewAndApplyConfig(candidate);
     return !result.cancelled;
   };
 
@@ -88,6 +97,9 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   const openAdd = () => {
+    setPreciseWindows(null);
+    editBase.current = config ? structuredClone(config) : null;
+    setScheduleChanged(false);
     setEditingId(null);
     setName("Kids");
     setAddresses("");
@@ -97,6 +109,9 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   const startEditProfile = (profile: DeviceProfile) => {
+    setPreciseWindows(structuredClone(normalizeDayWindows(profile.schedule)));
+    editBase.current = config ? structuredClone(config) : null;
+    setScheduleChanged(false);
     setEditingId(profile.id);
     setName(profile.name);
     setAddresses(profile.ip_addresses.join(", "));
@@ -121,20 +136,24 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
     event.preventDefault();
     setSaving(true);
     try {
+      const base = editBase.current;
+      if (!base) throw new Error("Reload the configuration before saving.");
+      const baseProfiles = (base.adguard.device_profiles || []) as DeviceProfile[];
+      const existing = baseProfiles.find((item) => item.id === editingId);
       const profile = createKidsProfile({
         id: editingId ?? undefined,
         name,
         addresses: addresses.split(","),
         services,
-        dayWindows: gridToDayWindows(grid),
+        dayWindows: existing && !scheduleChanged ? normalizeDayWindows(existing.schedule) : preciseWindows ?? gridToDayWindows(grid),
       });
+      if (existing && !scheduleChanged) profile.schedule = structuredClone(existing.schedule);
       if (editingId) {
-        const existing = profiles.find((item) => item.id === editingId);
-        if (!await persist(true, profiles.map((item) => (
+        if (!await persist(base.adguard.enabled, baseProfiles.map((item) => (
           item.id === editingId ? { ...profile, enabled: existing?.enabled ?? true } : item
-        )))) return;
+        )), base)) return;
       } else {
-        if (!await persist(true, [...profiles, profile])) return;
+        if (!await persist(base.adguard.enabled, [...baseProfiles, profile], base)) return;
       }
       closeModal();
       onError("");
@@ -177,6 +196,8 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   const setHour = (day: ScheduleDay, hour: number, value: boolean) => {
+    setPreciseWindows(null);
+    setScheduleChanged(true);
     setGrid((current) => ({
       ...current,
       [day]: current[day].map((slot, index) => index === hour ? value : slot),
@@ -194,26 +215,32 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
   };
 
   const setDay = (day: ScheduleDay, value: boolean) => {
+    setPreciseWindows(null);
+    setScheduleChanged(true);
     setGrid((current) => ({ ...current, [day]: Array(24).fill(value) }));
   };
 
   return (
     <section className="section-block dns-filter" id="adguard">
       <div className="section-heading dns-filter-heading has-facts">
-        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>DNS blocking & scheduled access</h2><p className="dns-filter-intro">Block built-in ad and tracker domains across the network. Optional device profiles apply service schedules to static LAN addresses.</p></div><div className="dns-filter-actions"><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Add device profile</button></div></div>
-        <dl className="subpage-hero-facts"><div><dt>Filtering</dt><dd>{enabled ? "Enabled" : "Disabled"}</dd><small>DNS and firewall configuration</small></div><div><dt>Profiles</dt><dd>{profiles.length}</dd><small>configured devices</small></div><div><dt>Enabled profiles</dt><dd>{profiles.filter((profile) => profile.enabled).length}</dd><small>scheduled policies</small></div><div><dt>Services</dt><dd>{new Set(profiles.flatMap((profile) => profile.services)).size}</dd><small>unique service groups</small></div></dl>
+        <div className="subpage-hero-head"><div><p className="eyebrow">DNS Filter & Device Profiles</p><h2>DNS blocking & scheduled access</h2><p className="dns-filter-intro">Choose categories to block across the network, check domains, and manage optional schedules for devices with reserved addresses.</p></div><div className="dns-filter-actions"><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Add device profile</button></div></div>
+        <dl className="subpage-hero-facts"><div><dt>Bundled filter</dt><dd>{enabled ? "Enabled" : "Disabled"}</dd><small>built-in list and device schedules</small></div><div><dt>Profiles</dt><dd>{profiles.length}</dd><small>configured devices</small></div><div><dt>Enabled profiles</dt><dd>{profiles.filter((profile) => profile.enabled).length}</dd><small>scheduled policies</small></div><div><dt>Services</dt><dd>{new Set(profiles.flatMap((profile) => profile.services)).size}</dd><small>unique service groups</small></div></dl>
       </div>
 
+      <NetworkDNSProtection apiConnected={apiConnected} />
+      <details className="dns-optional-section"><summary>Advanced DNS & bundled protection</summary>
       <div className="dns-settings-columns">
       <section className="settings-column-card" aria-label="DNS configuration"><header><h2>Configuration</h2><p>Set the resolvers used by your network.</p></header><form className="settings-form" key={(config?.dhcp.dns_servers || []).join(",")} onSubmit={saveResolvers}><label className="field"><span>Upstream DNS resolvers</span><textarea name="resolvers" rows={4} required defaultValue={(config?.dhcp.dns_servers || []).join("\n")} placeholder="1.1.1.1\n9.9.9.9"/><small>One IP address per line. All configured resolvers are retained.</small></label><button className="button primary" disabled={!apiConnected || saving} type="submit">{saving ? "Applying…" : "Save changes"}</button></form><p className="settings-safety-note">Resolver changes use the same validation and connectivity safeguards as LAN settings.</p></section>
       <section className="settings-column-card" aria-label="DNS preferences"><header><h2>Preferences</h2><p>Control network-wide DNS blocking and device schedules.</p></header><div className="dns-preference-row"><div><strong>DNS filtering</strong><p>Block the built-in ad and tracker list and apply enabled device schedules. The blocking list ships with firmware; it does not refresh separately.</p></div><button className="button secondary" disabled={!apiConnected || saving} type="button" onClick={toggleGlobal}>{enabled ? "Disable DNS Filter" : "Enable DNS Filter"}</button></div><div className="dns-preference-row"><div><strong>Device profiles</strong><p>{profiles.length} configured · {profiles.filter(p => p.enabled).length} enabled. Each profile retains its devices, services and full weekly schedule.</p></div><button className="button primary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Create a device profile</button></div><p className="settings-safety-note">DNS Activity separately monitors risky domains using updated category lists. Its alerts and notification exceptions do not change blocking rules.</p></section>
       </div>
+      </details>
 
-      <article className="card table-card">
+      <details className="dns-optional-section" open={profiles.length > 0}><summary>Optional device schedules · {profiles.length} profiles</summary>
+      <article className="card table-card dns-profile-table">
         <div className="card-title-row">
           <div>
             <h3>Device profiles</h3>
-            <p>For a Kids profile you choose the allowed hours separately for each day of the week.</p>
+            <p>Schedules require stable IPv4 addresses. Reserve each address in LAN & DHCP. Enabled policies are scheduled; runtime enforcement is not measured per profile.</p>
           </div>
         </div>
         <div className="elegant-table-container">
@@ -225,16 +252,16 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
             </thead>
             <tbody>
               {profiles.length === 0 ? (
-                <tr><td className="empty-state dns-profile-empty-cell" colSpan={6}><div className="dns-profile-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4" /><circle cx="12" cy="12" r="9" /></svg><strong>No device profiles yet</strong><span>Create a profile to schedule service access for selected devices.</span><button className="button secondary" disabled={!apiConnected || saving} onClick={() => setModalOpen(true)} type="button">Create first profile</button></div></td></tr>
+                <tr><td className="empty-state dns-profile-empty-cell" colSpan={6}><div className="dns-profile-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4" /><circle cx="12" cy="12" r="9" /></svg><strong>No device profiles yet</strong><span>Create a profile to schedule service access for selected devices.</span><button className="button secondary" disabled={!apiConnected || saving} onClick={openAdd} type="button">Create first profile</button></div></td></tr>
               ) : profiles.map((profile) => (
                 <tr key={profile.id}>
-                  <td className="elegant-cell-name"><strong>{profile.name}</strong></td>
-                  <td className="elegant-cell-ip"><code>{profile.ip_addresses.join(", ")}</code></td>
-                  <td><div className="service-tags">{profile.services.map((service) => <span key={service}>{service}</span>)}</div></td>
-                  <td>{describeSchedule(profile)}</td>
-                  <td>
-                    <button className={`status-pill ${profile.enabled ? "is-active" : ""}`} disabled={saving} onClick={() => toggleProfile(profile.id)} type="button">
-                      {profile.enabled ? "Active" : "Paused"}
+                  <td className="elegant-cell-name" data-label="Profile"><strong>{profile.name}</strong></td>
+                  <td className="elegant-cell-ip" data-label="Devices"><code>{profile.ip_addresses.join(", ")}</code><small>{profile.ip_addresses.every(ip => config?.dhcp.static_leases?.some(lease => lease.ip_address === ip)) ? "DHCP reservations configured" : "Check DHCP reservations"}</small></td>
+                  <td data-label="Services"><div className="service-tags">{profile.services.map((service) => <span key={service}>{service}</span>)}</div></td>
+                  <td data-label="Schedule">{describeSchedule(profile)}</td>
+                  <td data-label="Status">
+                    <button className={`status-pill ${enabled && profile.enabled ? "is-active" : ""}`} disabled={saving || !apiConnected} onClick={() => toggleProfile(profile.id)} type="button">
+                      {!profile.enabled ? "Paused" : enabled ? "Scheduled" : "Filter off"}
                     </button>
                   </td>
                   <td className="elegant-cell-actions"><div className="device-row-actions"><button className="button secondary small" disabled={saving} onClick={() => startEditProfile(profile)} type="button">Edit</button><button className="icon-danger" disabled={saving} onClick={() => removeProfile(profile.id)} title="Remove profile" type="button">✕</button></div></td>
@@ -244,6 +271,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
           </table>
         </div>
       </article>
+      </details>
 
       {modalOpen && (
         <div className="modal-backdrop" role="presentation">
@@ -270,11 +298,11 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                   <fieldset className="weekly-scheduler" aria-labelledby="dns-filter-schedule-title">
                     <div className="fieldset-title" id="dns-filter-schedule-title">Allowed time</div>
                     <div className="scheduler-toolbar">
-                      <p>Coloured hours are allowed. Click or drag across the cells to change the schedule.</p>
+                      <p>Coloured hours are allowed. Changing this grid replaces the schedule with whole-hour slots. Existing minute-precise times are preserved until you change the grid.</p>
                       <div>
-                        <button className="button secondary compact" onClick={() => setGrid(createDefaultKidsGrid())} type="button">Default</button>
-                        <button className="button secondary compact" onClick={() => setGrid(Object.fromEntries(scheduleDays.map(([day]) => [day, Array(24).fill(true)])) as HourGrid)} type="button">Allow all</button>
-                        <button className="button secondary compact" onClick={() => setGrid(createEmptyGrid())} type="button">Block all</button>
+                        <button className="button secondary compact" onClick={() => { setPreciseWindows(null); setScheduleChanged(true); setGrid(createDefaultKidsGrid()); }} type="button">Default</button>
+                        <button className="button secondary compact" onClick={() => { setPreciseWindows(null); setScheduleChanged(true); setGrid(Object.fromEntries(scheduleDays.map(([day]) => [day, Array(24).fill(true)])) as HourGrid); }} type="button">Allow all</button>
+                        <button className="button secondary compact" onClick={() => { setPreciseWindows(null); setScheduleChanged(true); setGrid(createEmptyGrid()); }} type="button">Block all</button>
                       </div>
                     </div>
                     <div className="scheduler-scroll">
@@ -298,6 +326,7 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                                 key={hour}
                                 onPointerDown={(event) => { event.preventDefault(); startPaint(day, hour); }}
                                 onPointerEnter={() => paint(day, hour)}
+                                onKeyDown={event => { if (event.key === " " || event.key === "Enter") { event.preventDefault(); setHour(day, hour, !allowed); } }}
                                 type="button"
                               />
                             ))}
@@ -306,6 +335,11 @@ export default function DNSFilterPanel({ apiConnected, onError }: Props) {
                       </div>
                     </div>
                   </fieldset>
+                  <details className="dns-precise-schedule"><summary>Edit exact times (hours and minutes)</summary><p>These windows replace the hourly grid when edited. An end time of 23:59 means through midnight.</p>{scheduleDays.map(([day, label]) => {
+                    const windows = (preciseWindows ?? gridToDayWindows(grid))[day];
+                    const update = (next: typeof windows) => { setScheduleChanged(true); setPreciseWindows(current => ({ ...(current ?? gridToDayWindows(grid)), [day]: next })); };
+                    return <div className="dns-precise-day" key={day}><strong>{label}</strong>{windows.map((window, index) => <div className="dns-precise-window" key={index}><label className="field"><span>{label} start {index + 1}</span><input type="time" value={window.start} required onChange={event => update(windows.map((w, i) => i === index ? { ...w, start: event.target.value } : w))} /></label><label className="field"><span>{label} end {index + 1}</span><input type="time" value={window.end} required onChange={event => update(windows.map((w, i) => i === index ? { ...w, end: event.target.value } : w))} /></label><button className="button secondary small" type="button" aria-label={`Remove ${label} window ${index + 1}`} onClick={() => update(windows.filter((_, i) => i !== index))}>Remove</button></div>)}<button className="button secondary small" disabled={windows.length >= 8} type="button" onClick={() => update([...windows, { start: "19:00", end: "22:00" }])}>Add {label} window</button></div>;
+                  })}</details>
                   <p className="form-note">By default YouTube, Steam and Wikipedia are allowed on weekdays from 19:00, and all day at weekends. You can change any hour on any day.</p>
               <div className="modal-actions"><button className="button secondary" onClick={closeModal} type="button">Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Applying…" : "Save profile"}</button></div>
             </form>

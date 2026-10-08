@@ -101,6 +101,9 @@ func main() {
 	if err := hardenProcess(); err != nil {
 		log.Fatalf("applyd process hardening failed: %v", err)
 	}
+	if err := recoverFilterActivation(); err != nil {
+		log.Fatalf("recover interrupted DNS filter activation: %v", err)
+	}
 	close(runtimeAdmissionReady)
 
 	log.Println("Starting Minimal Router OS router-applyd (privileged execution helper)")
@@ -123,6 +126,7 @@ func main() {
 	log.Printf("router-applyd listening on unix://%s", apply.DefaultSocketPath)
 	go runDNSActivityCollector()
 	go startDNSActivityListener()
+	go startDNSFilterListener()
 	available := make(chan struct{}, 8)
 	for {
 		available <- struct{}{}
@@ -2141,9 +2145,17 @@ func runNftFile(path string, checkOnly bool) error {
 	if len(configBytes) > apply.MaxRequestBytes {
 		return errors.New("nftables candidate is too large")
 	}
+	configBytes = boundServiceSets(configBytes)
 	batch := configBytes
 	if err := runFixed("/usr/sbin/nft", "list", "table", "inet", "minimalrouter"); err == nil {
 		batch = append([]byte("delete table inet minimalrouter\n"), configBytes...)
+		if !checkOnly {
+			preserved, err := preserveServiceDestinations(configBytes)
+			if err != nil {
+				return err
+			}
+			batch = append(append(batch, '\n'), preserved...)
+		}
 	}
 	tmp, err := os.CreateTemp(socketDir, "nft-batch-")
 	if err != nil {

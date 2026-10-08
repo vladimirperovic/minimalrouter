@@ -26,8 +26,10 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/auth"
 	"github.com/vladimirperovic/minimalrouter/internal/buildinfo"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/dnsfilter"
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 	"github.com/vladimirperovic/minimalrouter/internal/kdf"
+	"github.com/vladimirperovic/minimalrouter/internal/recoverybackup"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -48,7 +50,8 @@ type Server struct {
 	// updates is the optional release-update subsystem: the cached release
 	// check and the durable record of an accepted update. Explicit ownership,
 	// rather than a package-level registry keyed by *Server.
-	updates updateService
+	updates   updateService
+	dnsFilter *dnsfilter.Service
 	// auditLimiter bounds how often request rejections reach the audit log.
 	auditLimiter auditThrottle
 	mu           sync.RWMutex
@@ -1488,8 +1491,10 @@ func writeSessionRequired(w http.ResponseWriter) {
 
 func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		CurrentPassword  string `json:"current_password"`
-		BackupPassphrase string `json:"backup_passphrase"`
+		CurrentPassword string `json:"current_password"`
+		// Reject a separate password from a stale dashboard explicitly, so an
+		// operator never saves a backup under a password they did not expect.
+		BackupPassphrase string `json:"backup_passphrase,omitempty"`
 	}
 	if err := decodeJSON(w, r, &req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -1499,7 +1504,20 @@ func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
 		writeCredentialCheckFailure(w, err)
 		return
 	}
-	encrypted, err := config.EncryptConfigBackup(s.engine.GetCurrentConfig(), req.BackupPassphrase)
+	if req.BackupPassphrase != "" && req.BackupPassphrase != req.CurrentPassword {
+		http.Error(w, "New backups use your dashboard password; refresh the dashboard before exporting", http.StatusUnprocessableEntity)
+		return
+	}
+	var policy *dnsfilter.Policy
+	if s.dnsFilter != nil {
+		status, err := s.dnsFilter.Status(r.Context())
+		if err != nil || status.Updating {
+			http.Error(w, "DNS protection is unavailable or changing; retry the backup when it settles", http.StatusServiceUnavailable)
+			return
+		}
+		policy = &status.Policy
+	}
+	encrypted, err := recoverybackup.Encrypt(s.engine.GetCurrentConfig(), policy, req.CurrentPassword)
 	if errors.Is(err, kdf.ErrBusy) {
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "Backup encryption is busy; retry shortly", http.StatusServiceUnavailable)
@@ -1527,6 +1545,9 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 	}
 	currentPassword := r.FormValue("current_password")
 	passphrase := r.FormValue("backup_passphrase")
+	if passphrase == "" {
+		passphrase = currentPassword
+	}
 	if ok, err := s.verifyCurrentPassword(currentPassword); !ok {
 		writeCredentialCheckFailure(w, err)
 		return
@@ -1542,11 +1563,12 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Encrypted backup is too large", http.StatusRequestEntityTooLarge)
 		return
 	}
-	candidate, err := config.DecryptConfigBackup(data, passphrase)
+	payload, err := recoverybackup.Decrypt(data, passphrase)
 	if err != nil {
 		http.Error(w, "Backup could not be authenticated or validated", http.StatusUnprocessableEntity)
 		return
 	}
+	candidate := payload.Config
 	session, err := s.requestSession(r)
 	if err != nil {
 		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
@@ -1579,6 +1601,7 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 		"import_id":          importID,
 		"expires_in_seconds": 600,
 		"candidate":          candidate,
+		"dns_filter":         payload.DNSFilter,
 	})
 }
 

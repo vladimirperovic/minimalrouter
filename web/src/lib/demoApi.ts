@@ -1,8 +1,10 @@
-import type { DNSRiskAlert, DNSRiskException } from "../api-types";
+import type { DNSRiskAlert, DNSRiskException, DNSFilterPolicy } from "../api-types";
 
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === "true";
 
 const startedAt = Date.now();
+let filterPolicy: DNSFilterPolicy = { revision: 1, categories: { threats: true, ads: true, adult: false, gambling: false }, exceptions: [] };
+const filterLists = [["threats", "Malware, phishing & scams", "tif.mini"], ["ads", "Ads & trackers", "light"], ["adult", "Adult content", "nsfw"], ["gambling", "Gambling", "gambling.mini"]].map(([category, label, file]) => ({ category, label, url: `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/${file}-onlydomains.txt`, entries: 10000, updated_at: Math.floor(startedAt / 1000) }));
 let dnsHistoryCleared = false;
 let riskAlerts: DNSRiskAlert[] = ["phishing", "adult", "gambling"].map((category, index) => ({
   id: index + 1, domain: `${category}-demo.example`, category, severity: category === "phishing" ? "high" : "warning",
@@ -209,7 +211,13 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     return json({ tx: { state: "Committed" } });
   }
   if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", provisioning_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
-  if (path === "/api/v1/backup/import/preview" && method === "POST") return json({ import_id: "demo-backup", expires_in_seconds: 600, candidate: config });
+  if (path === "/api/v1/backup/import/preview" && method === "POST") return json({ import_id: "demo-backup", expires_in_seconds: 600, candidate: config, dns_filter: filterPolicy });
+  if (path === "/api/v1/dns-filter") {
+    if (method === "PUT") { const next = JSON.parse(String(init?.body ?? "{}")) as DNSFilterPolicy; if (next.revision !== filterPolicy.revision) return json({ error: "Policy changed; reload before saving" }, 409); filterPolicy = { ...next, revision: next.revision + 1 }; return json({ updating: true }, 202); }
+    return json({ policy: filterPolicy, domains: Object.values(filterPolicy.categories).filter(Boolean).length * 10000, applied_at: Math.floor(startedAt / 1000), healthy: true, lists: filterLists, updating: false, next_refresh_at: Math.floor(startedAt / 1000) + 86400, router_time: new Date().toISOString(), timezone: "UTC" });
+  }
+  if (path === "/api/v1/dns-filter/refresh" && method === "POST") return json({ updating: true }, 202);
+  if (path === "/api/v1/dns-filter/check" && method === "POST") { const { domain } = JSON.parse(String(init?.body ?? "{}")) as { domain: string }; const exception = filterPolicy.exceptions.some(e => domain === e.domain || domain.endsWith(`.${e.domain}`)); return json({ domain, action: exception ? "Allow exception" : "No category block", exception, healthy: true, matches: [] }); }
   if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");
   if (path === "/api/v1/backup/export" && method === "POST") return download("MINIMALROUTER PUBLIC DEMO BACKUP\nNo router data is included.\n", "application/octet-stream");

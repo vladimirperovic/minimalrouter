@@ -347,3 +347,8 @@ export type DNSRiskSummary = {
 export type DNSRiskAlert = { id: number; domain: string; category: string; severity: string; first_seen: number; last_seen: number; lookups: number; last_address: string; acknowledged_at: number; ignored: boolean };
 export type DNSRiskPage = { alerts: DNSRiskAlert[]; total: number; offset: number; limit: number };
 export type DNSRiskException = { id: number; domain: string; category: string };
+export type DNSFilterPolicy = {
+  revision: number;
+  categories: Record<string, boolean>;
+  exceptions: { domain: string; reason?: string }[];
+};

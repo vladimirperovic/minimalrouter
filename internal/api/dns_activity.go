@@ -45,6 +45,7 @@ func (s *Server) RegisterDNSActivityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/dns-activity/recent", gate(s.handleDNSActivityRecent))
 	mux.HandleFunc("POST /api/v1/dns-activity/clear", gate(s.handleDNSActivityClear))
 	s.registerDNSRiskRoutes(mux)
+	s.registerDNSFilterRoutes(mux)
 }
 
 // extraCategoryDomains extends the device-profile service lists for

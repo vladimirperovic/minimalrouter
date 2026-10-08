@@ -57,6 +57,7 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
     const full=(await page.locator('.security-full-width').boundingBox())!;expect(Math.abs(full.width-columns.width)).toBeLessThan(2);
    }
    if(route==='dns-filter'){
+    await page.getByText('Advanced DNS & bundled protection', {exact:true}).click();
     await expect(page.getByRole('textbox',{name:'Upstream DNS resolvers'})).toHaveValue('1.1.1.1\n9.9.9.9\n8.8.8.8');
     const table=page.getByRole('table',{name:'DNS Filter device profiles'});await expect(table).toBeVisible();
     await expect(table.getByRole('button',{name:'Edit',exact:true})).toBeVisible();

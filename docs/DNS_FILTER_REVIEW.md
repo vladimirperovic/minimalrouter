@@ -1,5 +1,15 @@
 # DNS Filter review, 2026-10-08
 
+## Implementation follow-up
+
+The v0.2.0 candidate now addresses the confirmed editing, global-switch, response-type
+and service-set replacement defects below. It adds opt-in maintained network
+category blocking, subtree exceptions, domain checking, precise schedule editing,
+Recovery improvements and common page spacing. See [the current implementation
+and its explicit limits](DNS_FILTER.md). The findings below describe the original
+audit, not the final candidate. Native Linux DNS/nft tests and release gates must
+pass before release; source and mocked browser tests are not real-router proof.
+
 The current implementation has a useful dnsmasq/nftables foundation, but its
 small built-in blocking list and static-address schedules are not a complete
 household protection product. For a household with frequently changing devices,
@@ -101,6 +111,6 @@ semantics in the network laboratory. Follow with whole-network category policy,
 maintained blocking lists and exceptions, then redesign the page around those
 working controls. The DNS Activity alert feature can remain useful independently.
 
-For v0.2.0, the already applied explanatory text clarifies existing blocking and
-separate risk monitoring. This review does not claim the defects above are fixed
-or that whole-network category blocking has been delivered.
+This original proposal also identified future work: exact-only/expiring exceptions,
+verified blocked-query counts, per-set occupancy telemetry and installed-device/DST
+measurements. Those are not advertised as implemented controls.

@@ -105,11 +105,11 @@ export function createKidsProfile(input: {
   const addresses = input.addresses.map((address) => address.trim()).filter(Boolean);
   const services = [...new Set(input.services)];
   if (addresses.length === 0) throw new Error("Add at least one static device IP address.");
-  if (services.length === 0) throw new Error("Odaberite najmanje jedan servis.");
+  if (services.length === 0) throw new Error("Select at least one service.");
   for (const [day] of scheduleDays) {
     for (const window of input.dayWindows[day]) {
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(window.start) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(window.end)) {
-        throw new Error("Vrijeme mora biti u HH:MM formatu.");
+        throw new Error("Time must use the HH:MM format.");
       }
       if (window.start >= window.end) throw new Error("The end of the allowed period must be after its start.");
     }
@@ -125,7 +125,7 @@ export function createKidsProfile(input: {
 }
 
 function describeWindows(windows: AccessWindow[]): string {
-  if (windows.length === 0) return "blokirano";
+  if (windows.length === 0) return "blocked";
   if (windows.length === 1 && windows[0].start === "00:00" && windows[0].end === "23:59") return "all day";
   return windows.map((window) => `${window.start}–${window.end}`).join(", ");
 }

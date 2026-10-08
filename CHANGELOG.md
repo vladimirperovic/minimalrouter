@@ -10,6 +10,14 @@ compatibility may still change between releases.
 
 ### Added
 
+- Opt-in network DNS category blocking with maintained HaGeZi compact lists,
+  explicit subtree exceptions, a local domain checker, list freshness and
+  resolver-generation verification. Failed/interrupted activation retains or
+  restores the prior policy.
+- Redesigned Recovery with a single dashboard password for encrypted exports,
+  legacy backup import and portable network DNS policy restoration.
+- Minute-precise schedule editing and visible DHCP-reservation guidance.
+
 - Network-wide DNS risk alerts for adult, phishing, malware, fraud and gambling
   domains, using locally indexed Block List Project lists. Monitoring follows
   the existing DNS activity opt-in and works across changing client addresses.
@@ -22,6 +30,14 @@ compatibility may still change between releases.
   follow-up functions in `docs/DASHBOARD_REVIEW_v0.2.0.md`.
 
 ### Fixed
+
+- Concurrent DNS profile edits retain their original revision; renaming retains
+  exact schedule times and editing no longer enables the global filter.
+- DNS blocking returns NXDOMAIN for all record types, and the broad Facebook
+  Graph API host is removed from the bundled list. Dynamic service sets preserve
+  unexpired destinations through atomic firewall replacement and have size limits.
+- Consistent card spacing across every sidebar page: 24 px desktop and 16 px
+  mobile, including the Overview charts/device-list boundary.
 
 - Golden-image appliances installed without PPPoE could not enable it later:
   OpenRC's `modules` service was not in the boot runlevel, so `ppp_generic`

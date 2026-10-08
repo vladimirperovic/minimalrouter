@@ -4,10 +4,12 @@ Minimal Router OS calls this feature **DNS Filter**. The historical JSON key
 `adguard` is retained only for backup and API compatibility; the project does
 not embed or impersonate AdGuard Home.
 
+For maintained category blocking and exceptions, see [Network DNS protection](DNS_FILTER.md).
+
 ## Built-in network-wide blocking
 
 Enabling DNS Filter also activates the firmware's curated ad/tracker list
-through dnsmasq, even without device profiles. The current list contains 17
+through dnsmasq, even without device profiles. The current list contains 16
 domains, including advertising and analytics hosts; it is not a comprehensive
 malware or adult-content database. It is supplied with firmware and does not
 refresh automatically. Although a StevenBlack hosts downloader exists in the
@@ -31,8 +33,7 @@ the application disconnects.
 
 ## Kids profile and visual scheduler
 
-In the dashboard, select **Add device profile**, then choose **Kids** as the
-profile type. Only then does the parental-control editor open.
+In the dashboard, select **Add device profile** to open the optional schedule editor.
 
 The editor contains:
 
@@ -41,6 +42,7 @@ The editor contains:
 - click-and-drag painting of allowed or blocked hours;
 - per-day **All** and **None** controls;
 - global **Default**, **Allow all**, and **Block all** controls;
+- an exact-time editor for hours and minutes; unchanged schedules retain minute precision;
 - individual service selection for YouTube, Steam, Wikipedia/Wikimedia, TikTok,
   Instagram, Facebook/Messenger, Roblox, Epic Games, and Twitch.
 
