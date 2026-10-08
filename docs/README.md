@@ -1,16 +1,15 @@
 # Documentation
 
-Minimal Router OS is currently **Beta (v0.1.9)**. The preferred AMD64/Proxmox
+Minimal Router OS is currently **Beta (v0.2.1)**. The preferred AMD64/Proxmox
 first-install path is the Golden Appliance ISO.
 
-The build tree is preparing **v0.2.0**. See [candidate notes](releases/v0.2.0.md),
-[DNS risk monitoring](DNS_RISK_ALERTS.md), and the
-[complete sidebar review](DASHBOARD_REVIEW_v0.2.0.md). Released installation
-instructions remain on v0.1.9 until the candidate passes publication gates.
+The v0.2.1 notes are at [release notes](releases/v0.2.1.md); v0.2.0 DNS risk
+monitoring is described in [DNS risk monitoring](DNS_RISK_ALERTS.md) with the
+[complete sidebar review](DASHBOARD_REVIEW_v0.2.0.md).
 
 ## Start here
 
-- [`../README.md`](../README.md) — project overview and v0.1.9 quick start
+- [`../README.md`](../README.md) — project overview and v0.2.1 quick start
 - [`ISO_INSTALLATION.md`](ISO_INSTALLATION.md) — preferred Golden ISO installation
 - [`PROXMOX.md`](PROXMOX.md) — recommended VM baseline and pilot procedure
 - [`GOLDEN-IMAGE.md`](GOLDEN-IMAGE.md) — exact build/flasher/firstboot design; mandatory for installer changes
@@ -43,7 +42,7 @@ instructions remain on v0.1.9 until the candidate passes publication gates.
 - [`../SECURITY.md`](../SECURITY.md) — threat model and vulnerability reporting
 - [`RELEASE_SECURITY.md`](RELEASE_SECURITY.md) — signed tags, payload signatures, Golden ISO and attestations
 - [`RELEASE_PROCESS.md`](RELEASE_PROCESS.md) — maintainer release process
-- [`releases/v0.1.9.md`](releases/v0.1.9.md) — current v0.1.9 release notes
+- [`releases/v0.2.1.md`](releases/v0.2.1.md) — current v0.2.1 release notes
 - [`releases/v0.1.8.md`](releases/v0.1.8.md) — previous v0.1.8 release notes
 - [`releases/v0.1.7.md`](releases/v0.1.7.md) — v0.1.7 release notes
 - [`releases/v0.1.6.md`](releases/v0.1.6.md) — previous v0.1.6 release notes

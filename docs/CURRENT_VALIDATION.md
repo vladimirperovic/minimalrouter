@@ -6,11 +6,22 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.2.0 — Beta / release candidate.**
+**Minimal Router OS v0.2.1 — Beta.**
 
-The build tree (`VERSION`, `web/package.json`) targets v0.2.0. This is not a
+The build tree (`VERSION`, `web/package.json`) targets v0.2.1: the v0.2.0 DNS
+filter generation-probe retry, the Network protection header Apply action and
+clearer list-refresh guidance. v0.2.0 is published; v0.2.1 is not. This is not a
 publication claim. Exact-candidate CI, ISO and signed-release gates remain
 required under [the release process](RELEASE_PROCESS.md).
+
+Owner-Proxmox evidence collected 2026-10-08: a v0.2.0 appliance failed every
+DNS category-blocking activation with rollback ("DNS filter activation failed;
+previous DNS configuration restored"). Forensics from the appliance showed the
+single-shot generation probe firing into the post-restart gap with a real-size
+catalog (~430k domains): OpenRC reports the restart complete before dnsmasq
+serves, the lone UDP probe is lost, and the healthy activation rolls back. The
+v0.2.1 retry directly addresses this; no real-appliance activation has been
+proven yet.
 
 Local evidence collected on Windows, 2026-10-08:
 

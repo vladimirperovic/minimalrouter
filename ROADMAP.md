@@ -1,6 +1,6 @@
 # Roadmap
 
-Minimal Router OS is currently **Beta (v0.1.9)**. The roadmap is organized around
+Minimal Router OS is currently **Beta (v0.2.1)**. The roadmap is organized around
 evidence and release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
