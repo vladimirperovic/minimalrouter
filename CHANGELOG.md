@@ -6,6 +6,13 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- Retry the DNS filter generation probe until a bounded deadline instead of a
+  single exchange, so activating protection with a real-size catalog no longer
+  rolls back when the restarted resolver needs a moment to serve. The failing
+  activation stage is now logged on the appliance for diagnosis.
+
 ## [v0.2.0] — release candidate
 
 ### Added

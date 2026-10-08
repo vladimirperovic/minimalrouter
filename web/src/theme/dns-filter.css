@@ -1,6 +1,7 @@
 :root:root .dashboard-app .network-dns-protection { display:grid; gap:var(--card-gap); }
 :root:root .dashboard-app .dns-protection-card { min-width:0; padding:var(--card-padding); border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); }
 :root:root .dashboard-app .dns-protection-card > header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
+:root:root .dashboard-app .dns-protection-actions { display:flex; align-items:center; gap:12px; flex-shrink:0; }
 :root:root .dashboard-app .dns-protection-card p { color:var(--text-secondary); line-height:1.65; margin:8px 0 16px; }
 :root:root .dashboard-app .dns-category-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 24px; }
 :root:root .dashboard-app .dns-category-choice { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 0; border-top:1px solid var(--separator); cursor:pointer; }
@@ -33,6 +34,7 @@
   :root:root .dashboard-app .dns-policy-save { flex-direction:column; align-items:stretch; }
   :root:root .dashboard-app .dns-protection-card { padding:var(--card-padding-compact); }
   :root:root .dashboard-app .dns-protection-card > header { flex-direction:column; }
+  :root:root .dashboard-app .dns-protection-actions { flex-wrap:wrap; }
 }
 @media(max-width:700px) {
   :root:root .dashboard-app #adguard .dns-profile-table :is(table,tbody,tr,td) { display:block; width:100%; min-width:0; max-width:100%; white-space:normal; }

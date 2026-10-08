@@ -268,6 +268,9 @@ func applyDNSFilter(request dnsfilter.Request, domains io.Reader) (dnsfilter.App
 		err = verifyFilterResolver(state.Policy.Revision)
 	}
 	if err != nil {
+		// The dashboard only receives the generic message below, so the
+		// failing stage is recorded here where the next diagnosis starts.
+		log.Printf("[DNS FILTER] activation step failed, rolling back: %v", err)
 		rollbackErr := restoreFilterPrevious(hadPrevious)
 		if rollbackErr == nil {
 			rollbackErr = restartDnsmasq()
@@ -391,13 +394,44 @@ func filterResolverHealthy(revision uint64) error {
 	return filterResolverHealthyAt(revision, "127.0.0.1:53")
 }
 
+// The probe is retried until a bounded deadline because OpenRC reports the
+// restart complete as soon as the new process forks, while a large production
+// catalog needs longer to bind and serve. A single exchange fired into that
+// gap is lost on UDP and would roll back a healthy activation every time.
+const filterProbeInterval = 250 * time.Millisecond
+
+// filterProbeTimeout bounds one generation probe, and filterProbeAttemptTimeout
+// bounds a single exchange inside it. A lost packet must cost one short
+// attempt rather than the whole budget: both are variables (like the other
+// filter hooks) so tests can shrink them without slowing the suite.
+var (
+	filterProbeTimeout        = 15 * time.Second
+	filterProbeAttemptTimeout = time.Second
+)
+
 func filterResolverHealthyAt(revision uint64, address string) error {
+	deadline := time.Now().Add(filterProbeTimeout)
+	var lastErr error
+	for {
+		if err := probeFilterRevisionOnce(revision, address); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if time.Until(deadline) <= 0 {
+			return lastErr
+		}
+		time.Sleep(filterProbeInterval)
+	}
+}
+
+func probeFilterRevisionOnce(revision uint64, address string) error {
 	conn, err := net.DialTimeout("udp", address, time.Second)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(filterProbeAttemptTimeout))
 	name, _ := dnsmessage.NewName(filterHealthName)
 	msg := dnsmessage.Message{Header: dnsmessage.Header{ID: 23719}, Questions: []dnsmessage.Question{{Name: name, Type: dnsmessage.TypeTXT, Class: dnsmessage.ClassINET}}}
 	packet, _ := msg.Pack()
