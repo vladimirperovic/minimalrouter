@@ -6,12 +6,18 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.2.1] — 2026-10-08
+
 ### Fixed
 
 - Retry the DNS filter generation probe until a bounded deadline instead of a
   single exchange, so activating protection with a real-size catalog no longer
   rolls back when the restarted resolver needs a moment to serve. The failing
   activation stage is now logged on the appliance for diagnosis.
+- Move the DNS protection Apply action into the Network protection header so
+  categories can be applied without scrolling past the domain checker and
+  exceptions. The list-refresh panel now explains why refresh is unavailable
+  instead of leaving a dead button.
 
 ## [v0.2.0] — release candidate
 

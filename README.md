@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.1.9"><img alt="Beta release: v0.1.9" src="https://img.shields.io/badge/beta-v0.1.9-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.2.1"><img alt="Beta release: v0.2.1" src="https://img.shields.io/badge/beta-v0.2.1-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -44,41 +44,33 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **In development: v0.2.0.** The current build tree adds network-wide alerts
-> for adult, phishing, malware, fraud and gambling DNS domains, with local
-> classification, reviewable history and visible monitoring gaps. It also adds
-> opt-in category blocking, maintained lists, a redesigned Recovery page with
-> dashboard-password backups, and consistent card spacing. See the
-> [0.2.0 notes](docs/releases/v0.2.0.md), [DNS risk guide](docs/DNS_RISK_ALERTS.md),
-> [DNS filtering guide](docs/DNS_FILTER.md) and [sidebar review](docs/DASHBOARD_REVIEW_v0.2.0.md). Publication follows the
-> exact-candidate release gates; the released installation instructions below
-> continue to refer to v0.1.9 until v0.2.0 is published.
-
-> **Beta — v0.1.9.** The preferred AMD64/Proxmox installation path is the
+> **Beta — v0.2.1.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
-> then runs a short first-boot router configuration. v0.1.9 adds opt-in DNS
-> activity statistics (which sites each device looks up, with categories such
-> as Adult highlighted) and read-only MCP insight tools. v0.1.8 appliances take
-> v0.1.9 as a normal dashboard web update; v0.1.7 and older appliances still
-> need the signed full distribution installer once. This is still a controlled-pilot Beta, not an unattended
+> then runs a short first-boot router configuration. v0.2.1 makes DNS category
+> blocking activation reliable with real-size catalogs, adds an Apply action to
+> the Network protection header and clearer list-refresh guidance, on top of the
+> v0.2.0 network-wide DNS risk alerts, opt-in blocking, maintained lists, Recovery
+> redesign and dashboard spacing. Existing v0.1.9 appliances take v0.2.1 as a normal
+> dashboard web update; older appliances still need the signed full
+> distribution installer once. This is still a controlled-pilot Beta, not an unattended
 > pfSense/OpenWrt replacement. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## v0.1.9 quick start — Proxmox
+## v0.2.1 quick start — Proxmox
 
-Download these assets from the **v0.1.9 GitHub release**:
+Download these assets from the **v0.2.1 GitHub release**:
 
 ```text
-minimalrouter-0.1.9-amd64.iso
-minimalrouter-0.1.9-amd64.iso.sha256
+minimalrouter-0.2.1-amd64.iso
+minimalrouter-0.2.1-amd64.iso.sha256
 ```
 
 Verify before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.1.9-amd64.iso.sha256
+sha256sum -c minimalrouter-0.2.1-amd64.iso.sha256
 ```
 
 Create a QEMU/KVM VM with the currently proven target profile:
@@ -113,7 +105,7 @@ Serial:    ttyS0 @ 115200
 Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
 [`docs/PROXMOX.md`](docs/PROXMOX.md).
 
-> The installer ISO contains BIOS and UEFI boot metadata, but the v0.1.9
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.2.1
 > **installed Golden target** that is fully exercised end-to-end is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
@@ -233,7 +225,7 @@ login and verifies the installed appliance.
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.1.9 ISO install
+- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.2.1 ISO install
 - [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — exact ISO architecture and rebuild rules
 - [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and pilot procedure
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is actually proven
