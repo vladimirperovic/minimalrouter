@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -290,4 +291,88 @@ func TestServiceDestinationsLiveAtomicReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Log(string(raw))
+}
+
+// probeResponder answers the filter-generation TXT query after dropping a
+// configured number of early packets, reproducing a resolver that is bound
+// but not serving yet right after a restart with a large catalog.
+func probeResponder(t *testing.T, drops int, revision uint64) string {
+	t.Helper()
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	go func() {
+		buffer := make([]byte, 4096)
+		seen := 0
+		for {
+			n, peer, err := conn.ReadFrom(buffer)
+			if err != nil {
+				return
+			}
+			seen++
+			if seen <= drops {
+				continue
+			}
+			var query dnsmessage.Message
+			if query.Unpack(buffer[:n]) != nil || len(query.Questions) != 1 {
+				continue
+			}
+			question := query.Questions[0]
+			reply := dnsmessage.Message{
+				Header:    dnsmessage.Header{ID: query.ID, Response: true, RCode: dnsmessage.RCodeSuccess},
+				Questions: query.Questions,
+				Answers: []dnsmessage.Resource{{
+					Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeTXT, Class: dnsmessage.ClassINET, TTL: 0},
+					Body:   &dnsmessage.TXTResource{TXT: []string{strconv.FormatUint(revision, 10)}},
+				}},
+			}
+			raw, err := reply.Pack()
+			if err != nil {
+				continue
+			}
+			_, _ = conn.WriteTo(raw, peer)
+		}
+	}()
+	return conn.LocalAddr().String()
+}
+
+func TestDNSFilterProbeRetriesUntilServing(t *testing.T) {
+	oldTimeout := filterProbeTimeout
+	filterProbeTimeout = 5 * time.Second
+	t.Cleanup(func() { filterProbeTimeout = oldTimeout })
+	// The first five exchanges are lost as if the restarted resolver had not
+	// started answering yet; a single-shot probe would fail this activation.
+	address := probeResponder(t, 5, 7)
+	start := time.Now()
+	if err := filterResolverHealthyAt(7, address); err != nil {
+		t.Fatalf("probe gave up on a slow-starting resolver: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > filterProbeTimeout {
+		t.Fatalf("probe exceeded its budget: %v", elapsed)
+	}
+}
+
+func TestDNSFilterProbeGivesUpBounded(t *testing.T) {
+	oldTimeout := filterProbeTimeout
+	filterProbeTimeout = 400 * time.Millisecond
+	t.Cleanup(func() { filterProbeTimeout = oldTimeout })
+	// Nothing answers here: the probe must fail, but within its budget rather
+	// than hanging the activation or the status check.
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := conn.LocalAddr().String()
+	if err = conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := filterResolverHealthyAt(7, address); err == nil {
+		t.Fatal("silent resolver accepted")
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("probe did not stay bounded: %v", elapsed)
+	}
 }
