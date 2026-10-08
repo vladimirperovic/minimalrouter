@@ -23,6 +23,15 @@ compatibility may still change between releases.
 
 ### Fixed
 
+- Golden-image appliances installed without PPPoE could not enable it later:
+  OpenRC's `modules` service was not in the boot runlevel, so `ppp_generic`
+  never loaded, `/dev/ppp` was missing and router-applyd's pppd preflight
+  rejected the configuration ("Couldn't open the /dev/ppp device"). The
+  installer now enables the `modules` service, and router-applyd loads the
+  router's fixed kernel module list before every component preflight, which
+  also repairs existing v0.1.9 appliances through a web update. The installed
+  cold-boot E2E now asserts `/dev/ppp` and the boot-runlevel service.
+
 - DNS collection failures no longer create fake observed-zero history. The
   dashboard reports actual collection status and storage failures; clearing
   history invalidates work that was already in flight.

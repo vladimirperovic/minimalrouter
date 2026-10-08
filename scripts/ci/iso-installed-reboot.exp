@@ -104,6 +104,17 @@ login_root $recovery_password "cold boot"
 wait_services INSTALLED_COLD_BOOT_OK
 verify_ssh $recovery_password INSTALLED_COLD_BOOT_SSH_OK
 
+# A cold boot must load the router's kernel modules without PPPoE ever having
+# been configured: the firstboot PPPoE probe cannot have left them loaded here.
+# Before the modules service was enabled, /dev/ppp was missing and every later
+# PPPoE configuration failed router-applyd's pppd preflight.
+send -- "if rc-update show boot | grep -Eq '(^|\[\[:space:\]\])modules(\[\[:space:\]\]|\$)' && test -c /dev/ppp; then echo INSTALLED_COLD_BOOT_PPP_OK; else echo INSTALLED_COLD_BOOT_PPP_MISSING; fi\r"
+expect {
+    -re {INSTALLED_COLD_BOOT_PPP_MISSING} { puts stderr "cold boot did not load ppp_generic through the modules service"; exit 34 }
+    -re {INSTALLED_COLD_BOOT_PPP_OK} {}
+    timeout { puts stderr "timeout waiting for the cold-boot kernel module check"; exit 35 }
+}
+
 # /usr/bin/routerd is a slot-exec dispatcher; after exec the actual supervised
 # child is named routerd-amd64 in this x86_64 appliance test. Kill that child so
 # supervise-daemon must replace it and restore the HTTPS listener without reboot.
