@@ -18,6 +18,11 @@ Local evidence collected on Windows, 2026-10-08:
   passed, including new risk matching/lifecycle and collection-gap regressions.
 - Linux cross-build and `go vet ./...` passed. Deterministic Linux builds of all
   three bootstrap programs match v0.1.9 byte-for-byte for both amd64 and arm64.
+- Repeating the bootstrap build with the release toolchain, Go 1.25.13, also
+  matches all six SHA-256 values in the published v0.1.9 distribution manifests.
+  All 12 installed non-bootstrap integration files match that published AMD64
+  manifest. This checks published payload compatibility, not only source parity
+  under one local compiler. No update was applied to an owner's appliance.
 - Production dashboard build, lint and all 62 Vitest tests passed. The focused
   DNS/overview/insights browser suite passed 88 cases across desktop/mobile
   Chromium and WebKit. DNS cases cover Noema/Studio, light/dark, review/ignore/
@@ -36,6 +41,10 @@ No real-appliance DNS risk monitoring or ISP evidence has been collected for
 v0.2.0. Golden installer/boot behavior is unchanged, with qualification still
 required on the exact candidate. The complete sidebar review and follow-up
 scope are in [DASHBOARD_REVIEW_v0.2.0.md](DASHBOARD_REVIEW_v0.2.0.md).
+The subsequent [DNS Filter review](DNS_FILTER_REVIEW.md) records existing
+profile-edit defects reproduced in a browser and an unresolved service-set
+continuity concern from code review. These must not be described as fixed by
+the DNS risk monitoring feature.
 
 ## v0.1.9 line (previous release)
 

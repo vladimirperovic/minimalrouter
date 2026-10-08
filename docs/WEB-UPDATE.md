@@ -87,13 +87,19 @@ byte-identity check in `cmd/router-update`.
 
 ## Current checkout and installation boundary
 
-This checkout changes the installed updater, recovery/firstboot contract and
-runtime integration. Published v0.1.7 and earlier appliances require the full
-distribution installer. Changing a version label cannot make their bootstrap
-bytes compatible. `router-setup` now uses the same deterministic build flags as
-the updater/recovery tools and participates in the byte comparison. Before a new
-release is published, update VERSION and the matching bootstrap acknowledgement;
-this working-tree change does not retroactively alter the existing v0.1.7 ISO.
+The v0.2.0 candidate preserves the v0.1.9 bootstrap and installed integration
+contract. On 2026-10-08, all three bootstrap programs built for both supported
+architectures with the release toolchain (Go 1.25.13) matched the published
+v0.1.9 manifest hashes. The 12 installed integration files also matched the
+published AMD64 payload. This supports an ordinary signed dashboard update from
+an unmodified v0.1.9 appliance; it is not a real-appliance update test or a claim
+that v0.2.0 has already been published.
+
+Published v0.1.7 and earlier appliances still require the one-time signed full
+distribution installer introduced for v0.1.8. Changing a version label cannot
+make their bootstrap bytes compatible. `router-setup` participates in the same
+deterministic byte comparison as updater/recovery. Future releases that change
+this contract must record the exact version in the bootstrap acknowledgement.
 
 The compiled `internal/firmware/appliance_roles.go` table describes required
 payload files, architecture-specific binaries, modes and installed comparison

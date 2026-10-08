@@ -4,6 +4,20 @@ Minimal Router OS calls this feature **DNS Filter**. The historical JSON key
 `adguard` is retained only for backup and API compatibility; the project does
 not embed or impersonate AdGuard Home.
 
+## Built-in network-wide blocking
+
+Enabling DNS Filter also activates the firmware's curated ad/tracker list
+through dnsmasq, even without device profiles. The current list contains 17
+domains, including advertising and analytics hosts; it is not a comprehensive
+malware or adult-content database. It is supplied with firmware and does not
+refresh automatically. Although a StevenBlack hosts downloader exists in the
+source, the hardened appliance does not call it and rejects custom blocklist
+URLs.
+
+The separate [DNS Activity risk monitor](DNS_RISK_ALERTS.md) downloads maintained
+adult, phishing, malware, fraud and gambling lists for local matching and
+dashboard warnings. Those warnings do not automatically block the domain.
+
 ## What a device profile does
 
 A profile binds one or more static LAN IPv4 addresses to selected managed

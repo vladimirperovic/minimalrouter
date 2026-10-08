@@ -5,6 +5,17 @@ starts category-list downloads. Existing recording settings remain enabled on
 upgrade to v0.2.0. Wait for all five lists and a successful collection round;
 missing or stale data appears as **Incomplete coverage**, not as a safe result.
 
+## Existing DNS blocking
+
+**DNS Filter** already blocks the firmware's small built-in ad/tracker domain
+list when enabled, and supports scheduled service rules for device profiles.
+It uses dnsmasq and nftables, not an embedded AdGuard Home server. Its external
+blocklist downloader is not enabled in the hardened appliance.
+
+**DNS Activity** adds independent monitoring using the five updated risk lists
+below. These lists produce alerts; they do not automatically become DNS Filter
+blocking rules. A notification exception does not allow blocked traffic.
+
 ## What an alert means
 
 The router observed a DNS lookup matching an adult, phishing, malware, fraud or

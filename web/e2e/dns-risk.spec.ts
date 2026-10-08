@@ -57,7 +57,7 @@ test("sidebar services distinguish enabled configuration from measured runtime",
   await page.route("**/api/v1/system", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...SYSTEM, runtime: { available: true, wan_connected: false, ddns: { running: true } } }) }));
   await page.goto("/#network");
   await expect(page.locator("#network .subpage-hero-head")).toContainText("WAN Disconnected");
-  await expect(page.locator("#network .subpage-hero-facts")).toContainText("local DNS disabled");
+  await expect(page.locator("#network .subpage-hero-facts")).toContainText("plain upstream DNS");
   await page.goto("/#cloudflare");
   await expect(page.locator("#cloudflare .subpage-hero-head")).toContainText("Service running");
   await expect(page.locator("#cloudflare .subpage-hero-head")).not.toContainText("In sync");

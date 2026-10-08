@@ -11,10 +11,10 @@ is not required.
 | --- | --- | --- |
 | Overview | Appliance health, WAN/resources, traffic and recently active devices | Added a DNS risk summary and navigation to alerts. Later: a compact recent incident timeline combining WAN and security events. |
 | Gateway Quality | Latency/loss/jitter history, public IP changes, connection diagnosis, targeted service restarts and conservative automatic WAN recovery | Already strong. Later: an outage-duration summary and exportable incident report. Keep recovery tied to verified outages. |
-| LAN & DHCP | Uplink/LAN/DHCP settings, pool occupancy, known devices, reservations, local DNS and pause/resume | Corrected configured-versus-measured status labels, including independent local DNS state. Later: DHCP exhaustion/conflict warnings; do not assume MAC/IP is a stable person identity. |
+| LAN & DHCP | Uplink/LAN/DHCP settings, pool occupancy, known devices, reservations, local DNS and pause/resume | Corrected configured-versus-measured status labels, including upstream DNS encryption state. Later: DHCP exhaustion/conflict warnings; do not assume MAC/IP is a stable person identity. |
 | Firewall | Default-deny posture, rules/presets, tunnel forwarding and aggregate allowed/blocked history | No new policy needed for monitoring. Later: per-rule counters and a rule-conflict preview, through the existing privileged boundary. |
 | Security | Trusted networks, management access, TOTP and security audit events | Added DNS risk summary/link. Later: active administrator session inventory and per-session revocation. |
-| DNS Filter | Upstream resolvers and scheduled service rules for static-address device profiles | Added direct visibility of risk monitoring, whose alerts do not claim blocking. Next priority: an explicit whole-network category-blocking policy with exceptions and rollback, separate from this observation feature. |
+| DNS Filter | Upstream resolvers, a built-in global ad/tracker blocklist and scheduled service rules for static-address device profiles | Clarified existing blocking, firmware-supplied list updates and separate DNS risk monitoring. Added direct visibility of risk alerts, whose notifications do not claim blocking. Next priority: an explicit whole-network category-blocking policy with exceptions and rollback, separate from this observation feature. |
 | QoS / SQM | Measured qdisc state, CAKE/FQ-CoDel configuration, speed measurement and limit suggestions | Keep current functions. Later: compare idle versus loaded latency and show qdisc drop/backlog counters before proposing automatic tuning. |
 | WireGuard | Peer provisioning/QR/download, handshake and byte counters, enable/disable, rename and outbound client tunnel | No immediate new control needed. Later: distinguish an idle peer from a failed path and add bounded reachability diagnostics. |
 | DynDNS | Cloudflare/No-IP settings, updater state, last address/update time | Removed “In sync” claim based only on process-running state. Next priority: authoritative/public DNS verification with a clear last-success and provider-error display. |
@@ -39,3 +39,8 @@ is not required.
 Adding every proposed function at once would require unrelated networking and
 hardware validation. This release implements the DNS monitoring path and fixes
 misleading status claims; the other items are explicitly follow-up work.
+
+A subsequent [detailed DNS Filter review](DNS_FILTER_REVIEW.md) records concrete
+profile-edit and enforcement-lifecycle findings, their evidence and the proposed
+whole-network protection layout. Those findings remain distinct from the DNS
+Activity implementation.
