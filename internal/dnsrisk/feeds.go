@@ -129,7 +129,9 @@ func openFeed(path string) (*sql.DB, error) {
 	}
 	db.SetMaxOpenConns(1)
 	var n int
-	if err = db.QueryRow("SELECT count(*) FROM domains").Scan(&n); err != nil || n == 0 {
+	// Metadata already holds the validated build count. A bounded probe avoids
+	// reading every index page into the filesystem cache on each router boot.
+	if err = db.QueryRow("SELECT 1 FROM domains LIMIT 1").Scan(&n); err != nil || n != 1 {
 		db.Close()
 		return nil, errors.New("category index unavailable")
 	}
