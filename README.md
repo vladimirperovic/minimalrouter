@@ -49,7 +49,7 @@ recoverable and fail-closed.
 > classification, reviewable history and visible monitoring gaps. It also adds
 > opt-in category blocking, maintained lists, a redesigned Recovery page with
 > dashboard-password backups, and consistent card spacing. See the
-> [0.2.0 notes](docs/releases/v0.2.0.md), [DNS risk guide](docs/DNS_RISK_ALERTS.md)
+> [0.2.0 notes](docs/releases/v0.2.0.md), [DNS risk guide](docs/DNS_RISK_ALERTS.md),
 > [DNS filtering guide](docs/DNS_FILTER.md) and [sidebar review](docs/DASHBOARD_REVIEW_v0.2.0.md). Publication follows the
 > exact-candidate release gates; the released installation instructions below
 > continue to refer to v0.1.9 until v0.2.0 is published.
