@@ -361,6 +361,10 @@ for svc in dhcpcd dropbear telnetd httpd miniupnpd upnpd rpcbind; do
     rc-service "$svc" stop >/dev/null 2>&1 || true
     rc-update del "$svc" default >/dev/null 2>&1 || true
 done
+# /etc/modules-load.d/minimalrouter.conf only takes effect through OpenRC's
+# modules service. Golden images built from a bare rootfs did not have it in
+# the boot runlevel, so ppp_generic was never loaded and /dev/ppp was missing.
+rc-update add modules boot
 rc-update add chronyd default
 rc-update add sshd default
 rc-update add router-applyd default

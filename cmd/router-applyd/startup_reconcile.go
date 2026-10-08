@@ -259,6 +259,7 @@ func verifyFirstRunRuntime(cfg config.SystemConfig) error {
 // critical path: in particular an outbound WireGuard hostname must never delay
 // PPPoE, because PPPoE is what provides the DNS/Internet path it may need.
 func preflightStartup(cfg config.SystemConfig, candidates map[string]string) error {
+	ensureRouterKernelModules()
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}

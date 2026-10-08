@@ -784,6 +784,7 @@ func writeCandidates(dir string, generated map[string]artifact) (map[string]stri
 }
 
 func preflight(cfg config.SystemConfig, candidates map[string]string, plan runtimeVerificationPlan) error {
+	ensureRouterKernelModules()
 	if err := runNftFile(candidates["nftables"], true); err != nil {
 		return fmt.Errorf("nftables: %w", err)
 	}

@@ -88,3 +88,11 @@ done
 [ "$(ls -l "$WORK/bootstrap/bin/router-recovery-amd64" | cut -c1-10)" = '-rwxr-xr-x' ]
 [ "$(ls -l "$WORK/bootstrap/bin/router-update-amd64" | cut -c1-10)" = '-rwxr-x---' ]
 echo 'PASS recovery worker executable 0755; updater private 0750; explicit root ownership'
+
+# The module list is installed to /etc/modules-load.d, which only OpenRC's
+# modules service reads; without it a Golden image never loads ppp_generic.
+grep -q '^rc-update add modules boot$' "$SOURCE/install-dist.sh"
+for module in ppp_generic pppox pppoe; do
+    grep -qx "$module" "$SOURCE/minimalrouter.modules"
+done
+echo 'PASS kernel module list is loaded at boot through the modules service'
