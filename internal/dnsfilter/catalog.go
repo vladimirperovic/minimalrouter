@@ -159,11 +159,11 @@ func buildCatalog(ctx context.Context, path string, source Source, body io.Reade
 	if err != nil {
 		return meta, err
 	}
-	defer f.Close()
 	if err = f.Chmod(0600); err != nil {
-		return meta, err
+		return meta, errors.Join(err, f.Close())
 	}
-	return meta, f.Sync()
+	err = f.Sync()
+	return meta, errors.Join(err, f.Close())
 }
 
 func downloadCatalog(ctx context.Context, path string, source Source, previous Catalog, allowWrite func() bool) (Catalog, error) {
