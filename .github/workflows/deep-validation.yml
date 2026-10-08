@@ -86,7 +86,9 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Verify native DNS answers and atomic service-set continuity
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p build/deep-test/network
           go test -c ./cmd/router-applyd -o build/deep-test/dns-filter-tests
           sudo env MINIMALROUTER_DNS_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestDNSFilterLive' -test.v | tee build/deep-test/network/dns-filter.txt

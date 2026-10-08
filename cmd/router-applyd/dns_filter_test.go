@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/dnsfilter"
+	"github.com/vladimirperovic/minimalrouter/internal/services"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -189,7 +190,10 @@ func TestDNSFilterLiveResolverRecordTypesAndExceptions(t *testing.T) {
 	}
 	t.Cleanup(stop)
 	base := filepath.Join(filepath.Dir(filterPath), "dnsmasq-base.txt")
-	text := fmt.Sprintf("no-resolv\nno-hosts\nbind-interfaces\nlisten-address=127.0.0.1\nport=%d\nconf-file=%s\nserver=127.0.0.1#%d\nhost-record=local.blocked.example,192.0.2.7\n", port, filterPath, upstream.LocalAddr().(*net.UDPAddr).Port)
+	text := fmt.Sprintf("no-resolv\nno-hosts\nbind-interfaces\nlisten-address=127.0.0.1\nport=%d\nconf-file=%s\nserver=127.0.0.1#%d\nhost-record=local.example,192.0.2.7\n", port, filterPath, upstream.LocalAddr().(*net.UDPAddr).Port)
+	for _, domain := range services.BuiltinBlocklist() {
+		text += "address=/" + domain + "/\n"
+	}
 	if err = os.WriteFile(base, []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -217,20 +221,20 @@ func TestDNSFilterLiveResolverRecordTypesAndExceptions(t *testing.T) {
 		return last
 	}
 	request := filterRequest(0)
-	request.Policy.Exceptions = []dnsfilter.Exception{{Domain: "allowed.blocked.example"}}
-	if _, err = applyDNSFilter(request, strings.NewReader("blocked.example\nallowed.blocked.example\ncdn.allowed.blocked.example\n")); err != nil {
+	request.Policy.Exceptions = []dnsfilter.Exception{{Domain: "allowed.blocked.example"}, {Domain: "google.com"}}
+	if _, err = applyDNSFilter(request, strings.NewReader("blocked.example\nallowed.blocked.example\ncdn.allowed.blocked.example\nlocal.example\n")); err != nil {
 		stop()
 		t.Fatalf("activate live resolver: %v %s", err, output.String())
 	}
 	for _, kind := range []dnsmessage.Type{dnsmessage.TypeA, dnsmessage.TypeAAAA, dnsmessage.TypeCNAME, dnsmessage.Type(64), dnsmessage.Type(65)} {
-		for _, domain := range []string{"blocked.example", "child.blocked.example"} {
+		for _, domain := range []string{"blocked.example", "child.blocked.example", "ads.tiktok.com"} {
 			reply := dnsTestQuery(t, address, domain, kind)
 			if reply.RCode != dnsmessage.RCodeNameError {
 				t.Fatalf("%s type %d escaped block: %v", domain, kind, reply.RCode)
 			}
 		}
 	}
-	for _, domain := range []string{"allowed.blocked.example", "cdn.allowed.blocked.example", "local.blocked.example", "unlisted.example"} {
+	for _, domain := range []string{"allowed.blocked.example", "cdn.allowed.blocked.example", "local.example", "unlisted.example", "adservice.google.com", "child.adservice.google.com"} {
 		reply := dnsTestQuery(t, address, domain, dnsmessage.TypeA)
 		if reply.RCode != dnsmessage.RCodeSuccess || len(reply.Answers) == 0 {
 			t.Fatalf("allowed/local name %s failed: %+v", domain, reply)
@@ -272,7 +276,7 @@ func TestServiceDestinationsLiveAtomicReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "replace.nft")
-	text := "delete table inet minimalrouter\ntable inet minimalrouter { set svc_youtube { type ipv4_addr; flags timeout; timeout 4h; size 16384; } }\n" + string(batch)
+	text := "delete table inet minimalrouter\ntable inet minimalrouter {\n set svc_youtube { type ipv4_addr; flags timeout; timeout 4h; size 16384; }\n}\n" + string(batch)
 	if err = os.WriteFile(path, []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}

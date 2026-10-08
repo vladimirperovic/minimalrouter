@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/dnsfilter"
+	"github.com/vladimirperovic/minimalrouter/internal/services"
 	"golang.org/x/net/dns/dnsmessage"
 )
 
@@ -186,6 +187,16 @@ func applyDNSFilter(request dnsfilter.Request, domains io.Reader) (dnsfilter.App
 	for _, exception := range state.Policy.Exceptions {
 		if _, err = fmt.Fprintf(w, "server=/%s/#\n", exception.Domain); err != nil {
 			return state, err
+		}
+	}
+	// The bundled list is generated independently by configuration changes.
+	// More-specific entries there must not defeat a parent exception here.
+	// At equal specificity, standard-server routing precedes NXDOMAIN rules.
+	for _, domain := range services.BuiltinBlocklist() {
+		if state.Policy.Allowed(domain) {
+			if _, err = fmt.Fprintf(w, "server=/%s/#\n", domain); err != nil {
+				return state, err
+			}
 		}
 	}
 	if _, err = fmt.Fprintf(w, "txt-record=%s,%d\n", strings.TrimSuffix(filterHealthName, "."), state.Policy.Revision); err != nil {

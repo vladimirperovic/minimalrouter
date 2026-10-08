@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/dnsfilter"
@@ -103,13 +104,11 @@ func (s *Server) handleDNSFilterCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	// The bundled list is independent of the opt-in maintained categories.
 	if s.engine.GetCurrentConfig().AdGuard.Enabled && !result.Exception {
-		policy := dnsfilter.Policy{Exceptions: []dnsfilter.Exception{}}
 		for _, domain := range services.BuiltinBlocklist() {
-			policy.Exceptions = append(policy.Exceptions, dnsfilter.Exception{Domain: domain})
-		}
-		if policy.Allowed(result.Domain) {
-			result.Action = "Block"
-			result.Matches = append(result.Matches, dnsfilter.Match{Category: "bundled", Domain: result.Domain, Enabled: true})
+			if result.Domain == domain || strings.HasSuffix(result.Domain, "."+domain) {
+				result.Action = "Block"
+				result.Matches = append(result.Matches, dnsfilter.Match{Category: "bundled", Domain: domain, Enabled: true})
+			}
 		}
 	}
 	writeDNSActivityJSON(w, result)
