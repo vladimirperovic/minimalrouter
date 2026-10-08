@@ -6,9 +6,42 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
+**Minimal Router OS v0.2.0 — Beta / release candidate.**
+
+The build tree (`VERSION`, `web/package.json`) targets v0.2.0. This is not a
+publication claim. Exact-candidate CI, ISO and signed-release gates remain
+required under [the release process](RELEASE_PROCESS.md).
+
+Local evidence collected on Windows, 2026-10-08:
+
+- Full `internal/dnsrisk`, `internal/accounting` and `internal/api` test suites
+  passed, including new risk matching/lifecycle and collection-gap regressions.
+- Linux cross-build and `go vet ./...` passed. Deterministic Linux builds of all
+  three bootstrap programs match v0.1.9 byte-for-byte for both amd64 and arm64.
+- Production dashboard build, lint and all 62 Vitest tests passed. The focused
+  DNS/overview/insights browser suite passed 88 cases across desktop/mobile
+  Chromium and WebKit. DNS cases cover Noema/Studio, light/dark, review/ignore/
+  undo, filtering, pagination, deletion, disable, runtime labels and failure
+  states. The OpenAPI YAML parses and all local schema references resolve.
+- An opt-in live public-feed test downloaded/indexed all five Block List Project
+  lists: adult 953,182; phishing 190,185; malware 2,655,237; fraud 256,183;
+  gambling 278,854 accepted domains. Active indexes used about 110 MiB. These
+  are source-compatibility observations on this workstation, not appliance
+  performance guarantees or evidence that lists are complete.
+- Native Windows cannot run the full Linux-only command test suite; Linux CI
+  remains required. The existing Node precompression symlink test also requires
+  symlink permission unavailable in this Windows session.
+
+No real-appliance DNS risk monitoring or ISP evidence has been collected for
+v0.2.0. Golden installer/boot behavior is unchanged, with qualification still
+required on the exact candidate. The complete sidebar review and follow-up
+scope are in [DASHBOARD_REVIEW_v0.2.0.md](DASHBOARD_REVIEW_v0.2.0.md).
+
+## v0.1.9 line (previous release)
+
 **Minimal Router OS v0.1.9 — Beta / controlled pilot.**
 
-The build tree (`VERSION`, `web/package.json`) is v0.1.9. It is not recommended
+The v0.1.9 release build tree targeted v0.1.9. It is not recommended
 as an unattended replacement for pfSense/OpenWrt.
 
 v0.1.9 adds opt-in DNS activity statistics and read-only MCP insight tools. It

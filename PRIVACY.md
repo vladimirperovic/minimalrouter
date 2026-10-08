@@ -59,7 +59,7 @@ client looks up through the router's DNS resolver.
 - On disk, in the local accounting database, `routerd` stores per UTC day,
   device address and registrable site a lookup count with first and last time
   seen, plus hourly lookup totals per device. Full hostnames, query types and
-  answers are not stored. Writes happen every five minutes in one transaction
+  answers are not stored in these statistics. Writes happen every five minutes in one transaction
   and are skipped under critical disk pressure.
 - History is retained for the configured number of days (at most 90, 30 by
   default), bounded to 20,000 device/site rows per day and 1,000,000 rows in
@@ -67,6 +67,37 @@ client looks up through the router's DNS resolver.
 - Turning recording off removes the tmpfs log and in-memory data, hides the
   history from the API immediately and deletes it on the next collection round.
   The page's **Delete history** action deletes it at once and is audited.
+
+Starting with v0.2.0, enabling DNS activity also enables local **DNS risk alerts**:
+
+- The router downloads the five public Block List Project category lists
+  (adult, phishing, malware, fraud and gambling) over HTTPS. The provider sees
+  the router's ordinary download connection, but no observed DNS names, client
+  addresses or browsing history are sent for classification. Existing enabled
+  DNS activity also enables this monitoring after upgrade.
+- Matching uses full query names in memory. The separate local `dns-risk`
+  database retains the **matched list domain**, which can be a full hostname,
+  category, severity, first/last observation, request count, last observed IP
+  and review state. One row covers a domain/category/UTC day across all devices.
+  It records no URL paths, page content, DNS answers or persistent child identity.
+- Alerts share the DNS retention setting (up to 90 days) and a 10,000-row bound.
+  They are hidden immediately when recording is disabled and deleted by the
+  collector; **Delete history** also clears alerts and invalidates queued checks.
+  Classification can lose queued requests on restart or overload. Missing lists,
+  collection failures and drops are surfaced as incomplete coverage.
+- Operator-created domain/category notification exceptions are retained until
+  explicitly removed, including when history is cleared or recording is off.
+  Downloaded public lists also remain cached. Exceptions are sensitive operator
+  settings; they are not an allowlist and do not change DNS/firewall policy.
+- Alerts, exceptions, downloaded lists and the DNS recording setting are outside
+  canonical configuration backups. Routine audit events record the action type,
+  not the matched domain. Dashboard counts refresh while the dashboard is open;
+  this feature sends no email, push, webhook or external browsing report.
+
+A DNS list match is a lead for review, not proof that a child viewed content,
+that access succeeded, or that a device is infected. Background apps and adverts
+also perform lookups. Lists can be wrong or incomplete. No matches must never be
+treated as proof that activity was safe.
 
 Read-only MCP clients configured with the administrator password can read
 this history (see `docs/MCP.md`). Lookups that bypass the router's resolver

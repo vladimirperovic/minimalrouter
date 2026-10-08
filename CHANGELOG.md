@@ -6,6 +6,42 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.2.0] — release candidate
+
+### Added
+
+- Network-wide DNS risk alerts for adult, phishing, malware, fraud and gambling
+  domains, using locally indexed Block List Project lists. Monitoring follows
+  the existing DNS activity opt-in and works across changing client addresses.
+- New/all/category alert filters, pagination, review state, removable exact
+  domain/category exceptions and visible list freshness/update failures.
+  Alerts appear in the dashboard bell, sidebar and cross-page summary.
+- Daily HTTPS list refresh, validated replacement with last-good fallback,
+  bounded disk indexes, storage-pressure checks and visible coverage gaps.
+- Operator documentation and a review of every sidebar page, with prioritized
+  follow-up functions in `docs/DASHBOARD_REVIEW_v0.2.0.md`.
+
+### Fixed
+
+- DNS collection failures no longer create fake observed-zero history. The
+  dashboard reports actual collection status and storage failures; clearing
+  history invalidates work that was already in flight.
+- DNS device choices remain available after selecting one address, site search
+  is debounced, and history/settings actions refresh the visible data.
+- WAN status uses measured connectivity; DHCP, Wi-Fi and proxy configuration
+  labels no longer imply a measured running service. DynDNS distinguishes a
+  running updater from proof that an external DNS record is in sync.
+
+### Privacy and upgrade
+
+- Matched list domains and last observed IPs are retained locally as risk alerts,
+  following DNS retention and a 10,000-record bound. Raw individual queries
+  remain in memory. Disabling/clearing deletes alerts; saved exceptions remain.
+  No observed queries are sent to a classification provider. See `PRIVACY.md`.
+- Bootstrap binaries remain byte-identical to v0.1.9 on amd64 and arm64 in
+  deterministic local builds. Golden installation and signing behavior remain
+  unchanged. Publication still requires the exact-candidate release gates.
+
 ## [v0.1.9] — 2026-10-07
 
 ### Upgrade

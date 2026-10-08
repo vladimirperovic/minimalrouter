@@ -13,6 +13,8 @@ import { updateBadgeLabel, useUpdates } from "./lib/updates";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import { useApplianceHealth } from "./components/HealthBanner";
+import { DNSRiskProvider, useDNSRisk } from "./lib/dnsRisk";
+import { DNSRiskCallout } from "./components/DNSRiskPanel";
 import "./DashboardApp.css";
 import "./ClassicDashboard.css";
 import "./components/DashboardAdditions.css";
@@ -75,6 +77,7 @@ function Dashboard() {
   const pollSequence = useRef(0);
   const pollController = useRef<AbortController | null>(null);
   const { health, unavailable: healthUnavailable } = useApplianceHealth();
+  const { summary: dnsRisk } = useDNSRisk();
   // One update controller for the whole dashboard: the sidebar entry and the
   // profile menu open the same dialog over the same state.
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
@@ -600,7 +603,8 @@ function Dashboard() {
 
   const activeLabel = navigation.find(([id]) => id === active)?.[1] || "Overview";
   const failingChecks = health?.checks?.filter((check) => check.state !== "healthy") ?? [];
-  const alertCount = system.recovery_required ? failingChecks.length + 1 : failingChecks.length;
+  const riskCount = dnsRisk?.new_count ?? 0;
+  const alertCount = failingChecks.length + (system.recovery_required ? 1 : 0) + riskCount;
   const alertSummary = healthUnavailable
     ? "Appliance health could not be read, so alert state is unknown."
     : system.recovery_required
@@ -619,7 +623,7 @@ function Dashboard() {
           {navigationGroups.map((group) => <section className="dashboard-nav-group" key={group.label || "top"}>
             {group.label !== "" && <h2>{group.label}</h2>}
             <div>{group.items.map(([id, label]) => (
-              <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span></a>
+              <a className={active === id ? "is-active" : ""} href={`#${id}`} key={id} onClick={(event) => navigateToSection(event, id)}><svg className="dashboard-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{navIcons[id]}</svg><span>{label}</span>{id === "dns-activity" && riskCount > 0 && <b className="dns-risk-nav-count" aria-label={`${riskCount} new alerts`}>{riskCount > 99 ? "99+" : riskCount}</b>}</a>
             ))}</div>
           </section>)}
         </nav>
@@ -646,7 +650,7 @@ function Dashboard() {
                 ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20.7 15.2A8.5 8.5 0 0 1 8.8 3.3 8.5 8.5 0 1 0 20.7 15.2Z" /></svg>
                 : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.8" /><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42" /></svg>}
             </button>
-            <button aria-label={`Notifications: ${alertSummary}`} className="classic-topbar-button classic-notification-button" onClick={() => { showSection("overview"); setNotice(alertSummary); }} type="button">
+            <button aria-label={`Notifications: ${riskCount ? `${riskCount} new DNS risk alerts. ` : ""}${alertSummary}`} className="classic-topbar-button classic-notification-button" onClick={() => { showSection(riskCount ? "dns-activity" : "overview"); setNotice(alertSummary); }} type="button">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
               {alertCount > 0 && <i aria-hidden="true" />}
             </button>
@@ -661,6 +665,7 @@ function Dashboard() {
         {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
         {active === "overview" && <Overview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
+        {active !== "dns-activity" && (riskCount > 0 || active === "overview" || active === "security" || active === "dns-filter") && <DNSRiskCallout onOpen={() => showSection("dns-activity")} />}
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
         {active !== "security" && !(active === "overview" && design === "studio") && (
           <DashboardSections
@@ -707,5 +712,5 @@ function Dashboard() {
 }
 
 export default function DashboardApp() {
-  return <AuthGate><Dashboard /></AuthGate>;
+  return <AuthGate><DNSRiskProvider><Dashboard /></DNSRiskProvider></AuthGate>;
 }

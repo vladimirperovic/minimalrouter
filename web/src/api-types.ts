@@ -322,6 +322,7 @@ export type TrafficInsights = {
 };
 
 export type DNSActivity = {
+	collection?: DNSCollectionStatus;
   available: boolean; enabled: boolean; retention_days: number; period: string; from: string; until: string;
   device?: string; search?: string;
   history_started_at: string | null; collected_at: string | null;
@@ -336,3 +337,13 @@ export type DNSRecentLookups = {
   available: boolean; enabled: boolean;
   entries: Array<{ at: string; address: string; hostname?: string; name: string; site: string; category?: string; count: number }>;
 };
+
+export type DNSCollectionStatus = { state: string; last_success: string | null; error?: string; dropped_lookups?: number };
+export type DNSRiskSource = { category: string; label: string; source: string; url: string; entries: number; updated_at: number; attempted_at: number; stale: boolean; updating: boolean; error?: string };
+export type DNSRiskSummary = {
+  available: boolean; enabled: boolean; new_count: number; total: number; last_checked_at: number;
+  dropped_lookups: number; removed_alerts: number; error?: string; sources: DNSRiskSource[]; collection: DNSCollectionStatus;
+};
+export type DNSRiskAlert = { id: number; domain: string; category: string; severity: string; first_seen: number; last_seen: number; lookups: number; last_address: string; acknowledged_at: number; ignored: boolean };
+export type DNSRiskPage = { alerts: DNSRiskAlert[]; total: number; offset: number; limit: number };
+export type DNSRiskException = { id: number; domain: string; category: string };

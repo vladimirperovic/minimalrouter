@@ -1,6 +1,16 @@
+import type { DNSRiskAlert, DNSRiskException } from "../api-types";
+
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === "true";
 
 const startedAt = Date.now();
+let dnsHistoryCleared = false;
+let riskAlerts: DNSRiskAlert[] = ["phishing", "adult", "gambling"].map((category, index) => ({
+  id: index + 1, domain: `${category}-demo.example`, category, severity: category === "phishing" ? "high" : "warning",
+  first_seen: Math.floor(startedAt / 1000) - 1800, last_seen: Math.floor(startedAt / 1000) - index * 300,
+  lookups: 3 + index * 4, last_address: "192.0.2.42", acknowledged_at: 0, ignored: false,
+}));
+let riskExceptions: DNSRiskException[] = [];
+const riskSources = [["adult", "porn"], ["phishing", "phishing"], ["malware", "malware"], ["fraud", "fraud"], ["gambling", "gambling"]].map(([category, list]) => ({ category, label: category[0].toUpperCase() + category.slice(1), source: "Block List Project", url: `https://blocklistproject.github.io/Lists/alt-version/${list}-nl.txt`, entries: 10000, updated_at: Math.floor(startedAt / 1000), attempted_at: Math.floor(startedAt / 1000), stale: false, updating: false }));
 
 let config = {
   revision: 42,
@@ -116,7 +126,7 @@ function liveSystem() {
   trafficTick += 1;
   return {
     status: "Connected",
-    version: "v0.1.6-demo",
+    version: "v0.2.0-demo",
     revision: config.revision,
     update_trust_configured: true,
     recovery_required: false,
@@ -203,10 +213,28 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");
   if (path === "/api/v1/backup/export" && method === "POST") return download("MINIMALROUTER PUBLIC DEMO BACKUP\nNo router data is included.\n", "application/octet-stream");
-  if (path === "/api/v1/dns-activity/clear" && method === "POST") return json({ cleared: true });
+  if (path === "/api/v1/dns-activity/clear" && method === "POST") { riskAlerts = []; dnsHistoryCleared = true; return json({ cleared: true }); }
+  const riskAction = path.match(/^\/api\/v1\/dns-activity\/alerts\/(\d+)\/(acknowledge|ignore)$/);
+  if (riskAction && method === "POST") {
+    const alert = riskAlerts.find(item => item.id === Number(riskAction[1]));
+    if (!alert) return json({ error: "Alert not found" }, 404);
+    if (riskAction[2] === "acknowledge") alert.acknowledged_at = Math.floor(Date.now() / 1000);
+    else if (!alert.ignored) { alert.ignored = true; riskExceptions.push({ id: alert.id, domain: alert.domain, category: alert.category }); }
+    return json({ updated: true });
+  }
+  const riskException = path.match(/^\/api\/v1\/dns-activity\/alerts\/exceptions\/(\d+)$/);
+  if (riskException && method === "DELETE") {
+    const entry = riskExceptions.find(item => item.id === Number(riskException[1]));
+    if (!entry) return json({ error: "Exception not found" }, 404);
+    riskExceptions = riskExceptions.filter(item => item.id !== entry.id);
+    riskAlerts.forEach(item => { if (item.domain === entry.domain && item.category === entry.category) item.ignored = false; });
+    return json({ removed: true });
+  }
+  if (path === "/api/v1/dns-activity/alerts/refresh" && method === "POST") { riskSources.forEach(source => { source.updated_at = Math.floor(Date.now() / 1000); }); return json({ queued: true }, 202); }
   if (path === "/api/v1/dns-activity/settings" && method === "PUT") {
     const next = parseBody(init);
     if (next) dnsSettings = { enabled: Boolean(next.enabled), retention_days: Number(next.retention_days) || 30 };
+    if (!dnsSettings.enabled) { riskAlerts = []; dnsHistoryCleared = true; }
     return json({ available: true, ...dnsSettings });
   }
   if (method !== "GET") return json({ state: "Committed", demo: true });
@@ -233,10 +261,17 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     return json({available:true,enabled:config.accounting.enabled,period,from:from.toISOString(),until:until.toISOString(),history_started_at:new Date(day.getTime()-31*86400000).toISOString(),collected_at:now.toISOString(),points,devices,rx_bytes:rx,tx_bytes:tx,total_bytes:total,peak_sample_mbps:412,observed_seconds:count*(hourly?3600:86400)});
   }
   if (path === "/api/v1/dns-activity/settings") return json({ available: true, ...dnsSettings });
+  if (path === "/api/v1/dns-activity/alerts/summary") return json({ available: true, enabled: dnsSettings.enabled, new_count: dnsSettings.enabled ? riskAlerts.filter(item => !item.acknowledged_at && !item.ignored).length : 0, total: dnsSettings.enabled ? riskAlerts.length : 0, last_checked_at: Math.floor(Date.now() / 1000), dropped_lookups: 0, removed_alerts: 0, sources: riskSources, collection: { state: dnsSettings.enabled ? "active" : "disabled", last_success: new Date().toISOString(), dropped_lookups: 0 } });
+  if (path === "/api/v1/dns-activity/alerts/exceptions") return json({ exceptions: riskExceptions });
+  if (path === "/api/v1/dns-activity/alerts") {
+    const offset = Number(url.searchParams.get("offset") || 0), limit = Number(url.searchParams.get("limit") || 25);
+    const alerts = riskAlerts.filter(item => dnsSettings.enabled && (url.searchParams.get("view") === "all" || (!item.acknowledged_at && !item.ignored)) && (!url.searchParams.get("category") || item.category === url.searchParams.get("category")));
+    return json({ alerts: alerts.slice(offset, offset + limit), total: alerts.length, offset, limit });
+  }
   if (path === "/api/v1/dns-activity/recent") {
     const now = Date.now();
     const names = [["192.168.1.20", "studio-mac", "api.github.com", "github.com"], ["192.168.1.42", "living-room-tv", "rr2---sn-demo.googlevideo.com", "googlevideo.com"], ["192.168.1.64", "gaming-console", "apis.roblox.com", "roblox.com"], ["192.168.1.20", "studio-mac", "fonts.gstatic.com", "gstatic.com"], ["192.168.1.42", "living-room-tv", "www.youtube.com", "youtube.com"]];
-    return json({ available: true, enabled: dnsSettings.enabled, entries: Array.from({ length: 20 }, (_, i) => { const [address, hostname, name, site] = names[i % names.length]; return { at: new Date(now - i * 47000).toISOString(), address, hostname, name, site, category: site === "youtube.com" || site === "googlevideo.com" ? "youtube" : site === "roblox.com" ? "roblox" : undefined, count: 1 + (i % 3) }; }) });
+    return json({ available: true, enabled: dnsSettings.enabled, entries: dnsSettings.enabled && !dnsHistoryCleared ? Array.from({ length: 20 }, (_, i) => { const [address, hostname, name, site] = names[i % names.length]; return { at: new Date(now - i * 47000).toISOString(), address, hostname, name, site, category: site === "youtube.com" || site === "googlevideo.com" ? "youtube" : site === "roblox.com" ? "roblox" : undefined, count: 1 + (i % 3) }; }).filter(entry => !url.searchParams.get("device") || entry.address === url.searchParams.get("device")) : [] });
   }
   if (path === "/api/v1/dns-activity") {
     const period = url.searchParams.get("period") || "today"; const device = url.searchParams.get("device") || ""; const search = url.searchParams.get("q") || "";
@@ -244,15 +279,15 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     const days = period === "30d" ? 30 : period === "7d" ? 7 : 1; const hourly = days === 1;
     const from = new Date(day.getTime() - (period === "yesterday" ? 1 : days - 1) * 86400000); const until = period === "yesterday" ? day : now;
     const count = hourly ? Math.max(1, Math.ceil((until.getTime() - from.getTime()) / 3600000)) : days;
-    const scale = device ? 0.35 : 1;
+    const scale = !dnsSettings.enabled || dnsHistoryCleared ? 0 : device ? ({ "192.168.1.20": .46, "192.168.1.42": .31, "192.168.1.64": .23 }[device] ?? 0) : 1;
     const points = Array.from({ length: count }, (_, i) => ({ start: new Date(from.getTime() + i * (hourly ? 3600000 : 86400000)).toISOString(), lookups: Math.round((hourly ? 420 + Math.sin(i * .5) * 180 : 9800 + (i % 4) * 900) * scale), observed: true }));
     const total = points.reduce((n, p) => n + p.lookups, 0); const last = Math.floor(now.getTime() / 1000) - 60;
     const sites = [["googlevideo.com", "youtube", .18, 2], ["apple.com", "", .12, 3], ["github.com", "", .1, 1], ["roblox.com", "roblox", .08, 1], ["youtube.com", "youtube", .07, 2], ["gstatic.com", "", .06, 3], ["netflix.com", "", .05, 1], ["cloudflare.com", "", .04, 3], ["wikipedia.org", "wiki", .02, 2]]
       .filter(([site]) => !search || String(site).includes(search))
       .map(([site, category, share, devices]) => ({ site, category: category || undefined, lookups: Math.round(total * Number(share)), devices: device ? 1 : devices, first_seen: last - 30000, last_seen: last }));
-    const devices = [["studio-mac", "192.168.1.20", .46, 214], ["living-room-tv", "192.168.1.42", .31, 58], ["gaming-console", "192.168.1.64", .23, 41]].filter(([, address]) => !device || address === device).map(([hostname, address, share, siteCount]) => ({ address, hostname, lookups: Math.round(total * Number(share) / scale * (device ? scale : 1)), sites: siteCount, last_seen: last }));
+    const devices = [["studio-mac", "192.168.1.20", .46, 214], ["living-room-tv", "192.168.1.42", .31, 58], ["gaming-console", "192.168.1.64", .23, 41]].filter(([, address]) => scale > 0 && (!device || address === device)).map(([hostname, address, share, siteCount]) => ({ address, hostname, lookups: device ? total : Math.round(total * Number(share)), sites: siteCount, last_seen: last }));
     const flagged = [["192.168.1.42", "living-room-tv", "googlevideo.com", "youtube", 2810], ["192.168.1.42", "living-room-tv", "youtube.com", "youtube", 640], ["192.168.1.64", "gaming-console", "roblox.com", "roblox", 1120]].filter(([address]) => !device || address === device).map(([address, hostname, site, category, lookups]) => ({ address, hostname, site, category, lookups: Math.round(Number(lookups) * days), first_seen: last - 30000, last_seen: last }));
-    return json({ available: true, enabled: dnsSettings.enabled, retention_days: dnsSettings.retention_days, period, from: from.toISOString(), until: until.toISOString(), device: device || undefined, search: search || undefined, history_started_at: new Date(day.getTime() - 21 * 86400000).toISOString(), collected_at: now.toISOString(), total_lookups: total, unitemized_lookups: 0, site_count: device ? 120 : 412, points, devices, sites, flagged });
+    return json({ available: true, enabled: dnsSettings.enabled, collection: { state: dnsSettings.enabled ? "active" : "disabled", last_success: now.toISOString() }, retention_days: dnsSettings.retention_days, period, from: from.toISOString(), until: until.toISOString(), device: device || undefined, search: search || undefined, history_started_at: scale ? new Date(day.getTime() - 21 * 86400000).toISOString() : null, collected_at: now.toISOString(), total_lookups: total, unitemized_lookups: 0, site_count: scale ? device ? 120 : 412 : 0, points, devices, sites: scale ? sites : [], flagged: scale ? flagged : [] });
   }
   if(path==='/api/v1/firewall/activity') {
     const now=new Date();const points=Array.from({length:48},(_,i)=>({start:new Date(now.getTime()-(47-i)*1800000).toISOString(),allowed:Math.round(22000+Math.sin(i*.4)*9000+i%7*1500),blocked:i%9+1,samples:30}));

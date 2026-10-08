@@ -44,6 +44,7 @@ func (s *Server) RegisterDNSActivityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/dns-activity/settings", gate(s.handlePutDNSActivitySettings))
 	mux.HandleFunc("GET /api/v1/dns-activity/recent", gate(s.handleDNSActivityRecent))
 	mux.HandleFunc("POST /api/v1/dns-activity/clear", gate(s.handleDNSActivityClear))
+	s.registerDNSRiskRoutes(mux)
 }
 
 // extraCategoryDomains extends the device-profile service lists for
@@ -227,6 +228,10 @@ func (s *Server) handleDNSActivity(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		result = activity
+	}
+	result.Collection = collector.Status(now)
+	if !settings.Enabled {
+		result.Collection.State = "disabled"
 	}
 	writeDNSActivityJSON(w, result)
 }

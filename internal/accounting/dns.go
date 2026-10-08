@@ -46,13 +46,14 @@ type DNSHourlyKey struct {
 
 // DNSFlush is one batch of aggregated lookups written in a single transaction.
 type DNSFlush struct {
-	Daily      map[DNSDailyKey]DNSDailyCount
-	Hourly     map[DNSHourlyKey]uint64
-	Unitemized map[int64]uint64 // UTC day -> lookups not attributed to a site
+	ObservedHours map[int64]bool
+	Daily         map[DNSDailyKey]DNSDailyCount
+	Hourly        map[DNSHourlyKey]uint64
+	Unitemized    map[int64]uint64 // UTC day -> lookups not attributed to a site
 }
 
 func (f DNSFlush) empty() bool {
-	return len(f.Daily) == 0 && len(f.Hourly) == 0 && len(f.Unitemized) == 0
+	return len(f.Daily) == 0 && len(f.Hourly) == 0 && len(f.Unitemized) == 0 && len(f.ObservedHours) == 0
 }
 
 // DNSPoint is the lookup total for one chart bucket. A bucket before history
@@ -96,23 +97,24 @@ type DNSDeviceSite struct {
 
 // DNSActivity is the API-facing summary for one period.
 type DNSActivity struct {
-	Available         bool             `json:"available"`
-	Enabled           bool             `json:"enabled"`
-	RetentionDays     int              `json:"retention_days"`
-	Period            string           `json:"period"`
-	From              time.Time        `json:"from"`
-	Until             time.Time        `json:"until"`
-	Device            string           `json:"device,omitempty"`
-	Search            string           `json:"search,omitempty"`
-	HistoryStartedAt  *time.Time       `json:"history_started_at"`
-	CollectedAt       *time.Time       `json:"collected_at"`
-	TotalLookups      uint64           `json:"total_lookups"`
-	UnitemizedLookups uint64           `json:"unitemized_lookups"`
-	SiteCount         int              `json:"site_count"`
-	Points            []DNSPoint       `json:"points"`
-	Devices           []DNSDeviceUsage `json:"devices"`
-	Sites             []DNSSiteUsage   `json:"sites"`
-	Flagged           []DNSDeviceSite  `json:"flagged"`
+	Collection        DNSCollectionStatus `json:"collection"`
+	Available         bool                `json:"available"`
+	Enabled           bool                `json:"enabled"`
+	RetentionDays     int                 `json:"retention_days"`
+	Period            string              `json:"period"`
+	From              time.Time           `json:"from"`
+	Until             time.Time           `json:"until"`
+	Device            string              `json:"device,omitempty"`
+	Search            string              `json:"search,omitempty"`
+	HistoryStartedAt  *time.Time          `json:"history_started_at"`
+	CollectedAt       *time.Time          `json:"collected_at"`
+	TotalLookups      uint64              `json:"total_lookups"`
+	UnitemizedLookups uint64              `json:"unitemized_lookups"`
+	SiteCount         int                 `json:"site_count"`
+	Points            []DNSPoint          `json:"points"`
+	Devices           []DNSDeviceUsage    `json:"devices"`
+	Sites             []DNSSiteUsage      `json:"sites"`
+	Flagged           []DNSDeviceSite     `json:"flagged"`
 }
 
 // DNSQuery selects what DNSActivity returns.
@@ -146,6 +148,7 @@ func migrateDNS(db *sql.DB) error {
 	) WITHOUT ROWID;
 	CREATE TABLE IF NOT EXISTS dns_unitemized (day INTEGER PRIMARY KEY, lookups INTEGER NOT NULL);
 	CREATE TABLE IF NOT EXISTS dns_clock (id INTEGER PRIMARY KEY CHECK(id = 1), started_at INTEGER NOT NULL, last_at INTEGER NOT NULL);
+	CREATE TABLE IF NOT EXISTS dns_observed (hour INTEGER PRIMARY KEY);
 	-- The operator's setting. It lives here rather than in the canonical
 	-- configuration so the feature does not touch packages compiled into the
 	-- byte-identical bootstrap tools.
@@ -262,24 +265,17 @@ func (s *Store) RecordDNS(now time.Time, flush DNSFlush) error {
 			return fmt.Errorf("record unitemized DNS activity: %w", err)
 		}
 	}
+	for hour := range flush.ObservedHours {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO dns_observed(hour) VALUES(?)`, hour); err != nil {
+			return err
+		}
+	}
 	epoch := now.UTC().Unix()
 	if _, err := tx.Exec(`INSERT INTO dns_clock(id, started_at, last_at) VALUES (1, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET last_at = excluded.last_at`, epoch, epoch); err != nil {
 		return fmt.Errorf("record DNS activity clock: %w", err)
 	}
 	return tx.Commit()
-}
-
-// TouchDNSClock records a collection round that found no lookups, so the
-// chart can tell a quiet hour from a collection gap.
-func (s *Store) TouchDNSClock(now time.Time) error {
-	if s == nil || s.db == nil {
-		return nil
-	}
-	epoch := now.UTC().Unix()
-	_, err := s.db.Exec(`INSERT INTO dns_clock(id, started_at, last_at) VALUES (1, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET last_at = excluded.last_at`, epoch, epoch)
-	return err
 }
 
 // PruneDNS removes days older than the retention window, any future-dated
@@ -303,6 +299,7 @@ func (s *Store) PruneDNS(now time.Time, retentionDays int) error {
 		`DELETE FROM dns_daily WHERE day < ? OR day >= ?`,
 		`DELETE FROM dns_hourly WHERE hour < ? OR hour >= ?`,
 		`DELETE FROM dns_unitemized WHERE day < ? OR day >= ?`,
+		`DELETE FROM dns_observed WHERE hour < ? OR hour >= ?`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement, cutoff, tomorrow); err != nil {
@@ -328,6 +325,9 @@ func (s *Store) PruneDNS(now time.Time, retentionDays int) error {
 		}
 		total -= int(removed)
 		if _, err := tx.Exec(`DELETE FROM dns_hourly WHERE hour < ?`, oldest+86400); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM dns_observed WHERE hour < ?`, oldest+86400); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM dns_unitemized WHERE day <= ?`, oldest); err != nil {
@@ -358,7 +358,7 @@ func (s *Store) ClearDNS() error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, table := range []string{"dns_daily", "dns_hourly", "dns_unitemized", "dns_clock"} {
+	for _, table := range []string{"dns_daily", "dns_hourly", "dns_unitemized", "dns_clock", "dns_observed"} {
 		if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 			return err
 		}
@@ -520,10 +520,27 @@ func (s *Store) dnsPoints(from, until time.Time, step time.Duration, device stri
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	rows.Close()
+	observations, err := s.db.Query(`SELECT hour FROM dns_observed WHERE hour>=? AND hour<?`, from.Unix(), until.Unix())
+	if err != nil {
+		return nil, err
+	}
+	observedBuckets := map[int64]bool{}
+	for observations.Next() {
+		var hour int64
+		if err := observations.Scan(&hour); err != nil {
+			observations.Close()
+			return nil, err
+		}
+		observedBuckets[from.Unix()+(hour-from.Unix())/stepSeconds*stepSeconds] = true
+	}
+	observations.Close()
+	if err := observations.Err(); err != nil {
+		return nil, err
+	}
 	points := []DNSPoint{}
 	for start := from; start.Before(until); start = start.Add(step) {
-		end := start.Add(step).Unix()
-		observed := started.Valid && last.Valid && started.Int64 < end && last.Int64 >= start.Unix()
+		observed := observedBuckets[start.Unix()]
 		points = append(points, DNSPoint{Start: start, Lookups: byBucket[start.Unix()], Observed: observed || byBucket[start.Unix()] > 0})
 	}
 	return points, nil
