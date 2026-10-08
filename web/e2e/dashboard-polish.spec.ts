@@ -36,15 +36,24 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
   await scroll.focus();await page.keyboard.press('End');await expect.poll(()=>scroll.evaluate(e=>e.scrollTop)).toBeGreaterThan(0);
   for(const route of ['overview','gateway','network','firewall','security','dns-filter','qos','wireguard','cloudflare','wifi','traffic','dns-activity','squid','recovery','logs']) {
    await page.goto('/#'+route);await expect(page.locator('.dashboard-app')).toBeVisible();
+   await expect(page.locator(`.dashboard-navigation a[href="#${route}"]`)).toHaveClass(/is-active/);
    expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth),route+' overflow').toBeLessThanOrEqual(1);
    if(width>900){
     const boxes=await page.locator('.dashboard-main').evaluate(e=>{const top=e.querySelector('.classic-topbar')!.getBoundingClientRect();const content=[...e.children].find(n=>n.matches('.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview'))!.getBoundingClientRect();return {left:top.x-content.x,right:top.right-content.right};});
     expect(Math.abs(boxes.left),route+' left').toBeLessThanOrEqual(1);expect(Math.abs(boxes.right),route+' right').toBeLessThanOrEqual(1);
    }
-   const chips=await page.locator('.classic-status-chip').evaluateAll(nodes=>nodes.map(el=>{
-    const s=getComputedStyle(el);const rgb=(v:string)=>{const c=document.createElement('canvas').getContext('2d')!;c.fillStyle=v;c.fillRect(0,0,1,1);return [...c.getImageData(0,0,1,1).data];};const lum=(v:number[])=>v.slice(0,3).map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4}).reduce((a,x,i)=>a+x*[.2126,.7152,.0722][i],0);const a=lum(rgb(s.color)),b=lum(rgb(s.backgroundColor));return {text:el.textContent,contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
-   }));
-   for(const c of chips)expect(c.contrast,route+' '+c.text).toBeGreaterThanOrEqual(4.5);
+   const readContrast=()=>page.locator('.classic-status-chip').evaluateAll(nodes=>{
+    // Reuse one tiny CPU readback surface throughout this measurement.
+    const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
+    const c=canvas.getContext('2d',{willReadFrequently:true})!;
+    const rgb=(v:string)=>{c.clearRect(0,0,1,1);c.fillStyle=v;c.fillRect(0,0,1,1);return [...c.getImageData(0,0,1,1).data];};
+    return nodes.map(el=>{
+     const s=getComputedStyle(el);const lum=(v:number[])=>v.slice(0,3).map(x=>{x/=255;return x<=.04045?x/12.92:((x+.055)/1.055)**2.4}).reduce((a,x,i)=>a+x*[.2126,.7152,.0722][i],0);const a=lum(rgb(s.color)),b=lum(rgb(s.backgroundColor));return {text:el.textContent,foreground:s.color,background:s.backgroundColor,pixels:[rgb(s.color),rgb(s.backgroundColor)],contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+    });
+   });
+   // Route/theme changes animate colours; measure their settled contrast.
+   await expect.poll(async()=>Math.min(...(await readContrast()).map(c=>c.contrast)),{message:route+' settled chip contrast'}).toBeGreaterThanOrEqual(4.5);
+   for(const c of await readContrast())expect(c.contrast,route+' '+JSON.stringify(c)).toBeGreaterThanOrEqual(4.5);
   }
   await expect(page.locator('.tl-item')).toHaveCount(7);
   expect(await page.locator('.tl').evaluate(e=>getComputedStyle(e,'::before').display)).toBe('none');

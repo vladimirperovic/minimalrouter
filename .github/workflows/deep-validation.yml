@@ -80,6 +80,19 @@ jobs:
             netcat-openbsd \
             nftables \
             nmap
+      - name: Set up Go for DNS filter laboratory
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify native DNS answers and atomic service-set continuity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/deep-test/network
+          go test -c ./cmd/router-applyd -o build/deep-test/dns-filter-tests
+          sudo env MINIMALROUTER_DNS_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestDNSFilterLive' -test.v | tee build/deep-test/network/dns-filter.txt
+          sudo unshare --net env MINIMALROUTER_NFT_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestServiceDestinationsLive' -test.v | tee build/deep-test/network/dns-service-sets.txt
       - name: Validate network laboratory syntax
         run: bash -n scripts/ci-network-namespace-lab.sh
       - name: Run isolated router network laboratory

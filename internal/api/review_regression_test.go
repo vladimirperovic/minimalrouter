@@ -102,7 +102,7 @@ func TestReauthenticationFollowsRecoveryCredentialReset(t *testing.T) {
 	session := regressionLogin(t, handler, "192.168.1.10:1000", newPassword)
 	export := func(password string) int {
 		return regressionRequest(t, handler, http.MethodPost, "/api/v1/backup/export", "192.168.1.10:1001",
-			map[string]string{"current_password": password, "backup_passphrase": "backup-passphrase-123456"}, session).Code
+			map[string]string{"current_password": password}, session).Code
 	}
 	if code := export(oldPassword); code != http.StatusUnauthorized {
 		t.Fatalf("revoked password still confirmed a backup export: %d", code)

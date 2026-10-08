@@ -1,5 +1,37 @@
 # Local recovery console
 
+## Dashboard backups
+
+The Recovery page separates portable backups, validated restore, pfSense
+migration, redacted diagnostics and local configuration snapshots.
+
+New `.mrbak` backups use the **current dashboard password** (minimum 12
+characters). Enter it once to authorize and encrypt the export; there is no
+separate backup password. Encryption remains AES-256-GCM with a random salt,
+nonce and Argon2id (64 MiB, three iterations, one thread). No password or derived
+key is persisted. Changing the dashboard password does not re-encrypt old files:
+they still require the password used when created.
+
+For an older file, select **This backup uses an older or separate password**.
+The current dashboard password authorizes the operation, and the optional older
+password decrypts the file. Legacy v1 files with separate passphrases remain
+readable. New v2 files require v0.2.0 or later.
+
+Restore first validates the file and previews the configuration. Applying keeps
+the existing connectivity confirmation and rollback behavior. A v2 file also
+contains the network DNS category policy when the subsystem was available at
+export: after confirming the restored network, press **Restore DNS protection**
+and verify completion on DNS Filter. Public lists are downloaded again as needed;
+query history and downloaded catalogs are not in the backup. This is an explicit
+second phase, not an atomic restore of both independent stores.
+
+Local configuration snapshots remain useful undo points, but live on the same
+appliance and do not include the separate category policy. Download a portable
+backup to another device for disk-failure recovery. Diagnostics are redacted
+reports and cannot restore settings.
+
+## Console recovery
+
 `router-recovery` is deliberately available only from the appliance console as
 root. There is no unauthenticated recovery HTTP endpoint and no WAN recovery
 path.

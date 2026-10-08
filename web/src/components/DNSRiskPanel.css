@@ -1,0 +1,35 @@
+:root:root .dashboard-app .dns-risk-panel { display: grid; gap: 20px; margin-block: 20px; }
+:root:root .dashboard-app .dns-risk-panel p { margin: 0; line-height: 1.6; }
+:root:root .dashboard-app .dns-risk-explanation { color: var(--text-secondary); font-size: 13px; max-width: 100ch; }
+:root:root .dashboard-app .dns-risk-facts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+:root:root .dashboard-app .dns-risk-facts div { display: grid; gap: 5px; padding: 16px; background: var(--surface-muted); border-radius: 12px; }
+:root:root .dashboard-app .dns-risk-facts strong { font-size: 26px; font-variant-numeric: tabular-nums; }
+:root:root .dashboard-app .dns-risk-facts span { font-size: 12px; color: var(--text-secondary); }
+:root:root .dashboard-app .dns-risk-alerts { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+:root:root .dashboard-app .dns-risk-alerts > li { padding: 18px; border: 1px solid var(--separator); border-left: 3px solid var(--text-tertiary); border-radius: 10px; display: grid; gap: 10px; min-width: 0; }
+:root:root .dashboard-app .dns-risk-alerts > li.is-high { border-left-color: var(--danger); }
+:root:root .dashboard-app .dns-risk-alerts p { color: var(--text-secondary); font-size: 12px; overflow-wrap: anywhere; }
+:root:root .dashboard-app .dns-risk-alert-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
+:root:root .dashboard-app .dns-risk-alert-heading code { overflow-wrap: anywhere; font-size: 15px; font-weight: 600; }
+:root:root .dashboard-app .dns-risk-category { font-size: 12px; font-weight: 600; }
+:root:root .dashboard-app .dns-risk-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; font-size: 12px; }
+:root:root .dashboard-app .dns-risk-details { border-top: 1px solid var(--separator); padding-top: 16px; font-size: 13px; }
+:root:root .dashboard-app .dns-risk-details summary { cursor: pointer; font-weight: 600; padding-block: 5px; }
+:root:root .dashboard-app .dns-risk-details[open] { display: grid; gap: 16px; }
+:root:root .dashboard-app .dns-risk-sources { list-style: none; margin: 16px 0; padding: 0; display: grid; gap: 12px; }
+:root:root .dashboard-app .dns-risk-sources li { display: grid; grid-template-columns: 100px minmax(0,1fr); gap: 4px 16px; }
+:root:root .dashboard-app .dns-risk-sources small { grid-column: 2; color: var(--text-secondary); overflow-wrap: anywhere; }
+:root:root .dashboard-app .dns-risk-exceptions { padding: 0; list-style: none; display: grid; gap: 12px; }
+:root:root .dashboard-app .dns-risk-exceptions li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; overflow-wrap: anywhere; }
+:root:root .dashboard-app .dns-risk-callout { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; padding: 18px 22px; margin-bottom: 24px; border: 1px solid var(--separator); border-radius: 12px; background: var(--surface); }
+:root:root .dashboard-app .dns-risk-callout.has-alerts { border-left: 3px solid var(--danger); }
+:root:root .dashboard-app .dns-risk-callout div { flex: 1 1 260px; }
+:root:root .dashboard-app .dns-risk-callout p { font-size: 12px; color: var(--text-secondary); margin: 5px 0 0; line-height: 1.5; }
+:root:root .dashboard-app .dns-risk-nav-count { font-size: 11px; margin-left: auto; padding: 2px 6px; border-radius: 5px; background: var(--surface-muted); color: var(--danger); }
+@media (max-width: 540px) {
+  :root:root .dashboard-app .dns-risk-facts { gap: 8px; }
+  :root:root .dashboard-app .dns-risk-facts div { padding: 10px; }
+  :root:root .dashboard-app .dns-risk-facts strong { font-size: 22px; }
+  :root:root .dashboard-app .dns-risk-sources li { grid-template-columns: 1fr; }
+  :root:root .dashboard-app .dns-risk-sources small { grid-column: 1; }
+}

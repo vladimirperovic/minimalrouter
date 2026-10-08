@@ -1,0 +1,34 @@
+/* Page containers own external spacing. Card internals retain their own
+   padding so tables, headers and charts do not acquire double insets. */
+:root { --card-gap: 24px; }
+:root:root .dashboard-app :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview) {
+  display: grid;
+  gap: var(--card-gap);
+  min-width: 0;
+}
+:root:root .dashboard-app :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview) > * {
+  margin-block: 0;
+  min-width: 0;
+}
+/* Sections and cross-page alerts share the same external spacing, including
+   the risk summary between Overview charts and its device list. */
+:root:root .dashboard-app .dashboard-main > :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) {
+  margin-block: 0;
+}
+:root:root .dashboard-app .dashboard-main > :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) + :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) {
+  margin-top: var(--card-gap);
+}
+:root:root .dashboard-app :is(.overview-content-grid,.security-settings-columns,.dns-settings-columns,.settings-columns,.security-full-width,.classic-security-page > .classic-hero-card,.insights-two-columns,.studio-hero-grid,.studio-detail-grid,.studio-bottom-grid) {
+  gap: var(--card-gap);
+}
+:root:root .dashboard-app .classic-security-page > .classic-hero-card {
+  display: grid;
+}
+:root:root .dashboard-app .classic-security-page > .classic-hero-card > * { margin-block: 0; }
+/* Health checks are a separate surface. Remove the former negative drawer
+   offset so it follows the same page rhythm as the neighbouring cards. */
+:root:root .dashboard-app #overview > .overview-health-drawer { margin:0; width:100%; border-radius:var(--radius-lg); }
+:root:root .dashboard-app .overview-health-drawer .health-banner-main { padding:var(--card-padding); }
+@media (max-width: 700px) {
+  :root { --card-gap: 16px; }
+}

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Minimal Router OS REST API
   description: Version 1 REST API contract for Minimal Router OS management plane (routerd).
-  version: 1.2.0
+  version: 1.3.0
 servers:
   - url: https://192.168.1.1:8443/api/v1
     description: LAN HTTPS management endpoint
@@ -21,6 +21,120 @@ components:
       name: X-CSRF-Token
 
   schemas:
+    DNSFilterPolicy:
+      type: object
+      required: [revision, categories, exceptions]
+      additionalProperties: false
+      properties:
+        revision: {type: integer, format: int64, minimum: 0, description: Independent optimistic concurrency revision; use the last read value when saving}
+        categories:
+          type: object
+          additionalProperties: false
+          properties:
+            threats: {type: boolean}
+            ads: {type: boolean}
+            adult: {type: boolean}
+            gambling: {type: boolean}
+        exceptions:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [domain]
+            properties:
+              domain: {type: string, maxLength: 253, description: Canonical public domain and all its subdomains; no URL, IP, wildcard or public suffix}
+              reason: {type: string, maxLength: 200}
+    DNSFilterStatus:
+      type: object
+      required: [policy, domains, applied_at, healthy, updating, lists, next_refresh_at, router_time, timezone]
+      properties:
+        policy: {$ref: '#/components/schemas/DNSFilterPolicy'}
+        domains: {type: integer, minimum: 0, description: Source entries; lists can overlap. Not a blocked query count.}
+        applied_at: {type: integer, format: int64, description: Unix seconds; zero means never applied}
+        healthy: {type: boolean, description: Local resolver loaded the saved generation; does not verify every query or client}
+        updating: {type: boolean}
+        error: {type: string}
+        sources: {type: object, additionalProperties: {type: string, description: Applied catalog SHA-256}}
+        next_refresh_at: {type: integer, format: int64, description: Earliest refresh eligibility; the worker checks hourly}
+        router_time: {type: string, format: date-time}
+        timezone: {type: string}
+        lists:
+          type: array
+          items:
+            type: object
+            properties:
+              category: {type: string, enum: [threats, ads, adult, gambling]}
+              label: {type: string}
+              url: {type: string, format: uri}
+              hash: {type: string}
+              entries: {type: integer, minimum: 0}
+              updated_at: {type: integer, format: int64}
+              error: {type: string}
+    DNSCollectionStatus:
+      type: object
+      required: [state, last_success, dropped_lookups]
+      properties:
+        state: {type: string, enum: [starting, active, stale, degraded, unavailable, disabled]}
+        last_success: {type: string, format: date-time, nullable: true}
+        dropped_lookups: {type: integer, format: int64, minimum: 0, description: Helper drops since service start or history clear}
+        error: {type: string}
+    DNSRiskSource:
+      type: object
+      required: [category, label, source, url, entries, updated_at, attempted_at, stale, updating]
+      properties:
+        category: {type: string, enum: [adult, phishing, malware, fraud, gambling]}
+        label: {type: string}
+        source: {type: string}
+        url: {type: string, format: uri}
+        entries: {type: integer, format: int64, minimum: 0}
+        updated_at: {type: integer, format: int64, description: Unix seconds of last successful verification; zero means never}
+        attempted_at: {type: integer, format: int64}
+        stale: {type: boolean, description: Missing list or last verification older than 48 hours}
+        updating: {type: boolean}
+        error: {type: string}
+    DNSRiskSummary:
+      type: object
+      required: [available, enabled, new_count, total, last_checked_at, dropped_lookups, removed_alerts, sources, collection]
+      properties:
+        available: {type: boolean}
+        enabled: {type: boolean}
+        new_count: {type: integer, minimum: 0, description: Unreviewed alerts without an exception}
+        total: {type: integer, minimum: 0}
+        last_checked_at: {type: integer, format: int64}
+        dropped_lookups: {type: integer, format: int64, minimum: 0, description: Risk-worker drops since service start or history clear}
+        removed_alerts: {type: integer, format: int64, minimum: 0, description: Alerts removed at the 10000-record bound since clear}
+        error: {type: string}
+        sources: {type: array, items: {$ref: '#/components/schemas/DNSRiskSource'}}
+        collection: {$ref: '#/components/schemas/DNSCollectionStatus'}
+    DNSRiskAlert:
+      type: object
+      required: [id, domain, category, severity, first_seen, last_seen, lookups, last_address, acknowledged_at, ignored]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        domain: {type: string, description: Matched list domain; not a URL or proof of a visit}
+        category: {type: string, enum: [adult, phishing, malware, fraud, gambling]}
+        severity: {type: string, enum: [warning, high]}
+        first_seen: {type: integer, format: int64}
+        last_seen: {type: integer, format: int64}
+        lookups: {type: integer, format: int64, minimum: 0}
+        last_address: {type: string, description: Last observed IP; not a persistent device or person identity}
+        acknowledged_at: {type: integer, format: int64, description: Unix seconds; zero means unreviewed}
+        ignored: {type: boolean}
+    DNSRiskPage:
+      type: object
+      required: [alerts, total, offset, limit]
+      properties:
+        alerts: {type: array, items: {$ref: '#/components/schemas/DNSRiskAlert'}}
+        total: {type: integer, minimum: 0}
+        offset: {type: integer, minimum: 0}
+        limit: {type: integer, minimum: 1, maximum: 100}
+    DNSRiskException:
+      type: object
+      required: [id, domain, category]
+      properties:
+        id: {type: integer, format: int64, minimum: 1}
+        domain: {type: string}
+        category: {type: string, enum: [adult, phishing, malware, fraud, gambling]}
     DeviceUsage:
       type: object
       required: [address, rx_bytes, tx_bytes, total_bytes]
@@ -78,6 +192,7 @@ components:
       type: object
       required: [available, enabled, retention_days, period, from, until, total_lookups, unitemized_lookups, site_count, points, devices, sites, flagged]
       properties:
+        collection: {$ref: '#/components/schemas/DNSCollectionStatus'}
         available: {type: boolean}
         enabled: {type: boolean}
         retention_days: {type: integer, minimum: 0, maximum: 90}
@@ -403,6 +518,192 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Untrusted management network}
         '503': {description: Traffic storage unavailable}
+  /dns-filter:
+    get:
+      summary: Read applied network DNS policy and maintained list health
+      operationId: getDNSFilter
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Applied policy; new categories are off until explicitly enabled
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSFilterStatus'}
+        '503': {description: DNS filter helper unavailable}
+    put:
+      summary: Queue a revision-bound network DNS policy change
+      description: Downloads and validates enabled lists before activating. Poll GET for completion or error; a 202 response is not proof of activation. Previous verified rules survive failed refreshes. DNS Activity notification exceptions are separate.
+      operationId: setDNSFilter
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DNSFilterPolicy'}
+      responses:
+        '202': {description: Update queued; response contains updating true}
+        '409': {description: Another update is running}
+        '422': {description: Invalid policy}
+        '503': {description: DNS filtering unavailable}
+  /dns-filter/refresh:
+    post:
+      summary: Queue a refresh of enabled blocking lists
+      description: Limited to once per five minutes. Poll the status endpoint for completion.
+      operationId: refreshDNSFilter
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      responses:
+        '202': {description: Refresh queued}
+        '409': {description: Update already running or refresh cooldown}
+        '503': {description: DNS filtering unavailable}
+  /dns-filter/check:
+    post:
+      summary: Check a domain against local blocking catalogs and exceptions
+      description: Does not send the queried domain to an external service. Results describe configured policy, not an observed visit or a blocked query; local DNS records take precedence.
+      operationId: checkDNSFilterDomain
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain: {type: string}
+      responses:
+        '200':
+          description: Local policy result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domain: {type: string}
+                  action: {type: string, enum: [Block, Allow exception, No category block]}
+                  exception: {type: boolean}
+                  healthy: {type: boolean}
+                  matches:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category: {type: string, enum: [threats, ads, adult, gambling, bundled]}
+                        domain: {type: string, description: Matching domain or parent}
+                        enabled: {type: boolean}
+        '422': {description: Invalid domain or installed index unavailable}
+        '503': {description: DNS filtering unavailable}
+
+  /dns-activity/alerts/summary:
+    get:
+      summary: Read network-wide DNS risk counts and monitoring coverage
+      description: Opt-in via DNS activity recording. Counts hide disabled history. List classification runs locally and does not change DNS answers. Responses are no-store.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Counts and source/collector state; unavailable is never evidence of safe traffic
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSRiskSummary'}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network}
+        '503': {description: Status unavailable}
+  /dns-activity/alerts:
+    get:
+      summary: List matched domains across the whole network
+      description: One record per UTC day, matched list domain and category. At most 10000 alerts follow the DNS retention setting. A DNS request can be background traffic and does not establish a visit or a blocked answer. No-store.
+      security: [{sessionCookie: []}]
+      parameters:
+        - {in: query, name: view, schema: {type: string, enum: [new, all], default: new}}
+        - {in: query, name: category, schema: {type: string, enum: [adult, phishing, malware, fraud, gambling]}}
+        - {in: query, name: offset, schema: {type: integer, minimum: 0, maximum: 10000, default: 0}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 100, default: 50}}
+      responses:
+        '200':
+          description: New excludes reviewed/ignored alerts; all retains both. Disabled recording returns an empty page.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSRiskPage'}
+        '400': {description: Invalid filter or pagination}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network}
+        '503': {description: Monitoring unavailable}
+  /dns-activity/alerts/{id}/acknowledge:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: integer, format: int64, minimum: 1}}
+    post:
+      summary: Mark one daily DNS alert as reviewed
+      description: A later UTC day can alert again. Does not change DNS or firewall policy.
+      security: [{sessionCookie: [], csrfToken: []}]
+      responses:
+        '200': {description: Alert reviewed}
+        '400': {description: Invalid ID}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network, invalid CSRF token or read-only session}
+        '404': {description: Alert not found}
+        '503': {description: Monitoring unavailable}
+  /dns-activity/alerts/{id}/ignore:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: integer, format: int64, minimum: 1}}
+    post:
+      summary: Suppress notifications for this matched domain and category
+      description: Creates an exact domain/category exception, up to 500 entries. The exception survives history deletion and disabling. Ignored alerts remain in all-alerts history. Does not allow or block traffic.
+      security: [{sessionCookie: [], csrfToken: []}]
+      responses:
+        '200': {description: Exception saved}
+        '400': {description: Invalid ID}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network, invalid CSRF token or read-only session}
+        '404': {description: Alert not found}
+        '503': {description: Monitoring unavailable or exception limit reached}
+  /dns-activity/alerts/exceptions:
+    get:
+      summary: List saved domain/category notification exceptions
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Saved exceptions, also accessible when recording is off; no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exceptions]
+                properties:
+                  exceptions: {type: array, items: {$ref: '#/components/schemas/DNSRiskException'}}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network}
+        '503': {description: Monitoring unavailable}
+  /dns-activity/alerts/exceptions/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: integer, format: int64, minimum: 1}}
+    delete:
+      summary: Remove a notification exception
+      security: [{sessionCookie: [], csrfToken: []}]
+      responses:
+        '200': {description: Exception removed; unreviewed retained matches can alert again}
+        '400': {description: Invalid ID}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network, invalid CSRF token or read-only session}
+        '404': {description: Exception not found}
+        '503': {description: Monitoring unavailable}
+  /dns-activity/alerts/refresh:
+    post:
+      summary: Queue a refresh of the five fixed public category lists
+      description: Lists normally refresh every 24 hours while recording is enabled. Failed downloads preserve the previous validated list; retry is every six hours. Manual requests are limited to one per five minutes. No arbitrary URLs or observed domains are sent to the provider.
+      security: [{sessionCookie: [], csrfToken: []}]
+      responses:
+        '202': {description: Update queued; poll summary for source state}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network, invalid CSRF token or read-only session}
+        '409': {description: Recording is disabled}
+        '429': {description: Refresh requested too recently; Retry-After is 300 seconds}
+        '503': {description: Monitoring unavailable}
   /dns-activity:
     get:
       summary: Read DNS lookup statistics per device and site
@@ -508,7 +809,8 @@ paths:
         '403': {description: Untrusted management network}
   /dns-activity/clear:
     post:
-      summary: Delete all DNS activity history
+      summary: Delete all DNS activity history and risk alerts
+      description: Also invalidates queued risk checks. Saved exceptions and downloaded public lists remain.
       description: Deletes stored daily and hourly statistics and the in-memory recent list. Recorded in the audit log.
       security: [{sessionCookie: []}]
       responses:
@@ -1038,21 +1340,56 @@ paths:
     post:
       summary: Export an encrypted configuration backup
       operationId: exportBackup
+      description: Version 2 encrypted portable backup includes router configuration and the network DNS policy when available. Current dashboard password encrypts the file. Downloaded lists and activity history are excluded. Restore on v0.2.0 or later.
       security:
         - sessionCookie: []
           csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: {type: string, format: password, minLength: 12, maxLength: 1024}
       responses:
         '200': { description: Encrypted backup }
+        '401': { description: Current password verification failed }
+        '422': { description: Password rejected or stale client supplied a different backup password }
+        '503': { description: DNS policy is updating or could not be read consistently }
 
   /backup/import/preview:
     post:
       summary: Preview an encrypted backup import
       operationId: previewBackupImport
+      description: Authenticates with the current dashboard password. Uses it for decryption unless backup_passphrase contains an older creation password or a legacy separate password. Supports v1 and v2 encrypted files. DNS policy is returned for a separate explicit restore after configuration confirmation.
       security:
         - sessionCookie: []
           csrfToken: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [backup, current_password]
+              properties:
+                backup: {type: string, format: binary, description: Encrypted .mrbak file; maximum 16 MiB}
+                current_password: {type: string, format: password}
+                backup_passphrase: {type: string, format: password, description: Optional password used when this backup was created}
       responses:
-        '200': { description: Redacted backup preview }
+        '200':
+          description: Redacted backup preview with optional network DNS policy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  import_id: {type: string}
+                  expires_in_seconds: {type: integer}
+                  candidate: {type: object, description: Redacted router configuration}
+                  dns_filter: {$ref: '#/components/schemas/DNSFilterPolicy'}
 
   /import/backup/{id}/apply:
     post:

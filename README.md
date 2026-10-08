@@ -44,13 +44,23 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
+> **In development: v0.2.0.** The current build tree adds network-wide alerts
+> for adult, phishing, malware, fraud and gambling DNS domains, with local
+> classification, reviewable history and visible monitoring gaps. It also adds
+> opt-in category blocking, maintained lists, a redesigned Recovery page with
+> dashboard-password backups, and consistent card spacing. See the
+> [0.2.0 notes](docs/releases/v0.2.0.md), [DNS risk guide](docs/DNS_RISK_ALERTS.md),
+> [DNS filtering guide](docs/DNS_FILTER.md) and [sidebar review](docs/DASHBOARD_REVIEW_v0.2.0.md). Publication follows the
+> exact-candidate release gates; the released installation instructions below
+> continue to refer to v0.1.9 until v0.2.0 is published.
+
 > **Beta — v0.1.9.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
 > then runs a short first-boot router configuration. v0.1.9 adds opt-in DNS
 > activity statistics (which sites each device looks up, with categories such
-> as Adult highlighted) and read-only MCP insight tools. v0.1.9 appliances take
+> as Adult highlighted) and read-only MCP insight tools. v0.1.8 appliances take
 > v0.1.9 as a normal dashboard web update; v0.1.7 and older appliances still
 > need the signed full distribution installer once. This is still a controlled-pilot Beta, not an unattended
 > pfSense/OpenWrt replacement. See

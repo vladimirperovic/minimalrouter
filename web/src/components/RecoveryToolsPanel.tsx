@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import type { PendingTransaction, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
 import { publishAppliedTransaction } from "../lib/configuration";
+import type { DNSFilterPolicy } from "../api-types";
 
 type Props = {
   config: RouterConfig;
@@ -26,6 +27,7 @@ type BackupPreview = {
   import_id: string;
   expires_in_seconds: number;
   candidate: RouterConfig;
+  dns_filter?: DNSFilterPolicy | null;
 };
 
 async function responseError(response: Response, fallback: string): Promise<string> {
@@ -61,6 +63,8 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
   const [notice, setNotice] = useState("");
   const [pfPreview, setPfPreview] = useState<PfSensePreview | null>(null);
   const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(null);
+  const [olderPassword, setOlderPassword] = useState(false);
+  const [restoreDNS, setRestoreDNS] = useState<DNSFilterPolicy | null>(null);
 
   const clearMessages = () => {
     setNotice("");
@@ -87,38 +91,29 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const currentPassword = String(form.get("current_password") ?? "");
-    const passphrase = String(form.get("backup_passphrase") ?? "");
-    const confirmPassphrase = String(form.get("confirm_backup_passphrase") ?? "");
-    if (passphrase.length < 15) {
-      onError("Backup passphrase must contain at least 15 characters.");
-      return;
-    }
-    if (passphrase !== confirmPassphrase) {
-      onError("Backup passphrases do not match.");
-      return;
-    }
     setBusy("backup-export");
     clearMessages();
     try {
       const response = await apiFetch("/api/v1/backup/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ current_password: currentPassword, backup_passphrase: passphrase }),
+        body: JSON.stringify({ current_password: currentPassword }),
       });
       if (!response.ok) throw new Error(await responseError(response, `Backup export failed (${response.status})`));
       downloadBlob(await response.blob(), "minimalrouter-backup.mrbak");
-      setNotice("Encrypted backup downloaded. Keep the passphrase separately; it is never stored by the router.");
-      formElement.reset();
+      setNotice("Encrypted backup downloaded using your dashboard password. To restore this file later, use the password that was current when you created it.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Backup export failed");
     } finally {
+      formElement.reset();
       setBusy("");
     }
   };
 
   const previewBackup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const file = form.get("backup");
     if (!(file instanceof File) || file.size === 0) {
       onError("Choose a .mrbak backup file first.");
@@ -151,6 +146,7 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
     } catch (error) {
       onError(error instanceof Error ? error.message : "Backup validation failed");
     } finally {
+      formElement.querySelectorAll<HTMLInputElement>('input[type="password"]').forEach(input => { input.value = ""; });
       setBusy("");
     }
   };
@@ -164,11 +160,12 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
       const response = await apiFetch(`/api/v1/import/backup/${encodeURIComponent(backupPreview.import_id)}/apply`, { method: "POST" });
       if (!response.ok) throw new Error(await responseError(response, `Backup restore failed (${response.status})`));
       const body = await response.json().catch(() => ({})) as PendingTransaction;
+      setRestoreDNS(backupPreview.dns_filter ?? null);
       setBackupPreview(null);
       await publishAppliedTransaction(body);
       setNotice(body.state === "AwaitingConfirmation"
         ? "Backup is provisionally active. Use the dashboard confirmation banner to prove the new management path."
-        : "Backup restored successfully.");
+        : backupPreview.dns_filter ? "Router configuration restored. Continue below to restore the DNS protection policy." : "Router configuration restored. This older backup has no network DNS category policy.");
     } catch (error) {
       onError(error instanceof Error ? error.message : "Backup restore failed");
     } finally {
@@ -239,42 +236,58 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
   };
 
   const importedEntries = Object.entries(pfPreview?.report.imported ?? {});
+
+  const restoreDNSPolicy = async () => {
+    if (!restoreDNS) return;
+    setBusy("dns-restore");
+    try {
+      const response = await apiFetch("/api/v1/dns-filter");
+      if (!response.ok) throw new Error("DNS protection is unavailable; restore it after the router is ready.");
+      const current = await response.json() as { policy: DNSFilterPolicy; updating: boolean };
+      if (!current.policy || current.updating) throw new Error("Wait for the current DNS update to finish.");
+      const applied = await apiFetch("/api/v1/dns-filter", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...restoreDNS, revision: current.policy.revision }) });
+      if (!applied.ok) throw new Error(await responseError(applied, "DNS policy restore failed"));
+      setRestoreDNS(null); setNotice("DNS policy restoration requested. Open DNS Filter to verify completion and list availability.");
+    } catch (error) { onError(error instanceof Error ? error.message : "DNS policy restore failed"); }
+    finally { setBusy(""); }
+  };
   const warnings = pfPreview?.report.warnings ?? [];
   const unsupported = pfPreview?.report.unsupported_sections ?? [];
 
   return (
-    <article className="card security-control-card security-recovery-card" aria-labelledby="recovery-tools-title">
+    <article className="recovery-tools" aria-labelledby="recovery-tools-title">
       <div className="card-title-row">
         <div>
           <h3 id="recovery-tools-title">Recovery tools</h3>
-          <p>Encrypted backups, restore validation, pfSense migration and redacted diagnostics.</p>
+          <p>Save a copy outside this appliance. Validate a backup before restoring it.</p>
         </div>
-        <button className="button secondary" disabled={busy !== ""} onClick={() => void downloadDiagnostics()} type="button">{busy === "diagnostics" ? "Building…" : "Download diagnostics"}</button>
       </div>
 
       {notice && <div className="dashboard-callout" role="status"><strong>Operation status</strong><p>{notice}</p></div>}
+      {restoreDNS && <div className="dashboard-callout"><strong>Finish restoring DNS protection</strong><p>Confirm any pending network change first. Then restore {Object.values(restoreDNS.categories).filter(Boolean).length} enabled categories and {restoreDNS.exceptions.length} blocking exceptions. Public lists are downloaded again if needed.</p><button className="button primary" disabled={busy !== ""} onClick={() => void restoreDNSPolicy()} type="button">Restore DNS protection</button></div>}
 
-      <details open>
+      <div className="recovery-workflows">
+      <details className="recovery-workflow" open>
         <summary><span className="demo-recovery-index is-1">1</span><span className="demo-recovery-label">Encrypted Minimal Router backup (.mrbak)</span><span className="demo-recovery-badge is-recommended">Recommended</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={exportBackup}>
-          <div className="form-grid two">
-            <label className="field"><span>Current administrator password</span><input autoComplete="current-password" name="current_password" required type="password" /></label>
-            <label className="field"><span>Backup passphrase</span><input autoComplete="new-password" minLength={15} name="backup_passphrase" required type="password" /></label>
-            <label className="field form-span"><span>Confirm backup passphrase</span><input autoComplete="new-password" minLength={15} name="confirm_backup_passphrase" required type="password" /></label>
-          </div>
-          <p className="form-note">The backup is authenticated and encrypted with AES-GCM using an Argon2id-derived key. The passphrase is never stored on the router.</p>
+          <p className="form-note">Your current dashboard password also encrypts this file. There is no separate backup password.</p>
+          <label className="field"><span>Current administrator password</span><input autoComplete="current-password" minLength={12} name="current_password" required type="password" /></label>
+          <p className="form-note">Save the downloaded .mrbak file somewhere safe. If you change your dashboard password, older files still need the password used when they were created.</p>
+          <p className="form-note">Includes router configuration and the network DNS policy when available. Downloaded lists and activity history are not included. Restore this format on v0.2.0 or later.</p>
           <div className="form-actions"><button className="button primary" disabled={busy !== ""} type="submit">{busy === "backup-export" ? "Encrypting…" : "Export encrypted backup"}</button></div>
         </form>
       </details>
 
-      <details>
+      <details className="recovery-workflow" open>
         <summary><span className="demo-recovery-index is-2">2</span><span className="demo-recovery-label">Restore encrypted backup</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={previewBackup}>
           <div className="form-grid two">
             <label className="field form-span"><span>Backup file</span><input accept=".mrbak,application/json" name="backup" required type="file" /></label>
             <label className="field"><span>Current administrator password</span><input autoComplete="current-password" name="restore_current_password" required type="password" /></label>
-            <label className="field"><span>Backup passphrase</span><input autoComplete="current-password" name="restore_backup_passphrase" required type="password" /></label>
+            <label className="field form-span recovery-password-option"><span><input checked={olderPassword} onChange={event => setOlderPassword(event.target.checked)} type="checkbox" /> This backup uses an older or separate password</span></label>
+            {olderPassword && <label className="field form-span"><span>Password used to create this backup</span><input autoComplete="off" name="restore_backup_passphrase" required type="password" /></label>}
           </div>
+          <p className="form-note">We first check the file and show the settings to restore. Nothing changes until you apply the validated backup.</p>
           <div className="form-actions"><button className="button secondary" disabled={busy !== ""} type="submit">{busy === "backup-preview" ? "Validating…" : "Validate backup"}</button></div>
         </form>
         {backupPreview && (
@@ -282,12 +295,13 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
             <strong>Validated restore candidate</strong>
             <p>Hostname <code>{backupPreview.candidate.system.hostname}</code> · LAN <code>{backupPreview.candidate.lan.ip_address}</code> on <code>{backupPreview.candidate.lan.interface}</code> · WAN <code>{backupPreview.candidate.wan.interface}</code>.</p>
             <p>This preview expires in {Math.round(backupPreview.expires_in_seconds / 60)} minutes and keeps secrets server-side until apply.</p>
+            <p>{backupPreview.dns_filter ? "After restoring and confirming the network configuration, continue with the DNS protection policy. Downloaded lists are rebuilt separately." : "This backup has no network DNS category policy. Existing category controls remain unchanged."}</p>
             <div className="form-actions"><button className="button danger" disabled={busy !== ""} onClick={() => void applyBackup()} type="button">{busy === "backup-apply" ? "Applying…" : "Apply validated backup"}</button></div>
           </div>
         )}
       </details>
 
-      <details>
+      <details className="recovery-workflow recovery-migration">
         <summary><span className="demo-recovery-index is-3">3</span><span className="demo-recovery-label">Migrate from pfSense config.xml</span><span className="demo-recovery-badge is-migration">Migration only</span><span className="demo-recovery-chevron" aria-hidden="true">›</span></summary>
         <form className="settings-form" onSubmit={previewPfSense}>
           <div className="form-grid two">
@@ -310,7 +324,8 @@ export default function RecoveryToolsPanel({ config, onError }: Props) {
           </div>
         )}
       </details>
-      <div className="demo-recovery-legend"><span>ⓘ</span><p><strong>.mrbak</strong> backups are for Minimal Router only.</p><i /><p><strong>pfSense config.xml</strong> is for migration only and is not a Minimal Router backup.</p></div>
+      </div>
+      <section className="recovery-diagnostics card"><div><h3>Diagnostics for troubleshooting</h3><p>Download a redacted report of the appliance state. This report cannot restore your configuration.</p></div><button className="button secondary" disabled={busy !== ""} onClick={() => void downloadDiagnostics()} type="button">{busy === "diagnostics" ? "Building…" : "Download diagnostics"}</button></section>
     </article>
   );
 }

@@ -73,12 +73,63 @@ type DNSCollector struct {
 
 	wake       chan struct{}
 	mu         sync.Mutex
+	writeMu    sync.Mutex
+	generation uint64
+	onLookups  func([]DNSLookup)
+	onClear    func() error
+	status     DNSCollectionStatus
+	writeError string
+	dropped    uint64
+	observed   map[int64]bool
 	daily      map[DNSDailyKey]DNSDailyCount
 	hourly     map[DNSHourlyKey]uint64
 	unitemized map[int64]uint64
 	recent     []DNSRecentLookup
 	recentNext int
 	lastPrune  time.Time
+}
+
+type DNSCollectionStatus struct {
+	State          string     `json:"state"`
+	LastSuccess    *time.Time `json:"last_success"`
+	Error          string     `json:"error,omitempty"`
+	DroppedLookups uint64     `json:"dropped_lookups"`
+}
+
+// SetRiskObserver is configured once, before Run. The observer only receives
+// validated lookups, and must queue work without delaying collection.
+func (c *DNSCollector) SetRiskObserver(lookups func([]DNSLookup), clear func() error) {
+	c.onLookups, c.onClear = lookups, clear
+}
+
+func (c *DNSCollector) Status(now time.Time) DNSCollectionStatus {
+	if c == nil {
+		return DNSCollectionStatus{State: "unavailable"}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := c.status
+	if out.State == "" {
+		out.State = "starting"
+	}
+	if out.State == "active" && (out.LastSuccess == nil || now.Sub(*out.LastSuccess) > 3*time.Minute) {
+		out.State = "stale"
+	}
+	if c.writeError != "" {
+		out.Error = c.writeError
+		if out.State == "active" {
+			out.State = "degraded"
+		}
+	}
+	out.DroppedLookups = c.dropped
+	return out
+}
+
+func (c *DNSCollector) collectionError(message string) {
+	c.mu.Lock()
+	c.status.State = "unavailable"
+	c.status.Error = message
+	c.mu.Unlock()
 }
 
 func NewDNSCollector(store *Store, source DNSSource, settings func() DNSSettings, allowWrite func() bool) *DNSCollector {
@@ -139,27 +190,56 @@ func (c *DNSCollector) Run(ctx context.Context) {
 }
 
 func (c *DNSCollector) collect(ctx context.Context, now time.Time) {
+	c.mu.Lock()
+	generation := c.generation
+	c.mu.Unlock()
 	for page := 0; page < dnsMaxDrainPages; page++ {
 		// Enabling can restart dnsmasq, which takes a few seconds.
 		drainCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		drain, err := c.source.Drain(drainCtx, true)
 		cancel()
 		if err != nil {
+			c.collectionError("DNS collection failed; activity may be missing")
 			if ctx.Err() == nil {
 				log.Printf("[DNS] could not collect DNS activity: %v", err)
 			}
 			return
 		}
-		c.add(now, drain)
-		if !drain.More {
+		if !drain.Enabled {
+			c.collectionError("DNS query logging is not active")
 			return
 		}
+		c.mu.Lock()
+		if generation != c.generation {
+			c.mu.Unlock()
+			return
+		}
+		c.addLocked(now, drain)
+		if c.onLookups != nil {
+			c.onLookups(drain.Lookups)
+		}
+		if !drain.More {
+			at := now.UTC()
+			c.status = DNSCollectionStatus{State: "active", LastSuccess: &at}
+			if c.observed == nil {
+				c.observed = map[int64]bool{}
+			}
+			c.observed[now.UTC().Truncate(time.Hour).Unix()] = true
+			c.mu.Unlock()
+			return
+		}
+		c.mu.Unlock()
 	}
+	c.collectionError("DNS collection backlog exceeded the round limit")
 }
 
 func (c *DNSCollector) add(now time.Time, drain DNSDrain) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.addLocked(now, drain)
+}
+
+func (c *DNSCollector) addLocked(now time.Time, drain DNSDrain) {
 	if c.daily == nil {
 		c.daily = map[DNSDailyKey]DNSDailyCount{}
 		c.hourly = map[DNSHourlyKey]uint64{}
@@ -167,6 +247,7 @@ func (c *DNSCollector) add(now time.Time, drain DNSDrain) {
 	}
 	if drain.Dropped > 0 {
 		c.unitemized[utcDay(now)] += drain.Dropped
+		c.dropped += drain.Dropped
 	}
 	for _, lookup := range drain.Lookups {
 		if lookup.Count == 0 || lookup.Client == "" || lookup.Name == "" {
@@ -214,9 +295,12 @@ func (c *DNSCollector) pendingPairs() int {
 }
 
 func (c *DNSCollector) flush(now time.Time, settings DNSSettings) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
-	batch := DNSFlush{Daily: c.daily, Hourly: c.hourly, Unitemized: c.unitemized}
+	batch := DNSFlush{Daily: c.daily, Hourly: c.hourly, Unitemized: c.unitemized, ObservedHours: c.observed}
 	c.daily, c.hourly, c.unitemized = nil, nil, nil
+	c.observed = nil
 	prune := now.Sub(c.lastPrune) >= dnsPruneInterval
 	if prune {
 		c.lastPrune = now
@@ -226,16 +310,24 @@ func (c *DNSCollector) flush(now time.Time, settings DNSSettings) {
 	// Statistics are nonessential: under critical disk pressure the batch is
 	// discarded rather than competing with configuration writes.
 	if !c.allowWrite() {
+		c.mu.Lock()
+		c.writeError = "History writes paused by storage pressure; activity may be missing"
+		c.mu.Unlock()
 		if !batch.empty() {
 			log.Printf("[DNS] skipped writing DNS activity under storage pressure")
 		}
 		return
 	}
 	var err error
-	if batch.empty() {
-		err = c.store.TouchDNSClock(now)
-	} else {
+	if !batch.empty() {
 		err = c.store.RecordDNS(now, batch)
+		c.mu.Lock()
+		if err == nil {
+			c.writeError = ""
+		} else {
+			c.writeError = "DNS history could not be written; activity may be missing"
+		}
+		c.mu.Unlock()
 	}
 	if err != nil {
 		log.Printf("[DNS] could not record DNS activity: %v", err)
@@ -251,10 +343,21 @@ func (c *DNSCollector) flush(now time.Time, settings DNSSettings) {
 // every round while the feature is off, so a disable followed by a restart
 // still deletes and a failed delete is retried.
 func (c *DNSCollector) disable() {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
+	c.generation++
 	c.daily, c.hourly, c.unitemized = nil, nil, nil
+	c.observed = nil
+	c.status = DNSCollectionStatus{State: "disabled"}
+	c.writeError, c.dropped = "", 0
 	c.recent, c.recentNext = nil, 0
 	c.mu.Unlock()
+	if c.onClear != nil {
+		if err := c.onClear(); err != nil {
+			log.Printf("[DNS] could not clear risk alerts: %v", err)
+		}
+	}
 	has, err := c.store.HasDNSHistory()
 	if err != nil {
 		log.Printf("[DNS] could not read DNS activity state: %v", err)
@@ -272,10 +375,20 @@ func (c *DNSCollector) Clear() error {
 	if c == nil {
 		return nil
 	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
 	c.mu.Lock()
+	c.generation++
 	c.daily, c.hourly, c.unitemized = nil, nil, nil
+	c.observed = nil
 	c.recent, c.recentNext = nil, 0
+	c.writeError, c.dropped = "", 0
 	c.mu.Unlock()
+	if c.onClear != nil {
+		if err := c.onClear(); err != nil {
+			return err
+		}
+	}
 	return c.store.ClearDNS()
 }
 

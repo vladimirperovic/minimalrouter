@@ -95,10 +95,10 @@ test("provisioning preview polls only on the visible WG page", async ({ page, is
 test("Recovery renders once directly and after navigation, in both appearances", async ({ page, isMobile }) => {
   await router(page); await page.goto("/#recovery");
   for (let i = 0; i < 2; i++) {
-    await expect(page.locator("#recovery .security-recovery-card")).toHaveCount(1);
+    await expect(page.locator("#recovery .recovery-tools")).toHaveCount(1);
     await expect(page.getByText("Encrypted Minimal Router backup (.mrbak)", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Toggle appearance", exact: true }).click();
-    await openSection(page, isMobile, "#security"); await expect(page.locator(".security-recovery-card")).toHaveCount(0);
+    await openSection(page, isMobile, "#security"); await expect(page.locator(".recovery-tools")).toHaveCount(0);
     await openSection(page, isMobile, "#recovery");
   }
 });
@@ -155,13 +155,15 @@ test("firmware observed completion reloads once only on its running target and s
   await expect(page.getByText("Update complete", { exact: true })).toBeVisible();
   await page.clock.runFor(2000); expect(r.documents()).toBe(1);
   await advanceFirmwarePoll(page, r, firmwareStatus("first", "succeeded", "v0.1.5", "0.1.5"), 60000);
-  await page.clock.runFor(1000); await expect.poll(r.documents).toBe(2);
+  // The rendered version can precede React's reload effect. Keep the fake
+  // clock moving while waiting, so a later effect is not frozen indefinitely.
+  await expect.poll(async () => { await page.clock.runFor(1000); return r.documents(); }).toBe(2);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(2);
   await openUpdates(page);
   await advanceFirmwarePoll(page, r, firmwareStatus("second", "queued", "v0.1.5", "0.1.6"), 60000);
   await expect(page.getByText("Preparing", { exact: true })).toBeVisible();
   await advanceFirmwarePoll(page, r, firmwareStatus("second", "succeeded", "v0.1.6", "0.1.6"), 3000);
-  await page.clock.runFor(1000); await expect.poll(r.documents).toBe(3);
+  await expect.poll(async () => { await page.clock.runFor(1000); return r.documents(); }).toBe(3);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(3);
 });
 

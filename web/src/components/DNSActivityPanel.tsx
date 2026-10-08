@@ -1,14 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, responseError } from "../lib/api";
 import { useVisiblePolling } from "../lib/useVisiblePolling";
 import { HistoryBars } from "./TrafficInsightsPanel";
 import type { DNSActivity, DNSRecentLookups } from "../api-types";
+import DNSRiskPanel from "./DNSRiskPanel";
+import { useDNSRisk } from "../lib/dnsRisk";
 import "./DNSActivityPanel.css";
 
 // DNS activity is opt-in browsing statistics. routerd stores daily lookup
-// counts per device and site; full hostnames exist only in the in-memory
-// recent list. Categories come from the device-profile service lists, so the
-// same "adult" list that profiles can block is what is highlighted here.
+// counts per address and site. Risk alerts additionally retain matched list
+// domains; individual raw lookups remain in the in-memory recent list.
 
 type Props = {
   busy: boolean;
@@ -36,6 +37,7 @@ function seen(epoch: number) {
 }
 
 export default function DNSActivityPanel({ busy }: Props) {
+  const risk = useDNSRisk();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saving, setSaving] = useState(false);
   const enabled = Boolean(settings?.enabled);
@@ -43,18 +45,26 @@ export default function DNSActivityPanel({ busy }: Props) {
   const [period, setPeriod] = useState("today");
   const [device, setDevice] = useState("");
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [deviceOptions, setDeviceOptions] = useState<DNSActivity["devices"]>([]);
+  const [reload, setReload] = useState(0);
   const [data, setData] = useState<DNSActivity | null>(null);
   const [recent, setRecent] = useState<DNSRecentLookups | null>(null);
   const [error, setError] = useState("");
   const [clearing, setClearing] = useState(false);
   const [notice, setNotice] = useState("");
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(search), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
   const query = useMemo(() => {
     const params = new URLSearchParams({ period });
     if (device) params.set("device", device);
-    if (search) params.set("q", search);
+    if (searchQuery) params.set("q", searchQuery);
     return params.toString();
-  }, [period, device, search]);
+  }, [period, device, searchQuery]);
 
   const load = useCallback(async (signal: AbortSignal) => {
     try {
@@ -69,6 +79,7 @@ export default function DNSActivityPanel({ busy }: Props) {
       if (!Array.isArray(body.sites) || !Array.isArray(body.points)) throw new Error("DNS activity is not available on this firmware");
       if (signal.aborted) return;
       setData(body);
+      if (!device) setDeviceOptions(body.devices);
       setRecent(latest.ok ? await latest.json() as DNSRecentLookups : null);
       setError("");
     } catch (e) {
@@ -78,7 +89,7 @@ export default function DNSActivityPanel({ busy }: Props) {
       setError(e instanceof Error ? e.message : "DNS activity is unavailable");
     }
   }, [query, device]);
-  useVisiblePolling(load, 60000, enabled, query);
+  useVisiblePolling(load, 60000, enabled, `${query}:${reload}`);
 
   const loadSettings = useCallback(async (signal: AbortSignal) => {
     try {
@@ -102,6 +113,8 @@ export default function DNSActivityPanel({ busy }: Props) {
       setRecent(null);
       setError("");
       setNotice(success);
+      setReload(value => value + 1);
+      risk.refresh();
     } catch (e) {
       setNotice("");
       setError(e instanceof Error ? e.message : "DNS activity settings could not be saved");
@@ -111,7 +124,7 @@ export default function DNSActivityPanel({ busy }: Props) {
   };
 
   const toggle = (next: boolean) => {
-    if (!next && !window.confirm("Stop recording DNS activity? All recorded domain history is deleted.")) return;
+    if (!next && !window.confirm("Stop recording DNS activity? All recorded domain history and risk alerts are deleted. Saved exceptions remain.")) return;
     void saveSettings({ available: true, enabled: next, retention_days: retention }, next ? "DNS activity recording enabled. The first lookups appear within a minute." : "DNS activity recording disabled; history is being deleted.");
   };
 
@@ -121,7 +134,7 @@ export default function DNSActivityPanel({ busy }: Props) {
   };
 
   const clearHistory = async () => {
-    if (!window.confirm("Delete all recorded DNS activity now? Recording continues if it is enabled.")) return;
+    if (!window.confirm("Delete all recorded DNS activity and risk alerts now? Recording continues if enabled; saved exceptions remain.")) return;
     setClearing(true);
     try {
       const response = await apiFetch("/api/v1/dns-activity/clear", { method: "POST" });
@@ -129,6 +142,8 @@ export default function DNSActivityPanel({ busy }: Props) {
       setData(null);
       setRecent(null);
       setError("");
+      setReload(value => value + 1);
+      risk.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "DNS activity could not be deleted");
     } finally {
@@ -151,7 +166,6 @@ export default function DNSActivityPanel({ busy }: Props) {
   }, [current]);
   const topDevices = current?.devices.slice(0, 8) ?? [];
   const deviceTotal = Math.max(1, ...topDevices.map((item) => item.lookups));
-  const deviceOptions = data?.devices ?? [];
 
   return (
     <section className="dashboard-section" id="dns-activity">
@@ -160,22 +174,24 @@ export default function DNSActivityPanel({ busy }: Props) {
           <div>
             <p className="eyebrow">Privacy-sensitive</p>
             <h2>DNS activity</h2>
-            <p className="section-copy">See which sites each device looks up. Daily counts per device and site are kept on the router only; individual lookups stay in memory and are never written to disk.</p>
+            <p className="section-copy">Review DNS lookups and risky domains across the network. Daily counts and matched risk domains are stored locally; raw individual lookups stay in memory. Device names are current labels for IP addresses, not proof of who made a request.</p>
           </div>
           <span className={`classic-status-chip ${enabled ? "" : "is-off"}`}>Recording {enabled ? "On" : "Off"}</span>
         </div>
         <dl className="subpage-hero-facts">
-          <div><dt>Collection</dt><dd>{enabled ? error ? "Unavailable" : "Active" : "Disabled"}</dd><small>dnsmasq query log in RAM</small></div>
+          <div><dt>Collection</dt><dd>{enabled ? error ? "Unavailable" : current?.collection?.state || "Checking" : "Disabled"}</dd><small>dnsmasq query log in RAM</small></div>
           <div><dt>Lookups</dt><dd>{current ? count(current.total_lookups) : "—"}</dd><small>{periods.find(([value]) => value === period)?.[1].toLowerCase()}</small></div>
-          <div><dt>Sites</dt><dd>{current ? count(current.site_count) : "—"}</dd><small>registrable domains</small></div>
-          <div><dt>Retention</dt><dd>{retention} days</dd><small>written every 5 minutes</small></div>
+          <div><dt>Sites</dt><dd>{current ? count(current.site_count) : "—"}</dd><small>grouped domains</small></div>
+          <div><dt>Retention</dt><dd>{retention} days</dd><small>counts saved every 5 minutes</small></div>
         </dl>
       </div>
+
+      <DNSRiskPanel busy={busy || saving || clearing} />
 
       <article className="service-inline-control">
         <div>
           <strong>Record domain lookups</strong>
-          <p>Stores which sites each device looks up. Turning it off deletes the recorded history.</p>
+          <p>Stores lookup counts and risk alerts. Turning it off deletes that history. Public category lists download while recording is on.</p>
         </div>
         <label className="checkbox-row"><input checked={enabled} disabled={busy || saving || !settings?.available} onChange={(event) => toggle(event.target.checked)} type="checkbox" /><span>Record DNS activity</span></label>
       </article>
@@ -210,7 +226,7 @@ export default function DNSActivityPanel({ busy }: Props) {
               <div><p className="insights-eyebrow">LOOKUPS OVER TIME</p><h3>{observed && current ? `${count(current.total_lookups)} lookups` : "DNS lookups, over time."}</h3></div>
               <div className="dns-activity-filters">
                 <label className="insights-period"><span className="sr-only">Device</span>
-                  <select value={device} onChange={(event) => { setDevice(event.target.value); setData(null); }}>
+                  <select aria-label="Device" value={device} onChange={(event) => { setDevice(event.target.value); setData(null); }}>
                     <option value="">All devices</option>
                     {device && !deviceOptions.some((item) => item.address === device) && <option value={device}>{device}</option>}
                     {deviceOptions.map((item) => <option key={item.address} value={item.address}>{item.hostname ? `${item.hostname} (${item.address})` : item.address}</option>)}

@@ -6,9 +6,78 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
+**Minimal Router OS v0.2.0 — Beta / release candidate.**
+
+The build tree (`VERSION`, `web/package.json`) targets v0.2.0. This is not a
+publication claim. Exact-candidate CI, ISO and signed-release gates remain
+required under [the release process](RELEASE_PROCESS.md).
+
+Local evidence collected on Windows, 2026-10-08:
+
+- Full `internal/dnsrisk`, `internal/accounting` and `internal/api` test suites
+  passed, including new risk matching/lifecycle and collection-gap regressions.
+- Linux cross-build and `go vet ./...` passed. Deterministic Linux builds of all
+  three bootstrap programs match v0.1.9 byte-for-byte for both amd64 and arm64.
+- Repeating the bootstrap build with the release toolchain, Go 1.25.13, also
+  matches all six SHA-256 values in the published v0.1.9 distribution manifests.
+  All 12 installed non-bootstrap integration files match that published AMD64
+  manifest. This checks published payload compatibility, not only source parity
+  under one local compiler. No update was applied to an owner's appliance.
+- Production dashboard build, lint and all 62 Vitest tests passed. The focused
+  DNS/overview/insights browser suite passed 88 cases across desktop/mobile
+  Chromium and WebKit. DNS cases cover Noema/Studio, light/dark, review/ignore/
+  undo, filtering, pagination, deletion, disable, runtime labels and failure
+  states. The OpenAPI YAML parses and all local schema references resolve.
+- An opt-in live public-feed test downloaded/indexed all five Block List Project
+  lists: adult 953,182; phishing 190,185; malware 2,655,237; fraud 256,183;
+  gambling 278,854 accepted domains. Active indexes used about 110 MiB. These
+  are source-compatibility observations on this workstation, not appliance
+  performance guarantees or evidence that lists are complete.
+- Native Windows cannot run the full Linux-only command test suite; Linux CI
+  remains required. The existing Node precompression symlink test also requires
+  symlink permission unavailable in this Windows session.
+
+No real-appliance DNS risk monitoring or ISP evidence has been collected for
+v0.2.0. Golden installer/boot behavior is unchanged, with qualification still
+required on the exact candidate. The complete sidebar review and follow-up
+scope are in [DASHBOARD_REVIEW_v0.2.0.md](DASHBOARD_REVIEW_v0.2.0.md).
+The subsequent [DNS Filter review](DNS_FILTER_REVIEW.md) led to a separate
+blocking and Recovery implementation on the same candidate branch:
+
+- The DNS Filter service, API and portable v2 backup suites pass locally.
+  New regression coverage includes failed refresh retention, stale edits,
+  domain injection rejection, 12-character dashboard-password backup round
+  trips, legacy imports and an explicit second-phase DNS policy restore.
+- The opt-in HaGeZi source check accepted threats 207,189; ads 57,229;
+  adult 84,539; gambling 174,006 entries (522,963 combined, about 12.3 MiB
+  of SQLite indexes). This is source compatibility on a workstation, not
+  appliance memory or latency qualification.
+- Desktop/mobile Chromium and WebKit pass the new DNS Filter/Recovery cases,
+  including card-gap measurements through all 15 sidebar pages, both designs
+  and both themes. Card gaps are 24 px on desktop and 16 px below 701 px.
+  Production build, lint and 62 Vitest cases also pass. Windows screenshot
+  baselines were reviewed and updated; Linux runs layout assertions without
+  comparing Windows pixel baselines.
+- [Linux network laboratory at f18bce4](https://github.com/vladimirperovic/minimalrouter/actions/runs/37756301088)
+  passes native dnsmasq A/AAAA/CNAME/SVCB/HTTPS blocking, descendant and
+  bundled-list exceptions, local-record priority, exact resolver generation
+  checks, and atomic nftables service-set replacement with remaining lifetime.
+  Both new test logs were inspected for PASS. The preceding run at 69b1b2d
+  incorrectly masked two fixture failures through a shell pipeline; the
+  fixtures and pipeline failure propagation are corrected in f18bce4.
+- Bootstrap compatibility, race tests and vet passed on Linux for 69b1b2d.
+  Required checks must pass again on the final PR head before publication.
+
+The blocking feature and recovery changes are described in
+[DNS_FILTER.md](DNS_FILTER.md) and [RECOVERY.md](RECOVERY.md). Real appliance
+RAM/latency, ISP behavior and a dashboard update on the owner's VM remain
+unverified; automated laboratory evidence is not real-lab validation.
+
+## v0.1.9 line (previous release)
+
 **Minimal Router OS v0.1.9 — Beta / controlled pilot.**
 
-The build tree (`VERSION`, `web/package.json`) is v0.1.9. It is not recommended
+The v0.1.9 release build tree targeted v0.1.9. It is not recommended
 as an unattended replacement for pfSense/OpenWrt.
 
 v0.1.9 adds opt-in DNS activity statistics and read-only MCP insight tools. It

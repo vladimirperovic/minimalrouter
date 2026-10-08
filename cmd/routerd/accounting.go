@@ -10,6 +10,7 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/api"
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/dnsactivity"
+	"github.com/vladimirperovic/minimalrouter/internal/dnsrisk"
 	"github.com/vladimirperovic/minimalrouter/internal/storage"
 )
 
@@ -80,6 +81,25 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 		return settings
 	}, func() bool { return storage.AllowNonessentialWrite(dataDir) })
 	server.ConfigureDNSActivity(dnsCollector)
+	riskDone := make(chan struct{})
+	riskService, riskErr := dnsrisk.Open(dataDir, func() (bool, int, error) {
+		settings, err := store.DNSSettings()
+		return settings.Enabled, settings.RetentionDays, err
+	}, func() bool { return storage.AllowNonessentialWrite(dataDir) })
+	if riskErr != nil {
+		log.Printf("[DNS] Risk monitor unavailable: %v", riskErr)
+		close(riskDone)
+	} else {
+		server.ConfigureDNSRisk(riskService)
+		dnsCollector.SetRiskObserver(func(lookups []accounting.DNSLookup) {
+			batch := make([]dnsrisk.Lookup, 0, len(lookups))
+			for _, l := range lookups {
+				batch = append(batch, dnsrisk.Lookup{Name: l.Name, Address: l.Client, Count: l.Count, At: l.LastSeen})
+			}
+			riskService.Submit(batch)
+		}, riskService.Clear)
+		go func() { defer close(riskDone); riskService.Run(ctx) }()
+	}
 	dnsDone := make(chan struct{})
 	go func() {
 		defer close(dnsDone)
@@ -91,6 +111,13 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 		<-done
 		<-firewallDone
 		<-dnsDone
+		<-riskDone
+		server.ConfigureDNSRisk(nil)
+		if riskService != nil {
+			if err := riskService.Close(); err != nil {
+				log.Printf("[DNS] Could not close risk monitor: %v", err)
+			}
+		}
 		server.ConfigureDNSActivity(nil)
 		server.ConfigureAccountingStore(nil)
 		if err := store.Close(); err != nil {

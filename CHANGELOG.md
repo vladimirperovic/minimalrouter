@@ -6,7 +6,38 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.2.0] — release candidate
+
+### Added
+
+- Opt-in network DNS category blocking with maintained HaGeZi compact lists,
+  explicit subtree exceptions, a local domain checker, list freshness and
+  resolver-generation verification. Failed/interrupted activation retains or
+  restores the prior policy.
+- Redesigned Recovery with a single dashboard password for encrypted exports,
+  legacy backup import and portable network DNS policy restoration.
+- Minute-precise schedule editing and visible DHCP-reservation guidance.
+
+- Network-wide DNS risk alerts for adult, phishing, malware, fraud and gambling
+  domains, using locally indexed Block List Project lists. Monitoring follows
+  the existing DNS activity opt-in and works across changing client addresses.
+- New/all/category alert filters, pagination, review state, removable exact
+  domain/category exceptions and visible list freshness/update failures.
+  Alerts appear in the dashboard bell, sidebar and cross-page summary.
+- Daily HTTPS list refresh, validated replacement with last-good fallback,
+  bounded disk indexes, storage-pressure checks and visible coverage gaps.
+- Operator documentation and a review of every sidebar page, with prioritized
+  follow-up functions in `docs/DASHBOARD_REVIEW_v0.2.0.md`.
+
 ### Fixed
+
+- Concurrent DNS profile edits retain their original revision; renaming retains
+  exact schedule times and editing no longer enables the global filter.
+- DNS blocking returns NXDOMAIN for all record types, and the broad Facebook
+  Graph API host is removed from the bundled list. Dynamic service sets preserve
+  unexpired destinations through atomic firewall replacement and have size limits.
+- Consistent card spacing across every sidebar page: 24 px desktop and 16 px
+  mobile, including the Overview charts/device-list boundary.
 
 - Golden-image appliances installed without PPPoE could not enable it later:
   OpenRC's `modules` service was not in the boot runlevel, so `ppp_generic`
@@ -16,6 +47,25 @@ compatibility may still change between releases.
   router's fixed kernel module list before every component preflight, which
   also repairs existing v0.1.9 appliances through a web update. The installed
   cold-boot E2E now asserts `/dev/ppp` and the boot-runlevel service.
+
+- DNS collection failures no longer create fake observed-zero history. The
+  dashboard reports actual collection status and storage failures; clearing
+  history invalidates work that was already in flight.
+- DNS device choices remain available after selecting one address, site search
+  is debounced, and history/settings actions refresh the visible data.
+- WAN status uses measured connectivity; DHCP, Wi-Fi and proxy configuration
+  labels no longer imply a measured running service. DynDNS distinguishes a
+  running updater from proof that an external DNS record is in sync.
+
+### Privacy and upgrade
+
+- Matched list domains and last observed IPs are retained locally as risk alerts,
+  following DNS retention and a 10,000-record bound. Raw individual queries
+  remain in memory. Disabling/clearing deletes alerts; saved exceptions remain.
+  No observed queries are sent to a classification provider. See `PRIVACY.md`.
+- Bootstrap binaries remain byte-identical to v0.1.9 on amd64 and arm64 in
+  deterministic local builds. Golden installation and signing behavior remain
+  unchanged. Publication still requires the exact-candidate release gates.
 
 ## [v0.1.9] — 2026-10-07
 

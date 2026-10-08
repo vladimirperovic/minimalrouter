@@ -36,10 +36,11 @@ func GenerateAdBlockConf(cfg *config.SystemConfig, hostsData []byte) (string, er
 		domains = BuiltinBlocklist()
 	}
 
-	// Global block: sinkhole all listed domains to 0.0.0.0
-	buf.WriteString("# ── Global DNS Sinkhole Blocklist ──\n")
+	// An empty address returns NXDOMAIN for every record type, including
+	// AAAA, HTTPS and SVCB. An IPv4-only sinkhole forwards other types.
+	buf.WriteString("# Global DNS blocklist (NXDOMAIN for all record types)\n")
 	for _, d := range domains {
-		buf.WriteString(fmt.Sprintf("address=/%s/0.0.0.0\n", d))
+		buf.WriteString(fmt.Sprintf("address=/%s/\n", d))
 	}
 	buf.WriteString(fmt.Sprintf("\n# Total blocked domains: %d\n", len(domains)))
 
@@ -162,7 +163,6 @@ func BuiltinBlocklist() []string {
 		"track.google.com",
 		"stats.g.doubleclick.net",
 		"pixel.facebook.com",
-		"graph.facebook.com",
 		"tr.snapchat.com",
 		"ads.tiktok.com",
 		"analytics.tiktok.com",

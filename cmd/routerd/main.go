@@ -127,6 +127,8 @@ func main() {
 	defer stopGatewayMonitoring()
 	stopAccounting := configureAccounting(server, engine, absDir)
 	defer stopAccounting()
+	stopDNSFilter := configureDNSFilter(server, absDir)
+	defer stopDNSFilter()
 	const firmwareKeyPath = "/etc/minimalrouter/firmware-signing.pub"
 	if trustedKey, err := firmware.LoadTrustedPublicKey(firmwareKeyPath); err == nil {
 		server.ConfigureFirmwareTrust(trustedKey, "/var/lib/minimalrouter-update/staging")

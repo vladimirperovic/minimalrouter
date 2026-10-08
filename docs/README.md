@@ -3,6 +3,11 @@
 Minimal Router OS is currently **Beta (v0.1.9)**. The preferred AMD64/Proxmox
 first-install path is the Golden Appliance ISO.
 
+The build tree is preparing **v0.2.0**. See [candidate notes](releases/v0.2.0.md),
+[DNS risk monitoring](DNS_RISK_ALERTS.md), and the
+[complete sidebar review](DASHBOARD_REVIEW_v0.2.0.md). Released installation
+instructions remain on v0.1.9 until the candidate passes publication gates.
+
 ## Start here
 
 - [`../README.md`](../README.md) — project overview and v0.1.9 quick start
@@ -19,6 +24,7 @@ first-install path is the Golden Appliance ISO.
 
 - [`DYNAMIC_DNS.md`](DYNAMIC_DNS.md) — No-IP and Cloudflare DDNS
 - [`DEVICE_PROFILES.md`](DEVICE_PROFILES.md) — DNS Filter/device profiles
+- [`DNS_RISK_ALERTS.md`](DNS_RISK_ALERTS.md) — network-wide DNS risk alerts and their limits
 - [`APPLIANCE_HEALTH.md`](APPLIANCE_HEALTH.md) — aggregate health states
 - [`STORAGE_PRESSURE.md`](STORAGE_PRESSURE.md) — disk-pressure behavior
 

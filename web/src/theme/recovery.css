@@ -1,0 +1,27 @@
+:root:root .dashboard-app .recovery-tools { display:grid; gap:var(--card-gap); min-width:0; }
+:root:root .dashboard-app .recovery-tools > .card-title-row { padding:0; background:none; border:0; }
+:root:root .dashboard-app .recovery-workflows { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--card-gap); align-items:start; }
+:root:root .dashboard-app .recovery-workflow { margin:0; border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); overflow:hidden; min-width:0; }
+:root:root .dashboard-app .recovery-workflow > summary { display:flex; gap:12px; align-items:center; cursor:pointer; padding:var(--card-padding); list-style:none; min-height:80px; font-weight:600; }
+:root:root .dashboard-app .recovery-workflow > summary::-webkit-details-marker { display:none; }
+:root:root .dashboard-app .recovery-workflow > summary:focus-visible { outline:2px solid var(--classic-azure); outline-offset:-4px; }
+:root:root .dashboard-app .recovery-workflow[open] > summary { border-bottom:1px solid var(--separator); }
+:root:root .dashboard-app .recovery-workflow .demo-recovery-label { flex:1; min-width:0; }
+:root:root .dashboard-app .recovery-workflow .demo-recovery-index { background:var(--surface-raised); color:var(--text-secondary); }
+:root:root .dashboard-app .recovery-workflow .demo-recovery-badge { display:none; }
+:root:root .dashboard-app .recovery-workflow .demo-recovery-chevron { position:static; transform:rotate(0); }
+:root:root .dashboard-app .recovery-workflow[open] .demo-recovery-chevron { transform:rotate(90deg); }
+:root:root .dashboard-app .recovery-workflow .form-grid.two { grid-template-columns:1fr; }
+:root:root .dashboard-app .recovery-workflow .form-note { margin:0; line-height:1.65; }
+:root:root .dashboard-app .recovery-workflow > .dashboard-callout { margin:0 var(--card-padding) var(--card-padding); }
+:root:root .dashboard-app .recovery-password-option input { width:auto; min-height:0; margin-right:8px; }
+:root:root .dashboard-app .recovery-password-option span { display:flex; align-items:center; }
+:root:root .dashboard-app .recovery-migration { grid-column:1/-1; }
+:root:root .dashboard-app .recovery-diagnostics { display:flex; align-items:center; justify-content:space-between; gap:var(--card-gap); padding:var(--card-padding); }
+:root:root .dashboard-app .recovery-diagnostics p { margin:8px 0 0; color:var(--text-secondary); }
+:root:root .dashboard-app .recovery-diagnostics button { flex-shrink:0; }
+@media(max-width:800px) {
+  :root:root .dashboard-app .recovery-workflows { grid-template-columns:1fr; }
+  :root:root .dashboard-app .recovery-diagnostics { flex-direction:column; align-items:stretch; }
+  :root:root .dashboard-app .recovery-workflow > summary { padding:var(--card-padding-compact); }
+}
