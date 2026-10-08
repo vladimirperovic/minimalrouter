@@ -339,9 +339,9 @@ func probeResponder(t *testing.T, drops int, revision uint64) string {
 }
 
 func TestDNSFilterProbeRetriesUntilServing(t *testing.T) {
-	oldTimeout := filterProbeTimeout
-	filterProbeTimeout = 5 * time.Second
-	t.Cleanup(func() { filterProbeTimeout = oldTimeout })
+	oldTimeout, oldAttempt := filterProbeTimeout, filterProbeAttemptTimeout
+	filterProbeTimeout, filterProbeAttemptTimeout = 6*time.Second, 200*time.Millisecond
+	t.Cleanup(func() { filterProbeTimeout, filterProbeAttemptTimeout = oldTimeout, oldAttempt })
 	// The first five exchanges are lost as if the restarted resolver had not
 	// started answering yet; a single-shot probe would fail this activation.
 	address := probeResponder(t, 5, 7)

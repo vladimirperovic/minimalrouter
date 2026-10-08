@@ -400,9 +400,14 @@ func filterResolverHealthy(revision uint64) error {
 // gap is lost on UDP and would roll back a healthy activation every time.
 const filterProbeInterval = 250 * time.Millisecond
 
-// filterProbeTimeout bounds one generation probe. It is a variable (like the
-// other filter hooks) so tests can shrink it without slowing the suite.
-var filterProbeTimeout = 15 * time.Second
+// filterProbeTimeout bounds one generation probe, and filterProbeAttemptTimeout
+// bounds a single exchange inside it. A lost packet must cost one short
+// attempt rather than the whole budget: both are variables (like the other
+// filter hooks) so tests can shrink them without slowing the suite.
+var (
+	filterProbeTimeout        = 15 * time.Second
+	filterProbeAttemptTimeout = time.Second
+)
 
 func filterResolverHealthyAt(revision uint64, address string) error {
 	deadline := time.Now().Add(filterProbeTimeout)
@@ -426,7 +431,7 @@ func probeFilterRevisionOnce(revision uint64, address string) error {
 		return err
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(filterProbeAttemptTimeout))
 	name, _ := dnsmessage.NewName(filterHealthName)
 	msg := dnsmessage.Message{Header: dnsmessage.Header{ID: 23719}, Questions: []dnsmessage.Question{{Name: name, Type: dnsmessage.TypeTXT, Class: dnsmessage.ClassINET}}}
 	packet, _ := msg.Pack()
