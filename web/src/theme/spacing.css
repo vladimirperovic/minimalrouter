@@ -10,8 +10,12 @@
   margin-block: 0;
   min-width: 0;
 }
-/* Overview and its device list are separate React sections, but one page. */
-:root:root .dashboard-app .dashboard-main > :is(.classic-dashboard-overview,.studio-overview) + .overview-devices {
+/* Sections and cross-page alerts share the same external spacing, including
+   the risk summary between Overview charts and its device list. */
+:root:root .dashboard-app .dashboard-main > :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) {
+  margin-block: 0;
+}
+:root:root .dashboard-app .dashboard-main > :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) + :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.dns-risk-callout,.dashboard-alert) {
   margin-top: var(--card-gap);
 }
 :root:root .dashboard-app :is(.overview-content-grid,.security-settings-columns,.dns-settings-columns,.settings-columns,.security-full-width,.classic-security-page > .classic-hero-card,.insights-two-columns,.studio-hero-grid,.studio-detail-grid,.studio-bottom-grid) {

@@ -41,10 +41,37 @@ No real-appliance DNS risk monitoring or ISP evidence has been collected for
 v0.2.0. Golden installer/boot behavior is unchanged, with qualification still
 required on the exact candidate. The complete sidebar review and follow-up
 scope are in [DASHBOARD_REVIEW_v0.2.0.md](DASHBOARD_REVIEW_v0.2.0.md).
-The subsequent [DNS Filter review](DNS_FILTER_REVIEW.md) records existing
-profile-edit defects reproduced in a browser and an unresolved service-set
-continuity concern from code review. These must not be described as fixed by
-the DNS risk monitoring feature.
+The subsequent [DNS Filter review](DNS_FILTER_REVIEW.md) led to a separate
+blocking and Recovery implementation on the same candidate branch:
+
+- The DNS Filter service, API and portable v2 backup suites pass locally.
+  New regression coverage includes failed refresh retention, stale edits,
+  domain injection rejection, 12-character dashboard-password backup round
+  trips, legacy imports and an explicit second-phase DNS policy restore.
+- The opt-in HaGeZi source check accepted threats 207,189; ads 57,229;
+  adult 84,539; gambling 174,006 entries (522,963 combined, about 12.3 MiB
+  of SQLite indexes). This is source compatibility on a workstation, not
+  appliance memory or latency qualification.
+- Desktop/mobile Chromium and WebKit pass the new DNS Filter/Recovery cases,
+  including card-gap measurements through all 15 sidebar pages, both designs
+  and both themes. Card gaps are 24 px on desktop and 16 px below 701 px.
+  Production build, lint and 62 Vitest cases also pass. Windows screenshot
+  baselines were reviewed and updated; Linux runs layout assertions without
+  comparing Windows pixel baselines.
+- [Linux network laboratory at f18bce4](https://github.com/vladimirperovic/minimalrouter/actions/runs/37756301088)
+  passes native dnsmasq A/AAAA/CNAME/SVCB/HTTPS blocking, descendant and
+  bundled-list exceptions, local-record priority, exact resolver generation
+  checks, and atomic nftables service-set replacement with remaining lifetime.
+  Both new test logs were inspected for PASS. The preceding run at 69b1b2d
+  incorrectly masked two fixture failures through a shell pipeline; the
+  fixtures and pipeline failure propagation are corrected in f18bce4.
+- Bootstrap compatibility, race tests and vet passed on Linux for 69b1b2d.
+  Required checks must pass again on the final PR head before publication.
+
+The blocking feature and recovery changes are described in
+[DNS_FILTER.md](DNS_FILTER.md) and [RECOVERY.md](RECOVERY.md). Real appliance
+RAM/latency, ISP behavior and a dashboard update on the owner's VM remain
+unverified; automated laboratory evidence is not real-lab validation.
 
 ## v0.1.9 line (previous release)
 

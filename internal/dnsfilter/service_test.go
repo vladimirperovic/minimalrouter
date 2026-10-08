@@ -175,3 +175,24 @@ func TestDecodeMetadataRejectsTrailingUnknownAndOversized(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingInstalledIndexSchedulesRepairButDisabledPolicyDoesNot(t *testing.T) {
+	p := DefaultPolicy()
+	p.Categories["adult"] = true
+	helper := &fakeHelper{state: Applied{Policy: p, Sources: map[string]string{"adult": strings.Repeat("a", 64)}}}
+	s := &Service{dir: t.TempDir(), helper: helper}
+	status, err := s.Status(context.Background())
+	if err != nil || status.NextRefreshAt == 0 || status.NextRefreshAt > time.Now().Unix() {
+		t.Fatalf("lost index never repairs: %+v %v", status, err)
+	}
+	s.lastAttempt = time.Now()
+	status, err = s.Status(context.Background())
+	if err != nil || status.NextRefreshAt != s.lastAttempt.Add(6*time.Hour).Unix() {
+		t.Fatal("missing-index repair lost retry backoff")
+	}
+	helper.state.Policy = DefaultPolicy()
+	status, err = s.Status(context.Background())
+	if err != nil || status.NextRefreshAt != 0 {
+		t.Fatal("disabled policy reports a scheduled refresh")
+	}
+}

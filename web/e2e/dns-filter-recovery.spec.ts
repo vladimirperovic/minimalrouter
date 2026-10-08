@@ -21,7 +21,7 @@ async function fixture(page: Page) {
     }
     if (path === "/api/v1/dns-filter/check") return json({ domain: body.domain, action: "Block", exception: false, healthy: true, matches: [{ category: "adult", domain: "example.com", enabled: true }] });
     if (path === "/api/v1/backup/export") return route.fulfill({ contentType: "application/vnd.minimalrouter.backup+json", headers: { "Content-Disposition": "attachment; filename=test.mrbak" }, body: "encrypted test fixture" });
-    if (path === "/api/v1/backup/import/preview") return json({ import_id: "preview", expires_in_seconds: 600, candidate: config, dns_filter: policy });
+    if (path === "/api/v1/backup/import/preview") return json({ import_id: "preview", expires_in_seconds: 600, candidate: config, dns_filter: { revision: 2, categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] } });
     if (path === "/api/v1/import/backup/preview/apply") return json({ state: "Committed" });
     const responses: Record<string, unknown> = { "/api/v1/auth/session": { authenticated: true, csrf_token: "test" }, "/api/v1/system": SYSTEM, "/api/v1/health": HEALTH, "/api/v1/gateway/summary": GW_SUMMARY, "/api/v1/gateway/settings": GW_SETTINGS, "/api/v1/snapshots": [], "/api/v1/devices/pauses": { pauses: [] } };
     return json(responses[path] ?? {});
@@ -80,16 +80,32 @@ test("Recovery exports with one dashboard password and keeps legacy restore opti
   await expect(page.getByLabel("Password used to create this backup")).toBeVisible();
 });
 
+test("Recovery restores DNS policy only after the separate explicit continuation", async ({ page }) => {
+  const state = await fixture(page); await page.goto("/#recovery");
+  await page.getByLabel("Backup file", { exact: true }).setInputFiles({ name: "test.mrbak", mimeType: "application/json", buffer: Buffer.from("encrypted fixture") });
+  await page.locator('input[name="restore_current_password"]').fill("Abcd1234!?xy");
+  await page.getByRole("button", { name: "Validate backup", exact: true }).click();
+  await expect(page.getByText("Validated restore candidate")).toBeVisible();
+  await expect(page.locator('input[name="restore_current_password"]')).toHaveValue("");
+  await page.getByRole("button", { name: "Apply validated backup", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Restore DNS protection", exact: true })).toBeVisible();
+  expect(state.writes.some(write => write.path === "/api/v1/dns-filter")).toBe(false);
+  await page.getByRole("button", { name: "Restore DNS protection", exact: true }).click();
+  await expect(page.getByText(/DNS policy restoration requested/)).toBeVisible();
+  expect(state.writes.find(write => write.path === "/api/v1/dns-filter")!.body).toEqual({ revision: 7, categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] });
+});
+
 for (const design of ["noema", "studio"]) for (const mode of ["light", "dark"]) {
   test(`${design} ${mode}: page cards have a consistent gap including the Overview boundary`, async ({ page, isMobile }) => {
     await fixture(page); await page.addInitScript(({ design, mode }) => { localStorage.setItem("minimalrouter:design", design); localStorage.setItem("minimalrouter:theme", mode); }, { design, mode });
     for (const section of ["overview", "gateway", "network", "firewall", "security", "dns-filter", "qos", "wireguard", "cloudflare", "wifi", "traffic", "dns-activity", "squid", "recovery", "logs"]) {
       await page.goto(`/#${section}`); await expect(page.locator(".dashboard-app")).toBeVisible();
+      await expect(page.locator(`.dashboard-navigation a[href="#${section}"]`)).toHaveClass(/is-active/);
       const result = await page.locator(".dashboard-main").evaluate(main => {
         const required = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--card-gap"));
         const errors: string[] = [];
-        for (const parent of main.querySelectorAll(".dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.overview-content-grid,.recovery-workflows,.dns-protection-columns")) {
-          const items = [...parent.children].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).position !== "fixed"; });
+        for (const parent of [main, ...main.querySelectorAll(".dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.overview-content-grid,.recovery-workflows,.dns-protection-columns")]) {
+          const items = [...parent.children].filter(el => { const r = el.getBoundingClientRect(); return !el.matches(".dashboard-topbar") && r.width > 0 && r.height > 0 && getComputedStyle(el).position !== "fixed"; });
           for (let i = 1; i < items.length; i++) {
             const a = items[i - 1].getBoundingClientRect(), b = items[i].getBoundingClientRect();
             if (b.y > a.y + 2 && b.x < a.right && a.x < b.right && b.y - a.bottom < required - 1) errors.push(`${parent.className}: ${items[i-1].className} -> ${items[i].className}: ${Math.round(b.y - a.bottom)}px`);

@@ -87,6 +87,9 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		meta, _, err := s.catalog(source, state.Sources[source.ID])
 		if err != nil && state.Policy.Categories[source.ID] {
 			meta.Error = "Installed list index unavailable; domain checks cannot verify it"
+			// The root-owned rules remain active, but a lost local index must
+			// schedule rebuilding rather than disabling automatic refresh forever.
+			status.NextRefreshAt = time.Now().Unix()
 		}
 		status.SourcesStatus = append(status.SourcesStatus, meta)
 		if state.Policy.Categories[source.ID] && meta.UpdatedAt > 0 && (status.NextRefreshAt == 0 || meta.UpdatedAt+86400 < status.NextRefreshAt) {
@@ -96,7 +99,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	s.mu.Lock()
 	status.Updating = s.busy || generation != s.generation
 	status.Error = s.lastError
-	if !s.lastAttempt.IsZero() && status.NextRefreshAt < s.lastAttempt.Add(6*time.Hour).Unix() {
+	if status.NextRefreshAt > 0 && !s.lastAttempt.IsZero() && status.NextRefreshAt < s.lastAttempt.Add(6*time.Hour).Unix() {
 		status.NextRefreshAt = s.lastAttempt.Add(6 * time.Hour).Unix()
 	}
 	s.mu.Unlock()

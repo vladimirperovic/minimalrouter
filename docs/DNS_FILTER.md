@@ -40,6 +40,8 @@ Blocking exceptions cover the named domain **and all subdomains**. They have an
 optional reason and remain until removed. Exact-only or expiring blocking
 exceptions are not offered. There is a 200-exception bound. Use the narrowest
 domain that fixes an application. Changes take effect only after Apply.
+These exceptions also override matching rules in the bundled ad/tracker list;
+they do not bypass a device's service schedule.
 
 **Check a domain** matches the installed catalog locally and identifies the
 matching parent/list. It does not perform an Internet lookup. The result is a

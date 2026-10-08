@@ -99,6 +99,23 @@ that access succeeded, or that a device is infected. Background apps and adverts
 also perform lookups. Lists can be wrong or incomplete. No matches must never be
 treated as proof that activity was safe.
 
+## Network DNS blocking
+
+The separate v0.2.0 DNS Filter categories are off by default. Enabling a category
+downloads its fixed public HaGeZi list through jsDelivr over HTTPS. The provider
+sees the download connection; query names and client addresses are not uploaded.
+Local category indexes retain public domains. The domain checker reads these
+indexes locally without sending the checked domain to an external service.
+
+Blocking exceptions and their optional reasons are administrator settings stored
+on the appliance. They remain until removed and are included in portable v2
+encrypted backups alongside the category policy. They are distinct from DNS
+Activity notification exceptions. Local configuration snapshots and legacy v1
+backups do not contain this network policy; downloaded lists and browsing history
+are excluded from both backup formats. New portable files use the dashboard
+password current at export time for encryption. Older files continue to need
+their original creation password after a dashboard password change.
+
 Read-only MCP clients configured with the administrator password can read
 this history (see `docs/MCP.md`). Lookups that bypass the router's resolver
 (encrypted DNS in the browser, VPNs, mobile data) are not seen. Recording other people's browsing may be
