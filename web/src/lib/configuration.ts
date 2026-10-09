@@ -21,7 +21,7 @@ let generation = 0;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export function useConfiguration() { return useSyncExternalStore(subscribe, () => snapshot); }
-export function clearConfiguration() { generation++; snapshot = null; listeners.forEach(listener => listener()); }
+export function clearConfiguration() { generation++; snapshot = null; listeners.forEach(listener => listener()); window.dispatchEvent(new Event("minimalrouter:configuration-cleared")); }
 
 export async function readConfiguration(init: RequestInit = {}): Promise<RouterConfig> {
   const requestGeneration = generation;

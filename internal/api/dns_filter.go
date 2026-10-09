@@ -2,14 +2,27 @@ package api
 
 import (
 	"net/http"
+	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/dnsfilter"
-	"github.com/vladimirperovic/minimalrouter/internal/services"
+	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
-func (s *Server) ConfigureDNSFilter(service *dnsfilter.Service) { s.dnsFilter = service }
+func (s *Server) ConfigureDNSFilter(service *dnsfilter.Service) {
+	s.dnsFilter = service
+	if service != nil {
+		service.SetObserver(func(op dnsfilter.Operation) {
+			event := "dns_filter." + op.State
+			if op.State == "running" {
+				event = "dns_filter." + op.Kind + "_requested"
+			}
+			s.appendAudit(event, op.Actor, map[string]string{"operation_id": op.ID, "kind": op.Kind, "phase": op.Phase, "base_revision": strconv.FormatUint(op.BaseRevision, 10), "applied_revision": strconv.FormatUint(op.AppliedRevision, 10), "error": op.Error})
+		})
+	}
+}
 
 func (s *Server) registerDNSFilterRoutes(mux *http.ServeMux) {
 	gate := func(next http.HandlerFunc) http.HandlerFunc {
@@ -19,6 +32,9 @@ func (s *Server) registerDNSFilterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/dns-filter", gate(s.handleDNSFilterSave))
 	mux.HandleFunc("POST /api/v1/dns-filter/refresh", gate(s.handleDNSFilterRefresh))
 	mux.HandleFunc("POST /api/v1/dns-filter/check", gate(s.handleDNSFilterCheck))
+	mux.HandleFunc("GET /api/v1/dns-filter/check", gate(s.handleDNSFilterCheck))
+	mux.HandleFunc("GET /api/v1/dns-filter/profiles", gate(s.handleDNSFilterProfiles))
+	mux.HandleFunc("GET /api/v1/dns-filter/operations", gate(s.handleDNSFilterOperations))
 }
 
 func (s *Server) requireDNSFilter(w http.ResponseWriter) bool {
@@ -40,9 +56,8 @@ func (s *Server) handleDNSFilterStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	writeDNSActivityJSON(w, struct {
 		dnsfilter.Status
-		RouterTime string `json:"router_time"`
-		Timezone   string `json:"timezone"`
-	}{status, time.Now().Format(time.RFC3339), time.Now().Location().String()})
+		dnsFilterContext
+	}{status, s.dnsFilterContext()})
 }
 func (s *Server) handleDNSFilterSave(w http.ResponseWriter, r *http.Request) {
 	if !s.requireDNSFilter(w) {
@@ -57,15 +72,19 @@ func (s *Server) handleDNSFilterSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	if err := s.dnsFilter.Start(policy, false); err != nil {
+	if blockers := s.dnsFilterContext().Blockers; len(blockers) > 0 {
+		http.Error(w, blockers[0], 409)
+		return
+	}
+	op, err := s.dnsFilter.StartOperation(policy, false, auditActor(r.RemoteAddr))
+	if err != nil {
 		http.Error(w, err.Error(), 409)
 		return
 	}
-	s.appendAudit("dns_filter.update_requested", auditActor(r.RemoteAddr), nil)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusAccepted)
-	writeDNSActivityJSON(w, map[string]bool{"updating": true})
+	writeDNSActivityJSON(w, map[string]any{"updating": true, "operation": op})
 }
 func (s *Server) handleDNSFilterRefresh(w http.ResponseWriter, r *http.Request) {
 	if !s.requireDNSFilter(w) {
@@ -76,40 +95,58 @@ func (s *Server) handleDNSFilterRefresh(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "DNS filter unavailable", 503)
 		return
 	}
-	if err = s.dnsFilter.Start(status.Policy, true); err != nil {
+	if blockers := s.dnsFilterContext().Blockers; len(blockers) > 0 {
+		http.Error(w, blockers[0], 409)
+		return
+	}
+	op, err := s.dnsFilter.StartOperation(status.Policy, true, auditActor(r.RemoteAddr))
+	if err != nil {
 		http.Error(w, err.Error(), 409)
 		return
 	}
-	s.appendAudit("dns_filter.refresh_requested", auditActor(r.RemoteAddr), nil)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusAccepted)
-	writeDNSActivityJSON(w, map[string]bool{"updating": true})
+	writeDNSActivityJSON(w, map[string]any{"updating": true, "operation": op})
 }
 func (s *Server) handleDNSFilterCheck(w http.ResponseWriter, r *http.Request) {
 	if !s.requireDNSFilter(w) {
 		return
 	}
 	var request struct {
-		Domain string `json:"domain"`
+		Domain   string `json:"domain"`
+		DeviceIP string `json:"device_ip"`
 	}
-	if err := decodeJSON(w, r, &request); err != nil {
+	if r.Method == http.MethodGet {
+		request.Domain, request.DeviceIP = r.URL.Query().Get("domain"), r.URL.Query().Get("device_ip")
+	} else if err := decodeJSON(w, r, &request); err != nil {
 		http.Error(w, "Invalid domain check", 400)
 		return
 	}
-	result, err := s.dnsFilter.Check(r.Context(), request.Domain)
+	if request.DeviceIP != "" {
+		ip, err := netip.ParseAddr(request.DeviceIP)
+		if err != nil || !ip.Is4() {
+			http.Error(w, "device_ip must be an IPv4 address", 422)
+			return
+		}
+	}
+	request.Domain = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(request.Domain), "."))
+	cfg, leases := s.engine.GetCurrentConfig(), telemetry.CurrentDHCPLeases()
+	var result dnsfilter.Check
+	var err error
+	if kind, _ := localDNSMatch(cfg, leases, request.Domain); kind != "" {
+		status, statusErr := s.dnsFilter.Status(r.Context())
+		if statusErr != nil {
+			http.Error(w, "DNS filter status unavailable", 503)
+			return
+		}
+		result = dnsfilter.Check{Domain: request.Domain, Action: "Local DNS record", Matches: []dnsfilter.Match{}, Healthy: status.Healthy, PolicyRevision: status.Policy.Revision, CheckedAt: time.Now().UTC()}
+	} else {
+		result, err = s.dnsFilter.Check(r.Context(), request.Domain)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), 422)
 		return
 	}
-	// The bundled list is independent of the opt-in maintained categories.
-	if s.engine.GetCurrentConfig().AdGuard.Enabled && !result.Exception {
-		for _, domain := range services.BuiltinBlocklist() {
-			if result.Domain == domain || strings.HasSuffix(result.Domain, "."+domain) {
-				result.Action = "Block"
-				result.Matches = append(result.Matches, dnsfilter.Match{Category: "bundled", Domain: domain, Enabled: true})
-			}
-		}
-	}
-	writeDNSActivityJSON(w, result)
+	writeDNSActivityJSON(w, explainDNSDomain(cfg, leases, result, request.DeviceIP, time.Now()))
 }

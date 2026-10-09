@@ -113,11 +113,14 @@ func (p Policy) Allowed(domain string) bool {
 }
 
 type Applied struct {
-	Policy    Policy            `json:"policy"`
-	Domains   int               `json:"domains"`
-	AppliedAt int64             `json:"applied_at"`
-	Healthy   bool              `json:"healthy"`
-	Sources   map[string]string `json:"sources"`
+	Policy            Policy            `json:"policy"`
+	Domains           int               `json:"domains"`
+	AppliedAt         int64             `json:"applied_at"`
+	Healthy           bool              `json:"healthy"`
+	Sources           map[string]string `json:"sources"`
+	HealthCheckedAt   int64             `json:"health_checked_at"`
+	HealthChecking    bool              `json:"health_checking"`
+	ActivationPending bool              `json:"activation_pending"`
 }
 
 type Request struct {

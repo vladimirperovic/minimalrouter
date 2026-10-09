@@ -99,6 +99,41 @@ func TestCompletionFlushesBufferedSamples(t *testing.T) {
 	}
 }
 
+func TestCaptureOutcomesAndLateStartHaveStableJSON(t *testing.T) {
+	dir := t.TempDir()
+	r, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.started = time.Now().Add(-Window - time.Second)
+	r.Run(context.Background(), true, "", false)
+	boot, err := LoadBoot(dir, r.boot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boot.CaptureStatus(time.Now()) != "timeout" || boot.FinishedSeconds == nil || boot.Samples == nil || boot.Events == nil {
+		t.Fatalf("invalid late capture: %+v", boot)
+	}
+	if (Boot{Completed: true}).CaptureStatus(time.Now()) != "unknown" {
+		t.Fatal("legacy completion claimed success")
+	}
+	if (Boot{StartedAt: time.Now().Add(-time.Hour)}).CaptureStatus(time.Now()) != "interrupted" {
+		t.Fatal("old unfinished capture claimed live")
+	}
+	for _, id := range []string{"../outside", "..", "/absolute", "a\\b"} {
+		if _, err := LoadBoot(dir, id); err == nil {
+			t.Fatalf("accepted id %q", id)
+		}
+	}
+}
+
+func TestCPUAccountingExcludesGuestDoubleCountAndIncludesIOWaitAsIdle(t *testing.T) {
+	total, idle := parseCPU("cpu 100 20 30 40 50 6 7 8 1000 2000")
+	if total != 261 || idle != 90 {
+		t.Fatalf("total=%d idle=%d", total, idle)
+	}
+}
+
 // An event is rare and meaningful, so it still reaches disk immediately.
 func TestEventPersistsImmediately(t *testing.T) {
 	dir := t.TempDir()

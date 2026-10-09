@@ -4,6 +4,7 @@ test.setTimeout(90_000);
 
 async function stub(page: Page) {
  const writes: string[] = [];
+ const boot = {id:'boot',started_at:new Date().toISOString(),completed:true,status:'ready',readiness:{management_seconds:2,pppoe_seconds:4,dns_seconds:5,internet_seconds:6,wireguard_seconds:7},events:[{offset_seconds:1,kind:'routerd',message:'Started'}],samples:[]};
  const leases = Array.from({length:20},(_,i)=>({hostname:i===0?'Example-Notebook-Pro':'Device-'+i,mac:`02:00:00:00:00:${String(i).padStart(2,'0')}`,ip_address:`192.168.1.${i+10}`,expires_at:Math.floor(Date.now()/1000)+3600}));
  await page.route('**/api/v1/**', async route => {
   const req=route.request(),p=new URL(req.url()).pathname;
@@ -15,7 +16,8 @@ async function stub(page: Page) {
    '/api/v1/health':HEALTH,'/api/v1/gateway/summary':GW_SUMMARY,'/api/v1/gateway/settings':GW_SETTINGS,
    '/api/v1/gateway/history':{points:[{timestamp:new Date().toISOString(),latency_ms:5,packet_loss_percent:0}]},
    '/api/v1/gateway/insights':{public_ip_changes:Array.from({length:40},(_,i)=>({timestamp:new Date(Date.now()-i*60000).toISOString(),old_ip:`198.51.100.${i}`,new_ip:`203.0.113.${i}`}))},
-   '/api/v1/startup/boots':{boots:[{id:'boot',started_at:new Date().toISOString(),completed:true,readiness:{management_seconds:2,pppoe_seconds:4,dns_seconds:5,internet_seconds:6,wireguard_seconds:7},events:[{offset_seconds:1,kind:'routerd',message:'Started'}],samples:[]}]},
+   '/api/v1/startup/boots':{boots:[boot]},
+   '/api/v1/startup/boots/boot':{boot,status:boot.status},
    '/api/v1/audit/events':{events:Array.from({length:70},(_,i)=>({id:'event-'+i,timestamp:new Date().toISOString(),event_type:'auth.login_succeeded',actor:'192.168.1.14',details:{mode:'administrator'}}))},
    '/api/v1/snapshots':[], '/api/v1/devices/pauses':{pauses:[]},
   };
@@ -37,6 +39,8 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
   for(const route of ['overview','gateway','network','firewall','security','dns-filter','qos','wireguard','cloudflare','wifi','traffic','dns-activity','squid','recovery','logs']) {
    await page.goto('/#'+route);await expect(page.locator('.dashboard-app')).toBeVisible();
    await expect(page.locator(`.dashboard-navigation a[href="#${route}"]`)).toHaveClass(/is-active/);
+   // The navigation is active while lazy page content is still loading.
+   await expect(page.locator('.dashboard-main > :is(.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview)').first()).toBeVisible();
    expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth),route+' overflow').toBeLessThanOrEqual(1);
    if(width>900){
     const boxes=await page.locator('.dashboard-main').evaluate(e=>{const top=e.querySelector('.classic-topbar')!.getBoundingClientRect();const content=[...e.children].find(n=>n.matches('.dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview'))!.getBoundingClientRect();return {left:top.x-content.x,right:top.right-content.right};});

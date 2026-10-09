@@ -1,48 +1,341 @@
-:root:root .dashboard-app .network-dns-protection { display:grid; gap:var(--card-gap); }
-:root:root .dashboard-app .dns-protection-card { min-width:0; padding:var(--card-padding); border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); }
-:root:root .dashboard-app .dns-protection-card > header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; }
-:root:root .dashboard-app .dns-protection-actions { display:flex; align-items:center; gap:12px; flex-shrink:0; }
-:root:root .dashboard-app .dns-protection-card p { color:var(--text-secondary); line-height:1.65; margin:8px 0 16px; }
-:root:root .dashboard-app .dns-category-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 24px; }
-:root:root .dashboard-app .dns-category-choice { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 0; border-top:1px solid var(--separator); cursor:pointer; }
-:root:root .dashboard-app .dns-category-choice small { display:block; color:var(--text-secondary); margin-top:6px; line-height:1.5; }
-:root:root .dashboard-app .dns-category-choice > span:last-child { display:flex; gap:8px; align-items:center; white-space:nowrap; }
-:root:root .dashboard-app .dns-category-choice input { width:20px; min-height:20px; }
-:root:root .dashboard-app .dns-protection-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--card-gap); align-items:start; }
-:root:root .dashboard-app :is(.dns-domain-form,.dns-exception-form) { display:grid; gap:16px; }
-:root:root .dashboard-app :is(.dns-domain-form,.dns-exception-form) > button { justify-self:start; }
-:root:root .dashboard-app .dns-exception-list { padding:0; margin:16px 0 0; list-style:none; }
-:root:root .dashboard-app .dns-exception-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--separator); padding:16px 0; }
-:root:root .dashboard-app .dns-exception-list span { min-width:0; overflow-wrap:anywhere; }
-:root:root .dashboard-app .dns-exception-list small { display:block; color:var(--text-secondary); margin-top:4px; }
-:root:root .dashboard-app .dns-policy-save { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px var(--card-padding); border-radius:var(--radius-lg); background:var(--surface-raised); border:1px solid var(--separator); }
-:root:root .dashboard-app .dns-policy-save > div { display:flex; gap:12px; flex-shrink:0; }
-:root:root .dashboard-app .dns-policy-save p { margin:0; }
-:root:root .dashboard-app .dns-list-details > summary { cursor:pointer; font-weight:600; }
-:root:root .dashboard-app .dns-list-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; padding-block:16px; }
-:root:root .dashboard-app .dns-domain-result { margin-top:20px; padding-top:20px; border-top:1px solid var(--separator); overflow-wrap:anywhere; }
-:root:root .dashboard-app .dns-policy-message { padding:12px 16px; background:var(--surface-raised); border-radius:var(--radius); }
-:root:root .dashboard-app .dns-optional-section > summary { cursor:pointer; padding:var(--card-padding); border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); font-weight:600; }
-:root:root .dashboard-app .dns-optional-section[open] > summary { margin-bottom:var(--card-gap); }
-:root:root .dashboard-app .dns-precise-schedule { grid-column:1/-1; min-width:0; }
-:root:root .dashboard-app .dns-precise-schedule > summary { cursor:pointer; padding:16px 0; font-weight:600; }
-:root:root .dashboard-app .dns-precise-day { padding:16px 0; border-top:1px solid var(--separator); display:grid; gap:12px; }
-:root:root .dashboard-app .dns-precise-window { display:grid; grid-template-columns:1fr 1fr auto; gap:12px; align-items:end; }
-:root:root .dashboard-app .dns-profile-table td small { display:block; margin-top:8px; color:var(--text-secondary); font:400 11px/1.5 var(--font-ui); }
-@media(max-width:800px) {
-  :root:root .dashboard-app :is(.dns-protection-columns,.dns-category-list,.dns-list-grid) { grid-template-columns:1fr; }
-  :root:root .dashboard-app .dns-policy-save { flex-direction:column; align-items:stretch; }
-  :root:root .dashboard-app .dns-protection-card { padding:var(--card-padding-compact); }
-  :root:root .dashboard-app .dns-protection-card > header { flex-direction:column; }
-  :root:root .dashboard-app .dns-protection-actions { flex-wrap:wrap; }
+/* DNS Filter uses the shared type, colour and spacing tokens in every theme. */
+.dashboard-app #adguard { --dns-positive:#39775f; display:grid; gap:var(--card-gap); }
+:root[data-theme="dark"] .dashboard-app #adguard { --dns-positive:#8ac4a8; }
+.dashboard-app #adguard .dns-filter-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; margin:0; }
+.dashboard-app #adguard .dns-filter-heading h2 { font-family:var(--font-display); }
+.dashboard-app #adguard .network-dns-protection { display:grid; gap:var(--card-gap); min-width:0; }
+.dashboard-app #adguard .dns-protection-card { min-width:0; padding:var(--card-padding); border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); }
+.dashboard-app #adguard .dns-protection-card h3 { font:var(--weight-regular) var(--text-lg)/var(--leading-snug) var(--font-display); margin:0; letter-spacing:var(--tracking-tight); }
+.dashboard-app #adguard .dns-protection-card > header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:24px; }
+.dashboard-app #adguard .dns-protection-card p { color:var(--text-secondary); font-size:var(--text-sm); line-height:var(--leading-body); margin:8px 0 16px; }
+.dashboard-app #adguard .dns-protection-card .eyebrow { margin:0 0 8px; color:var(--text-tertiary); font-size:var(--text-2xs); }
+.dashboard-app #adguard .dns-neutral-chip { display:inline-flex; align-items:center; flex-shrink:0; border:1px solid var(--separator); border-radius:var(--radius-pill); padding:5px 10px; color:var(--text-secondary); font:var(--weight-medium) var(--text-2xs)/1.5 var(--font-ui); white-space:nowrap; background:var(--surface-raised); }
+.dashboard-app #adguard .dns-neutral-chip.is-on { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 25%,var(--separator)); }
+.dashboard-app #adguard .dns-overview { background:linear-gradient(115deg,color-mix(in srgb,var(--accent) 5%,var(--surface)),var(--surface) 70%); }
+.dashboard-app #adguard .dns-overview-lead { display:flex; gap:20px; align-items:center; }
+.dashboard-app #adguard .dns-overview-lead > div { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-overview-lead p:last-child { margin-bottom:0; }
+.dashboard-app #adguard .dns-overview-symbol { width:64px; height:64px; display:grid; place-items:center; flex-shrink:0; border:1px solid color-mix(in srgb,var(--accent) 25%,var(--separator)); border-radius:20px; color:var(--accent); background:color-mix(in srgb,var(--accent) 6%,var(--surface)); }
+.dashboard-app #adguard .dns-overview-symbol.is-healthy { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 25%,var(--separator)); background:color-mix(in srgb,var(--dns-positive) 7%,var(--surface)); }
+.dashboard-app #adguard .dns-overview-symbol svg { width:32px; height:32px; }
+.dashboard-app #adguard .dns-overview-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:28px 0 0; padding-top:24px; border-top:1px solid var(--separator); gap:0; }
+.dashboard-app #adguard .dns-overview-metrics > div { min-width:0; padding:0 20px; border-left:1px solid var(--separator); }
+.dashboard-app #adguard .dns-overview-metrics > div:first-child { border-left:0; padding-left:0; }
+.dashboard-app #adguard .dns-overview-metrics > div:last-child { padding-right:0; }
+.dashboard-app #adguard .dns-overview-metrics dt { font:var(--weight-medium) var(--text-xs)/1.5 var(--font-ui); color:var(--text-secondary); }
+.dashboard-app #adguard .dns-overview-metrics dd { margin:8px 0; font:var(--weight-medium) 30px/1.2 var(--font-ui); color:var(--text-primary); font-variant-numeric:tabular-nums; }
+.dashboard-app #adguard .dns-overview-metrics dd small { font:var(--weight-regular) var(--text-sm)/1.5 var(--font-ui); color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-overview-metrics .dns-overview-date { font-size:var(--text-base); min-height:36px; display:flex; align-items:center; }
+.dashboard-app #adguard .dns-overview-metrics > div > span { font-size:var(--text-2xs); line-height:1.5; color:var(--text-tertiary); overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-category-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.dashboard-app #adguard .dns-category-choice { display:flex; align-items:center; gap:16px; padding:20px; border:1px solid var(--separator); border-radius:var(--radius); background:var(--surface); cursor:pointer; transition:background 160ms,border-color 160ms; }
+.dashboard-app #adguard .dns-category-choice.is-selected { border-color:color-mix(in srgb,var(--accent) 40%,var(--separator)); background:color-mix(in srgb,var(--accent) 4%,var(--surface)); }
+.dashboard-app #adguard .dns-category-choice:hover { border-color:var(--accent); }
+.dashboard-app #adguard .dns-category-symbol { display:grid; place-items:center; flex-shrink:0; width:40px; height:40px; border-radius:12px; color:var(--text-secondary); background:var(--surface-raised); }
+.dashboard-app #adguard .is-selected .dns-category-symbol { color:var(--accent); background:color-mix(in srgb,var(--accent) 9%,var(--surface)); }
+.dashboard-app #adguard .dns-category-symbol svg { width:23px; height:23px; }
+.dashboard-app #adguard .dns-category-copy { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-category-copy strong { display:block; font:var(--weight-semibold) var(--text-sm)/1.4 var(--font-ui); }
+.dashboard-app #adguard .dns-category-copy small { display:block; margin-top:5px; color:var(--text-secondary); font-size:var(--text-xs); line-height:1.5; }
+.dashboard-app #adguard .dns-category-copy > span { display:block; margin-top:8px; color:var(--text-tertiary); font-size:var(--text-2xs); }
+.dashboard-app #adguard .dns-toggle { position:relative; width:42px; height:26px; flex-shrink:0; }
+.dashboard-app #adguard .dns-toggle input { position:absolute; inset:0; z-index:1; opacity:0; width:100%; height:100%; min-height:0; margin:0; cursor:pointer; }
+.dashboard-app #adguard .dns-toggle > span { display:block; width:100%; height:100%; border-radius:20px; background:var(--separator); border:1px solid color-mix(in srgb,var(--text-tertiary) 35%,var(--separator)); transition:background 160ms; }
+.dashboard-app #adguard .dns-toggle > span::after { content:""; display:block; width:18px; height:18px; border-radius:50%; background:var(--surface); margin:3px; box-shadow:0 1px 3px #0002; transition:transform 160ms; }
+.dashboard-app #adguard .dns-toggle input:checked + span { background:var(--accent); border-color:var(--accent); }
+.dashboard-app #adguard .dns-toggle input:checked + span::after { transform:translateX(16px); background:#fff; }
+.dashboard-app #adguard .dns-toggle input:focus-visible + span { outline:2px solid var(--accent); outline-offset:3px; }
+.dashboard-app #adguard .dns-toggle input:disabled + span { opacity:.5; }
+.dashboard-app #adguard .dns-policy-save { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-top:24px; padding-top:24px; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-policy-save > div:first-child { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-policy-save > div:last-child,.dashboard-app #adguard .dns-form-actions { display:flex; flex-wrap:wrap; gap:12px; }
+.dashboard-app #adguard .dns-policy-save p { margin:6px 0 0; max-width:64ch; }
+.dashboard-app #adguard .dns-policy-save strong { font-size:var(--text-sm); font-weight:var(--weight-medium); }
+.dashboard-app #adguard .dns-protection-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--card-gap); align-items:stretch; }
+.dashboard-app #adguard .dns-utility-card { display:flex; flex-direction:column; }
+.dashboard-app #adguard .dns-utility-card { --dns-tool-color:var(--dns-positive); position:relative; background:radial-gradient(ellipse at 100% 0%,color-mix(in srgb,var(--dns-tool-color) 6%,transparent),transparent 50%),var(--surface); }
+.dashboard-app #adguard .dns-exceptions-card { --dns-tool-color:var(--accent); }
+.dashboard-app #adguard .dns-tool-header { display:flex; flex-direction:column; gap:22px; margin-bottom:24px; }
+.dashboard-app #adguard .dns-tool-topline { display:flex; justify-content:space-between; align-items:center; gap:16px; width:100%; }
+.dashboard-app #adguard .dns-tool-symbol { display:grid; place-items:center; width:50px; height:50px; border:1px solid color-mix(in srgb,var(--dns-tool-color) 24%,var(--separator)); border-radius:16px; color:var(--dns-tool-color); background:color-mix(in srgb,var(--dns-tool-color) 7%,var(--surface)); box-shadow:inset 0 1px 0 color-mix(in srgb,var(--surface) 85%,transparent),0 4px 12px color-mix(in srgb,var(--dns-tool-color) 5%,transparent); }
+.dashboard-app #adguard .dns-tool-symbol svg { width:26px; height:26px; }
+.dashboard-app #adguard .dns-tool-badge { display:inline-flex; gap:7px; align-items:center; font-size:var(--text-xs); line-height:1.5; color:var(--text-secondary); }
+.dashboard-app #adguard .dns-tool-badge > span { width:6px; height:6px; border-radius:50%; background:var(--dns-tool-color); box-shadow:0 0 0 4px color-mix(in srgb,var(--dns-tool-color) 8%,transparent); margin-right:4px; }
+.dashboard-app #adguard .dns-tool-badge > strong { font-weight:var(--weight-semibold); color:var(--dns-tool-color); }
+.dashboard-app #adguard .dns-tool-header .eyebrow { font-size:10px; margin-bottom:8px; }
+.dashboard-app #adguard .dns-tool-header h3 { font-size:24px; }
+.dashboard-app #adguard .dns-tool-header p:last-child { margin-bottom:0; max-width:46ch; }
+.dashboard-app #adguard :is(.dns-domain-form,.dns-exception-form) { display:grid; gap:16px; background:none; border:0; padding:0; }
+.dashboard-app #adguard .dns-utility-card :is(.dns-domain-form,.dns-exception-form) { padding:18px; border:1px solid var(--separator); border-radius:14px; background:color-mix(in srgb,var(--surface-secondary) 55%,var(--surface)); box-shadow:inset 0 1px 2px #00000002; }
+.dashboard-app #adguard .dns-tool-input { display:block; position:relative; }
+.dashboard-app #adguard .dns-tool-input > svg { position:absolute; top:50%; left:13px; width:17px; height:17px; transform:translateY(-50%); color:var(--text-tertiary); pointer-events:none; z-index:1; }
+.dashboard-app #adguard .dns-tool-input input { padding-left:40px; min-height:44px; font:var(--weight-regular) var(--text-sm)/1.5 var(--font-ui); letter-spacing:normal; text-transform:none; background:var(--surface); }
+.dashboard-app #adguard .dns-tool-input:focus-within > svg { color:var(--dns-tool-color); }
+.dashboard-app #adguard .dns-tool-action { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding-top:2px; }
+.dashboard-app #adguard .dns-tool-action > span { color:var(--text-tertiary); font-size:10px; line-height:1.5; }
+.dashboard-app #adguard .dns-tool-button { display:inline-flex; align-items:center; justify-content:center; gap:9px; margin-left:auto; border-color:color-mix(in srgb,var(--dns-tool-color) 32%,var(--separator)); background:color-mix(in srgb,var(--dns-tool-color) 8%,var(--surface)); color:var(--dns-tool-color); font-size:var(--text-xs); padding:11px 15px; }
+.dashboard-app #adguard .dns-tool-button:hover:not(:disabled) { background:color-mix(in srgb,var(--dns-tool-color) 14%,var(--surface)); border-color:var(--dns-tool-color); }
+.dashboard-app #adguard .dns-tool-button > svg { width:16px; height:16px; flex-shrink:0; }
+.dashboard-app #adguard .dns-tool-empty { display:flex; align-items:center; gap:14px; min-height:108px; padding:20px 2px; }
+.dashboard-app #adguard .dns-tool-empty-icon { display:grid; place-items:center; flex-shrink:0; width:40px; height:40px; border-radius:50%; border:1px dashed color-mix(in srgb,var(--dns-tool-color) 25%,var(--separator)); color:var(--dns-tool-color); background:color-mix(in srgb,var(--dns-tool-color) 3%,var(--surface)); }
+.dashboard-app #adguard .dns-tool-empty-icon svg { width:18px; height:18px; }
+.dashboard-app #adguard .dns-tool-empty strong { font:var(--weight-medium) var(--text-xs)/1.5 var(--font-ui); color:var(--text-secondary); }
+.dashboard-app #adguard .dns-tool-empty p { margin:4px 0 0; font-size:var(--text-xs); color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-tool-note { display:flex; align-items:flex-start; gap:12px; margin-top:auto; padding-top:20px; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-tool-note > svg { flex-shrink:0; width:16px; height:16px; color:var(--dns-tool-color); margin-top:2px; }
+.dashboard-app #adguard .dns-tool-note > div > strong { font:var(--weight-medium) var(--text-xs)/1.5 var(--font-ui); color:var(--text-secondary); }
+.dashboard-app #adguard .dns-tool-note p { margin:5px 0 0; color:var(--text-tertiary); font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-exception-list:empty { display:none; }
+.dashboard-app #adguard :is(.dns-domain-form,.dns-exception-form) > button { justify-self:start; }
+.dashboard-app #adguard .dns-utility-footnote { margin-top:auto; padding-top:24px; margin-bottom:0; color:var(--text-tertiary); font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-inline-search { margin-top:24px; }
+.dashboard-app #adguard .dns-exception-list { padding:0; margin:16px 0 0; list-style:none; }
+.dashboard-app #adguard .dns-exception-list li { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid var(--separator); padding:16px 0; }
+.dashboard-app #adguard .dns-exception-list span { min-width:0; overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-exception-list strong { font-size:var(--text-sm); }
+.dashboard-app #adguard .dns-exception-list small { display:block; color:var(--text-tertiary); margin-top:4px; }
+.dashboard-app #adguard .dns-empty-note { color:var(--text-tertiary); font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-message { padding:12px 16px; border-radius:var(--radius); background:var(--surface-raised); border:1px solid var(--separator); color:var(--text-secondary); font-size:var(--text-sm); line-height:1.5; overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-message.is-error { color:var(--danger,#b64b41); border-color:color-mix(in srgb,var(--danger,#b64b41) 25%,var(--separator)); }
+.dashboard-app #adguard .dns-domain-result { margin:20px 0; padding:18px; border:1px solid color-mix(in srgb,var(--dns-tool-color) 20%,var(--separator)); border-radius:14px; background:color-mix(in srgb,var(--dns-tool-color) 3%,var(--surface)); overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-domain-result > strong { display:block; font-size:var(--text-base); }
+.dashboard-app #adguard .dns-domain-result ul { padding:0; list-style:none; display:grid; gap:16px; margin:20px 0; }
+.dashboard-app #adguard .dns-domain-result li { display:grid; gap:8px; font-size:var(--text-sm); }
+.dashboard-app #adguard .dns-domain-result .dns-neutral-chip { justify-self:start; }
+.dashboard-app #adguard .dns-domain-result > small { color:var(--text-tertiary); font-size:var(--text-2xs); }
+.dashboard-app #adguard .dns-list-details > summary { cursor:pointer; font:var(--weight-medium) var(--text-base)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-list-details > summary small { float:right; color:var(--text-tertiary); font:var(--weight-regular) var(--text-xs)/1.8 var(--font-ui); }
+.dashboard-app #adguard .dns-list-details[open] > summary { margin-bottom:24px; }
+.dashboard-app #adguard .dns-list-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin:24px 0; }
+.dashboard-app #adguard .dns-list-grid > section { min-width:0; padding:20px; border:1px solid var(--separator); border-radius:var(--radius); }
+.dashboard-app #adguard .dns-list-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
+.dashboard-app #adguard .dns-list-heading h4 { font:var(--weight-medium) var(--text-sm)/1.4 var(--font-ui); margin:0; }
+.dashboard-app #adguard .dns-list-count { font:var(--weight-medium) var(--text-lg)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-list-count small { font-size:var(--text-xs); color:var(--text-tertiary); font-weight:var(--weight-regular); }
+.dashboard-app #adguard .dns-list-grid a { font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-disclosure-icon { display:grid; place-items:center; flex-shrink:0; width:44px; height:44px; border:1px solid color-mix(in srgb,var(--accent) 17%,var(--separator)); border-radius:14px; background:color-mix(in srgb,var(--accent) 5%,var(--surface)); color:var(--accent); }
+.dashboard-app #adguard .dns-disclosure-icon > svg { width:22px; height:22px; }
+.dashboard-app #adguard .dns-disclosure-heading { display:flex; align-items:center; gap:16px; list-style:none; }
+.dashboard-app #adguard .dns-disclosure-heading::-webkit-details-marker { display:none; }
+.dashboard-app #adguard .dns-disclosure-heading::marker { content:""; }
+.dashboard-app #adguard .dns-disclosure-heading:focus-visible { outline:2px solid var(--accent); outline-offset:6px; border-radius:8px; }
+.dashboard-app #adguard .dns-disclosure-copy { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-disclosure-copy > strong { display:block; font:var(--weight-medium) var(--text-sm)/1.5 var(--font-ui); }
+.dashboard-app #adguard summary.dns-disclosure-heading .dns-disclosure-copy > small { display:block; float:none; margin:5px 0 0; padding:0; color:var(--text-tertiary); font:var(--weight-regular) var(--text-xs)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-disclosure-meta { font:var(--weight-medium) var(--text-2xs)/1.5 var(--font-ui); border:1px solid var(--separator); border-radius:20px; padding:5px 10px; white-space:nowrap; color:var(--text-secondary); background:var(--surface); }
+.dashboard-app #adguard .dns-disclosure-chevron { display:grid; place-items:center; width:28px; height:28px; border:1px solid var(--separator); border-radius:50%; color:var(--text-tertiary); flex-shrink:0; }
+.dashboard-app #adguard .dns-disclosure-chevron svg { width:18px; height:18px; transition:transform 160ms; }
+.dashboard-app #adguard details[open] > .dns-disclosure-heading .dns-disclosure-chevron svg { transform:rotate(180deg); }
+.dashboard-app #adguard .dns-list-details[open] > .dns-disclosure-heading { padding-bottom:24px; margin-bottom:20px; border-bottom:1px solid var(--separator); }
+.dashboard-app #adguard .dns-list-details .dns-details-intro { margin:0; }
+.dashboard-app #adguard .dns-list-grid > section { background:color-mix(in srgb,var(--surface-secondary) 35%,var(--surface)); }
+.dashboard-app #adguard .dns-list-grid > section.is-enabled { border-color:color-mix(in srgb,var(--accent) 23%,var(--separator)); background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 4%,var(--surface)),var(--surface)); }
+.dashboard-app #adguard .dns-source-label { font-size:9px; letter-spacing:.09em; text-transform:uppercase; color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-list-grid h4 { font:var(--weight-medium) var(--text-sm)/1.5 var(--font-ui); margin:0 0 12px; }
+.dashboard-app #adguard .dns-list-count { font:var(--weight-medium) 26px/1.3 var(--font-ui); font-variant-numeric:tabular-nums; }
+.dashboard-app #adguard .dns-source-freshness { display:flex; align-items:center; gap:7px; color:var(--text-tertiary); font-size:var(--text-2xs); margin:14px 0 18px; }
+.dashboard-app #adguard .dns-source-freshness svg { width:14px; height:14px; flex-shrink:0; }
+.dashboard-app #adguard .dns-list-grid a { display:inline-flex; gap:7px; align-items:center; }
+.dashboard-app #adguard .dns-list-grid a svg { width:13px; height:13px; }
+.dashboard-app #adguard .dns-list-refresh > div { flex:1; }
+.dashboard-app #adguard .dns-refresh-button { display:inline-flex; align-items:center; gap:8px; }
+.dashboard-app #adguard .dns-refresh-button svg { width:16px; height:16px; }
+.dashboard-app #adguard .dns-history-empty { display:flex; align-items:center; gap:20px; padding:24px; border:1px dashed var(--separator); border-radius:14px; background:color-mix(in srgb,var(--surface-secondary) 40%,var(--surface)); }
+.dashboard-app #adguard .dns-history-empty strong { font:var(--weight-medium) var(--text-sm)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-history-empty p { margin:6px 0 0; font-size:var(--text-xs); max-width:65ch; }
+.dashboard-app #adguard .dns-list-refresh { display:flex; align-items:center; justify-content:space-between; gap:20px; border-top:1px solid var(--separator); padding-top:24px; }
+.dashboard-app #adguard .dns-list-refresh p { margin:4px 0; }
+.dashboard-app #adguard .dns-list-refresh small { color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-coverage-note { padding-top:20px; margin:20px 0 0; border-top:1px solid var(--separator); color:var(--text-tertiary); font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-operation-banner { display:flex; align-items:flex-start; gap:16px; border:1px solid var(--separator); border-radius:var(--radius-lg); padding:20px 24px; background:var(--surface-raised); }
+.dashboard-app #adguard .dns-operation-banner > div { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-operation-banner p { margin:6px 0; font-size:var(--text-sm); line-height:1.6; color:var(--text-secondary); overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-operation-banner small { color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-operation-dot { width:10px; height:10px; flex-shrink:0; margin-top:5px; border-radius:50%; background:var(--dns-positive); box-shadow:0 0 0 4px color-mix(in srgb,var(--dns-positive) 12%,transparent); }
+.dashboard-app #adguard .dns-operation-dot.is-running { background:var(--accent); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent); }
+.dashboard-app #adguard .has-error .dns-operation-dot { background:var(--danger,#b64b41); }
+.dashboard-app #adguard .dns-operation-history { list-style:none; padding:0; margin:0; }
+.dashboard-app #adguard .dns-operation-history li { display:flex; gap:16px; align-items:flex-start; padding:20px 0; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-operation-history li > div { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-operation-history p { margin:4px 0; }
+.dashboard-app #adguard .dns-operation-history small { color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-history-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; border:1px solid var(--separator); color:var(--accent); background:color-mix(in srgb,var(--accent) 5%,var(--surface)); flex-shrink:0; }
+.dashboard-app #adguard .dns-history-mark svg { width:17px; height:17px; }
+.dashboard-app #adguard .dns-history-mark.is-complete { color:var(--dns-positive); background:color-mix(in srgb,var(--dns-positive) 5%,var(--surface)); }
+.dashboard-app #adguard .dns-operation-history .dns-history-error { color:var(--danger,#b64b41); overflow-wrap:anywhere; }
+.dashboard-app #adguard .dns-profiles-toolbar { display:flex; align-items:center; gap:16px; justify-content:space-between; margin-bottom:24px; }
+.dashboard-app #adguard .dns-profiles-toolbar .field { flex:1; max-width:480px; }
+.dashboard-app #adguard .dns-section-lead { display:flex; align-items:flex-start; gap:16px; }
+.dashboard-app #adguard .dns-section-lead p:last-child { margin-bottom:0; }
+.dashboard-app #adguard .dns-profiles-toolbar { padding:16px; border:1px solid var(--separator); border-radius:14px; background:color-mix(in srgb,var(--surface-secondary) 60%,var(--surface)); }
+.dashboard-app #adguard .dns-profile-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+.dashboard-app #adguard .dns-device-card { display:flex; flex-direction:column; min-width:0; border:1px solid var(--separator); border-radius:16px; padding:20px; background:linear-gradient(150deg,color-mix(in srgb,var(--accent) 3%,var(--surface)),var(--surface) 60%); }
+.dashboard-app #adguard .dns-device-heading { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.dashboard-app #adguard .dns-device-avatar { display:grid; place-items:center; width:40px; height:40px; border:1px solid var(--separator); border-radius:12px; background:var(--surface-secondary); color:var(--accent); flex-shrink:0; }
+.dashboard-app #adguard .dns-device-avatar svg { width:22px; height:22px; }
+.dashboard-app #adguard .dns-device-heading > div { flex:1; min-width:110px; }
+.dashboard-app #adguard .dns-device-heading strong { display:block; font:var(--weight-semibold) var(--text-sm)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-device-heading code { display:block; font-size:var(--text-2xs); color:var(--text-tertiary); overflow-wrap:anywhere; white-space:normal; margin-top:5px; }
+.dashboard-app #adguard .dns-device-state { display:inline-flex; align-items:center; gap:6px; font-size:10px; line-height:1.5; padding:5px 8px; border:1px solid var(--separator); border-radius:20px; color:var(--text-secondary); background:var(--surface); white-space:nowrap; }
+.dashboard-app #adguard .dns-device-state > span { width:5px; height:5px; border-radius:50%; background:currentColor; }
+.dashboard-app #adguard .dns-device-state.is-allowed { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 20%,var(--separator)); background:color-mix(in srgb,var(--dns-positive) 6%,var(--surface)); }
+.dashboard-app #adguard .dns-device-state.is-blocked { color:var(--accent); border-color:color-mix(in srgb,var(--accent) 24%,var(--separator)); background:color-mix(in srgb,var(--accent) 6%,var(--surface)); }
+.dashboard-app #adguard .dns-device-services { margin:22px 0 18px; }
+.dashboard-app #adguard .dns-device-services > span { display:block; font-size:var(--text-2xs); color:var(--text-tertiary); margin-bottom:8px; }
+.dashboard-app #adguard .dns-device-services .service-tags span { text-transform:none; font-weight:var(--weight-medium); border:1px solid var(--separator); background:var(--surface); color:var(--text-secondary); }
+.dashboard-app #adguard .dns-device-schedule { border:1px solid var(--separator); border-radius:12px; padding:14px; background:color-mix(in srgb,var(--surface-secondary) 65%,var(--surface)); }
+.dashboard-app #adguard .dns-device-today > span { display:flex; gap:7px; align-items:center; color:var(--text-tertiary); font-size:var(--text-2xs); }
+.dashboard-app #adguard .dns-device-today svg { width:14px; height:14px; }
+.dashboard-app #adguard .dns-device-today strong { display:block; margin-top:7px; font:var(--weight-medium) var(--text-sm)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-week-preview { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; margin-top:16px; }
+.dashboard-app #adguard .dns-week-preview > div { padding:6px 2px; border-radius:6px; color:var(--text-tertiary); text-align:center; }
+.dashboard-app #adguard .dns-week-preview > div > span { font-size:9px; line-height:1.5; }
+.dashboard-app #adguard .dns-week-preview > div > svg { display:block; width:100%; height:6px; margin-top:7px; background:var(--separator); border-radius:3px; overflow:hidden; }
+.dashboard-app #adguard .dns-week-preview rect { fill:var(--accent); }
+.dashboard-app #adguard .dns-week-preview .is-today { background:color-mix(in srgb,var(--accent) 10%,var(--surface)); color:var(--accent); }
+.dashboard-app #adguard .dns-device-full-week { margin-top:8px; }
+.dashboard-app #adguard .dns-device-full-week summary { font-size:var(--text-2xs); color:var(--text-secondary); cursor:pointer; padding:5px 0; }
+.dashboard-app #adguard .dns-device-full-week p { font-size:var(--text-xs); margin:6px 0 0; }
+.dashboard-app #adguard .dns-device-next { display:flex; gap:7px; align-items:baseline; margin:8px 0 0; color:var(--text-secondary); font-size:10px; line-height:1.6; }
+.dashboard-app #adguard .dns-next-dot { display:block; flex-shrink:0; width:5px; height:5px; border-radius:50%; background:var(--accent); }
+.dashboard-app #adguard .dns-device-reservation { display:flex; align-items:center; gap:7px; margin:16px 0; font-size:10px; color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-device-reservation > svg { width:14px; height:14px; flex-shrink:0; }
+.dashboard-app #adguard .dns-device-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; border-top:1px solid var(--separator); margin-top:auto; padding-top:16px; }
+.dashboard-app #adguard .dns-device-actions > div { display:flex; gap:8px; }
+.dashboard-app #adguard .dns-pause-button { display:inline-flex; align-items:center; gap:6px; background:transparent; border:0; color:var(--text-secondary); font:var(--weight-medium) var(--text-xs)/1.5 var(--font-ui); padding:8px 0; cursor:pointer; }
+.dashboard-app #adguard .dns-pause-button svg { width:14px; height:14px; }
+.dashboard-app #adguard .dns-pause-button:hover:not(:disabled) { color:var(--accent); }
+.dashboard-app #adguard .dns-pause-button:disabled { opacity:.5; cursor:default; }
+.dashboard-app #adguard .dns-profile-coverage { display:flex; gap:12px; align-items:flex-start; margin-top:24px; padding-top:20px; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-profile-coverage > svg { width:16px; height:16px; flex-shrink:0; margin-top:2px; color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-profile-coverage strong { font:var(--weight-medium) var(--text-xs)/1.6 var(--font-ui); }
+.dashboard-app #adguard .dns-profile-coverage p { margin:4px 0 0; color:var(--text-tertiary); font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-profile-row { display:grid; grid-template-columns:minmax(150px,1fr) minmax(220px,1.5fr) auto; gap:24px; align-items:start; padding:24px 0; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-profile-identity { display:grid; gap:8px; min-width:0; }
+.dashboard-app #adguard .dns-profile-identity strong { font-size:var(--text-base); font-weight:var(--weight-semibold); }
+.dashboard-app #adguard .dns-profile-identity code { overflow-wrap:anywhere; white-space:normal; font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-profile-identity small,.dashboard-app #adguard .dns-profile-policy small { font-size:var(--text-2xs); color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-profile-policy { min-width:0; }
+.dashboard-app #adguard .dns-profile-policy p { margin:12px 0 8px; }
+.dashboard-app #adguard .dns-profile-actions { display:grid; gap:16px; justify-items:end; }
+.dashboard-app #adguard .dns-profile-actions > div { display:flex; flex-wrap:wrap; gap:8px; }
+.dashboard-app #adguard .status-pill { font-size:var(--text-xs); min-height:32px; padding:6px 12px; }
+.dashboard-app #adguard .status-pill.is-active { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 30%,var(--separator)); background:color-mix(in srgb,var(--dns-positive) 8%,var(--surface)); }
+.dashboard-app #adguard .dns-remove-profile { color:var(--text-secondary); }
+.dashboard-app #adguard .dns-profiles-empty { display:grid; justify-items:center; text-align:center; padding:40px 20px; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-profiles-empty strong { font:var(--weight-regular) var(--text-lg)/1.4 var(--font-display); }
+.dashboard-app #adguard .dns-optional-section > summary { cursor:pointer; padding:var(--card-padding); border:1px solid var(--separator); border-radius:var(--radius-lg); background:var(--surface); font-weight:var(--weight-medium); }
+.dashboard-app #adguard .dns-optional-section[open] > summary { margin-bottom:var(--card-gap); }
+.dashboard-app #adguard .dns-settings-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--card-gap); align-items:stretch; }
+.dashboard-app #adguard .settings-column-card { display:flex; flex-direction:column; min-width:0; }
+.dashboard-app #adguard .dns-settings-columns .settings-column-card { padding:0; gap:0; overflow:hidden; }
+.dashboard-app #adguard .settings-column-card h3 { font:var(--weight-regular) var(--text-lg)/1.4 var(--font-display); }
+.dashboard-app #adguard .dns-bundled-footer { margin-top:auto; padding:24px; }
+.dashboard-app #adguard .dns-bundled-footer p { color:var(--text-secondary); font-size:var(--text-sm); line-height:1.6; }
+.dashboard-app #adguard .dns-settings-columns .dns-settings-heading { display:flex; align-items:center; gap:16px; padding:24px; background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 4%,var(--surface)),var(--surface)); border-bottom:1px solid var(--separator); margin-bottom:24px; }
+.dashboard-app #adguard .dns-settings-heading h3 { margin:0 0 6px; }
+.dashboard-app #adguard .dns-settings-heading p { margin:0; font-size:var(--text-xs); color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-settings-columns .settings-form { display:flex; flex:1; flex-direction:column; gap:20px; padding:0 24px 24px; margin:0; border:0; background:none; box-shadow:none; }
+.dashboard-app #adguard .dns-settings-columns .dns-form-actions { margin-top:auto; padding-top:16px; border-top:1px solid var(--separator); justify-content:flex-end; }
+.dashboard-app #adguard .dns-settings-columns textarea { background:color-mix(in srgb,var(--surface-secondary) 50%,var(--surface)); line-height:1.8; }
+.dashboard-app #adguard .dns-resolver-note { display:flex; gap:10px; align-items:flex-start; font-size:var(--text-xs); line-height:1.6; color:var(--text-tertiary); margin:0; }
+.dashboard-app #adguard .dns-resolver-note svg { flex-shrink:0; width:16px; height:16px; margin-top:2px; color:var(--dns-positive); }
+.dashboard-app #adguard .dns-bundled-body { padding:0 24px; }
+.dashboard-app #adguard .dns-bundled-status { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.dashboard-app #adguard .dns-bundled-status small { font-size:var(--text-2xs); color:var(--text-tertiary); }
+.dashboard-app #adguard .dns-bundled-body ul { padding:0; margin:24px 0; list-style:none; display:grid; gap:18px; }
+.dashboard-app #adguard .dns-bundled-body li { display:flex; align-items:flex-start; gap:12px; }
+.dashboard-app #adguard .dns-bundled-body li > svg { width:17px; height:17px; color:var(--accent); margin-top:2px; flex-shrink:0; }
+.dashboard-app #adguard .dns-bundled-body li strong { display:block; font:var(--weight-medium) var(--text-sm)/1.5 var(--font-ui); }
+.dashboard-app #adguard .dns-bundled-body li small { display:block; color:var(--text-tertiary); margin-top:4px; font-size:var(--text-xs); }
+.dashboard-app #adguard .dns-bundled-body p { font-size:var(--text-xs); line-height:1.6; color:var(--text-tertiary); margin:0 0 20px; }
+.dashboard-app #adguard .dns-bundled-footer { padding:0 24px 24px; display:flex; justify-content:flex-end; }
+.dashboard-app #adguard .dns-bundled-footer button { margin-top:16px; }
+.dashboard-app #adguard .dns-profile-modal { max-height:calc(100dvh - 48px); border-radius:var(--radius-lg); background:var(--surface); }
+.dashboard-app #adguard .dns-profile-modal :is(h2,legend) { font-family:var(--font-display); font-weight:var(--weight-regular); letter-spacing:var(--tracking-tight); }
+.dashboard-app #adguard .dns-profile-modal .modal-heading { background:var(--surface); border-color:var(--separator); padding:24px; }
+.dashboard-app #adguard .dns-profile-form { display:grid; gap:24px; padding:24px; }
+.dashboard-app #adguard .dns-profile-basics { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.dashboard-app #adguard .dns-profile-form fieldset { margin:0; min-width:0; }
+.dashboard-app #adguard .dns-profile-form legend { font-size:var(--text-lg); padding:0; margin-bottom:12px; }
+.dashboard-app #adguard .service-picker { padding:20px; border:1px solid var(--separator); border-radius:var(--radius); background:var(--surface-raised); }
+.dashboard-app #adguard .service-picker p { margin:0 0 16px; font-size:var(--text-sm); color:var(--text-secondary); }
+.dashboard-app #adguard .service-checkboxes { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.dashboard-app #adguard .service-checkboxes label { border-radius:var(--radius-sm); background:var(--surface); font-size:var(--text-sm); }
+.dashboard-app #adguard .dns-router-clock { font-size:var(--text-xs); line-height:1.6; padding:12px 16px; border-radius:var(--radius); background:var(--surface-raised); margin:0; overflow-wrap:anywhere; }
+.dashboard-app #adguard .weekly-scheduler { border:0; padding:0; }
+.dashboard-app #adguard .scheduler-toolbar { gap:16px; align-items:flex-start; }
+.dashboard-app #adguard .scheduler-toolbar p { max-width:60ch; line-height:1.6; }
+.dashboard-app #adguard .scheduler-toolbar > div { flex-shrink:0; }
+.dashboard-app #adguard .scheduler-scroll { padding:16px; background:var(--surface-raised); border-radius:var(--radius); }
+.dashboard-app #adguard .scheduler-grid { grid-template-columns:108px repeat(24,26px); gap:4px; min-width:828px; }
+.dashboard-app #adguard .scheduler-slot { width:26px; height:28px; min-height:0; border-radius:5px; background:var(--surface); }
+.dashboard-app #adguard .scheduler-slot.is-allowed,.dashboard-app #adguard .dns-schedule-legend .is-allowed { background:color-mix(in srgb,var(--accent) 70%,var(--surface)); border-color:var(--accent); }
+.dashboard-app #adguard .scheduler-slot.is-partial,.dashboard-app #adguard .dns-schedule-legend .is-partial { background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--accent) 60%,var(--surface)) 0 4px,var(--surface) 4px 8px); border-color:var(--accent); }
+.dashboard-app #adguard .scheduler-slot:focus-visible { outline:2px solid var(--text-primary); outline-offset:2px; }
+.dashboard-app #adguard .scheduler-day { height:28px; position:sticky; left:0; z-index:1; background:var(--surface-raised); }
+.dashboard-app #adguard .dns-schedule-legend { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--text-tertiary); font-size:var(--text-2xs); }
+.dashboard-app #adguard .dns-schedule-legend > span { width:12px; height:12px; border:1px solid var(--separator); border-radius:3px; margin-left:8px; }
+.dashboard-app #adguard .dns-precise-schedule > summary { cursor:pointer; font-weight:var(--weight-medium); padding:12px 0; }
+.dashboard-app #adguard .dns-precise-schedule > p { font-size:var(--text-sm); color:var(--text-secondary); }
+.dashboard-app #adguard .dns-precise-day { display:grid; grid-template-columns:60px 1fr; gap:20px; padding:20px 0; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-precise-day > div { display:grid; gap:12px; }
+.dashboard-app #adguard .dns-precise-day > div > button { justify-self:start; }
+.dashboard-app #adguard .dns-precise-window { display:grid; grid-template-columns:1fr 1fr auto; gap:12px; align-items:end; }
+.dashboard-app #adguard .dns-dialog-footer { position:sticky; bottom:0; margin:0 -24px -24px; padding:16px 24px; background:var(--surface); border-top:1px solid var(--separator); display:grid; gap:12px; z-index:2; }
+.dashboard-app #adguard .dns-dialog-footer > div { display:flex; justify-content:flex-end; gap:12px; }
+.dashboard-app #adguard .dns-dialog-footer .dns-message { margin:0; }
+@media(max-width:1100px) {
+  .dashboard-app #adguard .dns-category-symbol { display:none; }
+  .dashboard-app #adguard .dns-profile-row { grid-template-columns:1fr auto; }
+  .dashboard-app #adguard .dns-profile-policy { grid-row:2; grid-column:1/-1; }
+  .dashboard-app #adguard .dns-profile-actions { grid-column:2; grid-row:1; }
+  .dashboard-app #adguard .dns-overview-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px 0; }
+  .dashboard-app #adguard .dns-overview-metrics > div:nth-child(3) { border-left:0; padding-left:0; }
 }
-@media(max-width:700px) {
-  :root:root .dashboard-app #adguard .dns-profile-table :is(table,tbody,tr,td) { display:block; width:100%; min-width:0; max-width:100%; white-space:normal; }
-  :root:root .dashboard-app #adguard .dns-profile-table :is(colgroup,thead) { display:none; }
-  :root:root .dashboard-app #adguard .dns-profile-table tbody tr { padding:12px 16px; border-bottom:1px solid var(--separator); }
-  :root:root .dashboard-app #adguard .dns-profile-table td { padding:12px 0; border:0; }
-  :root:root .dashboard-app #adguard .dns-profile-table td[data-label]::before { content:attr(data-label); display:block; margin-bottom:6px; color:var(--text-secondary); font:500 11px/1.5 var(--font-ui); }
-  :root:root .dashboard-app #adguard .dns-profile-table .device-row-actions { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:12px; }
-  :root:root .dashboard-app .dns-precise-window { grid-template-columns:1fr 1fr; }
-  :root:root .dashboard-app .dns-precise-window > button { grid-column:1/-1; justify-self:start; }
+@media(max-width:800px) {
+  .dashboard-app #adguard .dns-profile-list { grid-template-columns:1fr; }
+  .dashboard-app #adguard .dns-disclosure-meta { display:none; }
+  .dashboard-app #adguard :is(.dns-protection-columns,.dns-category-list,.dns-list-grid,.dns-settings-columns) { grid-template-columns:1fr; }
+  .dashboard-app #adguard .dns-category-symbol { display:grid; }
+  .dashboard-app #adguard .dns-policy-save { flex-direction:column; align-items:stretch; }
+  .dashboard-app #adguard .dns-protection-card { padding:var(--card-padding-compact); }
+  .dashboard-app #adguard .dns-protection-card > header { gap:12px; }
+  .dashboard-app #adguard .dns-overview-lead { flex-wrap:wrap; gap:16px; }
+  .dashboard-app #adguard .dns-overview-lead > button { margin-left:auto; }
+  .dashboard-app #adguard .dns-overview-symbol { width:48px; height:48px; border-radius:14px; }
+  .dashboard-app #adguard .dns-overview-symbol svg { width:26px; height:26px; }
+  .dashboard-app #adguard .dns-filter-heading { flex-wrap:wrap; }
+  .dashboard-app #adguard .dns-profiles-toolbar { align-items:stretch; flex-direction:column; }
+  .dashboard-app #adguard .dns-profiles-toolbar .dns-neutral-chip { align-self:flex-start; }
+  .dashboard-app #adguard .dns-profile-modal .modal-heading { padding:20px; }
+  .dashboard-app #adguard .scheduler-toolbar { flex-direction:column; }
+}
+@media(max-width:600px) {
+  .dashboard-app #adguard .dns-disclosure-heading { gap:12px; }
+  .dashboard-app #adguard .dns-disclosure-icon { width:36px; height:36px; border-radius:11px; }
+  .dashboard-app #adguard .dns-disclosure-icon svg { width:18px; height:18px; }
+  .dashboard-app #adguard .dns-device-card { padding:16px; }
+  .dashboard-app #adguard .dns-device-heading .dns-device-state { margin-left:52px; }
+  .dashboard-app #adguard .dns-history-empty { padding:16px; gap:14px; }
+  .dashboard-app #adguard .dns-settings-columns .dns-settings-heading { padding:20px; }
+  .dashboard-app #adguard .dns-profile-row { display:flex; flex-direction:column; gap:20px; }
+  .dashboard-app #adguard .dns-profile-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:space-between; width:100%; }
+  .dashboard-app #adguard .dns-protection-card > header { flex-wrap:wrap; }
+  .dashboard-app #adguard .dns-profile-basics { grid-template-columns:1fr; }
+  .dashboard-app #adguard .service-checkboxes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .dashboard-app #adguard .dns-profile-form { padding:16px; }
+  .dashboard-app #adguard .dns-dialog-footer { margin:0 -16px -16px; padding:16px; }
+  .dashboard-app #adguard .dns-profile-modal { max-height:calc(100dvh - 24px); }
+  .dashboard-app #adguard .dns-list-details > summary small { display:block; float:none; padding-left:20px; margin-top:4px; }
+  .dashboard-app #adguard .dns-precise-day { grid-template-columns:1fr; gap:12px; }
+  .dashboard-app #adguard .dns-precise-window { grid-template-columns:1fr 1fr; }
+  .dashboard-app #adguard .dns-precise-window > button { grid-column:1/-1; justify-self:start; }
+  .dashboard-app #adguard .dns-operation-banner { padding:16px; flex-wrap:wrap; }
+  .dashboard-app #adguard .dns-list-refresh { flex-wrap:wrap; }
+  .dashboard-app #adguard .dns-operation-history li { flex-wrap:wrap; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .dashboard-app #adguard .dns-disclosure-chevron svg { transition:none; }
+  .dashboard-app #adguard :is(.dns-category-choice,.dns-toggle > span,.dns-toggle > span::after) { transition:none; }
 }

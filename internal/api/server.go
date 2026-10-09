@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
@@ -50,8 +49,9 @@ type Server struct {
 	// updates is the optional release-update subsystem: the cached release
 	// check and the durable record of an accepted update. Explicit ownership,
 	// rather than a package-level registry keyed by *Server.
-	updates   updateService
-	dnsFilter *dnsfilter.Service
+	updates    updateService
+	dnsFilter  *dnsfilter.Service
+	recoveryMu sync.Mutex
 	// auditLimiter bounds how often request rejections reach the audit log.
 	auditLimiter auditThrottle
 	mu           sync.RWMutex
@@ -109,6 +109,8 @@ type pendingPfSenseImport struct {
 	sessionID string
 	config    config.SystemConfig
 	expiresAt time.Time
+	kind      string
+	dnsPolicy *dnsfilter.Policy
 }
 
 // ConfigureFirmwareTrust installs the immutable update trust anchor and the
@@ -449,10 +451,14 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/network/wol", gate(s.authMiddleware(s.handleWakeOnLAN)))
 	mux.HandleFunc("POST /api/v1/qos/speedtest", gate(s.authMiddleware(s.handleSpeedtest)))
 	mux.HandleFunc("POST /api/v1/recovery/reconcile", gate(s.authMiddleware(s.handleRecoveryReconcile)))
+	mux.HandleFunc("GET /api/v1/recovery/status", gate(s.authMiddleware(s.handleRecoveryStatus)))
+	mux.HandleFunc("POST /api/v1/recovery/operations/{id}/dns", gate(s.authMiddleware(s.handleRecoveryDNS)))
+	mux.HandleFunc("POST /api/v1/recovery/operations/{id}/dismiss", gate(s.authMiddleware(s.handleRecoveryDismiss)))
 	mux.HandleFunc("GET /api/v1/snapshots", gate(s.authMiddleware(s.handleGetSnapshots)))
 	mux.HandleFunc("POST /api/v1/snapshots", gate(s.authMiddleware(s.handleCreateSnapshot)))
 	mux.HandleFunc("DELETE /api/v1/snapshots/{id}", gate(s.authMiddleware(s.handleDeleteSnapshot)))
 	mux.HandleFunc("POST /api/v1/snapshots/{id}/restore", gate(s.authMiddleware(s.handleRestoreSnapshot)))
+	mux.HandleFunc("GET /api/v1/snapshots/{id}/preview", gate(s.authMiddleware(s.handleSnapshotPreview)))
 	mux.HandleFunc("POST /api/v1/import/pfsense/preview", gate(s.authMiddleware(s.handlePfSenseImportPreview)))
 	mux.HandleFunc("POST /api/v1/import/pfsense/{id}/apply", gate(s.authMiddleware(s.handlePfSenseImportApply)))
 
@@ -932,8 +938,7 @@ func (s *Server) handleGetSnapshots(w http.ResponseWriter, r *http.Request) {
 
 	store := s.engine.GetStore()
 	if store == nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"snapshots": []interface{}{}})
+		http.Error(w, "Snapshot history is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -952,6 +957,7 @@ func (s *Server) handleGetSnapshots(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"snapshots": snapshots,
+		"retention": map[string]int{"manual": 20, "automatic": 20},
 	})
 }
 
@@ -964,8 +970,21 @@ func (s *Server) handleCreateSnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct {
+		Label string `json:"label"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(w, r, &req); err != nil {
+			http.Error(w, "Invalid snapshot request", 400)
+			return
+		}
+	}
+	if err := config.ValidateSnapshotLabel(req.Label); err != nil {
+		http.Error(w, err.Error(), 422)
+		return
+	}
 	cfg := s.engine.GetCurrentConfig()
-	snap, err := store.CreateManualSnapshot(cfg)
+	snap, err := store.CreateManualSnapshot(cfg, req.Label)
 	if err != nil {
 		log.Printf("[API] Failed to create snapshot: %v\n", err)
 		http.Error(w, fmt.Sprintf("Snapshot creation failed: %v", err), http.StatusInternalServerError)
@@ -991,9 +1010,7 @@ func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := store.DeleteSnapshot(snapID); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		snapshotReadError(w, err)
 		return
 	}
 
@@ -1025,9 +1042,7 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 
 	snap, err := store.GetSnapshot(snapID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Snapshot not found: %s", snapID)})
+		snapshotReadError(w, err)
 		return
 	}
 
@@ -1037,33 +1052,32 @@ func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Corrupted snapshot config", http.StatusInternalServerError)
 		return
 	}
-	// Snapshot revisions describe history; optimistic concurrency must compare
-	// against the currently active revision before creating a new revision.
-	restoredCfg.Revision = s.engine.GetCurrentConfig().Revision
-	if err := managementContinuityErr(restoredCfg, r.RemoteAddr); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Restore rejected: " + err.Error()})
+	restoredCfg.MigrateLegacyFields()
+	current := s.engine.GetCurrentConfig()
+	var request struct {
+		ExpectedRevision *config.Revision `json:"expected_revision"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(w, r, &request); err != nil {
+			http.Error(w, "Invalid restore request", 400)
+			return
+		}
+	}
+	if request.ExpectedRevision == nil {
+		http.Error(w, "Preview this snapshot first and supply expected_revision", http.StatusPreconditionRequired)
 		return
 	}
-
-	txID := fmt.Sprintf("restore-%s-%d", snapID, time.Now().UnixNano())
-	tx, err := s.engine.ProcessTransaction(txID, restoredCfg)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"error": fmt.Sprintf("Restore failed: %v", err),
-		})
+	if *request.ExpectedRevision != current.Revision {
+		http.Error(w, "Configuration changed after preview; preview again", 409)
 		return
 	}
-
-	log.Printf("[API] Restored snapshot %s (rev %d → %d)\n", snapID, snap.Revision, tx.Config.Revision)
-	w.Header().Set("Content-Type", "application/json")
-	if tx.CurrentState == apply.StateAwaitingConfirmation {
-		w.WriteHeader(http.StatusAccepted)
+	restoredCfg.Revision = current.Revision
+	assessment := s.assessRecovery(restoredCfg, r.RemoteAddr)
+	if !assessment.CanApply {
+		writeGatewayJSON(w, 422, map[string]any{"error": "Restore is blocked", "assessment": assessment})
+		return
 	}
-	json.NewEncoder(w).Encode(redactTransaction(tx))
+	s.performRecovery(w, r, restoredCfg, "snapshot", nil)
 }
 
 // ── pfSense Migration ──
@@ -1091,82 +1105,11 @@ func (s *Server) handlePfSenseImportPreview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	session, err := s.requestSession(r)
-	if err != nil {
-		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
-		return
-	}
-	idBytes := make([]byte, 24)
-	if _, err := rand.Read(idBytes); err != nil {
-		http.Error(w, "Could not create import preview", http.StatusInternalServerError)
-		return
-	}
-	importID := base64.RawURLEncoding.EncodeToString(idBytes)
-	current := s.engine.GetCurrentConfig()
-	report.Config.Revision = current.Revision
-
-	s.mu.Lock()
-	now := time.Now()
-	for id, pending := range s.pendingImports {
-		if now.After(pending.expiresAt) || pending.sessionID == session.ID {
-			delete(s.pendingImports, id)
-		}
-	}
-	s.pendingImports[importID] = pendingPfSenseImport{
-		sessionID: session.ID,
-		config:    report.Config,
-		expiresAt: now.Add(10 * time.Minute),
-	}
-	s.mu.Unlock()
-
-	// The browser receives a write-only placeholder, never the imported PPPoE
-	// credential. The full candidate remains server-side until apply/expiry.
-	report.Config = redactConfig(report.Config)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"import_id":          importID,
-		"expires_in_seconds": 600,
-		"report":             report,
-	})
+	s.recoveryPreview(w, r, report.Config, "pfsense", nil, &report)
 }
 
 func (s *Server) handlePfSenseImportApply(w http.ResponseWriter, r *http.Request) {
-	session, err := s.requestSession(r)
-	if err != nil {
-		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
-		return
-	}
-	importID := r.PathValue("id")
-	s.mu.Lock()
-	pending, ok := s.pendingImports[importID]
-	if ok {
-		delete(s.pendingImports, importID)
-	}
-	s.mu.Unlock()
-	if !ok || pending.sessionID != session.ID || time.Now().After(pending.expiresAt) {
-		http.Error(w, "Import preview not found or expired", http.StatusNotFound)
-		return
-	}
-
-	pending.config.Revision = s.engine.GetCurrentConfig().Revision
-	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Import rejected: " + err.Error()})
-		return
-	}
-	tx, err := s.engine.ProcessTransaction("pfsense-import-"+importID, pending.config)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error(), "tx": redactTransaction(tx)})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if tx.CurrentState == apply.StateAwaitingConfirmation {
-		w.WriteHeader(http.StatusAccepted)
-	}
-	json.NewEncoder(w).Encode(redactTransaction(tx))
+	s.applyRecoveryPreview(w, r, "pfsense")
 }
 
 func (s *Server) handleRecoveryReconcile(w http.ResponseWriter, _ *http.Request) {
@@ -1233,7 +1176,7 @@ func (s *Server) handleGetSystem(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetDiagnostics(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[API] GET %s from %s\n", r.URL.Path, r.RemoteAddr)
 	cfg := s.engine.GetCurrentConfig()
-	data, err := telemetry.BuildDiagnosticBundle(cfg)
+	data, err := s.buildRecoveryDiagnostics(r.Context(), cfg)
 	if err != nil {
 		http.Error(w, "Failed to build diagnostic bundle", http.StatusInternalServerError)
 		return
@@ -1284,6 +1227,7 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	txID := fmt.Sprintf("tx-%d", time.Now().UnixNano())
 	tx, err := s.engine.ProcessTransaction(txID, newCfg)
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		log.Printf("[API] PUT %s - Transaction %s REJECTED: %v\n", r.URL.Path, txID, err)
 		w.Header().Set("Content-Type", "application/json")
@@ -1340,6 +1284,7 @@ func (s *Server) handleConfirmTransaction(w http.ResponseWriter, r *http.Request
 		}
 	}
 	tx, err := s.engine.ConfirmTransaction(r.PathValue("id"))
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		// The engine's reason (for example a WireGuard client without a
 		// handshake) is operator guidance, not a secret, and tells the
@@ -1568,79 +1513,11 @@ func (s *Server) handleBackupImportPreview(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Backup could not be authenticated or validated", http.StatusUnprocessableEntity)
 		return
 	}
-	candidate := payload.Config
-	session, err := s.requestSession(r)
-	if err != nil {
-		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
-		return
-	}
-	idBytes := make([]byte, 24)
-	if _, err := rand.Read(idBytes); err != nil {
-		http.Error(w, "Could not create restore preview", http.StatusInternalServerError)
-		return
-	}
-	importID := base64.RawURLEncoding.EncodeToString(idBytes)
-	candidate.Revision = s.engine.GetCurrentConfig().Revision
-	s.mu.Lock()
-	now := time.Now()
-	for id, pending := range s.pendingImports {
-		if now.After(pending.expiresAt) || pending.sessionID == session.ID {
-			delete(s.pendingImports, id)
-		}
-	}
-	s.pendingImports[importID] = pendingPfSenseImport{
-		sessionID: session.ID,
-		config:    candidate,
-		expiresAt: now.Add(10 * time.Minute),
-	}
-	s.mu.Unlock()
-
-	candidate = redactConfig(candidate)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"import_id":          importID,
-		"expires_in_seconds": 600,
-		"candidate":          candidate,
-		"dns_filter":         payload.DNSFilter,
-	})
+	s.recoveryPreview(w, r, payload.Config, "backup", payload.DNSFilter, nil)
 }
 
 func (s *Server) handleBackupImportApply(w http.ResponseWriter, r *http.Request) {
-	session, err := s.requestSession(r)
-	if err != nil {
-		http.Error(w, "Authenticated session required", http.StatusUnauthorized)
-		return
-	}
-	importID := r.PathValue("id")
-	s.mu.Lock()
-	pending, ok := s.pendingImports[importID]
-	if ok {
-		delete(s.pendingImports, importID)
-	}
-	s.mu.Unlock()
-	if !ok || pending.sessionID != session.ID || time.Now().After(pending.expiresAt) {
-		http.Error(w, "Restore preview not found or expired", http.StatusNotFound)
-		return
-	}
-	pending.config.Revision = s.engine.GetCurrentConfig().Revision
-	if err := managementContinuityErr(pending.config, r.RemoteAddr); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": "Restore rejected: " + err.Error()})
-		return
-	}
-	tx, err := s.engine.ProcessTransaction("backup-restore-"+importID, pending.config)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnprocessableEntity)
-		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error(), "tx": redactTransaction(tx)})
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	if tx.CurrentState == apply.StateAwaitingConfirmation {
-		w.WriteHeader(http.StatusAccepted)
-	}
-	json.NewEncoder(w).Encode(redactTransaction(tx))
+	s.applyRecoveryPreview(w, r, "backup")
 }
 
 func (s *Server) handleWakeOnLAN(w http.ResponseWriter, r *http.Request) {

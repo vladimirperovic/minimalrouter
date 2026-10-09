@@ -1,10 +1,10 @@
-import type { DNSRiskAlert, DNSRiskException, DNSFilterPolicy } from "../api-types";
+import type { DNSRiskAlert, DNSRiskException, Snapshot } from "../api-types";
+import type { Boot, AuditEvent } from "./logs";
+import { demoDNSRequest } from "./demoDNS";
 
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === "true";
 
 const startedAt = Date.now();
-let filterPolicy: DNSFilterPolicy = { revision: 1, categories: { threats: true, ads: true, adult: false, gambling: false }, exceptions: [] };
-const filterLists = [["threats", "Malware, phishing & scams", "tif.mini"], ["ads", "Ads & trackers", "light"], ["adult", "Adult content", "nsfw"], ["gambling", "Gambling", "gambling.mini"]].map(([category, label, file]) => ({ category, label, url: `https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/${file}-onlydomains.txt`, entries: 10000, updated_at: Math.floor(startedAt / 1000) }));
 let dnsHistoryCleared = false;
 let riskAlerts: DNSRiskAlert[] = ["phishing", "adult", "gambling"].map((category, index) => ({
   id: index + 1, domain: `${category}-demo.example`, category, severity: category === "phishing" ? "high" : "warning",
@@ -103,17 +103,44 @@ const health = {
   ],
 };
 
-const audit = { events: [
+const audit: { events: AuditEvent[] } = { events: [
   { id: "6", event_type: "auth.login_succeeded", timestamp: new Date(startedAt - 300000).toISOString(), actor: "192.168.1.20", details: { result: "success" } },
   { id: "5", event_type: "config.applied", timestamp: new Date(startedAt - 3600000).toISOString(), actor: "admin", details: { revision: "42" } },
   { id: "2", event_type: "auth.csrf_rejected", timestamp: new Date(startedAt - 172800000).toISOString(), actor: "192.0.2.77", details: { source: "unknown" } },
   { id: "7", event_type: "wireguard.peer_connected", timestamp: new Date(startedAt - 720000).toISOString(), actor: "10.8.0.2", details: { peer: "MacBook Pro" } },
 ] };
 
-let snapshots = [
-  { id: "s3", created_at: new Date(startedAt - 3_600_000).toISOString(), revision: 42, checksum: "b7f1c3a95d24e08fa1c6d4e2b8093f7a5c1e6d2b4a8f0c3e9d7b5a1f2c4e6d80" },
-  { id: "s2", created_at: new Date(startedAt - 86_400_000).toISOString(), revision: 41, checksum: "e3a8d1f60c92b4785ade3c1097f2b6d40e8a5c39b7f1d2e604a8c9b3d5e7f102" },
-  { id: "s1", created_at: new Date(startedAt - 604_800_000).toISOString(), revision: 38, checksum: "a2e77f3101d64ea909a7f321d3ec5b9014df22c9d12d5540beae4a942f2518cf" },
+const demoBoot: Boot = {
+  id: "demo-latest", started_at: new Date(startedAt - 900_000).toISOString(), completed: true,
+  status: "ready", completion_reason: "ready", finished_seconds: 7, updated_at: new Date(startedAt - 893_000).toISOString(),
+  expected: ["management", "pppoe", "dns", "internet", "wireguard"],
+  readiness: { management_seconds: 1, pppoe_seconds: 4, dns_seconds: 5, internet_seconds: 6, wireguard_seconds: 7 },
+  events: [{ offset_seconds: 3, kind: "reconcile", message: "Canonical configuration reconciled" }],
+  samples: Array.from({ length: 8 }, (_, offset_seconds) => ({ offset_seconds, cpu_percent: [4, 21, 37, 19, 12, 8, 6, 4][offset_seconds], memory_used_mb: 160 + offset_seconds * 2, memory_total_mb: 512 })),
+};
+
+function demoAuditPage(url: URL) {
+  const all: AuditEvent[] = audit.events.map(event => ({ ...event, category: event.event_type.startsWith("auth.") ? "security" : event.event_type.startsWith("wireguard.") ? "network" : "configuration" }));
+  all.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  const q = (url.searchParams.get("q") ?? "").toLowerCase();
+  const category = url.searchParams.get("category");
+  const matching = all.filter(event => (!category || category === "all" || event.category === category)
+    && (!q || `${event.event_type} ${event.actor} ${Object.entries(event.details ?? {}).flat().join(" ")}`.toLowerCase().includes(q))
+    && (!url.searchParams.get("actor") || event.actor === url.searchParams.get("actor"))
+    && (!url.searchParams.get("event_type") || event.event_type === url.searchParams.get("event_type"))
+    && (!url.searchParams.get("since") || Date.parse(event.timestamp) >= Date.parse(url.searchParams.get("since")!))
+    && (!url.searchParams.get("until") || Date.parse(event.timestamp) <= Date.parse(url.searchParams.get("until")!)));
+  const offset = Number(url.searchParams.get("cursor") || 0), limit = Number(url.searchParams.get("limit") || 100);
+  const events = matching.slice(offset, offset + limit), has_more = offset + limit < matching.length;
+  return { events, matching_count: matching.length, retained_count: all.length, retention_limit: 5000, has_more, next_cursor: has_more ? String(offset + limit) : undefined,
+    generated_at: new Date().toISOString(), oldest_at: all[all.length - 1]?.timestamp, newest_at: all[0]?.timestamp,
+    notice: "Demonstration data. On the appliance, history is bounded and request floods may be suppressed." };
+}
+
+let snapshots: Snapshot[] = [
+  { id: "s3", kind: "manual", label: "Before firewall changes", created_at: new Date(startedAt - 3_600_000).toISOString(), revision: 42, checksum: "b7f1c3a95d24e08fa1c6d4e2b8093f7a5c1e6d2b4a8f0c3e9d7b5a1f2c4e6d80" },
+  { id: "s2", kind: "automatic", label: "", created_at: new Date(startedAt - 86_400_000).toISOString(), revision: 41, checksum: "e3a8d1f60c92b4785ade3c1097f2b6d40e8a5c39b7f1d2e604a8c9b3d5e7f102" },
+  { id: "s1", kind: "manual", label: "Stable configuration", created_at: new Date(startedAt - 604_800_000).toISOString(), revision: 38, checksum: "a2e77f3101d64ea909a7f321d3ec5b9014df22c9d12d5540beae4a942f2518cf" },
 ];
 
 let trafficTick = 0;
@@ -180,6 +207,15 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   const path = url.pathname;
   const method = (init.method ?? "GET").toUpperCase();
 
+  if (path === "/api/v1/recovery/status") return json({ generated_at: new Date().toISOString(), revision: config.revision, last_backup_export_at: new Date(startedAt - 11 * 86400000).toISOString(), snapshot_count: snapshots.length, retention: { manual: 20, automatic: 20 }, pending: null, operation: null, demo: true });
+  const snapshotAction = path.match(/^\/api\/v1\/snapshots\/([^/]+)(?:\/(preview|restore))?$/);
+  if (snapshotAction) {
+    const snapshot = snapshots.find(item => item.id === decodeURIComponent(snapshotAction[1]));
+    if (!snapshot) return json({ error: "Snapshot not found" }, 404);
+    if (method === "DELETE") { snapshots = snapshots.filter(item => item.id !== snapshot.id); return json({ success: true }); }
+    if (snapshotAction[2] === "preview" && method === "GET") return json({ snapshot_id: snapshot.id, source: "snapshot", base_revision: config.revision, candidate: config, assessment: { can_apply: false, changes: [], blockers: ["This is a demonstration snapshot. Restore is available on a real appliance."], risk: "unknown", requires_confirmation: false, expected_interruption: "No appliance is connected." } });
+  }
+  if (path.startsWith("/api/v1/backup/") || path.startsWith("/api/v1/import/") || path.startsWith("/api/v1/recovery/operations/") || snapshotAction) return json({ error: "Demo mode cannot encrypt, validate or restore real backups. Connect to your appliance to use this operation." }, 501);
   if (path === "/api/v1/config" && method === "PUT") {
     const next = parseBody(init);
     if (next) config = { ...config, ...next, revision: config.revision + 1, updated_at: new Date().toISOString() } as typeof config;
@@ -188,8 +224,9 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/gateway/settings" && method === "PUT") return json(parseBody(init) ?? {});
   if (path === "/api/v1/qos/speedtest" && method === "POST") return json({ download_mbps: 221.4, upload_mbps: 46.8, suggested_download_mbps: 199, suggested_upload_mbps: 42 });
   if (path === "/api/v1/snapshots" && method === "POST") {
-    snapshots = [{ id: `demo-${Date.now()}`, created_at: new Date().toISOString(), revision: config.revision, checksum: "demo000000000000000000000000000000000000000000000000000000000000" }, ...snapshots];
-    return json({ created: true });
+    snapshots = [{ id: `demo-${Date.now()}`, kind: "manual", label: String(parseBody(init)?.label ?? "").trim(), created_at: new Date().toISOString(), revision: config.revision, checksum: "demo000000000000000000000000000000000000000000000000000000000000" }, ...snapshots];
+    snapshots = snapshots.filter((item, index, all) => all.slice(0, index + 1).filter(previous => previous.kind === item.kind).length <= 20);
+    return json({ success: true, snapshot: snapshots[0] });
   }
   if (path === "/api/v1/wireguard/client/keys" && method === "POST") return json({ private_key: "DEMO_PRIVATE_KEY_NOT_REAL=", public_key: "DEMO_PUBLIC_KEY_NOT_REAL=" });
   if (path === "/api/v1/wireguard/peers" && method === "POST") {
@@ -211,16 +248,9 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     return json({ tx: { state: "Committed" } });
   }
   if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", provisioning_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
-  if (path === "/api/v1/backup/import/preview" && method === "POST") return json({ import_id: "demo-backup", expires_in_seconds: 600, candidate: config, dns_filter: filterPolicy });
-  if (path === "/api/v1/dns-filter") {
-    if (method === "PUT") { const next = JSON.parse(String(init?.body ?? "{}")) as DNSFilterPolicy; if (next.revision !== filterPolicy.revision) return json({ error: "Policy changed; reload before saving" }, 409); filterPolicy = { ...next, revision: next.revision + 1 }; return json({ updating: true }, 202); }
-    return json({ policy: filterPolicy, domains: Object.values(filterPolicy.categories).filter(Boolean).length * 10000, applied_at: Math.floor(startedAt / 1000), healthy: true, lists: filterLists, updating: false, next_refresh_at: Math.floor(startedAt / 1000) + 86400, router_time: new Date().toISOString(), timezone: "UTC" });
-  }
-  if (path === "/api/v1/dns-filter/refresh" && method === "POST") return json({ updating: true }, 202);
-  if (path === "/api/v1/dns-filter/check" && method === "POST") { const { domain } = JSON.parse(String(init?.body ?? "{}")) as { domain: string }; const exception = filterPolicy.exceptions.some(e => domain === e.domain || domain.endsWith(`.${e.domain}`)); return json({ domain, action: exception ? "Allow exception" : "No category block", exception, healthy: true, matches: [] }); }
-  if (path === "/api/v1/import/pfsense/preview" && method === "POST") return json({ import_id: "demo-pfsense", expires_in_seconds: 600, report: { source_version: "2.7-demo", warnings: [], unsupported_sections: [], imported: { dhcp_leases: 4, firewall_rules: 2 }, config } });
+  const dnsResponse = demoDNSRequest(url, init, config);
+  if (dnsResponse) return dnsResponse;
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");
-  if (path === "/api/v1/backup/export" && method === "POST") return download("MINIMALROUTER PUBLIC DEMO BACKUP\nNo router data is included.\n", "application/octet-stream");
   if (path === "/api/v1/dns-activity/clear" && method === "POST") { riskAlerts = []; dnsHistoryCleared = true; return json({ cleared: true }); }
   const riskAction = path.match(/^\/api\/v1\/dns-activity\/alerts\/(\d+)\/(acknowledge|ignore)$/);
   if (riskAction && method === "POST") {
@@ -257,7 +287,9 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/gateway/history") return json({ window: url.searchParams.get("window") ?? "1h", points: gatewayHistory() });
   if (path === "/api/v1/snapshots") return json({ snapshots });
   if (path === "/api/v1/transactions/pending") return json({});
-  if (path === "/api/v1/audit/events") return json(audit);
+  if (path === "/api/v1/audit/events") return json(demoAuditPage(url));
+  if (path === "/api/v1/startup/boots") return json({ boots: [{ ...demoBoot, samples: undefined, sample_count: demoBoot.samples!.length, last_sample: demoBoot.samples![demoBoot.samples!.length - 1] }], retained_boots: 5, capture_minutes: 10 });
+  if (path === "/api/v1/startup/boots/demo-latest") return json({ boot: demoBoot, status: "ready" });
   if (path === "/api/v1/accounting/insights") {
     const period=url.searchParams.get('period')||'today';const now=new Date();const day=new Date(now);day.setUTCHours(0,0,0,0);
     const days=period==='30d'?30:period==='7d'?7:1;const hourly=days===1;const from=new Date(day.getTime()-(period==='yesterday'?1:days-1)*86400000);const until=period==='yesterday'?day:now;

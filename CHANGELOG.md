@@ -6,6 +6,67 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+### Upgrade compatibility
+
+- These changes alter the shared configuration store used by `router-recovery`
+  and `router-setup`, and update the Go build toolchain and dependencies.
+  The next signed release requires the full distribution
+  installer once for existing v0.2.1 and earlier appliances; ordinary dashboard
+  A/B activation remains blocked by the existing byte-identity safety check.
+  Published v0.2.1 artifacts are unchanged. See `docs/WEB-UPDATE.md`.
+
+### Fixed
+
+- Require Go 1.26.9 and update `golang.org/x/net` to v0.60.0 (with its
+  `x/crypto`/`x/sys` dependencies) to address the October 2026 HTTP/TLS
+  vulnerabilities reported by the mandatory Go vulnerability scan.
+- Keep Overview's active devices in aligned columns at desktop and tablet
+  widths, combining IP/MAC details and using compact cards only on narrow screens.
+- Preserve DNS policy drafts across navigation and asynchronous failures; cancel
+  obsolete domain checks and never report HTTP 202 or a failed status read as
+  success. Keep profile errors inside the editor and preserve minute-precise
+  schedule intervals when painting hours. Policy edits reuse installed catalogs
+  offline. DNS status probes no longer hold the global network apply lock.
+- Bind backup, pfSense and snapshot restores to the reviewed configuration
+  revision; cancel stale previews and diagnostic downloads. Persist restore/DNS
+  continuation and require network confirmation before DNS restoration, tracking
+  asynchronous failure and verified completion instead of treating HTTP 202 as success.
+- Retain backup export timestamps independently of audit pruning, backfilling
+  from all retained history. Distinguish unavailable snapshot history and corrupt
+  restore points; normalize nullable DNS policy collections.
+
+- Prevent nullable audit metadata and startup sample arrays from crashing Logs.
+  Distinguish ready, timed-out, interrupted and legacy unknown startup outcomes;
+  record management readiness after listener binding. Refresh bypasses stale
+  caches and remains available after a failed initial load.
+- Persist sanitized configuration transaction outcomes, including automatic
+  confirmation-timeout rollback, with transaction IDs and revision metadata.
+
+### Added
+
+- Redesigned DNS Filter with applied-protection overview, theme-native cards,
+  searchable profiles/exceptions, DHCP device selection, precise accessible
+  schedule editing and visible-page polling. Persist the last 20 DNS operations
+  and audit requested/terminal outcomes. Add read-only domain explanation,
+  profile-context and operation-history MCP tools with revisions and explicit
+  configured-policy versus runtime-enforcement limits.
+- Consistent subtle card hover borders and shadows across dashboard pages,
+  respecting theme, mouse capability and reduced-motion preferences.
+
+- Redesigned Recovery overview, restore progress and change assessments, named
+  manual/automatic snapshots with visible 20-per-kind retention. Snapshot polling
+  is owned by the visible Recovery page; network confirmation monitoring remains global.
+- Recovery status, snapshot preview and DNS continuation APIs; six read-only MCP
+  recovery tools and diagnostics containing current health, resource usage and
+  bounded audit/startup context. Snapshot restore now requires `expected_revision`.
+
+- Server-side audit search, category/actor/event/time filters and cursor
+  pagination over retained history, with retention bounds and suppression notes.
+- Visible-page polling with cancellation, a pause control, startup summaries
+  with selected-boot sample retrieval, CPU/RAM charts and structured current
+  disk usage. Scoped audit and diagnostic JSON exports describe their coverage.
+- Read-only MCP startup summary/detail tools and expanded audit query filters.
+
 ## [v0.2.1] — 2026-10-08
 
 ### Fixed

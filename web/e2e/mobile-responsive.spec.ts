@@ -124,6 +124,7 @@ async function stubApi(page: Page) {
     if (path === "/api/v1/gateway/settings") return json(route, { enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 });
     if (path === "/api/v1/gateway/history") return json(route, { window: "1h", points: [] });
     if (path === "/api/v1/startup/boots") return json(route, STARTUP);
+    if (path === "/api/v1/startup/boots/boot-1") return json(route, { boot: STARTUP.boots[0], status: "ready" });
     if (path === "/api/v1/snapshots") return json(route, []);
     if (path === "/api/v1/transactions/pending") return json(route, {});
     if (path === "/api/v1/audit/events") return json(route, { events: [] });
@@ -224,9 +225,11 @@ for (const width of [390, 768, 1024, 1440]) {
         }] },
       }));
       await page.goto("/#dns-filter");
-      const table = page.getByRole("table", { name: "DNS Filter device profiles" });
-      await expect(table.getByText("Kids tablet")).toBeVisible();
-      const schedule = table.locator("tbody td").nth(3);
+      const profile = page.getByRole("region", { name: "Kids tablet", exact: true });
+      await expect(profile).toBeVisible();
+      await profile.getByText("View exact weekly times", { exact: true }).click();
+      const schedule = profile.locator(".dns-device-schedule");
+      await expect(schedule.locator(".dns-device-full-week p")).toContainText("18:00–21:30");
       const inset = await schedule.evaluate(cell => {
         const range = document.createRange();
         range.selectNodeContents(cell);

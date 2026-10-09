@@ -64,10 +64,10 @@ test("Security owns TOTP while Recovery owns backup, migration and diagnostics",
   await page.goto("/");
   await openSection(page, isMobile, "Security");
   await expect(page.getByRole("heading", { name: "Two-factor authentication" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeHidden();
+  await expect(page.getByRole("article", { name: "Recovery tools" })).toBeHidden();
 
   await openSection(page, isMobile, "Recovery");
-  await expect(page.getByRole("heading", { name: "Recovery tools" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Recovery tools" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Download diagnostics" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Export encrypted backup" })).toBeVisible();
   await page.getByText("Migrate from pfSense config.xml").click();
@@ -103,6 +103,7 @@ test("pfSense migration is previewed with warnings before apply", async ({ page,
     body: JSON.stringify({
       import_id: "preview-1",
       expires_in_seconds: 600,
+      expires_at: new Date(Date.now() + 600000).toISOString(), base_revision: 42, candidate: CONFIG, assessment: { can_apply: true, blockers: [], changes: ["Firewall"], risk: "medium", requires_confirmation: false, expected_interruption: "Affected services may restart." },
       report: {
         source_version: "23.09",
         imported: { pppoe_accounts: 1, port_forwards: 1 },
@@ -115,7 +116,7 @@ test("pfSense migration is previewed with warnings before apply", async ({ page,
 
   await page.goto("/");
   await openSection(page, isMobile, "Recovery");
-  const panel = page.locator('[aria-labelledby="recovery-tools-title"]');
+  const panel = page.locator("#recovery");
   await panel.getByText("Migrate from pfSense config.xml").click();
   await panel.locator('input[name="pfsense_xml"]').setInputFiles({
     name: "config.xml",

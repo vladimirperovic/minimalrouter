@@ -53,12 +53,16 @@ type Readiness struct {
 }
 
 type Boot struct {
-	ID        string    `json:"id"`
-	StartedAt time.Time `json:"started_at"`
-	Completed bool      `json:"completed"`
-	Readiness Readiness `json:"readiness"`
-	Events    []Event   `json:"events"`
-	Samples   []Sample  `json:"samples"`
+	ID               string    `json:"id"`
+	StartedAt        time.Time `json:"started_at"`
+	Completed        bool      `json:"completed"`
+	Readiness        Readiness `json:"readiness"`
+	Events           []Event   `json:"events"`
+	Samples          []Sample  `json:"samples"`
+	Expected         []string  `json:"expected,omitempty"`
+	CompletionReason string    `json:"completion_reason,omitempty"`
+	FinishedSeconds  *int64    `json:"finished_seconds,omitempty"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type Recorder struct {
@@ -79,7 +83,7 @@ func New(dataDir string) (*Recorder, error) {
 
 	now := time.Now().UTC()
 	bootID, startedAt := kernelBootIdentity(now)
-	boot := Boot{ID: bootID, StartedAt: startedAt}
+	boot := Boot{ID: bootID, StartedAt: startedAt, Events: []Event{}, Samples: []Sample{}}
 	path := filepath.Join(dir, bootID+".json")
 	reused := false
 	if data, err := os.ReadFile(path); err == nil {
@@ -92,6 +96,11 @@ func New(dataDir string) (*Recorder, error) {
 	}
 
 	r := &Recorder{dir: dir, started: startedAt, boot: boot}
+	if reused && r.boot.CompletionReason == "interrupted" && time.Since(startedAt) < Window {
+		r.boot.Completed = false
+		r.boot.CompletionReason = ""
+		r.boot.FinishedSeconds = nil
+	}
 	if reused && r.boot.Completed {
 		return r, nil
 	}
@@ -201,6 +210,16 @@ func (r *Recorder) offsetSeconds() int64 {
 func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface string, wgEnabled bool) {
 	r.mu.Lock()
 	alreadyCompleted := r.boot.Completed
+	if !alreadyCompleted {
+		r.boot.Expected = []string{"management"}
+		if pppoeEnabled {
+			r.boot.Expected = append(r.boot.Expected, "pppoe", "dns", "internet")
+		}
+		if wgEnabled && wgInterface != "" {
+			r.boot.Expected = append(r.boot.Expected, "wireguard")
+		}
+		_ = r.persistLocked()
+	}
 	r.mu.Unlock()
 	if alreadyCompleted {
 		return
@@ -208,7 +227,7 @@ func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface strin
 
 	remaining := time.Until(r.started.Add(Window))
 	if remaining <= 0 {
-		r.complete()
+		r.complete("timeout")
 		return
 	}
 
@@ -228,22 +247,23 @@ func (r *Recorder) Run(ctx context.Context, pppoeEnabled bool, wgInterface strin
 	// handled separately and stop permanently as soon as their milestone is met.
 	r.sample()
 	if r.checkReadiness(ctx, pppoeEnabled, wgInterface, wgEnabled) {
-		r.complete()
+		r.complete("ready")
 		return
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
+			r.complete("interrupted")
 			return
 		case <-deadline.C:
-			r.complete()
+			r.complete("timeout")
 			return
 		case <-sampleTicker.C:
 			r.sample()
 		case <-checkTicker.C:
 			if r.checkReadiness(ctx, pppoeEnabled, wgInterface, wgEnabled) {
-				r.complete()
+				r.complete("ready")
 				return
 			}
 		}
@@ -312,13 +332,18 @@ func (r *Recorder) checkReadiness(ctx context.Context, pppoeEnabled bool, wgInte
 
 func int64Ptr(value int64) *int64 { return &value }
 
-func (r *Recorder) complete() {
+func (r *Recorder) complete(reason ...string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.boot.Completed {
 		return
 	}
 	r.boot.Completed = true
+	r.boot.CompletionReason = "unknown"
+	if len(reason) > 0 {
+		r.boot.CompletionReason = reason[0]
+	}
+	r.boot.FinishedSeconds = int64Ptr(r.offsetSeconds())
 	_ = r.persistLocked()
 }
 
@@ -370,16 +395,28 @@ func readCPU() (uint64, uint64) {
 	if !scanner.Scan() {
 		return 0, 0
 	}
-	fields := strings.Fields(scanner.Text())
+	return parseCPU(scanner.Text())
+}
+
+func parseCPU(line string) (uint64, uint64) {
+	fields := strings.Fields(line)
 	if len(fields) < 5 {
 		return 0, 0
 	}
 	var total uint64
-	for _, value := range fields[1:] {
+	// guest/guest_nice are already included in user/nice; iowait is idle.
+	for i, value := range fields[1:] {
+		if i >= 8 {
+			break
+		}
 		number, _ := strconv.ParseUint(value, 10, 64)
 		total += number
 	}
 	idle, _ := strconv.ParseUint(fields[4], 10, 64)
+	if len(fields) > 5 {
+		iowait, _ := strconv.ParseUint(fields[5], 10, 64)
+		idle += iowait
+	}
 	return total, idle
 }
 
@@ -412,6 +449,7 @@ func (r *Recorder) persist() error {
 }
 
 func (r *Recorder) persistLocked() error {
+	r.boot.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(r.boot, "", "  ")
 	if err != nil {
 		return err
@@ -475,6 +513,7 @@ func Load(dataDir string) ([]Boot, error) {
 		}
 		var boot Boot
 		if json.Unmarshal(data, &boot) == nil {
+			normalizeBoot(&boot)
 			out = append(out, boot)
 		}
 	}
@@ -483,6 +522,68 @@ func Load(dataDir string) ([]Boot, error) {
 		out = out[:MaxBoots]
 	}
 	return out, nil
+}
+
+func normalizeBoot(boot *Boot) {
+	if boot.Events == nil {
+		boot.Events = []Event{}
+	}
+	if boot.Samples == nil {
+		boot.Samples = []Sample{}
+	}
+}
+
+// CaptureStatus never infers successful startup from a legacy completed flag.
+func (b Boot) CaptureStatus(now time.Time) string {
+	if b.Completed {
+		switch b.CompletionReason {
+		case "ready", "timeout", "interrupted":
+			return b.CompletionReason
+		}
+		return "unknown"
+	}
+	if now.Sub(b.StartedAt) > Window+samplePersistInterval {
+		return "interrupted"
+	}
+	return "capturing"
+}
+
+type BootSummary struct {
+	Boot
+	Samples     []Sample `json:"samples,omitempty"` // shadows the full series
+	Status      string   `json:"status"`
+	SampleCount int      `json:"sample_count"`
+	LastSample  *Sample  `json:"last_sample,omitempty"`
+}
+
+func Summarize(b Boot, now time.Time) BootSummary {
+	summary := BootSummary{Boot: b, Status: b.CaptureStatus(now), SampleCount: len(b.Samples)}
+	if len(b.Samples) > 0 {
+		last := b.Samples[len(b.Samples)-1]
+		summary.LastSample = &last
+	}
+	summary.Boot.Samples = nil
+	return summary
+}
+
+// LoadBoot accepts an identifier, never an operator-supplied filesystem path.
+func LoadBoot(dataDir, id string) (Boot, error) {
+	var boot Boot
+	if !validBootID(id) || id == "." || id == ".." {
+		return boot, os.ErrNotExist
+	}
+	data, err := os.ReadFile(filepath.Join(dataDir, "startup", id+".json"))
+	if err != nil {
+		return boot, err
+	}
+	if err := json.Unmarshal(data, &boot); err != nil {
+		return boot, err
+	}
+	if boot.ID != id {
+		return boot, fmt.Errorf("startup identity mismatch")
+	}
+	normalizeBoot(&boot)
+	return boot, nil
 }
 
 func (b Boot) Summary() string {

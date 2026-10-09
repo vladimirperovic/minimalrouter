@@ -135,7 +135,7 @@ docs/INSTALLATION.md and docs/PROXMOX.md.
 5. Verify the result using the checks in docs/INSTALLATION.md.
 ```
 
-Building needs Go 1.25+ and Node 22.13+ with pnpm; the VM needs Alpine 3.22 with
+Building needs Go 1.26.9+ and Node 22.13+ with pnpm; the VM needs Alpine 3.22 with
 a kernel that has the PPPoE module. `make dist-amd64` writes
 `build/minimalrouter-linux-amd64.tar.gz`, the same archive layout the release
 publishes, including its `install.sh`.

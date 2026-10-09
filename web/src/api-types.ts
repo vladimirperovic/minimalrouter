@@ -1,4 +1,4 @@
-export type Snapshot = { id: string; revision: number; created_at: string; checksum: string };
+export type Snapshot = { id: string; revision: number; created_at: string; checksum: string; kind?: "manual" | "automatic"; label?: string };
 
 // Older backends omit the capability flag; omission is unknown, never a key-presence signal.
 export type WireGuardProvisioningPreview = {

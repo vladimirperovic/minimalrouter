@@ -307,6 +307,7 @@ func main() {
 	// left to crash recovery on every single reboot.
 	shutdownCtx, stopSignals := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stopSignals()
+	server.StartStartupCapture(shutdownCtx)
 
 	serveErr := make(chan error, 1)
 	go func() {

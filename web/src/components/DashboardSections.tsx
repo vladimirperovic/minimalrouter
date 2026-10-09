@@ -1,12 +1,11 @@
 import FirewallActivityPanel from "./FirewallActivityPanel";
 import { useCallback } from "react";
 import { qosStatus } from "../lib/qos";
-import RecoveryToolsPanel from "./RecoveryToolsPanel";
+import RecoveryPanel from "./RecoveryPanel";
 import { useVisiblePolling } from "../lib/useVisiblePolling";
-import React, { useState } from "react";
+import React, { lazy, Suspense, useState } from "react";
 import type { FormEvent } from "react";
 import { apiFetch } from "../lib/api";
-import DNSFilterPanel from "./DNSFilterPanel";
 import AuditLogPanel from "./AuditLogPanel";
 import GatewayQualityPanel from "./GatewayQualityPanel";
 import DeviceLeasesTable from "./DeviceLeasesTable";
@@ -16,8 +15,10 @@ import FirewallPresets from "./FirewallPresets";
 import WireGuardPeerDetails, { type PeerDetails } from "./WireGuardPeerDetails";
 import TrafficPanel from "./TrafficPanel";
 import DNSActivityPanel from "./DNSActivityPanel";
-import type { GatewaySettings, GatewaySummary, RouterConfig, Snapshot, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
+import type { GatewaySettings, GatewaySummary, RouterConfig, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
+
+const DNSFilterPanel = lazy(() => import("./DNSFilterPanel"));
 
 export type SectionID = "overview" | "gateway" | "network" | "firewall" | "qos" | "wireguard" | "cloudflare" | "squid" | "dns-filter" | "wifi" | "recovery" | "security" | "logs" | "traffic" | "dns-activity";
 
@@ -38,7 +39,6 @@ type Props = {
   gatewaySettings: GatewaySettings;
   runtime: Runtime;
   leases: NonNullable<Runtime["dhcp_leases"]>;
-  snapshots: Snapshot[];
   busy: boolean;
   load: () => Promise<void>;
   applyConfig: ApplyConfig;
@@ -60,9 +60,6 @@ type Props = {
   toggleWGClient: (enabled: boolean) => void;
   speedTest: SpeedTestResult | null;
   speedTesting: boolean;
-  createSnapshot: () => Promise<void>;
-  restoreSnapshot: (id: string) => Promise<void>;
-  deleteSnapshot: (id: string) => Promise<void>;
   setError: (message: string) => void;
   onNavigate: (id: SectionID) => void;
 };
@@ -414,9 +411,9 @@ function StaticDNSRecordsEditor({ records, disabled, busy, saved }: { records: D
 }
 
 export default function DashboardSections({
-  active, config, gatewaySummary, gatewaySettings, runtime, leases, snapshots, busy,
+  active, config, gatewaySummary, gatewaySettings, runtime, leases, busy,
   load, applyConfig, applyGatewayMonitoring, markSectionSaved, savedSection, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, createSnapshot, restoreSnapshot, deleteSnapshot, setError, onNavigate }: Props) {
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, setError, onNavigate }: Props) {
   const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
   const qosState = qosStatus(config, runtime.qos);
   const lanPrefix = Number(String(config.lan.cidr || "").split("/")[1]) || 24;
@@ -1011,7 +1008,7 @@ export default function DashboardSections({
   </article>
 </section>}
 
-{active === "dns-filter" && <DNSFilterPanel apiConnected onError={setError} />}
+{active === "dns-filter" && <Suspense fallback={<p role="status">Loading DNS protection…</p>}><DNSFilterPanel apiConnected onError={setError} leases={leases} /></Suspense>}
 
 {active === "wifi" && <section className="dashboard-section" id="wifi">
   <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Optional hardware</p><h2>Wi-Fi access point</h2><p className="section-copy">Control the local radio, network identity and channel settings when compatible wireless hardware is installed.</p></div><span className={`classic-status-chip ${config.wifi.enabled ? "" : "is-off"}`}>Wi-Fi {config.wifi.enabled ? "Enabled" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Radio configuration</dt><dd>{config.wifi.enabled ? "Enabled" : "Off"}</dd><small>{config.wifi.interface || "no interface"}</small></div><div><dt>Network</dt><dd>{config.wifi.ssid || "Not set"}</dd><small>{config.wifi.hide_ssid ? "hidden SSID" : "visible SSID"}</small></div><div><dt>Band</dt><dd>{config.wifi.band}</dd><small>wireless spectrum</small></div><div><dt>Channel</dt><dd>{config.wifi.channel}</dd><small>manual selection</small></div></dl></div>
@@ -1024,12 +1021,7 @@ export default function DashboardSections({
   </article>
 </section>}
 
-{active === "recovery" && <section className="dashboard-section" id="recovery">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Recoverability</p><h2>Recovery</h2><p className="section-copy">Back up your Minimal Router configuration, restore from an encrypted backup, or migrate settings from pfSense.</p></div><button className="button primary" disabled={busy} onClick={() => void createSnapshot()} type="button">Create snapshot</button></div><dl className="subpage-hero-facts"><div><dt>Snapshots</dt><dd>{snapshots.length}</dd><small>stored on this appliance</small></div><div><dt>Current revision</dt><dd>{config.revision}</dd><small>active configuration</small></div><div><dt>Network recovery</dt><dd>Console only</dd><small>no remote endpoint</small></div><div><dt>Rollback</dt><dd>Automatic</dd><small>critical changes protected</small></div></dl></div>
-  <RecoveryToolsPanel config={config} onError={setError} />
-  <article className="card table-card"><div className="card-title-row"><div><h3>Configuration snapshots</h3><p>Restore points stored on this appliance. These contain router configuration only. Download an encrypted backup for the network DNS policy and protection against disk failure.</p></div><span className="quiet-meta">{snapshots.length} available</span></div><div className="elegant-table-container"><table className="elegant-device-table"><colgroup><col className="elegant-col-expires" /><col className="elegant-col-w100" /><col /><col className="elegant-col-actions" /></colgroup><thead><tr><th>Created</th><th>Revision</th><th>Checksum</th><th className="elegant-th-actions">Action</th></tr></thead><tbody>{snapshots.length === 0 ? <tr><td className="empty-state" colSpan={4}>No snapshots yet.</td></tr> : snapshots.map((snapshot) => <tr key={snapshot.id}><td className="elegant-cell-data">{new Date(snapshot.created_at).toLocaleString()}</td><td>{snapshot.revision}</td><td className="elegant-cell-ip"><code>{snapshot.checksum.slice(0, 16)}…</code></td><td className="elegant-cell-actions"><div className="device-row-actions"><button className="button secondary small" disabled={busy} onClick={() => void restoreSnapshot(snapshot.id)} type="button">Restore</button><button className="button secondary small danger" disabled={busy} onClick={() => void deleteSnapshot(snapshot.id)} type="button">Delete</button></div></td></tr>)}</tbody></table></div></article>
-  <aside className="dashboard-callout"><strong>Lost access to the dashboard?</strong><p>Password/TOTP reset, LAN repair and factory reset are available through <code>router-recovery</code> on the local console. Remote recovery endpoints remain disabled.</p></aside>
-</section>}
+{active === "recovery" && <RecoveryPanel config={config} />}
 
 {active === "logs" && <AuditLogPanel />}
   </>;

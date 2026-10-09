@@ -25,9 +25,11 @@ import "./theme/studio.css";
 import "./theme/appearance.css";
 import "./theme/insights.css";
 import "./theme/refinements.css";
+import "./theme/active-devices.css";
 import "./theme/spacing.css";
 import "./theme/recovery.css";
 import "./theme/dns-filter.css";
+import "./theme/card-hover.css";
 import { initializeAppearance } from "./theme/preferences";
 
 initializeAppearance();

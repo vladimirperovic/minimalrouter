@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/gateway"
@@ -27,18 +26,22 @@ func (s *Server) RegisterHealthRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
 	mux.HandleFunc("GET /api/v1/health", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetHealth))))
 	s.RegisterStartupRoutes(mux, applianceDataDir())
+}
 
+// StartStartupCapture is called after TLS initialization and listener binding.
+// Registering API routes alone is not evidence of management readiness.
+func (s *Server) StartStartupCapture(ctx context.Context) {
 	cfg := s.engine.GetCurrentConfig()
 	if recorder, err := startup.New(applianceDataDir()); err != nil {
 		log.Printf("[STARTUP] timeline unavailable: %v", err)
 	} else {
 		recorder.Event("reconcile", "Canonical configuration reconciled")
 		recorder.Ready("management")
-		go recorder.Run(context.Background(), cfg.WAN.Enabled, cfg.WireGuard.Interface, cfg.WireGuard.Enabled)
+		go recorder.Run(ctx, cfg.WAN.Enabled, cfg.WireGuard.Interface, cfg.WireGuard.Enabled)
 	}
 }
 
-func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) healthSnapshot() health.Snapshot {
 	cfg := s.engine.GetCurrentConfig()
 	dataDir := applianceDataDir()
 
@@ -57,23 +60,13 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RUnlock()
 
 	var lastBackupAt *time.Time
-	store := s.store
-	if store == nil && s.engine != nil {
-		store = s.engine.GetStore()
-	}
-	if store != nil {
-		if events, err := store.ListAuditEvents(500); err == nil {
-			for _, event := range events {
-				if event.EventType != "api.mutation" || event.Details["path"] != "/api/v1/backup/export" {
-					continue
-				}
-				if !strings.HasPrefix(event.Details["status"], "2") {
-					continue
-				}
-				at := event.Timestamp.UTC()
-				lastBackupAt = &at
-				break
-			}
+	backupHistoryUnavailable := s.credentialStore() == nil
+	if store := s.credentialStore(); store != nil {
+		var err error
+		lastBackupAt, err = store.LastBackupExport()
+		if err != nil {
+			backupHistoryUnavailable = true
+			log.Printf("[HEALTH] backup export status unavailable: %v", err)
 		}
 	}
 
@@ -90,10 +83,14 @@ func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 	snapshot := health.Build(health.Input{
 		Config: cfg, Runtime: runtimeStatus, Engine: s.engine.GetStatus(), Gateway: gatewaySummary,
 		GatewayConfigured: gatewayConfigured, UpdateTrustConfigured: updateTrustConfigured,
-		Facts: facts, LastBackupAt: lastBackupAt, DNSResolves: dnsResolves, DNSError: dnsError,
+		Facts: facts, LastBackupAt: lastBackupAt, BackupHistoryUnavailable: backupHistoryUnavailable, DNSResolves: dnsResolves, DNSError: dnsError,
 		Now: time.Now().UTC(),
 	})
+	return snapshot
+}
+
+func (s *Server) handleGetHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(snapshot)
+	_ = json.NewEncoder(w).Encode(s.healthSnapshot())
 }

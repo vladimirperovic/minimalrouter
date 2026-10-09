@@ -37,7 +37,7 @@ test("opens DNS Filter and the visual Kids weekly scheduler", async ({ page, isM
   }
   await expect(dnsFilterLink).toBeVisible();
   await dnsFilterLink.click();
-  await expect(page.getByRole("heading", { name: "DNS blocking & scheduled access" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "DNS protection & schedules" })).toBeVisible();
   await page.getByRole("button", { name: "Add device profile" }).click();
   await expect(page.getByRole("heading", { name: "Add device profile" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Allowed time" })).toBeVisible();
