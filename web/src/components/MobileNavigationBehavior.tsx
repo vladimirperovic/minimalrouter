@@ -50,7 +50,9 @@ export default function MobileNavigationBehavior() {
         // cleared the document is still at its locked height, so the browser
         // clamps a scrollTo to that shorter range and the position is lost.
         void document.body.offsetHeight;
-        window.scrollTo({ top: y, left: 0, behavior: "auto" });
+        // `auto` inherits the page's smooth scrolling and can lose its target
+        // while WebKit restores the unlocked layout. Restore synchronously.
+        window.scrollTo({ top: y, left: 0, behavior: "instant" });
       };
 
       const lockBody = () => {

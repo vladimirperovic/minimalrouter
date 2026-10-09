@@ -123,11 +123,13 @@ async function openSection(page: Page, isMobile: boolean | undefined, hash: stri
   await page.locator(`a[href="${hash}"]`).click();
 }
 
-async function advanceFirmwarePoll(page: Page, r: Awaited<ReturnType<typeof router>>, status: FirmwareStatus, interval: number) {
+async function advanceFirmwarePoll(page: Page, r: Awaited<ReturnType<typeof router>>, status: FirmwareStatus, interval: number, options: { expectReload?: boolean } = {}) {
   const prior = r.firmware.requests; r.firmware.status = status;
   await page.clock.runFor(interval);
   await expect.poll(() => r.firmware.requests).toBeGreaterThan(prior);
-  await expect(page.locator(".update-dialog-versions div").filter({ hasText: "Running now" }).locator("dd")).toHaveText(status.running_version!);
+  // A completed update may replace the document during runFor. Those callers
+  // assert the exact reload count; its transient dialog need not still exist.
+  if (!options.expectReload) await expect(page.locator(".update-dialog-versions div").filter({ hasText: "Running now" }).locator("dd")).toHaveText(status.running_version!);
 }
 
 test("firmware initial historical success never reloads or clears a new upload draft", async ({ page }) => {
@@ -154,24 +156,27 @@ test("firmware observed completion reloads once only on its running target and s
   await advanceFirmwarePoll(page, r, firmwareStatus("first", "succeeded", "0.1.4", "0.1.5"), 3000);
   await expect(page.getByText("Update complete", { exact: true })).toBeVisible();
   await page.clock.runFor(2000); expect(r.documents()).toBe(1);
-  await advanceFirmwarePoll(page, r, firmwareStatus("first", "succeeded", "v0.1.5", "0.1.5"), 60000);
+  await advanceFirmwarePoll(page, r, firmwareStatus("first", "succeeded", "v0.1.5", "0.1.5"), 60000, { expectReload: true });
   // The rendered version can precede React's reload effect. Keep the fake
   // clock moving while waiting, so a later effect is not frozen indefinitely.
   await expect.poll(async () => { await page.clock.runFor(1000); return r.documents(); }).toBe(2);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(2);
   await openUpdates(page);
+  await expect(page.locator(".update-dialog-versions div").filter({ hasText: "Running now" }).locator("dd")).toHaveText("v0.1.5");
   await advanceFirmwarePoll(page, r, firmwareStatus("second", "queued", "v0.1.5", "0.1.6"), 60000);
   await expect(page.getByText("Preparing", { exact: true })).toBeVisible();
-  await advanceFirmwarePoll(page, r, firmwareStatus("second", "succeeded", "v0.1.6", "0.1.6"), 3000);
+  await advanceFirmwarePoll(page, r, firmwareStatus("second", "succeeded", "v0.1.6", "0.1.6"), 3000, { expectReload: true });
   await expect.poll(async () => { await page.clock.runFor(1000); return r.documents(); }).toBe(3);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(3);
+  await openUpdates(page);
+  await expect(page.locator(".update-dialog-versions div").filter({ hasText: "Running now" }).locator("dd")).toHaveText("v0.1.6");
 });
 
 test("firmware another-tab completion between idle polls reloads on the running-version transition", async ({ page }) => {
   await pauseBrowserClock(page);
   const r = await router(page, { firmwareStatus: firmwareStatus("old", "succeeded", "0.1.4", "0.1.4") });
   await page.goto("/#network"); await openUpdates(page);
-  await advanceFirmwarePoll(page, r, firmwareStatus("other-tab", "succeeded", "v0.1.5", "0.1.5"), 60000);
+  await advanceFirmwarePoll(page, r, firmwareStatus("other-tab", "succeeded", "v0.1.5", "0.1.5"), 60000, { expectReload: true });
   await page.clock.runFor(1000); await expect.poll(r.documents).toBe(2);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(2);
 });

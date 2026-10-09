@@ -34,6 +34,9 @@ import { expect, test, type Locator, type Page, type Route } from "@playwright/t
 const MAX_DIFF_PIXELS = 200;
 
 const NOW = new Date("2026-03-14T09:41:00Z");
+const BOOT = { id: "visual-boot", started_at: "2026-03-14T09:40:00Z", completed: true, status: "ready", finished_seconds: 7,
+  readiness: { management_seconds: 1, pppoe_seconds: 3, dns_seconds: 4, internet_seconds: 6, wireguard_seconds: 7 }, events: [],
+  samples: [0, 2, 4, 7].map((offset, index) => ({ offset_seconds: offset, cpu_percent: [4, 37, 18, 5][index], memory_used_mb: 178, memory_total_mb: 1024 })) };
 
 const CONFIG = {
   revision: 42,
@@ -109,7 +112,12 @@ async function stub(page: Page) {
     longest_outage_minutes: 0, public_ips: [],
   }));
   await page.route("**/api/v1/snapshots", (r) => json(r, { snapshots: [] }));
-  await page.route("**/api/v1/audit/events", (r) => json(r, { events: [] }));
+  await page.route("**/api/v1/recovery/status", (r) => json(r, { generated_at: NOW.toISOString(), revision: 42, last_backup_export_at: "2026-03-13T09:41:00Z", snapshot_count: 0, retention: { manual: 20, automatic: 20 }, pending: null, operation: null }));
+  await page.route("**/api/v1/dns-filter", (r) => json(r, { policy: { revision: 7, categories: { threats: true, ads: true }, exceptions: [] }, domains: 12000, healthy: true, applied_at: Math.floor(NOW.getTime() / 1000), updating: false, lists: [], next_refresh_at: 0, router_time: NOW.toISOString(), timezone: "UTC", config_revision: 42, profiles: [], devices: [], blockers: [] }));
+  await page.route("**/api/v1/dns-filter/operations", (r) => json(r, { operations: [], retention: 20 }));
+  await page.route("**/api/v1/startup/boots", (r) => json(r, { boots: [{ ...BOOT, samples: undefined, sample_count: BOOT.samples.length, last_sample: BOOT.samples.at(-1) }] }));
+  await page.route("**/api/v1/startup/boots/visual-boot", (r) => json(r, { boot: BOOT, status: BOOT.status }));
+  await page.route("**/api/v1/audit/events**", (r) => json(r, { events: [], matching_count: 0, retained_count: 0, retention_limit: 5000, has_more: false, generated_at: NOW.toISOString() }));
   await page.route("**/api/v1/transactions/pending", (r) => json(r, { pending: false }));
   await page.route("**/api/v1/accounting**", (r) => json(r, { available: true, enabled: true, months: [] }));
   await page.route("**/api/v1/firmware/**", (r) => json(r, {
@@ -163,6 +171,8 @@ type CaptureOptions = {
 };
 
 async function captureLook(page: Page, name: string, options: CaptureOptions) {
+  // A missing stylesheet is a rendering failure, never an acceptable new baseline.
+  await expect(page.locator("body")).toHaveCSS("box-sizing", "border-box");
   if (!BASELINE_PLATFORM_SUPPORTED) {
     test.info().annotations.push({
       type: "capture-skipped",

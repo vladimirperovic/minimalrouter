@@ -35,7 +35,16 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
    await route.fulfill({response,headers:{...response.headers(),'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'; img-src 'self' data:; font-src 'self'; connect-src 'self'"}});
   });
   for(const route of ['traffic','firewall','security','dns-filter','wireguard']){
-   await page.goto('/#'+route);await expect(page.locator('.dashboard-app')).toBeVisible();
+   if(route==='traffic') await page.goto('/#traffic');
+   else {
+    // Use the dashboard's navigation. Direct fragment loads also start WebKit's
+    // native anchor scrolling, which can move controls between mouse events.
+    if(width<=900) await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+    await page.locator(`.dashboard-navigation a[href="#${route}"]`).click();
+   }
+   await expect(page.locator('.dashboard-app')).toBeVisible();
+   await expect(page.locator(`.dashboard-navigation a[href="#${route}"]`)).toHaveClass(/is-active/);
+   if(width<=900) await expect(page.locator('.dashboard-main')).toHaveCSS('transform','none');
    if(route==='traffic'){
     await expect(page.getByRole('heading',{name:'4 KB transferred'})).toBeVisible();
     await expect(page.getByRole('heading',{name:'Most active devices'})).toBeVisible();
@@ -59,9 +68,9 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
    if(route==='dns-filter'){
     await page.getByText('Advanced DNS & bundled protection', {exact:true}).click();
     await expect(page.getByRole('textbox',{name:'Upstream DNS resolvers'})).toHaveValue('1.1.1.1\n9.9.9.9\n8.8.8.8');
-    const table=page.getByRole('table',{name:'DNS Filter device profiles'});await expect(table).toBeVisible();
-    await expect(table.getByRole('button',{name:'Edit',exact:true})).toBeVisible();
-    await table.getByRole('button',{name:'Edit',exact:true}).click();await expect(page.getByRole('heading',{name:'Edit device profile',exact:true})).toBeVisible();
+    const profile=page.getByRole('region',{name:'Kids',exact:true});await expect(profile).toBeVisible();
+    await expect(profile.getByRole('button',{name:'Edit',exact:true})).toBeVisible();
+    await profile.getByRole('button',{name:'Edit',exact:true}).click();await expect(page.getByRole('heading',{name:'Edit device profile',exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Cancel',exact:true}).click();
    }
    if(route==='wireguard'){

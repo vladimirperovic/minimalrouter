@@ -244,14 +244,14 @@ function Dashboard() {
 
   useEffect(() => {
     if (!dashboardReady) return;
-    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
     return () => window.cancelAnimationFrame(frame);
   }, [active, dashboardReady]);
 
   useEffect(() => {
     const syncSectionFromHash = () => {
       setActive(sectionFromHash());
-      window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
     };
     window.addEventListener("hashchange", syncSectionFromHash);
     return () => window.removeEventListener("hashchange", syncSectionFromHash);
@@ -261,7 +261,7 @@ function Dashboard() {
     if (window.location.hash !== `#${id}`) window.history.pushState(null, "", `#${id}`);
     setActive(id);
     setMenuOpen(false);
-    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
   };
 
   const navigateToSection = (event: MouseEvent<HTMLAnchorElement>, id: SectionID) => {
