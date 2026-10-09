@@ -90,9 +90,11 @@ byte-identity check in `cmd/router-update`.
 The unreleased dashboard/recovery changes after the **v0.2.1 tag** change
 `router-recovery` and `router-setup` on AMD64 and ARM64. Their shared configuration
 store now migrates named snapshots and durable recovery/backup metadata, and
-configuration transactions retain sanitized audit outcomes. CI's deterministic
-bootstrap comparison confirms that `router-update` remains unchanged, while
-those two binaries differ from the baseline. Consequently, a release containing
+configuration transactions retain sanitized audit outcomes. The initial CI
+comparison with the old toolchain isolated drift in those two binaries. The
+checkout also now requires Go 1.26.9 and updated `x/net`, `x/crypto` and `x/sys`
+to resolve the October 2026 vulnerability scan findings; toolchain/dependency
+changes are additional bootstrap build inputs. Consequently, a release containing
 these changes requires the **full signed distribution installer once** on
 existing v0.2.1 and earlier appliances. The dashboard A/B updater correctly
 refuses this transition; its byte-identity and rollback checks remain intact.

@@ -9,13 +9,17 @@ compatibility may still change between releases.
 ### Upgrade compatibility
 
 - These changes alter the shared configuration store used by `router-recovery`
-  and `router-setup`. The next signed release requires the full distribution
+  and `router-setup`, and update the Go build toolchain and dependencies.
+  The next signed release requires the full distribution
   installer once for existing v0.2.1 and earlier appliances; ordinary dashboard
   A/B activation remains blocked by the existing byte-identity safety check.
   Published v0.2.1 artifacts are unchanged. See `docs/WEB-UPDATE.md`.
 
 ### Fixed
 
+- Require Go 1.26.9 and update `golang.org/x/net` to v0.60.0 (with its
+  `x/crypto`/`x/sys` dependencies) to address the October 2026 HTTP/TLS
+  vulnerabilities reported by the mandatory Go vulnerability scan.
 - Keep Overview's active devices in aligned columns at desktop and tablet
   widths, combining IP/MAC details and using compact cards only on narrow screens.
 - Preserve DNS policy drafts across navigation and asynchronous failures; cancel
