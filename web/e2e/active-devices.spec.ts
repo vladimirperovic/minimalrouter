@@ -84,3 +84,48 @@ test("activity clears on failed refresh and recovers, with a separate measured-e
   await expect(section.locator(".modern-device-count")).toHaveText("0 active");
   expect(state.writes).toBe(0);
 });
+
+for (const theme of ["light", "dark"]) {
+  test(`active devices keep compact aligned columns and usable phone cards in ${theme} mode`, async ({ page }) => {
+    await page.addInitScript(theme => {
+      localStorage.setItem("minimalrouter:design", "noema");
+      localStorage.setItem("minimalrouter:theme", theme);
+    }, theme);
+    const state = await setup(page);
+    await page.goto("/#overview");
+    const table = page.getByRole("table", { name: "Active devices", exact: true });
+    await expect(table.locator("tbody tr")).toHaveCount(2);
+    for (const width of [1280, 1024, 390, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const header = table.locator("thead");
+      if (width >= 1024) await expect(header).toBeVisible();
+      else await expect(header).toBeHidden();
+      const rows = await table.locator("tbody tr").evaluateAll(rows => rows.map(row => {
+        const box = (selector: string) => {
+          const rect = row.querySelector(selector)!.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom };
+        };
+        return { height: row.getBoundingClientRect().height, name: box(".elegant-cell-name"), address: box(".elegant-cell-ip"), seen: box(".elegant-cell-expires"), actions: box(".elegant-cell-actions"), pause: box(".device-pause-button") };
+      }));
+      for (const row of rows) {
+        expect(row.height).toBeLessThan(width >= 1024 ? 145 : 280);
+        expect(row.pause.right).toBeLessThanOrEqual(width);
+        if (width >= 1024) {
+          expect(row.name.y).toBeCloseTo(row.address.y, 0);
+          expect(row.address.y).toBeCloseTo(row.actions.y, 0);
+          expect(row.name.right).toBeLessThanOrEqual(row.address.x + 1);
+          expect(row.address.right).toBeLessThanOrEqual(row.seen.x + 1);
+        } else {
+          expect(row.address.y).toBeGreaterThanOrEqual(row.name.bottom);
+          expect(row.actions.y).toBeGreaterThanOrEqual(row.address.bottom);
+        }
+      }
+      expect(rows[0].pause.x).toBeCloseTo(rows[1].pause.x, 0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    }
+    await table.locator("tbody tr").first().getByRole("button", { name: "Pause Internet", exact: true }).click();
+    await expect(table.getByRole("menu")).toBeVisible();
+    await expect(table.getByRole("button", { name: "15 min", exact: true })).toBeVisible();
+    expect(state.writes).toBe(0);
+  });
+}

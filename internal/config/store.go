@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,9 @@ import (
 
 	_ "modernc.org/sqlite" // Pure-Go SQLite driver (no CGO required)
 )
+
+var ErrSnapshotNotFound = errors.New("snapshot not found")
+var ErrSnapshotCorrupt = errors.New("snapshot integrity check failed")
 
 // Snapshot kinds. Automatic restore points (pre-apply, recovery undo) and
 // operator-created ones are retained in separate pools, so a burst of routine
@@ -106,10 +110,12 @@ type Snapshot struct {
 	CreatedAt  string   `json:"created_at"`
 	Checksum   string   `json:"checksum"`
 	Kind       string   `json:"kind,omitempty"`
+	Label      string   `json:"label,omitempty"`
 	ConfigJSON string   `json:"config_json,omitempty"`
 }
 
 type AuditEvent struct {
+	Category  string            `json:"category,omitempty"`
 	ID        string            `json:"id"`
 	EventType string            `json:"event_type"`
 	Actor     string            `json:"actor"`
@@ -245,6 +251,8 @@ func runMigrations(db *sql.DB) error {
 		timestamp DATETIME NOT NULL,
 		details_json TEXT NOT NULL
 	);
+	CREATE TABLE IF NOT EXISTS recovery_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+	CREATE TABLE IF NOT EXISTS backup_export_status (id INTEGER PRIMARY KEY CHECK(id=1), exported_at DATETIME NOT NULL);
 
 	-- Every audit append prunes by recency; without these indexes each write
 	-- sorted the whole retained log.
@@ -266,6 +274,7 @@ func runMigrations(db *sql.DB) error {
 		{"sessions", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
 		{"admin_credentials", "auth_generation", "auth_generation INTEGER NOT NULL DEFAULT 1"},
 		{"snapshots", "kind", "kind TEXT NOT NULL DEFAULT '" + SnapshotKindAutomatic + "'"},
+		{"snapshots", "label", "label TEXT NOT NULL DEFAULT ''"},
 	} {
 		exists, err := sqliteColumnExists(db, migration.table, migration.column)
 		if err != nil {
@@ -277,7 +286,13 @@ func runMigrations(db *sql.DB) error {
 			}
 		}
 	}
-	return nil
+	// Seed older appliances from the complete retained history, not a recent page.
+	_, err := db.Exec(`INSERT OR IGNORE INTO backup_export_status(id, exported_at)
+		SELECT 1, timestamp FROM audit_events WHERE event_type='api.mutation'
+		AND json_extract(details_json,'$.path')='/api/v1/backup/export'
+		AND json_extract(details_json,'$.status') LIKE '2%'
+		ORDER BY timestamp DESC, id DESC LIMIT 1`)
+	return err
 }
 
 func sqliteColumnExists(db *sql.DB, table, column string) (bool, error) {
@@ -394,11 +409,22 @@ func (s *SQLiteStore) CreateSnapshot(cfg SystemConfig) (Snapshot, error) {
 
 // CreateManualSnapshot stores an operator-requested restore point. It is
 // retained independently of the automatic pre-apply snapshots.
-func (s *SQLiteStore) CreateManualSnapshot(cfg SystemConfig) (Snapshot, error) {
-	return s.createSnapshot(cfg, SnapshotKindManual)
+func (s *SQLiteStore) CreateManualSnapshot(cfg SystemConfig, label ...string) (Snapshot, error) {
+	name := ""
+	if len(label) > 0 {
+		name = strings.TrimSpace(label[0])
+	}
+	if err := ValidateSnapshotLabel(name); err != nil {
+		return Snapshot{}, err
+	}
+	return s.createSnapshot(cfg, SnapshotKindManual, name)
 }
 
-func (s *SQLiteStore) createSnapshot(cfg SystemConfig, kind string) (Snapshot, error) {
+func (s *SQLiteStore) createSnapshot(cfg SystemConfig, kind string, labels ...string) (Snapshot, error) {
+	label := ""
+	if len(labels) > 0 {
+		label = labels[0]
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -424,8 +450,8 @@ func (s *SQLiteStore) createSnapshot(cfg SystemConfig, kind string) (Snapshot, e
 	}
 
 	_, err = tx.Exec(
-		"INSERT INTO snapshots (id, revision, created_at, checksum, config_json, kind) VALUES (?, ?, ?, ?, ?, ?)",
-		id, int64(cfg.Revision), createdAt, checksum, string(data), kind,
+		"INSERT INTO snapshots (id, revision, created_at, checksum, config_json, kind, label) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		id, int64(cfg.Revision), createdAt, checksum, string(data), kind, label,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -446,6 +472,7 @@ func (s *SQLiteStore) createSnapshot(cfg SystemConfig, kind string) (Snapshot, e
 		CreatedAt: createdAt,
 		Checksum:  checksum,
 		Kind:      kind,
+		Label:     label,
 	}
 
 	return snap, nil
@@ -459,7 +486,7 @@ func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.Query(
-		"SELECT id, revision, created_at, checksum, kind FROM snapshots ORDER BY created_at DESC, id DESC",
+		"SELECT id, revision, created_at, checksum, kind, label FROM snapshots ORDER BY created_at DESC, id DESC",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)
@@ -470,7 +497,7 @@ func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	for rows.Next() {
 		var snap Snapshot
 		var rev int64
-		if err := rows.Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind); err != nil {
+		if err := rows.Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind, &snap.Label); err != nil {
 			return nil, fmt.Errorf("failed to read snapshot: %w", err)
 		}
 		snap.Revision = Revision(rev)
@@ -494,7 +521,7 @@ func (s *SQLiteStore) DeleteSnapshot(id string) error {
 		return fmt.Errorf("failed to delete snapshot: %w", err)
 	}
 	if deleted, _ := result.RowsAffected(); deleted == 0 {
-		return fmt.Errorf("snapshot not found: %s", id)
+		return ErrSnapshotNotFound
 	}
 	return nil
 }
@@ -507,17 +534,20 @@ func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 	var snap Snapshot
 	var rev int64
 	err := s.db.QueryRow(
-		"SELECT id, revision, created_at, checksum, kind, config_json FROM snapshots WHERE id = ?", id,
-	).Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind, &snap.ConfigJSON)
+		"SELECT id, revision, created_at, checksum, kind, label, config_json FROM snapshots WHERE id = ?", id,
+	).Scan(&snap.ID, &rev, &snap.CreatedAt, &snap.Checksum, &snap.Kind, &snap.Label, &snap.ConfigJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Snapshot{}, ErrSnapshotNotFound
+	}
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot not found: %s", id)
+		return Snapshot{}, fmt.Errorf("snapshot storage unavailable: %w", err)
 	}
 	snap.Revision = Revision(rev)
 	actual := sha256.Sum256([]byte(snap.ConfigJSON))
 	expected, decodeErr := hex.DecodeString(snap.Checksum)
 	if decodeErr != nil || len(expected) != sha256.Size ||
 		subtle.ConstantTimeCompare(actual[:], expected) != 1 {
-		return Snapshot{}, fmt.Errorf("snapshot integrity check failed: %s", id)
+		return Snapshot{}, ErrSnapshotCorrupt
 	}
 
 	return snap, nil
@@ -528,6 +558,9 @@ func (s *SQLiteStore) GetSnapshot(id string) (Snapshot, error) {
 func (s *SQLiteStore) AppendAuditEvent(eventType, actor string, details map[string]string) error {
 	if eventType == "" || len(eventType) > 96 || actor == "" || len(actor) > 255 {
 		return fmt.Errorf("invalid audit event metadata")
+	}
+	if details == nil {
+		details = map[string]string{}
 	}
 	detailsJSON, err := json.Marshal(details)
 	if err != nil || len(detailsJSON) > 4096 {
@@ -553,6 +586,12 @@ func (s *SQLiteStore) AppendAuditEvent(eventType, actor string, details map[stri
 		return fmt.Errorf("insert audit event: %w", err)
 	}
 	// Bound local metadata growth without weakening recent incident history.
+	if eventType == "api.mutation" && details["path"] == "/api/v1/backup/export" && strings.HasPrefix(details["status"], "2") {
+		if _, err := tx.Exec(`INSERT INTO backup_export_status(id,exported_at) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET exported_at=excluded.exported_at`, time.Now().UTC()); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record backup export: %w", err)
+		}
+	}
 	// Request rejections are pruned within their own pool first, so their
 	// volume can never push authentication, configuration or update events
 	// out of the retained window.
@@ -599,6 +638,9 @@ func (s *SQLiteStore) ListAuditEvents(limit int) ([]AuditEvent, error) {
 		}
 		if err := json.Unmarshal([]byte(detailsJSON), &event.Details); err != nil {
 			return nil, fmt.Errorf("decode audit event details: %w", err)
+		}
+		if event.Details == nil {
+			event.Details = map[string]string{}
 		}
 		events = append(events, event)
 	}

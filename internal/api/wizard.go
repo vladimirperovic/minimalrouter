@@ -157,6 +157,7 @@ func (s *Server) handleSetupApply(w http.ResponseWriter, r *http.Request) {
 	tx, err := s.engine.ProcessInitialSetup(txID, cfg, func(applied config.SystemConfig) error {
 		return store.CommitInitialSetup(applied, hashedPassword)
 	})
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		status := http.StatusUnprocessableEntity

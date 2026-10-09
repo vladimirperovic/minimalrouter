@@ -56,7 +56,7 @@ func TestOpenAPIDocumentsEveryRegisteredRoute(t *testing.T) {
 		"/setup/status", "/setup/interfaces", "/setup/apply",
 		"/system", "/system/interfaces", "/system/diagnostics", "/audit/events",
 		"/config", "/wireguard/peers", "/wireguard/peers/{id}", "/wireguard/peers/{id}/configuration", "/wireguard/provisioning-preview", "/transactions/pending", "/transactions/{id}/confirm",
-		"/recovery/reconcile", "/snapshots", "/snapshots/{id}/restore",
+		"/recovery/reconcile", "/recovery/status", "/recovery/operations/{id}/dns", "/recovery/operations/{id}/dismiss", "/snapshots", "/snapshots/{id}/restore", "/snapshots/{id}/preview",
 		"/import/pfsense/preview", "/import/pfsense/{id}/apply", "/backup/export",
 		"/backup/import/preview", "/import/backup/{id}/apply", "/firmware/verify",
 		"/network/wol", "/qos/speedtest",

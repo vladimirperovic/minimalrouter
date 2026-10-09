@@ -10,7 +10,7 @@ import UpdateDialog from "./components/UpdateDialog";
 import { clearConfiguration, previewAndApplyConfig, readConfiguration, useConfiguration } from "./lib/configuration";
 import { apiFetch, responseError } from "./lib/api";
 import { updateBadgeLabel, useUpdates } from "./lib/updates";
-import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, Snapshot, SystemStatus } from "./api-types";
+import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
 import { useApplianceHealth } from "./components/HealthBanner";
 import { DNSRiskProvider, useDNSRisk } from "./lib/dnsRisk";
@@ -61,7 +61,6 @@ function Dashboard() {
   const [system, setSystem] = useState<SystemStatus>({});
   const [gatewaySummary, setGatewaySummary] = useState<GatewaySummary | null>(null);
   const [gatewaySettings, setGatewaySettings] = useState<GatewaySettings>({ enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 });
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -90,12 +89,11 @@ function Dashboard() {
     const controller = new AbortController();
     pollController.current = controller;
     try {
-      const [configResult, systemResult, gatewayResult, gatewaySettingsResult, snapshotsResult, pendingResult] = await Promise.allSettled([
+      const [configResult, systemResult, gatewayResult, gatewaySettingsResult, pendingResult] = await Promise.allSettled([
         readConfiguration({ signal: controller.signal }),
         apiFetch("/api/v1/system", { signal: controller.signal }),
         apiFetch("/api/v1/gateway/summary", { signal: controller.signal }),
         apiFetch("/api/v1/gateway/settings", { signal: controller.signal }),
-        apiFetch("/api/v1/snapshots", { signal: controller.signal }),
         apiFetch("/api/v1/transactions/pending", { signal: controller.signal }),
       ]);
       if (sequence !== pollSequence.current) return;
@@ -130,12 +128,6 @@ function Dashboard() {
       if (gatewaySettingsResult.status === "fulfilled" && gatewaySettingsResult.value.ok) {
         const body = (await gatewaySettingsResult.value.json()) as GatewaySettings | null;
         if (body && Array.isArray(body.targets)) setGatewaySettings(body);
-      }
-      if (snapshotsResult.status === "fulfilled" && snapshotsResult.value.ok) {
-        const body = await snapshotsResult.value.json();
-        setSnapshots(Array.isArray(body) ? body : Array.isArray(body.snapshots) ? body.snapshots : []);
-      } else {
-        unavailable.push("restore points");
       }
       if (pendingResult.status === "fulfilled" && pendingResult.value.ok) {
         const body = (await pendingResult.value.json()) as PendingTransaction;
@@ -505,53 +497,6 @@ function Dashboard() {
     }
   };
 
-  const createSnapshot = async () => {
-    setBusy(true);
-    try {
-      const response = await apiFetch("/api/v1/snapshots", { method: "POST" });
-      if (!response.ok) throw new Error(`Snapshot failed (${response.status})`);
-      setNotice("Configuration snapshot created.");
-      await load();
-    } catch (snapshotError) {
-      setError(snapshotError instanceof Error ? snapshotError.message : "Snapshot failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteSnapshot = async (id: string) => {
-    if (!window.confirm(`Delete snapshot ${id}? This restore point cannot be recovered.`)) return;
-    setBusy(true);
-    try {
-      const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(id)}`, { method: "DELETE" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Delete failed (${response.status})`);
-      setNotice("Snapshot deleted.");
-      await load();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const restoreSnapshot = async (id: string) => {
-    if (!window.confirm("Restore this snapshot? A current undo snapshot will be retained.")) return;
-    setBusy(true);
-    try {
-      const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(id)}/restore`, { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Restore failed (${response.status})`);
-      if (body.state === "AwaitingConfirmation" && body.id) setPendingTx(body as PendingTransaction);
-      setNotice("Snapshot restore applied.");
-      await load();
-    } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : "Restore failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -676,15 +621,11 @@ function Dashboard() {
             applyGatewayMonitoring={applyGatewayMonitoring}
             busy={busy}
             config={config}
-            createSnapshot={createSnapshot}
             gatewaySummary={gatewaySummary}
             gatewaySettings={gatewaySettings}
             leases={leases}
             load={load}
-            restoreSnapshot={restoreSnapshot}
-            deleteSnapshot={deleteSnapshot}
             setError={setError}
-            snapshots={snapshots}
             submitCloudflare={submitCloudflare}
             submitSquid={submitSquid}
             submitWiFi={submitWiFi}

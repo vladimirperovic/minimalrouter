@@ -172,6 +172,8 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 	defer e.mu.Unlock()
 
 	tx := &Transaction{ID: txID, CurrentState: StateReceived, Config: newCfg, CreatedAt: time.Now()}
+	previousRevision := e.currentConfig.Revision
+	defer func() { e.auditTransaction(tx, previousRevision, "apply") }()
 	e.activeTx = tx
 	if e.recoveryRequired {
 		tx.CurrentState = StateRecoveryRequired
@@ -442,6 +444,7 @@ func (e *Engine) ConfirmTransaction(txID string) (*Transaction, error) {
 		return nil, fmt.Errorf("transaction is not awaiting confirmation")
 	}
 	pending := e.pending
+	defer func() { e.auditTransaction(pending.tx, pending.previous.Revision, "confirm") }()
 	if !pending.canonicalCommitted {
 		if !reflect.DeepEqual(pending.previous.WGClient, pending.tx.Config.WGClient) && pending.tx.Config.WGClient.Enabled {
 			statusReq := ApplyRequest{ID: txID + "-wg1-status", Op: OpWGTunnelStatus, Config: pending.tx.Config, TunnelInterface: pending.tx.Config.WGClient.Interface}
@@ -552,6 +555,7 @@ func (e *Engine) rollbackExpired(txID string) {
 	if pending.canonicalCommitted {
 		return
 	}
+	defer func() { e.auditTransaction(pending.tx, pending.previous.Revision, "timeout_rollback") }()
 	pending.rollbackAttempts++
 	if pending.rollbackAttempts > maximumRollbackAttempts {
 		pending.tx.CurrentState = StateRecoveryRequired

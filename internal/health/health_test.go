@@ -50,6 +50,20 @@ func TestBuildHealthyAppliance(t *testing.T) {
 	}
 }
 
+func TestBackupHistoryFailureIsUnknownEvenWithAnOlderValue(t *testing.T) {
+	input := healthyInput()
+	input.BackupHistoryUnavailable = true
+	for _, check := range Build(input).Checks {
+		if check.ID == "backup" {
+			if check.State != StateUnknown {
+				t.Fatalf("unavailable history reported as %s", check.State)
+			}
+			return
+		}
+	}
+	t.Fatal("backup check missing")
+}
+
 func TestWGClientHealthFollowsHandshakeNotInterface(t *testing.T) {
 	base := healthyInput()
 	base.Config.WGClient.Enabled = true

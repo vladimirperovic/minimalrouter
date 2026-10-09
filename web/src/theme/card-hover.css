@@ -1,0 +1,45 @@
+/* A shared hover treatment for independent cards. Nested form sections and
+   table wrappers keep their existing surface; no transforms or layout shifts. */
+:root {
+  --card-hover-border: color-mix(in srgb, var(--accent) 28%, var(--separator));
+  --card-hover-shadow: 0 12px 28px -18px #201b2430;
+}
+:root[data-theme="dark"] { --card-hover-shadow: 0 12px 28px -16px #0008; }
+
+@media (hover:hover) and (pointer:fine) {
+  .dashboard-app .dashboard-main :is(
+    .card, .service-config-card, .studio-card, .studio-connection,
+    .overview-panel, .overview-wan-card, .boot-activity, .classic-live-card,
+    .classic-security-feed, .security-full-width > .classic-security-card,
+    .settings-column-card, .dashboard-section > .settings-form,
+    .wg-client-card, .wg-peer-row, .gateway-quality-card, .insights-card,
+    .dns-protection-card, .modern-device-section, .recovery-workflow,
+    .recovery-overview, .recovery-progress
+  ) {
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+  }
+  .dashboard-app .dashboard-main :is(
+    .card, .service-config-card, .studio-card, .studio-connection,
+    .overview-panel, .overview-wan-card, .boot-activity, .classic-live-card,
+    .classic-security-feed, .security-full-width > .classic-security-card,
+    .settings-column-card, .dashboard-section > .settings-form,
+    .wg-client-card, .wg-peer-row, .gateway-quality-card, .insights-card,
+    .dns-protection-card, .modern-device-section, .recovery-workflow,
+    .recovery-overview, .recovery-progress
+  ):hover {
+    /* These two properties deliberately override per-page legacy skins. */
+    border-color: var(--card-hover-border) !important;
+    box-shadow: var(--skin-top-light), var(--skin-shadow), var(--card-hover-shadow) !important;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  .dashboard-app .dashboard-main :is(
+    .card, .service-config-card, .studio-card, .studio-connection,
+    .overview-panel, .overview-wan-card, .boot-activity, .classic-live-card,
+    .classic-security-feed, .security-full-width > .classic-security-card,
+    .settings-column-card, .dashboard-section > .settings-form,
+    .wg-client-card, .wg-peer-row, .gateway-quality-card, .insights-card,
+    .dns-protection-card, .modern-device-section, .recovery-workflow,
+    .recovery-overview, .recovery-progress
+  ) { transition:none; }
+}

@@ -453,26 +453,26 @@
 
 /* Keep at least 180px for names beside the optional traffic column. */
 @container (max-width: 1070px) {
-  .dashboard-app .device-lan-table,
-  .dashboard-app .device-lan-table tbody {
+  .dashboard-app .device-lan-table:not(.active-device-table),
+  .dashboard-app .device-lan-table:not(.active-device-table) tbody {
     display: block;
   }
 
-  .dashboard-app .device-lan-table colgroup,
-  .dashboard-app .device-lan-table thead,
-  .dashboard-app .device-lan-table .elegant-cell-num {
+  .dashboard-app .device-lan-table:not(.active-device-table) colgroup,
+  .dashboard-app .device-lan-table:not(.active-device-table) thead,
+  .dashboard-app .device-lan-table:not(.active-device-table) .elegant-cell-num {
     display: none;
   }
 
-  .dashboard-app .device-lan-table tbody tr {
+  .dashboard-app .device-lan-table:not(.active-device-table) tbody tr {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     padding: 14px 18px;
     border-bottom: 1px solid var(--classic-border);
   }
 
-  #network .static-leases .device-lan-table td,
-  :root:root .dashboard-app .device-lan-table tbody td {
+  #network .static-leases .device-lan-table:not(.active-device-table) td,
+  :root:root .dashboard-app .device-lan-table:not(.active-device-table) tbody td {
     display: block;
     min-width: 0;
     height: auto;
@@ -480,7 +480,7 @@
     border: 0;
   }
 
-  .dashboard-app .device-lan-table td[data-label]::before {
+  .dashboard-app .device-lan-table:not(.active-device-table) td[data-label]::before {
     content: attr(data-label);
     display: block;
     margin-bottom: 4px;
@@ -489,11 +489,11 @@
     letter-spacing: .04em;
   }
 
-  :root:root .dashboard-app .device-lan-table tbody td.elegant-cell-num {
+  :root:root .dashboard-app .device-lan-table:not(.active-device-table) tbody td.elegant-cell-num {
     display: none;
   }
 
-  .dashboard-app .device-lan-table .device-row-actions {
+  .dashboard-app .device-lan-table:not(.active-device-table) .device-row-actions {
     justify-content: flex-start;
   }
 }

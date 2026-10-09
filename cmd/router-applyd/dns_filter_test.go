@@ -41,6 +41,48 @@ func filterRequest(revision uint64) dnsfilter.Request {
 	return dnsfilter.Request{Operation: "apply", ExpectedRevision: revision, Policy: p, Sources: map[string]string{"ads": strings.Repeat("a", 64)}}
 }
 
+func TestDNSStatusDoesNotWaitForApplyLockAndSharesBoundedProbe(t *testing.T) {
+	filterTestHooks(t)
+	if _, err := applyDNSFilter(filterRequest(0), strings.NewReader("ads.example.com\n")); err != nil {
+		t.Fatal(err)
+	}
+	previousProbe := filterStatusProbe
+	defer func() { filterStatusProbe = previousProbe }()
+	entered, release := make(chan struct{}), make(chan struct{})
+	filterStatusProbe = func(uint64) error { close(entered); <-release; return nil }
+	applyMu.Lock()
+	done := make(chan dnsfilter.Applied, 1)
+	go func() { state, _ := readFilterStatus(); done <- state }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		applyMu.Unlock()
+		close(release)
+		t.Fatal("status waited for global apply lock")
+	}
+	applyMu.Unlock()
+	second, err := readFilterStatus()
+	if err != nil || !second.HealthChecking || second.Healthy {
+		close(release)
+		<-done
+		t.Fatalf("concurrent probe was not shared: %+v %v", second, err)
+	}
+	close(release)
+	if first := <-done; !first.Healthy || first.HealthCheckedAt == 0 {
+		t.Fatalf("probe: %+v", first)
+	}
+	// Another call must use the cached answer; the probe would panic if repeated.
+	if cached, err := readFilterStatus(); err != nil || !cached.Healthy {
+		t.Fatalf("cache: %+v %v", cached, err)
+	}
+	if err := os.WriteFile(filterPath+".pending", []byte("true"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := readFilterStatus(); err != nil || pending.Healthy || !pending.ActivationPending {
+		t.Fatalf("pending activation certified healthy: %+v %v", pending, err)
+	}
+}
+
 func TestDNSFilterRejectsInjectionPreservesOldAndRecoversInterruptedActivation(t *testing.T) {
 	filterTestHooks(t)
 	request := filterRequest(0)

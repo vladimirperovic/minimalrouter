@@ -61,21 +61,21 @@
 /* Desktop device rows keep identities and actions on one line. A bounded
    horizontal scroller preserves columns when the available width is smaller. */
 @container (min-width:1071px) {
-  :root:root .dashboard-app .modern-device-section .elegant-table-container { overflow-x:auto; overflow-y:auto; max-height:720px; scrollbar-gutter:stable; }
-  :root:root .dashboard-app .modern-device-section .device-lan-table { min-width:1071px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-name { width:auto; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-num { width:32px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-ip { width:120px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-mac { width:146px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-data { width:64px; }
-  :root:root .dashboard-app .modern-device-section .device-lan-table :is(td,th) { padding-inline:8px; }
-  :root:root .dashboard-app .modern-device-section .device-lan-table tbody td { font-size:12px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-expires { width:136px; }
-  :root:root .dashboard-app .modern-device-section .elegant-col-actions { width:280px; }
-  :root:root .dashboard-app .modern-device-section .elegant-device-identity { flex-wrap:nowrap; gap:7px; }
-  :root:root .dashboard-app .modern-device-section .device-hostname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; }
-  :root:root .dashboard-app .modern-device-section :is(.elegant-badge-static,.device-activity-badge) { flex-shrink:0; margin:0; padding:4px 7px; font-size:9px; letter-spacing:.045em; }
-  :root:root .dashboard-app .modern-device-section :is(.elegant-cell-ip,.elegant-cell-mac,.elegant-cell-data) { white-space:nowrap; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-table-container { overflow-x:auto; overflow-y:auto; max-height:720px; scrollbar-gutter:stable; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .device-lan-table { min-width:1071px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-name { width:auto; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-num { width:32px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-ip { width:120px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-mac { width:146px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-data { width:64px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .device-lan-table :is(td,th) { padding-inline:8px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .device-lan-table tbody td { font-size:12px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-expires { width:136px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-col-actions { width:280px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .elegant-device-identity { flex-wrap:nowrap; gap:7px; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) .device-hostname { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) :is(.elegant-badge-static,.device-activity-badge) { flex-shrink:0; margin:0; padding:4px 7px; font-size:9px; letter-spacing:.045em; }
+  :root:root .dashboard-app .modern-device-section:not(.active-device-section) :is(.elegant-cell-ip,.elegant-cell-mac,.elegant-cell-data) { white-space:nowrap; }
 }
 /* Keep the two common actions adjacent; the optional reservation follows. */
 :root:root .dashboard-app .modern-device-section .device-row-actions { grid-template-columns:48px 108px 96px; gap:6px; }

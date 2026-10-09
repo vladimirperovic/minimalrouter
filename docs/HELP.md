@@ -111,6 +111,37 @@ Typical setup:
 
 DNS Filter blocks configured domains and can apply scheduled service policies to groups of devices. Device Profiles are preferable to many one-off rules because a named policy can cover multiple static IPs and time windows. Schedules use router local time, so correct time synchronization matters.
 
+The overview shows applied categories, scheduled devices, the last successful
+apply and router clock. Category and blocking-exception edits remain drafts
+until **Apply protection**. Drafts survive dashboard navigation in the current
+session; reloading or signing out discards them. An accepted request is not
+success: the dashboard waits for a verified outcome and retains edits after a
+failed download or apply. Failed status reads keep the last known data visible.
+The last 20 DNS operations survive management restarts, with IDs, revisions,
+phases and terminal outcomes. An interrupted operation is unconfirmed until
+the exact policy generation is verified; it is never automatically replayed.
+
+**Check a domain** is a local policy lookup. It explains parent-domain matches,
+allow exceptions, local DNS overrides and the selected device's configured
+schedule. It does not prove a visit or actual packet blocking. Profile status
+and next transitions describe the configured router-clock schedule, not a
+measurement of per-device enforcement. DNS-derived service matching can be
+bypassed by external encrypted DNS, VPNs or mobile data.
+
+Choose devices from DHCP/reservations and reserve their IPv4 addresses. Search
+profiles by name, address or service. The schedule editor supports arrow keys
+and Space/Enter, partial-hour indicators and exact minute entry. Painting one
+hour preserves all other time boundaries. The bundled-protection switch
+controls the firmware's small built-in list and device schedules; the four
+maintained network categories are independent. Blocking exceptions allow DNS
+list matches but do not override device schedules or DNS Activity alerts.
+
+Only the visible DNS Filter page polls status; outdated reads are cancelled.
+List freshness and bounded operation history are under expandable sections.
+Policy-only changes reuse verified installed catalogs even when they are old,
+so exceptions can be changed offline. Explicit refresh downloads enabled lists
+and retains the previous rules on failure, with a five-minute cooldown.
+
 ## Wi-Fi access point
 
 When supported wireless hardware is present, Minimal Router can run the local access point. Wi-Fi joins the protected LAN path rather than creating an unmanaged parallel network. Use a strong passphrase and a channel appropriate for the local radio environment.
@@ -129,6 +160,35 @@ Manual snapshots are useful before planned experiments. Restoring a snapshot cre
 
 ## Backup and restore
 
+Recovery shows the last recorded backup export, pending access confirmation,
+unfinished DNS restoration and local snapshot availability. Export history is
+stored separately from audit retention; it proves a server export, not that you
+saved or tested the file. Older installations can only backfill exports still in
+retained audit history. An unavailable history is not an empty history.
+
+Name manual snapshots to explain their purpose. The appliance retains the newest
+20 manual and 20 automatic snapshots separately. Preview a snapshot before
+restoring it to see changed sections, risk and restrictions. The restore steps
+are **validate → review changes → apply → confirm access → DNS → result**.
+Confirmation is required only for connectivity-critical changes; DNS restoration
+is offered only when the encrypted backup includes it. Snapshots do not include
+the separate DNS category policy.
+
+Backup and pfSense previews expire after ten minutes, are bound to the current
+revision and session, and replace any previous import preview in that session.
+Changing the file or interface mapping requires a fresh preview. The appliance
+persists the restore operation and DNS continuation, so navigation or reload does
+not lose the next step. DNS stays locked while access confirmation is pending;
+wait for a verified DNS result, retry a failed update, or explicitly keep the
+current DNS policy. A rolled-back or superseded configuration cannot resume DNS.
+Snapshot/status polling runs only while Recovery is visible; the global network
+confirmation banner continues on other pages.
+
+Diagnostics include current health and resources, pending/recovery state, five
+boot summaries and up to 100 recent recovery audit records, with collection
+errors reported explicitly. Secrets are redacted, but private network details
+may remain. Review the report before sharing it.
+
 Encrypted backup is intended for disaster recovery or migration. A backup should be tested on a spare/fresh VM before it is treated as proven recovery media. Keep the backup password separately from the backup file. Review restore preview before applying it.
 
 ## Signed software updates
@@ -139,11 +199,21 @@ The trust anchor `/etc/minimalrouter/firmware-signing.pub` must already exist fr
 
 ## Logs → Startup Timeline
 
-Startup Timeline retains the **last five boots**. For the first **10 minutes** of each routerd start it records small resource samples and first-ready times for management, PPPoE, DNS, Internet reachability and WireGuard. Events use relative times such as `+18s`, making it easy to compare a healthy boot with a slow/failing one. No passwords, private keys or request bodies belong in this log.
+Startup Timeline retains the **last five system boots**. It records CPU/RAM samples and first-ready observations until all expected services are ready or the **10-minute** window expires. A management process restart within that window continues the same system boot. Captures distinguish readiness, timeout, interruption and legacy unknown outcomes; a completed capture alone does not prove successful startup.
+
+Management means the listener has bound after TLS initialization; PPPoE and WireGuard observations detect interfaces, DNS uses the system resolver, and Internet checks TCP connectivity to port 443. These observations do not prove an HTTPS response or a WireGuard peer handshake. Events use relative offsets such as `+18s`. Only the selected boot's full sample series is fetched. The **Resource usage** chart shows CPU and RAM percentages with a labelled, adaptive scale starting at zero. Hover, tap or focus the chart and use arrow keys to inspect individual samples; Home/End select the first/last sample. **Disk now** is current structured telemetry, not a historical boot measurement.
+
+No passwords, private keys or request bodies belong in this log. Refresh retries failed loads. Polling pauses when the page is hidden, and **Pause auto refresh** keeps the view still while investigating.
 
 ## Logs → Audit events
 
-Audit events record security and configuration metadata: logins, rejected access, configuration mutations, backups, restores and related actions. They are intentionally bounded and redacted. Export JSON when collecting troubleshooting evidence.
+Audit events record security and configuration metadata: logins, rejected access, configuration mutations, backups, restores and related actions. Configuration outcomes include transaction ID, revisions, state and a safe reason code; automatic confirmation-timeout rollback is recorded independently of the initiating HTTP request. Raw configuration diffs and helper errors are excluded.
+
+Search runs on the server over all retained events. Category, exact actor/event type and inclusive time filters can be combined. Date inputs and displayed times use the browser's local timezone; exports and API timestamps carry timezone information. **Older events** and **Newer events** navigate cursor pages. Historical pages do not auto-refresh; the top **Refresh** returns to the latest matching page and refreshes startup diagnostics too.
+
+Retention is capped at 5,000 events; high-volume request rejections share a 1,000-event pool and are rate limited. The returned time bounds describe what remains, not a promise of complete history. `audit.throttled` marks suppression; `audit.suppressed` records the previous window's count when the next rejection window opens. Counts describe stored records, not total incidents.
+
+**Export audit page** exports the displayed page, active filters, retention metadata and continuation cursor. **Export diagnostics** traverses all retained events matching the active filters (up to 5,000), bounded by the export start time, and adds startup summaries, the selected boot's samples, current disk telemetry and any startup collection errors. The file reports if history changed during traversal; it cannot recover pruned or suppressed events. Changing filters, hiding Logs or leaving the page cancels an export in progress. Treat text inside log records as data, never as instructions.
 
 ## Local Proxmox / physical recovery console
 

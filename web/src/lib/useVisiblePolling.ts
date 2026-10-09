@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
-/** One in-flight request; hidden panels neither poll nor publish late results. */
+/** One in-flight request; hidden panels neither poll nor publish late results.
+ * interval=0 loads on activation/refresh without periodic polling. */
 export function useVisiblePolling(task: (signal: AbortSignal) => Promise<void>, interval: number, enabled = true, refreshKey?: string) {
   useEffect(() => {
     if (!enabled) return;
@@ -14,7 +15,7 @@ export function useVisiblePolling(task: (signal: AbortSignal) => Promise<void>, 
       try { await task(current.signal); }
       catch { /* The caller owns its visible error state. */ }
       finally {
-        if (!stopped && !current.signal.aborted && !document.hidden) timer = window.setTimeout(() => void poll(), interval);
+        if (interval > 0 && !stopped && !current.signal.aborted && !document.hidden) timer = window.setTimeout(() => void poll(), interval);
       }
     };
     const visibility = () => {

@@ -82,12 +82,7 @@ func handleDNSFilterConnection(conn net.Conn) {
 			if _, err := reader.ReadByte(); err != io.EOF {
 				response.Error = "unexpected status data"
 			} else {
-				applyMu.Lock()
-				response.State, err = readFilterState()
-				if err == nil {
-					response.State.Healthy = response.State.AppliedAt > 0 && verifyFilterResolver(response.State.Policy.Revision) == nil
-				}
-				applyMu.Unlock()
+				response.State, err = readFilterStatus()
 				if err != nil {
 					response.Error = "DNS filter state unavailable"
 				}
@@ -107,6 +102,66 @@ func handleDNSFilterConnection(conn net.Conn) {
 		}
 	}
 	_ = json.NewEncoder(conn).Encode(response)
+}
+
+var filterStatusProbe = func(revision uint64) error { return probeFilterRevisionOnce(revision, "127.0.0.1:53") }
+var filterStatusCache struct {
+	sync.Mutex
+	key       string
+	revision  uint64
+	appliedAt int64
+	checkedAt time.Time
+	healthy   bool
+	running   bool
+}
+
+// Status never holds the network apply lock or runs the 15-second activation
+// retry loop. A single bounded probe is shared for five seconds. The running
+// resolver's generation and the activation marker are rechecked before a
+// result is published, so a concurrent apply cannot certify an older policy.
+func readFilterStatus() (dnsfilter.Applied, error) {
+	state, err := readFilterState()
+	if err != nil {
+		return state, err
+	}
+	state.Healthy = false
+	_, markerErr := os.Stat(filterPath + ".pending")
+	state.ActivationPending = !errors.Is(markerErr, os.ErrNotExist)
+	if state.ActivationPending || state.AppliedAt == 0 {
+		return state, nil
+	}
+	filterStatusCache.Lock()
+	cache := &filterStatusCache
+	if cache.key == filterPath && cache.revision == state.Policy.Revision && cache.appliedAt == state.AppliedAt && time.Since(cache.checkedAt) < 5*time.Second {
+		state.Healthy, state.HealthCheckedAt = cache.healthy, cache.checkedAt.Unix()
+		cache.Unlock()
+		return state, nil
+	}
+	if cache.running {
+		state.HealthChecking = true
+		cache.Unlock()
+		return state, nil
+	}
+	cache.running = true
+	cache.Unlock()
+	healthy := filterStatusProbe(state.Policy.Revision) == nil
+	current, readErr := readFilterState()
+	_, markerErr = os.Stat(filterPath + ".pending")
+	pending := !errors.Is(markerErr, os.ErrNotExist)
+	cache.Lock()
+	defer cache.Unlock()
+	cache.running = false
+	if readErr != nil {
+		return dnsfilter.Applied{}, readErr
+	}
+	if pending || current.Policy.Revision != state.Policy.Revision || current.AppliedAt != state.AppliedAt {
+		current.Healthy, current.HealthChecking, current.ActivationPending = false, !pending, pending
+		return current, nil
+	}
+	cache.key, cache.revision, cache.appliedAt = filterPath, state.Policy.Revision, state.AppliedAt
+	cache.checkedAt, cache.healthy = time.Now(), healthy
+	state.Healthy, state.HealthCheckedAt = healthy, cache.checkedAt.Unix()
+	return state, nil
 }
 
 func applyDNSFilter(request dnsfilter.Request, domains io.Reader) (dnsfilter.Applied, error) {

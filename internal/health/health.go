@@ -36,17 +36,18 @@ type Snapshot struct {
 }
 
 type Input struct {
-	Config                config.SystemConfig
-	Runtime               telemetry.RuntimeStatus
-	Engine                apply.EngineStatus
-	Gateway               gateway.Summary
-	GatewayConfigured     bool
-	UpdateTrustConfigured bool
-	Facts                 RuntimeFacts
-	LastBackupAt          *time.Time
-	DNSResolves           *bool
-	DNSError              string
-	Now                   time.Time
+	Config                   config.SystemConfig
+	Runtime                  telemetry.RuntimeStatus
+	Engine                   apply.EngineStatus
+	Gateway                  gateway.Summary
+	GatewayConfigured        bool
+	UpdateTrustConfigured    bool
+	Facts                    RuntimeFacts
+	LastBackupAt             *time.Time
+	BackupHistoryUnavailable bool
+	DNSResolves              *bool
+	DNSError                 string
+	Now                      time.Time
 }
 
 func Build(input Input) Snapshot {
@@ -207,8 +208,10 @@ func Build(input Input) Snapshot {
 		add("update", "Updates", StateHealthy, "Signed update trust is configured with no pending activation reported.")
 	}
 
-	if input.LastBackupAt == nil {
-		add("backup", "Encrypted backup", StateWarning, "No successful encrypted backup export is recorded in retained audit history.")
+	if input.BackupHistoryUnavailable {
+		add("backup", "Encrypted backup", StateUnknown, "Backup export history is unavailable.")
+	} else if input.LastBackupAt == nil {
+		add("backup", "Encrypted backup", StateWarning, "No successful encrypted backup export is recorded.")
 	} else {
 		age := now.Sub(input.LastBackupAt.UTC())
 		switch {

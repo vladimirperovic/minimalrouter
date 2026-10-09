@@ -1,0 +1,143 @@
+/* Overview keeps a readable table until the card itself is phone-sized. */
+:root:root .dashboard-app .active-device-section .modern-section-heading {
+  gap: 18px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+:root:root .dashboard-app .active-device-section .modern-device-tools {
+  flex: 0 1 510px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+:root:root .dashboard-app .active-device-section .modern-search-wrapper {
+  flex: 1 1 200px;
+  width: auto;
+  min-width: 180px;
+  max-width: none;
+}
+:root:root .dashboard-app .active-device-section .device-presence-note {
+  margin: 0;
+  padding: 12px 24px;
+  border-block: 1px solid var(--separator);
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+:root:root .dashboard-app .active-device-section .elegant-table-container {
+  border: 0;
+  border-radius: 0 0 var(--skin-radius) var(--skin-radius);
+  background: transparent;
+  box-shadow: none;
+}
+:root:root .dashboard-app .active-device-section .elegant-col-name { width: auto; }
+:root:root .dashboard-app .active-device-section .elegant-col-ip { width: 180px; }
+:root:root .dashboard-app .active-device-section .elegant-col-expires { width: 112px; }
+:root:root .dashboard-app .active-device-section .elegant-col-actions { width: 206px; }
+:root:root .dashboard-app .active-device-table thead th {
+  padding: 14px 20px;
+  font: var(--weight-medium) 10px/1.5 var(--font-ui);
+  letter-spacing: .07em;
+  background: var(--surface);
+}
+:root:root .dashboard-app .active-device-table tbody td {
+  height: 88px;
+  padding: 18px 20px;
+  vertical-align: middle;
+}
+:root:root .dashboard-app .active-device-table .elegant-device-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  line-height: 1.4;
+}
+:root:root .dashboard-app .active-device-table .device-hostname {
+  flex-basis: 100%;
+  font-size: 13px;
+  font-weight: var(--weight-semibold);
+}
+:root:root .dashboard-app .active-device-table :is(.elegant-badge-static,.device-activity-badge) {
+  margin: 0;
+  padding: 3px 7px;
+  font-size: 8px;
+}
+:root:root .dashboard-app .active-device-table .elegant-cell-ip {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.active-device-mac {
+  display: block;
+  margin-top: 6px;
+  font: 11px/1.5 var(--font-mono);
+  color: var(--text-secondary);
+}
+:root:root .dashboard-app .active-device-table .device-activity-state {
+  font-size: 12px;
+  font-weight: var(--weight-medium);
+}
+:root:root .dashboard-app .active-device-section .device-row-actions {
+  grid-template-columns: 48px 108px;
+  justify-content: start;
+}
+:root:root .dashboard-app .active-device-section .device-action-reserve {
+  grid-column: 2;
+  grid-row: 2;
+}
+@container (max-width: 640px) {
+  :root:root .dashboard-app .active-device-section .modern-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 20px;
+  }
+  :root:root .dashboard-app .active-device-section .modern-device-tools {
+    display: flex;
+    flex: auto;
+    width: 100%;
+  }
+  :root:root .dashboard-app .active-device-section .modern-search-wrapper { flex: 1 0 100%; width: 100%; }
+  :root:root .dashboard-app .active-device-section .device-view-all { margin-left: auto; padding: 6px 0; }
+  :root:root .dashboard-app .active-device-section .device-presence-note { padding: 12px 20px; }
+  .dashboard-app .active-device-table,
+  .dashboard-app .active-device-table tbody { display: block; }
+  .dashboard-app .active-device-table :is(colgroup,thead) { display: none; }
+  .dashboard-app .active-device-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto;
+    gap: 14px 12px;
+    padding: 20px;
+    border-bottom: 1px solid var(--separator);
+  }
+  .dashboard-app .active-device-table tbody tr:last-child { border-bottom: 0; }
+  :root:root .dashboard-app .active-device-table tbody td {
+    display: block;
+    height: auto;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .dashboard-app .active-device-table .elegant-cell-name { grid-column: 1; grid-row: 1; }
+  .dashboard-app .active-device-table .elegant-cell-expires { grid-column: 2; grid-row: 1; text-align: right; }
+  .dashboard-app .active-device-table .elegant-cell-expires::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 5px;
+    font: 10px/1.5 var(--font-ui);
+    color: var(--text-secondary);
+  }
+  .dashboard-app .active-device-table .elegant-cell-ip { grid-column: 1 / -1; }
+  :root:root .dashboard-app .active-device-table .elegant-cell-actions {
+    grid-column: 1 / -1;
+    padding-top: 12px;
+    border-top: 1px solid var(--separator);
+  }
+  :root:root .dashboard-app .active-device-section .device-row-actions { grid-template-columns: 48px 108px 96px; }
+  :root:root .dashboard-app .active-device-section .device-action-reserve { grid-column: 3; grid-row: 1; }
+  .dashboard-app .active-device-table .elegant-empty { grid-column: 1 / -1; }
+}
+@container (max-width: 340px) {
+  :root:root .dashboard-app .active-device-section .device-row-actions { grid-template-columns: 48px 108px; }
+  :root:root .dashboard-app .active-device-section .device-action-reserve { grid-column: 2; grid-row: 2; }
+}

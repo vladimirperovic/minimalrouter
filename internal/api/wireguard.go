@@ -299,6 +299,7 @@ func (s *Server) handleProvisionWireGuardPeer(w http.ResponseWriter, r *http.Req
 	}
 
 	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-%d", time.Now().UnixNano()), candidate)
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -408,6 +409,7 @@ func (s *Server) handleReissueWireGuardPeerConfiguration(w http.ResponseWriter, 
 	}
 
 	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-reissue-%d", time.Now().UnixNano()), candidate)
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)
@@ -449,6 +451,7 @@ func (s *Server) handleDeleteWireGuardPeer(w http.ResponseWriter, r *http.Reques
 	}
 
 	tx, err := s.engine.ProcessTransaction(fmt.Sprintf("wireguard-peer-delete-%d", time.Now().UnixNano()), candidate)
+	s.auditConfigRequest(r, tx)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnprocessableEntity)

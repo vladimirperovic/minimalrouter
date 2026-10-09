@@ -404,7 +404,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
   );
 
   return (
-    <section className="modern-device-section">
+    <section className={`modern-device-section${activeOnly ? " active-device-section" : ""}`}>
       <div className="modern-section-heading">
         <div className="modern-heading-titles">
           <h2>{activeOnly ? "Active devices" : "Known devices"}</h2>
@@ -413,7 +413,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
         <div className="modern-device-tools">
           <div className="modern-search-wrapper">
             <svg className="modern-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
-            <input type="text" placeholder="Search name, IP or MAC" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="modern-search-input" />
+            <input type="text" aria-label="Search devices by name, IP or MAC" placeholder="Search name, IP or MAC" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="modern-search-input" />
             {searchQuery && <button type="button" className="modern-search-clear" onClick={() => setSearchQuery("")} aria-label="Clear search">✕</button>}
           </div>
           <span className="modern-device-count">{activeOnly && activityUnavailable ? config.accounting?.enabled && activityState === "loading" ? "Loading…" : "Activity unavailable" : searchQuery ? `${filteredRows.length} match${filteredRows.length === 1 ? "" : "es"}` : `${rows.length} ${activeOnly ? "active" : "known"}`}</span>
@@ -424,22 +424,22 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
       {pauseError && <div className="device-pause-error" role="alert">{pauseError}</div>}
 
       <div className="elegant-table-container">
-        <table className="elegant-device-table device-lan-table">
-          <colgroup><col className="elegant-col-num" /><col className="elegant-col-name" /><col className="elegant-col-ip" /><col className="elegant-col-mac" /><col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
-          <thead><tr><th className="elegant-th-num">#</th><th>Host name</th><th>IP address</th><th>MAC address</th><th>{activeOnly ? "Last seen" : "Lease / activity"}</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
+        <table className={`elegant-device-table device-lan-table${activeOnly ? " active-device-table" : ""}`} aria-label={activeOnly ? "Active devices" : "Known devices"}>
+          <colgroup>{!activeOnly && <col className="elegant-col-num" />}<col className="elegant-col-name" /><col className="elegant-col-ip" />{!activeOnly && <col className="elegant-col-mac" />}<col className="elegant-col-expires" />{showData && <col className="elegant-col-data" />}<col className="elegant-col-actions" /></colgroup>
+          <thead><tr>{!activeOnly && <th className="elegant-th-num">#</th>}<th>{activeOnly ? "Device" : "Host name"}</th><th>{activeOnly ? "Network address" : "IP address"}</th>{!activeOnly && <th>MAC address</th>}<th>{activeOnly ? "Last seen" : "Lease / activity"}</th>{showData && <th>Data</th>}<th className="elegant-th-actions">Actions</th></tr></thead>
           <tbody>
             {filteredRows.length === 0 ? (
-              <tr><td colSpan={showData ? 7 : 6} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" height="14" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{activeOnly && activityUnavailable ? emptyActivity : searchQuery ? "No devices match your search." : activeOnly ? emptyActivity : "No DHCP leases or device history available."}</span></td></tr>
+              <tr><td colSpan={(activeOnly ? 4 : 6) + (showData ? 1 : 0)} className="elegant-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><rect x="3" y="4" width="18" rx="2" /><path d="M3 9h18M8 4v14" /></svg><span>{activeOnly && activityUnavailable ? emptyActivity : searchQuery ? "No devices match your search." : activeOnly ? emptyActivity : "No DHCP leases or device history available."}</span></td></tr>
             ) : filteredRows.map((row, index) => {
               const isStatic = Boolean(row.mac && staticMacs.has(row.mac.toLowerCase()));
               const pause = pauseByIP.get(row.ip_address);
               const busy = pauseBusyIP === row.ip_address;
               return (
                 <tr className={`${row.hasLease ? "has-lease" : "is-history"}${pause ? " is-paused" : ""}`} key={row.key}>
-                  <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>
+                  {!activeOnly && <td className="elegant-cell-num">{String(index + 1).padStart(2, "0")}</td>}
                   <td data-label="Device" className="elegant-cell-name"><span className="elegant-device-identity"><span className="device-hostname" title={row.hostname || "Unknown device"}>{row.hostname || "Unknown device"}</span>{isStatic && <span className="elegant-badge-static">Static</span>}{row.is_new && <span className="device-activity-badge is-new">New</span>}{pause && <span className="device-activity-badge is-paused">Paused</span>}</span></td>
-                  <td data-label="IP address" className="elegant-cell-ip">{row.ip_address}</td>
-                  <td data-label="MAC address" className="elegant-cell-mac">{row.mac || "Unknown"}</td>
+                  <td data-label={activeOnly ? "Network address" : "IP address"} className="elegant-cell-ip">{row.ip_address}{activeOnly && <small className="active-device-mac" aria-label="MAC address">{row.mac || "Unknown MAC"}</small>}</td>
+                  {!activeOnly && <td data-label="MAC address" className="elegant-cell-mac">{row.mac || "Unknown"}</td>}
                     <td data-label={activeOnly ? "Last seen" : "Lease / activity"} className="elegant-cell-expires">
                       {activeOnly ? <span className="device-activity-state" title={new Date(row.last_seen_epoch! * 1000).toLocaleString()}>{formatLastSeen(row.last_seen_epoch, activityNow)}{pause && <small>{pauseLabel(pause)}</small>}</span> : pause ? <span className="device-activity-state is-paused">{pauseLabel(pause)}</span> : row.hasLease ? <span className="device-activity-state is-lease">DHCP lease<small>{row.expires_at ? ` · expires ${formatRelativeFuture(row.expires_at)}` : " · no expiry"}</small></span> : <span className="device-activity-state is-history" title={row.last_seen_epoch ? new Date(row.last_seen_epoch * 1000).toLocaleString() : undefined}>{row.last_seen_epoch ? `Last seen ${formatLastSeen(row.last_seen_epoch)}` : "Previously seen"}</span>}
                     </td>

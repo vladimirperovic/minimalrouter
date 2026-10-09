@@ -21,6 +21,31 @@ components:
       name: X-CSRF-Token
 
   schemas:
+    RecoveryAssessment:
+      type: object
+      required: [can_apply, blockers, changes, risk, requires_confirmation, expected_interruption]
+      properties:
+        can_apply: {type: boolean}
+        blockers: {type: array, items: {type: string}}
+        changes: {type: array, items: {type: string}}
+        risk: {type: string}
+        requires_confirmation: {type: boolean}
+        rollback_seconds: {type: integer}
+        expected_interruption: {type: string}
+    RecoveryOperation:
+      type: object
+      description: Durable latest restore operation; includes a non-secret DNS policy until completion or dismissal. Status reconciliation retains observed final outcomes. It never starts a restore.
+      properties:
+        id: {type: string}
+        source: {type: string, enum: [backup, pfsense, snapshot]}
+        state: {type: string, enum: [applying, awaiting_confirmation, dns_pending, dns_running, dns_failed, completed, failed, rolled_back, needs_review, dismissed]}
+        transaction_id: {type: string}
+        target_revision: {type: integer}
+        started_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        confirmation_deadline: {type: string, format: date-time}
+        error: {type: string}
+        dns_policy: {$ref: '#/components/schemas/DNSFilterPolicy'}
     DNSFilterPolicy:
       type: object
       required: [revision, categories, exceptions]
@@ -58,6 +83,17 @@ components:
         next_refresh_at: {type: integer, format: int64, description: Earliest refresh eligibility; the worker checks hourly}
         router_time: {type: string, format: date-time}
         timezone: {type: string}
+        config_revision: {type: integer, format: int64}
+        bundled_enabled: {type: boolean}
+        blockers: {type: array, items: {type: string}}
+        profiles: {type: array, items: {$ref: '#/components/schemas/DNSProfileStatus'}}
+        devices: {type: array, items: {type: object, properties: {ip: {type: string}, name: {type: string}, reserved: {type: boolean}}}}
+        operation: {$ref: '#/components/schemas/DNSOperation'}
+        generated_at: {type: string, format: date-time}
+        health_checked_at: {type: integer, format: int64, description: Unix seconds of the bounded resolver-generation probe; zero means unchecked}
+        health_checking: {type: boolean}
+        activation_pending: {type: boolean}
+        refresh_allowed_at: {type: integer, format: int64, description: Unix seconds when explicit refresh cooldown expires}
         lists:
           type: array
           items:
@@ -70,6 +106,67 @@ components:
               entries: {type: integer, minimum: 0}
               updated_at: {type: integer, format: int64}
               error: {type: string}
+    DNSOperation:
+      type: object
+      required: [id, kind, state, phase, base_revision, target_revision, started_at, updated_at]
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [policy, refresh]}
+        state: {type: string, enum: [running, completed, failed, rolled_back, needs_review]}
+        phase: {type: string, description: queued/preparing/downloading/applying/verified/interrupted/outcome_unknown/recovery_required}
+        actor: {type: string}
+        base_revision: {type: integer, format: int64}
+        target_revision: {type: integer, format: int64}
+        applied_revision: {type: integer, format: int64}
+        target_hash: {type: string, description: SHA-256 of the normalized requested policy, excluding revision}
+        started_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        error: {type: string}
+    DNSProfileStatus:
+      type: object
+      properties:
+        id: {type: string}
+        name: {type: string}
+        ip_addresses: {type: array, items: {type: string}}
+        services: {type: array, items: {type: string}}
+        state: {type: string, enum: [paused, filter_off, allowed, blocked]}
+        allowed_now: {type: boolean, nullable: true}
+        next_change_at: {type: string, format: date-time, nullable: true}
+        next_state: {type: string, enum: [allowed, blocked]}
+        missing_reservations: {type: array, items: {type: string}}
+        basis: {type: string, enum: [configured_schedule]}
+        enforcement_verified: {type: boolean, enum: [false], description: Schedule calculations never certify actual packet enforcement}
+    DNSDomainExplanation:
+      type: object
+      properties:
+        domain: {type: string}
+        action: {type: string, enum: [Block, Allow exception, No category block, Local DNS record, Scheduled block]}
+        exception: {type: boolean}
+        healthy: {type: boolean}
+        policy_revision: {type: integer, format: int64}
+        config_revision: {type: integer, format: int64}
+        checked_at: {type: string, format: date-time}
+        device_ip: {type: string}
+        scope: {type: string, enum: [configured_policy]}
+        matches:
+          type: array
+          items:
+            type: object
+            properties:
+              category: {type: string, enum: [threats, ads, adult, gambling, bundled]}
+              domain: {type: string, description: Matching domain or parent}
+              enabled: {type: boolean}
+        layers:
+          type: array
+          items:
+            type: object
+            properties:
+              source: {type: string}
+              action: {type: string}
+              reason: {type: string}
+        profile: {$ref: '#/components/schemas/DNSProfileStatus'}
+        coverage: {type: array, items: {type: string}}
     DNSCollectionStatus:
       type: object
       required: [state, last_success, dropped_lookups]
@@ -533,7 +630,7 @@ paths:
         '503': {description: DNS filter helper unavailable}
     put:
       summary: Queue a revision-bound network DNS policy change
-      description: Downloads and validates enabled lists before activating. Poll GET for completion or error; a 202 response is not proof of activation. Previous verified rules survive failed refreshes. DNS Activity notification exceptions are separate.
+      description: Reuses installed hash-matched catalogs for policy edits, downloading missing lists before activation. A 202 response includes a durable operation ID, not proof of activation. Poll status or operation history for the verified outcome. Previous rules survive failed refreshes. DNS Activity notification exceptions are separate.
       operationId: setDNSFilter
       security:
         - sessionCookie: []
@@ -544,7 +641,15 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/DNSFilterPolicy'}
       responses:
-        '202': {description: Update queued; response contains updating true}
+        '202':
+          description: Update durably queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updating: {type: boolean}
+                  operation: {$ref: '#/components/schemas/DNSOperation'}
         '409': {description: Another update is running}
         '422': {description: Invalid policy}
         '503': {description: DNS filtering unavailable}
@@ -557,10 +662,26 @@ paths:
         - sessionCookie: []
           csrfToken: []
       responses:
-        '202': {description: Refresh queued}
+        '202': {description: Refresh durably queued; response contains updating and operation with its ID}
         '409': {description: Update already running or refresh cooldown}
         '503': {description: DNS filtering unavailable}
   /dns-filter/check:
+    get:
+      summary: Read-only local domain explanation with optional device schedule
+      description: Available to trusted read-only sessions. No third-party query or mutation. Revision-bound configured-policy context is not proof of actual packet enforcement or a visit.
+      operationId: explainDNSFilterDomain
+      security: [{sessionCookie: []}]
+      parameters:
+        - {in: query, name: domain, required: true, schema: {type: string, maxLength: 253}}
+        - {in: query, name: device_ip, schema: {type: string, format: ipv4}}
+      responses:
+        '200':
+          description: Local policy explanation, no-store
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DNSDomainExplanation'}
+        '422': {description: Invalid domain/device address or unavailable catalog}
+        '503': {description: DNS filtering unavailable}
     post:
       summary: Check a domain against local blocking catalogs and exceptions
       description: Does not send the queried domain to an external service. Results describe configured policy, not an observed visit or a blocked query; local DNS records take precedence.
@@ -577,6 +698,7 @@ paths:
               required: [domain]
               properties:
                 domain: {type: string}
+                device_ip: {type: string, format: ipv4}
       responses:
         '200':
           description: Local policy result
@@ -586,7 +708,7 @@ paths:
                 type: object
                 properties:
                   domain: {type: string}
-                  action: {type: string, enum: [Block, Allow exception, No category block]}
+                  action: {type: string, enum: [Block, Allow exception, No category block, Local DNS record, Scheduled block]}
                   exception: {type: boolean}
                   healthy: {type: boolean}
                   matches:
@@ -598,6 +720,43 @@ paths:
                         domain: {type: string, description: Matching domain or parent}
                         enabled: {type: boolean}
         '422': {description: Invalid domain or installed index unavailable}
+        '503': {description: DNS filtering unavailable}
+
+  /dns-filter/profiles:
+    get:
+      summary: Router clock, configured device schedules, reservation context and change blockers
+      operationId: getDNSFilterProfiles
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Configured policy only; actual runtime enforcement remains unverified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config_revision: {type: integer, format: int64}
+                  router_time: {type: string, format: date-time}
+                  timezone: {type: string}
+                  bundled_enabled: {type: boolean}
+                  profiles: {type: array, items: {$ref: '#/components/schemas/DNSProfileStatus'}}
+                  devices: {type: array, items: {type: object, properties: {ip: {type: string}, name: {type: string}, reserved: {type: boolean}}}}
+                  blockers: {type: array, items: {type: string}}
+  /dns-filter/operations:
+    get:
+      summary: Last 20 durable DNS operations, newest first
+      operationId: getDNSFilterOperations
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: IDs, phases, revisions and outcomes; interrupted operations are never replayed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  retention: {type: integer, enum: [20]}
+                  operations: {type: array, maxItems: 20, items: {$ref: '#/components/schemas/DNSOperation'}}
         '503': {description: DNS filtering unavailable}
 
   /dns-activity/alerts/summary:
@@ -1028,7 +1187,7 @@ paths:
       description: >-
         Each snapshot carries `kind`: `automatic` (taken before every applied
         change and by the recovery console) or `manual` (created through this
-        API). The newest 20 of each kind are retained independently.
+        API). Includes an optional operator label. The newest 20 of each kind are retained independently (40 total). Configurations and secrets are omitted from the list.
       operationId: listSnapshots
       security:
         - sessionCookie: []
@@ -1043,6 +1202,13 @@ paths:
       security:
         - sessionCookie: []
           csrfToken: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: {type: string, maxLength: 80, description: Optional name; control characters are rejected}
       responses:
         '200':
           description: Snapshot created
@@ -1060,11 +1226,78 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expected_revision]
+              properties:
+                expected_revision: {type: integer, minimum: 0, description: base_revision from the snapshot preview}
       responses:
         '200':
           description: Snapshot restored successfully
         '202':
           description: Snapshot provisionally restored; connectivity confirmation required
+        '409': {description: Configuration changed since preview or another restore remains unfinished}
+        '422': {description: Corrupt snapshot or blocked transition}
+        '428': {description: expected_revision is required}
+        '503': {description: Snapshot or recovery storage unavailable}
+
+  /snapshots/{id}/preview:
+    get:
+      summary: Preview a snapshot against the current configuration without applying it
+      description: Returns snapshot_id, source, base_revision, redacted candidate and assessment with changed sections, blockers, risk and access-confirmation requirements.
+      security:
+        - sessionCookie: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Read-only restore assessment}
+        '404': {description: Snapshot not found}
+        '422': {description: Snapshot integrity check failed}
+        '503': {description: Snapshot storage unavailable}
+
+  /recovery/status:
+    get:
+      summary: Read recovery readiness and the latest resumable restore operation
+      description: Includes generated_at, revision, last_backup_export_at (nullable), snapshot_count, retention (20 manual and 20 automatic), pending transaction and deadline, engine state and operation. Export metadata survives audit pruning; it does not prove that the file was saved or tested. Status retains observed final operation outcomes without applying any policy.
+      security:
+        - sessionCookie: []
+      responses:
+        '200': {description: Recovery status; operation and pending are null when absent}
+        '503': {description: Recovery, export history or snapshot storage unavailable; do not infer an empty history}
+
+  /recovery/operations/{id}/dns:
+    post:
+      summary: Explicitly continue or retry the persisted DNS restore
+      description: Only after network confirmation and while the target configuration remains active. Starts an asynchronous revision-bound policy restore. Poll recovery/status for a healthy verified outcome; HTTP 202 is not completion.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '202': {description: DNS restore accepted; operation is dns_running}
+        '404': {description: Operation unavailable}
+        '409': {description: Pending change, wrong operation state or concurrent DNS update}
+        '503': {description: DNS service or durable storage unavailable}
+
+  /recovery/operations/{id}/dismiss:
+    post:
+      summary: Dismiss a remaining DNS continuation and retain the current DNS policy
+      description: Cannot dismiss while applying, awaiting network confirmation or running DNS restoration.
+      security:
+        - sessionCookie: []
+          csrfToken: []
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: Continuation dismissed}
+        '404': {description: Operation unavailable}
+        '409': {description: Active operation must finish first}
+        '503': {description: Operation could not be persisted}
 
   /wireguard/peers:
     post:
@@ -1264,6 +1497,7 @@ paths:
   /system/diagnostics:
     get:
       summary: Download redacted diagnostics JSON
+      description: Includes current health, safe resource fields, engine/pending/recovery state, durable last export, five startup summaries and up to 100 recent recovery audit records. collection_errors reports partial failures. DNS exception domains are excluded; private network topology may remain. This document cannot restore configuration.
       operationId: getDiagnostics
       security:
         - sessionCookie: []
@@ -1313,6 +1547,7 @@ paths:
   /import/pfsense/preview:
     post:
       summary: Preview a pfSense XML import
+      description: Returns a session-bound preview token, base_revision, expires_at (10 minutes), redacted candidate, assessment and migration report. A new backup or pfSense preview replaces the previous preview in this session.
       operationId: previewPfSenseImport
       security:
         - sessionCookie: []
@@ -1335,6 +1570,9 @@ paths:
       responses:
         '200': { description: Import applied }
         '202': { description: Import awaits connectivity confirmation }
+        '404': { description: Preview expired, replaced, consumed or owned by a different session }
+        '409': { description: Current revision differs from the reviewed revision or another restore is unfinished }
+        '422': { description: Unsafe transition or apply failure; inspect transaction and recovery status }
 
   /backup/export:
     post:
@@ -1363,7 +1601,7 @@ paths:
     post:
       summary: Preview an encrypted backup import
       operationId: previewBackupImport
-      description: Authenticates with the current dashboard password. Uses it for decryption unless backup_passphrase contains an older creation password or a legacy separate password. Supports v1 and v2 encrypted files. DNS policy is returned for a separate explicit restore after configuration confirmation.
+      description: Authenticates with the current dashboard password. Uses it for decryption unless backup_passphrase contains an older creation password or a legacy separate password. Supports v1 and v2 encrypted files. DNS collections are normalized. The preview includes base_revision, expires_at (10 minutes) and assessment. A new backup or pfSense preview replaces the previous preview in this session. Applying persists the DNS continuation for an explicit restore after network confirmation.
       security:
         - sessionCookie: []
           csrfToken: []
@@ -1388,6 +1626,9 @@ paths:
                 properties:
                   import_id: {type: string}
                   expires_in_seconds: {type: integer}
+                  expires_at: {type: string, format: date-time}
+                  base_revision: {type: integer}
+                  assessment: {$ref: '#/components/schemas/RecoveryAssessment'}
                   candidate: {type: object, description: Redacted router configuration}
                   dns_filter: {$ref: '#/components/schemas/DNSFilterPolicy'}
 
@@ -1406,6 +1647,9 @@ paths:
       responses:
         '200': { description: Backup applied }
         '202': { description: Backup awaits connectivity confirmation }
+        '404': { description: Preview expired, replaced, consumed or owned by a different session }
+        '409': { description: Current revision differs from the reviewed revision or another restore is unfinished }
+        '422': { description: Unsafe transition or apply failure; inspect transaction and recovery status }
 
   /firmware/verify:
     post:

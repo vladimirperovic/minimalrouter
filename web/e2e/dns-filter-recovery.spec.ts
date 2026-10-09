@@ -5,6 +5,7 @@ import type { DNSFilterPolicy } from "../src/api-types";
 const profile = { id: "kids", name: "Kids tablet", enabled: true, ip_addresses: ["192.168.1.50"], services: ["youtube"], schedule: { day_windows: { monday: [{ start: "19:30", end: "22:30" }] } } };
 async function fixture(page: Page) {
   let config = { ...structuredClone(CONFIG), adguard: { ...CONFIG.adguard, device_profiles: [structuredClone(profile)] } };
+  let recoveryOperation: Record<string, unknown> | null = null;
   let policy: DNSFilterPolicy = { revision: 7, categories: {}, exceptions: [] };
   const writes: { path: string; body: unknown }[] = [];
   await page.addInitScript(() => localStorage.setItem("minimalrouter:wan-speed-estimate-attempt", String(Date.now())));
@@ -19,10 +20,13 @@ async function fixture(page: Page) {
       if (method === "PUT") { policy = { ...body, revision: policy.revision + 1 }; return json({ updating: true }, 202); }
       return json({ policy, domains: Object.values(policy.categories).filter(Boolean).length * 1000, healthy: true, applied_at: 1791417600, updating: false, lists: ["threats", "ads", "adult", "gambling"].map(category => ({ category, label: category, url: "https://example.org/list", entries: 1000, updated_at: 1791417600 })), next_refresh_at: 1791504000, router_time: "2026-10-08T12:00:00+02:00", timezone: "Europe/Podgorica" });
     }
-    if (path === "/api/v1/dns-filter/check") return json({ domain: body.domain, action: "Block", exception: false, healthy: true, matches: [{ category: "adult", domain: "example.com", enabled: true }] });
+    if (path === "/api/v1/dns-filter/check") return json({ domain: new URL(req.url()).searchParams.get("domain") ?? body?.domain, action: "Block", exception: false, healthy: true, matches: [{ category: "adult", domain: "example.com", enabled: true }] });
+    if (path === "/api/v1/dns-filter/operations") return json({ operations: [], retention: 20 });
     if (path === "/api/v1/backup/export") return route.fulfill({ contentType: "application/vnd.minimalrouter.backup+json", headers: { "Content-Disposition": "attachment; filename=test.mrbak" }, body: "encrypted test fixture" });
-    if (path === "/api/v1/backup/import/preview") return json({ import_id: "preview", expires_in_seconds: 600, candidate: config, dns_filter: { revision: 2, categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] } });
-    if (path === "/api/v1/import/backup/preview/apply") return json({ state: "Committed" });
+    if (path === "/api/v1/recovery/status") return json({ generated_at: new Date().toISOString(), revision: config.revision, last_backup_export_at: null, snapshot_count: 0, retention: { manual: 20, automatic: 20 }, pending: null, operation: recoveryOperation });
+    if (path === "/api/v1/recovery/operations/test-restore/dns") { recoveryOperation = { ...recoveryOperation, state: "dns_running" }; return json(recoveryOperation, 202); }
+    if (path === "/api/v1/backup/import/preview") return json({ import_id: "preview", expires_at: new Date(Date.now()+600000).toISOString(), base_revision: config.revision, assessment: { can_apply: true, blockers: [], changes: [], risk: "low", requires_confirmation: false, expected_interruption: "No interruption" }, expires_in_seconds: 600, candidate: config, dns_filter: { revision: 2, categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] } });
+    if (path === "/api/v1/import/backup/preview/apply") { recoveryOperation = { id: "test-restore", source: "backup", state: "dns_pending", started_at: new Date().toISOString(), dns_policy: { categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] } }; return json({ id: "test-restore", state: "Committed" }); }
     const responses: Record<string, unknown> = { "/api/v1/auth/session": { authenticated: true, csrf_token: "test" }, "/api/v1/system": SYSTEM, "/api/v1/health": HEALTH, "/api/v1/gateway/summary": GW_SUMMARY, "/api/v1/gateway/settings": GW_SETTINGS, "/api/v1/snapshots": [], "/api/v1/devices/pauses": { pauses: [] } };
     return json(responses[path] ?? {});
   });
@@ -92,7 +96,9 @@ test("Recovery restores DNS policy only after the separate explicit continuation
   expect(state.writes.some(write => write.path === "/api/v1/dns-filter")).toBe(false);
   await page.getByRole("button", { name: "Restore DNS protection", exact: true }).click();
   await expect(page.getByText(/DNS policy restoration requested/)).toBeVisible();
-  expect(state.writes.find(write => write.path === "/api/v1/dns-filter")!.body).toEqual({ revision: 7, categories: { adult: true }, exceptions: [{ domain: "school.example.com", reason: "School" }] });
+  expect(state.writes.some(write => write.path === "/api/v1/recovery/operations/test-restore/dns")).toBe(true);
+  expect(state.writes.some(write => write.path === "/api/v1/dns-filter")).toBe(false);
+  await expect(page.getByRole("button", { name: "Restoring DNS…" })).toBeDisabled();
 });
 
 for (const design of ["noema", "studio"]) for (const mode of ["light", "dark"]) {
@@ -101,6 +107,7 @@ for (const design of ["noema", "studio"]) for (const mode of ["light", "dark"]) 
     for (const section of ["overview", "gateway", "network", "firewall", "security", "dns-filter", "qos", "wireguard", "cloudflare", "wifi", "traffic", "dns-activity", "squid", "recovery", "logs"]) {
       await page.goto(`/#${section}`); await expect(page.locator(".dashboard-app")).toBeVisible();
       await expect(page.locator(`.dashboard-navigation a[href="#${section}"]`)).toHaveClass(/is-active/);
+      if (section === "dns-filter") await expect(page.getByRole("heading", {name:"Network protection",exact:true})).toBeVisible();
       const result = await page.locator(".dashboard-main").evaluate(main => {
         const required = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--card-gap"));
         const errors: string[] = [];
@@ -117,6 +124,16 @@ for (const design of ["noema", "studio"]) for (const mode of ["light", "dark"]) 
       });
       expect(result.errors, `${section} spacing`).toEqual([]); expect(result.overflow, `${section} overflow`).toBeLessThanOrEqual(1);
       if (["overview", "recovery", "dns-filter"].includes(section)) await page.screenshot({ path: test.info().outputPath(`${section}-${isMobile ? "mobile" : "desktop"}.png`), fullPage: true, scale: "css" });
+      if (section === "dns-filter") await page.locator(".dns-protection-columns").screenshot({ path: test.info().outputPath(`dns-tools-${isMobile ? "mobile" : "desktop"}.png`), scale: "css" });
+      if (section === "dns-filter") {
+        await page.getByText("Maintained lists & coverage", {exact:true}).click();
+        await page.getByText("Recent DNS changes", {exact:true}).click();
+        await page.getByText("Advanced DNS & bundled protection", {exact:true}).click();
+        await expect(page.getByRole("heading",{name:"Upstream resolvers",exact:true})).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), "expanded DNS overflow").toBeLessThanOrEqual(1);
+        await page.locator(".dns-profiles-card").screenshot({ path:test.info().outputPath(`dns-profiles-${isMobile ? "mobile" : "desktop"}.png`),scale:"css" });
+        await page.locator(".dns-settings-columns").screenshot({ path:test.info().outputPath(`dns-settings-${isMobile ? "mobile" : "desktop"}.png`),scale:"css" });
+      }
     }
   });
 }

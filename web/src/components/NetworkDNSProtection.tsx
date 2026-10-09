@@ -1,93 +1,107 @@
-import { FormEvent, useCallback, useState } from "react";
-import { apiFetch, responseError } from "../lib/api";
-import { useVisiblePolling } from "../lib/useVisiblePolling";
-import type { DNSFilterPolicy } from "../api-types";
+import { useState, type FormEvent, type ReactNode } from "react";
+import type { DNSProtectionControl } from "../lib/useDNSProtection";
+import { dnsCategories, dnsTime, dnsClockZone, normalizedException, type DNSDevice } from "../lib/dnsProtection";
+import DNSDomainChecker from "./DNSDomainChecker";
+import DNSListStatus from "./DNSListStatus";
+import DNSUtilityIcon from "./DNSUtilityIcon";
 
-type List = { category: string; label: string; url: string; entries: number; updated_at: number; error?: string };
-type Status = { policy: DNSFilterPolicy; domains: number; applied_at: number; healthy: boolean; lists: List[]; updating: boolean; error?: string; next_refresh_at: number; router_time: string; timezone: string };
-type Check = { domain: string; action: string; exception: boolean; healthy: boolean; matches: { category: string; domain: string; enabled: boolean }[] };
-const categories = [
-  ["threats", "Malware, phishing & scams", "Known malicious domains · HaGeZi TIF Mini"],
-  ["ads", "Ads & trackers", "A compact list with lower risk of app breakage · HaGeZi Light"],
-  ["adult", "Adult content", "Domains hosting adult content · HaGeZi NSFW"],
-  ["gambling", "Gambling", "Betting and gambling domains · HaGeZi Gambling Mini"],
-];
-const when = (epoch: number) => epoch ? new Date(epoch * 1000).toLocaleString() : "Not downloaded";
-
-export default function NetworkDNSProtection({ apiConnected }: { apiConnected: boolean }) {
-  const [status, setStatus] = useState<Status | null>(null);
-  const [draft, setDraft] = useState<DNSFilterPolicy | null>(null);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [working, setWorking] = useState(false);
-  const [refresh, setRefresh] = useState(0);
-  const [check, setCheck] = useState<Check | null>(null);
-  const load = useCallback(async (signal: AbortSignal) => {
-    try {
-      const response = await apiFetch("/api/v1/dns-filter", { signal });
-      if (!response.ok) throw new Error(await responseError(response, "DNS filter status unavailable"));
-      const next = await response.json() as Status;
-      if (!next.policy || !Array.isArray(next.lists)) throw new Error("DNS filter status unavailable");
-      if (!signal.aborted) { setStatus(next); setError(""); }
-    } catch (e) { if (!signal.aborted) { setError(e instanceof Error ? e.message : "DNS filter unavailable"); setStatus(null); } }
-  }, []);
-  useVisiblePolling(load, status?.updating ? 3000 : 30000, apiConnected, String(refresh));
-  const policy = draft ?? status?.policy;
-  const busy = working || Boolean(status?.updating) || !apiConnected || !status;
-  const changedElsewhere = draft && status && draft.revision !== status.policy.revision;
-  const appliedAny = Object.values(status?.policy.categories ?? {}).some(Boolean);
-  const mutate = async (path: string, method: string, body?: unknown) => {
-    setWorking(true); setError(""); setNotice("");
-    try {
-      const response = await apiFetch(`/api/v1/dns-filter${path}`, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-      if (!response.ok) throw new Error(await responseError(response, "DNS filter change failed"));
-      setDraft(null); setStatus(current => current ? { ...current, updating: true } : current);
-      setNotice("Update requested. Existing protection stays in place while lists are prepared and the new resolver configuration is verified.");
-      setRefresh(value => value + 1);
-    } catch (e) { setError(e instanceof Error ? e.message : "DNS filter change failed"); }
-    finally { setWorking(false); }
+export function DNSIcon({ kind = "shield" }: { kind?: string }) {
+  const paths: Record<string, ReactNode> = {
+    shield: <><path d="m12 3 8 4v5c0 4-3 7-8 9-5-2-8-5-8-9V7z"/><path d="m8.5 12 2.5 2.5 4.5-5"/></>,
+    eye: <><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/><path d="m4 20 16-16"/></>,
+    lock: <><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></>,
+    dice: <><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/></>,
   };
-  const addException = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); if (!policy) return;
-    const form = new FormData(event.currentTarget);
-    const domain = String(form.get("domain") ?? "").trim().toLowerCase().replace(/\.$/, "");
-    if (policy.exceptions.some(e => e.domain === domain)) { setError("An exception for this domain already exists."); return; }
-    setDraft({ ...policy, exceptions: [...policy.exceptions, { domain, reason: String(form.get("reason") ?? "").trim() }] });
-    event.currentTarget.reset();
-  };
-  const checkDomain = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); const domain = String(new FormData(event.currentTarget).get("check_domain") ?? "");
-    setWorking(true); setCheck(null);
-    try {
-      const response = await apiFetch("/api/v1/dns-filter/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain }) });
-      if (!response.ok) throw new Error(await responseError(response, "Domain check failed"));
-      setCheck(await response.json() as Check); setError("");
-    } catch (e) { setError(e instanceof Error ? e.message : "Domain check failed"); }
-    finally { setWorking(false); }
-  };
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind] ?? paths.shield}</svg>;
+}
 
-  return <div className="network-dns-protection">
-    <article className="dns-protection-card" aria-label="Network protection">
-      <header><div><p className="eyebrow">Every device using this router's DNS</p><h3>Network protection</h3><p>Category blocking works across changing IP and MAC addresses.</p></div><div className="dns-protection-actions"><span className={`classic-status-chip ${status?.healthy ? "" : "is-off"}`}>{!status ? "Unavailable" : status.updating ? "Updating" : status.healthy ? "Resolver verified" : status.applied_at ? "Resolver unverified" : "Not configured"}</span><button className="button primary small" disabled={busy || !draft || Boolean(changedElsewhere)} type="button" onClick={() => void mutate("", "PUT", draft)}>Apply protection</button></div></header>
-      {error && <p role="alert" className="dns-policy-message">{error}</p>}
-      {status?.error && <p role="alert" className="dns-policy-message">{status.error}</p>}
-      {notice && !status?.error && <p role="status" className="dns-policy-message">{status?.updating ? notice : "Update finished. Review the applied categories and resolver status below."}</p>}
-      <div className="dns-category-list">{categories.map(([id, label, detail]) => <label key={id} className="dns-category-choice"><span><strong>{label}</strong><small>{detail}</small></span><span><input type="checkbox" checked={Boolean(policy?.categories[id])} disabled={busy} onChange={e => policy && setDraft({ ...policy, categories: { ...policy.categories, [id]: e.target.checked } })} /> Block</span></label>)}</div>
-      <p className="form-note">New categories are off until you apply them. DNS Activity provides separate risk alerts; notification exceptions there do not allow blocked sites. <a href="#dns-activity">Open DNS Activity →</a></p>
-      <p className="form-note">DNS filtering cannot inspect pages inside a site or cover traffic using an external encrypted resolver, VPN or mobile data. Local DNS records and DHCP names take precedence.</p>
-    </article>
+function DNSOverview({ control }: { control: DNSProtectionControl }) {
+  const { status, statusError, observedAt } = control;
+  const active = status ? dnsCategories.filter(category => status.policy.categories[category.id]).length : null;
+  const devices = status ? new Set(status.profiles.filter(profile => !["paused", "filter_off"].includes(profile.state)).flatMap(profile => profile.ip_addresses)).size : null;
+  const label = statusError ? "Status unavailable" : !status ? "Checking protection" : status.updating ? "Updating protection" : status.health_checking ? "Checking resolver" : status.healthy ? "Resolver verified" : status.applied_at ? "Verification needed" : "Ready to configure";
+  return <article className="dns-protection-card dns-overview" aria-label="Protection overview">
+    <div className="dns-overview-lead"><span className={`dns-overview-symbol ${status?.healthy && !statusError ? "is-healthy" : ""}`}><DNSIcon /></span><div><p className="eyebrow">Protection at a glance</p><h3>{label}</h3><p>{statusError ? `Showing the last known policy${observedAt ? ` from ${new Date(observedAt).toLocaleTimeString()}` : " when available"}.` : "Your network rules, resolver and device schedules in one place."}</p></div><button className="button secondary small" type="button" onClick={control.refresh} disabled={control.saving}>Refresh status</button></div>
+    <dl className="dns-overview-metrics">
+      <div><dt>Active categories</dt><dd>{active === null ? "—" : <>{active}<small> / 4</small></>}</dd><span>Applied network policy</span></div>
+      <div><dt>Scheduled devices</dt><dd>{devices ?? "—"}</dd><span>Configured · enforcement unverified</span></div>
+      <div><dt>Last successful apply</dt><dd className="dns-overview-date">{status ? dnsTime(status.applied_at) : "—"}</dd><span>{status ? `Policy revision ${status.policy.revision}` : "Waiting for router"}</span></div>
+      <div><dt>Router clock</dt><dd className="dns-overview-date">{status?.router_time ? status.router_time.slice(11,19) : "—"}</dd><span>{status?.router_time ? dnsClockZone(status.router_time, status.timezone) : "Timezone unavailable"}</span></div>
+    </dl>
+    {statusError && <p role="alert" className="dns-message is-error">{statusError} Use Refresh status to check again. An unavailable status does not confirm a completed change.</p>}
+  </article>;
+}
 
-    <div className="dns-protection-columns">
-      <article className="dns-protection-card"><header><div><h3>Check a domain</h3><p>Check the applied lists locally, without sending the domain to a third party.</p></div></header><form className="dns-domain-form" onSubmit={checkDomain}><label className="field"><span>Domain name</span><input name="check_domain" placeholder="example.com" required maxLength={253} /></label><button className="button secondary" disabled={busy} type="submit">Check domain</button></form>
-        {check && <div className="dns-domain-result" role="status"><strong>{check.action}: {check.domain}</strong><p>{check.healthy ? "Resolver generation verified." : "Resolver enforcement is unverified."} This is a policy check, not proof of a blocked query or a visit.</p>{check.matches.map((match, index) => <p key={index}>{match.category} · <code>{match.domain}</code> · {match.enabled ? "blocking enabled" : "category off"}</p>)}</div>}
-      </article>
-      <article className="dns-protection-card"><header><div><h3>Blocking exceptions</h3><p>Allow a domain and all its subdomains. Use this if filtering breaks a site or app.</p></div></header>
-        <form className="dns-exception-form" onSubmit={addException}><label className="field"><span>Domain to allow</span><input name="domain" required maxLength={253} placeholder="example.com" /></label><label className="field"><span>Reason (optional)</span><input name="reason" maxLength={200} placeholder="Needed for school" /></label><button className="button secondary" type="submit" disabled={busy || (policy?.exceptions.length ?? 0) >= 200}>Add exception</button></form>
-        <ul className="dns-exception-list">{policy?.exceptions.map(exception => <li key={exception.domain}><span><strong>{exception.domain}</strong><small>{exception.reason || "Domain and subdomains"}</small></span><button className="button secondary small" disabled={busy} type="button" aria-label={`Remove exception ${exception.domain}`} onClick={() => setDraft({ ...policy, exceptions: policy.exceptions.filter(e => e.domain !== exception.domain) })}>Remove</button></li>)}</ul>
-        {!policy?.exceptions.length && <p className="form-note">No blocking exceptions.</p>}
-      </article>
+function OperationNotice({ control }: { control: DNSProtectionControl }) {
+  const { status, pending, notice, error } = control;
+  const op = pending?.id && status?.operation?.id !== pending.id ? undefined : status?.operation;
+  const running = Boolean(pending || status?.updating);
+  const phases: Record<string, string> = { queued: "Queued", preparing: "Checking current policy", downloading: "Preparing lists", applying: "Applying and verifying resolver", verified: "Resolver verified", interrupted: "Interrupted; review needed", outcome_unknown: "Checking outcome", recovery_required: "Recovery required" };
+  if (!running && !notice && !error && !status?.error) return null;
+  return <div className={`dns-operation-banner ${error || status?.error ? "has-error" : ""}`}>
+    <span className={`dns-operation-dot ${running ? "is-running" : ""}`} aria-hidden="true" />
+    <div><strong>{running ? phases[op?.phase ?? ""] ?? "Verifying the requested change" : error || status?.error ? "DNS change needs attention" : "Protection updated"}</strong>
+      <p role={error || status?.error ? "alert" : "status"}>{error || status?.error || (running && control.statusError ? "The request was accepted, but its outcome is not confirmed. Your changes are retained." : notice || "Existing protection remains in place until verification completes.")}</p>
+      {op && <small>Operation {op.id.slice(0, 8)} · {dnsTime(op.started_at)}</small>}
     </div>
-    <div className="dns-policy-save"><p>{changedElsewhere ? "Policy changed in another session. Reload before saving." : draft ? "You have unapplied category or exception changes." : `${status?.domains.toLocaleString() ?? "0"} source entries in the applied policy; lists may overlap.`}</p><div>{draft && <button className="button secondary" type="button" disabled={working} onClick={() => setDraft(null)}>Discard changes</button>}</div></div>
-    <details className="dns-protection-card dns-list-details"><summary>Maintained lists & coverage</summary><p>HaGeZi public lists · downloaded daily for enabled categories · previous lists retained on failure. Compact lists balance coverage and appliance memory. DNS Activity uses a separate catalog for alerts.</p><div className="dns-list-grid">{status?.lists.map(list => <section key={list.category}><h4>{list.label}</h4><p>{list.entries.toLocaleString()} entries</p><p>Last successful download: {when(list.updated_at)}</p><p>{list.error || (list.updated_at && Date.now() / 1000 - list.updated_at > 172800 ? "List is stale; last working version retained." : "")}</p><a href={list.url} target="_blank" rel="noreferrer">Source list ↗</a></section>)}</div><p>Next automatic refresh: {status?.next_refresh_at ? when(status.next_refresh_at) : "After a category is enabled"}</p><button className="button secondary" disabled={busy || Boolean(draft) || !appliedAny} type="button" onClick={() => void mutate("/refresh", "POST")}>Refresh lists</button>{!appliedAny && <p className="form-note">Enable and apply a category above first — there is nothing to refresh yet. Lists for newly checked categories download automatically when you apply.</p>}{appliedAny && draft && <p className="form-note">Apply or discard the changes above first — refresh covers the applied policy.</p>}<p className="form-note">Router clock: {status?.router_time || "Unavailable"} · {status?.timezone || "Timezone unavailable"}</p></details>
+    {control.statusError && <button className="button secondary small" onClick={control.refresh} type="button">Check again</button>}
+  </div>;
+}
+
+function CategoryChoices({ control }: { control: DNSProtectionControl }) {
+  const { policy, draft, busy, conflict, status } = control;
+  const blocked = Boolean(status?.blockers.length);
+  return <article className="dns-protection-card" aria-label="Network protection">
+    <header><div><p className="eyebrow">For every device using router DNS</p><h3>Network protection</h3><p>Choose what to filter. Review your selection, then apply it.</p></div><span className="dns-neutral-chip">{draft ? "Unapplied changes" : "Applied policy"}</span></header>
+    <div className="dns-category-list">{dnsCategories.map(category => {
+      const checked = Boolean(policy?.categories[category.id]);
+      return <label key={category.id} className={`dns-category-choice ${checked ? "is-selected" : ""}`}><span className="dns-category-symbol"><DNSIcon kind={category.icon}/></span><span className="dns-category-copy"><strong>{category.label}</strong><small>{category.detail}</small><span>{category.source}</span></span><span className="dns-toggle"><input type="checkbox" aria-label={category.label} checked={checked} disabled={busy || blocked} onChange={event => policy && control.edit({ ...policy, categories: { ...policy.categories, [category.id]: event.target.checked } })}/><span aria-hidden="true"/></span></label>;
+    })}</div>
+    <div className="dns-policy-save"><div><strong>{conflict ? "A newer policy is available" : draft ? "Your selection is ready to apply" : "Changes stay under your control"}</strong><p>{conflict ? "Another session changed this policy. Discard your draft to load the current version before editing again." : draft ? "You have unapplied category or exception changes. They stay here when you visit another page." : status ? `${status.domains.toLocaleString()} source entries in the applied policy; lists may overlap.` : "Waiting for applied policy information."}</p></div><div>{draft && <button className="button secondary" type="button" disabled={busy} onClick={control.discard}>Discard changes</button>}<button className="button primary" type="button" disabled={busy || !draft || conflict || blocked} onClick={() => void control.apply("policy")}>Apply protection</button></div></div>
+    {status?.blockers.map(blocker => <p className="dns-message" key={blocker}>{blocker}</p>)}
+  </article>;
+}
+
+function ExceptionsEditor({ control }: { control: DNSProtectionControl }) {
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [limit, setLimit] = useState(20);
+  const policy = control.policy;
+  const exceptions = policy?.exceptions ?? [];
+  const visible = exceptions.filter(entry => `${entry.domain} ${entry.reason ?? ""}`.toLowerCase().includes(search.toLowerCase()));
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!policy || control.busy) return;
+    const form = new FormData(event.currentTarget);
+    try {
+      const domain = normalizedException(String(form.get("domain") ?? ""));
+      if (exceptions.some(entry => entry.domain === domain)) throw new Error("An exception for this domain already exists.");
+      if (exceptions.length >= 200) throw new Error("The limit is 200 exceptions.");
+      control.edit({ ...policy, exceptions: [...exceptions, { domain, reason: String(form.get("reason") ?? "").trim() }] });
+      setError(""); event.currentTarget.reset();
+    } catch (error) { setError((error as Error).message); }
+  };
+  return <article className="dns-protection-card dns-utility-card dns-exceptions-card" aria-label="Blocking exceptions">
+    <header className="dns-tool-header"><div className="dns-tool-topline"><span className="dns-tool-symbol"><DNSUtilityIcon kind="allow"/></span><span className="dns-tool-badge"><strong>{exceptions.length}</strong> / 200 exceptions</span></div><div><p className="eyebrow">Keep the sites you need</p><h3>Blocking exceptions</h3><p>Give a domain and its subdomains a pass through your DNS blocking lists.</p></div></header>
+    <form className="dns-exception-form" onSubmit={submit}>
+      <label className="field"><span>Domain to allow</span><span className="dns-tool-input"><DNSUtilityIcon kind="globe"/><input name="domain" required maxLength={253} placeholder="school.example.com" disabled={control.busy} /></span></label>
+      <label className="field"><span>Reason (optional)</span><span className="dns-tool-input"><DNSUtilityIcon kind="note"/><input name="reason" maxLength={200} placeholder="e.g. School resources" disabled={control.busy}/></span></label>
+      {error && <p role="alert" className="dns-message is-error">{error}</p>}
+      <div className="dns-tool-action"><span>Add to your policy draft</span><button className="button secondary dns-tool-button" type="submit" disabled={control.busy || exceptions.length >= 200}><DNSUtilityIcon kind="plus"/>Add exception</button></div>
+    </form>
+    {exceptions.length > 0 && <label className="field dns-inline-search"><span className="sr-only">Search exceptions</span><input value={search} onChange={event => { setSearch(event.target.value); setLimit(20); }} placeholder="Search domains or reasons" /></label>}
+    <ul className="dns-exception-list">{visible.slice(0, limit).map(entry => <li key={entry.domain}><span><strong>{entry.domain}</strong><small>{entry.reason || "Domain and subdomains"}</small></span><button className="button secondary small" type="button" disabled={control.busy} aria-label={`Remove exception ${entry.domain}`} onClick={() => policy && control.edit({ ...policy, exceptions: exceptions.filter(item => item.domain !== entry.domain) })}>Remove</button></li>)}</ul>
+    {visible.length > limit && <button className="button secondary small" type="button" onClick={() => setLimit(value => value+20)}>Show more exceptions ({visible.length-limit})</button>}
+    {!visible.length && <div className="dns-tool-empty"><span className="dns-tool-empty-icon"><DNSUtilityIcon kind="allow"/></span><div><strong>{exceptions.length ? "No matching exceptions" : "No exceptions yet"}</strong><p>{exceptions.length ? "Try a different domain or reason." : "Allowed domains will appear here. Your selected categories apply as usual."}</p></div></div>}
+    <div className="dns-tool-note"><DNSUtilityIcon kind="note"/><div><strong>Apply when you’re ready</strong><p>Save with <strong>Apply protection</strong> above. Device schedules and DNS Activity notifications remain separate.</p></div></div>
+  </article>;
+}
+
+export default function NetworkDNSProtection({ control, devices, configRevision }: { control: DNSProtectionControl; devices: DNSDevice[]; configRevision?: number }) {
+  return <div className="network-dns-protection">
+    <DNSOverview control={control}/>
+    <OperationNotice control={control}/>
+    <CategoryChoices control={control}/>
+    <div className="dns-protection-columns"><DNSDomainChecker status={control.status} devices={devices} configRevision={configRevision} disabled={control.busy} refresh={control.refresh}/><ExceptionsEditor control={control}/></div>
+    <DNSListStatus control={control}/>
   </div>;
 }
