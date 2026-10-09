@@ -26,9 +26,9 @@
     "amd64",
     "arm64"
   ],
-  "bootstrap_change_acknowledged_version": "",
-  "bootstrap_change_reason": "",
-  "requires_full_installer_from": "0.1.7",
+  "bootstrap_change_acknowledged_version": "0.2.1",
+  "bootstrap_change_reason": "Unreleased changes after the v0.2.1 tag add shared SQLite migrations for named snapshots, durable backup export history and recovery operations, and sanitized configuration transaction auditing. These change router-recovery and router-setup on AMD64 and ARM64; router-update is unchanged. The next release requires the full signed distribution installer for existing appliances. This acknowledgement follows the checkout VERSION and must be advanced during release preparation; it does not describe the already published v0.2.1 artifacts.",
+  "requires_full_installer_from": "0.2.1",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [
     "Releases up to and including v0.1.6 were built without -buildvcs=false, so Go stamped the",

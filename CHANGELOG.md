@@ -6,6 +6,14 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+### Upgrade compatibility
+
+- These changes alter the shared configuration store used by `router-recovery`
+  and `router-setup`. The next signed release requires the full distribution
+  installer once for existing v0.2.1 and earlier appliances; ordinary dashboard
+  A/B activation remains blocked by the existing byte-identity safety check.
+  Published v0.2.1 artifacts are unchanged. See `docs/WEB-UPDATE.md`.
+
 ### Fixed
 
 - Keep Overview's active devices in aligned columns at desktop and tablet

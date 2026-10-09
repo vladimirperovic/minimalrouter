@@ -87,13 +87,31 @@ byte-identity check in `cmd/router-update`.
 
 ## Current checkout and installation boundary
 
-The v0.2.0 candidate preserves the v0.1.9 bootstrap and installed integration
+The unreleased dashboard/recovery changes after the **v0.2.1 tag** change
+`router-recovery` and `router-setup` on AMD64 and ARM64. Their shared configuration
+store now migrates named snapshots and durable recovery/backup metadata, and
+configuration transactions retain sanitized audit outcomes. CI's deterministic
+bootstrap comparison confirms that `router-update` remains unchanged, while
+those two binaries differ from the baseline. Consequently, a release containing
+these changes requires the **full signed distribution installer once** on
+existing v0.2.1 and earlier appliances. The dashboard A/B updater correctly
+refuses this transition; its byte-identity and rollback checks remain intact.
+This is not an instruction to reflash an existing installation with the Golden
+ISO, which deliberately refuses an occupied target disk.
+
+The acknowledgement in `bootstrap-baseline.json` follows the current checkout's
+`VERSION` (still 0.2.1); it does not change the published v0.2.1 payload or promise
+a same-version web update. Release preparation must advance the version and its
+acknowledgement together, validate the full signed installer and Golden ISO,
+then establish the new published baseline before claiming later A/B compatibility.
+
+For historical context, the v0.2.0 candidate preserved the v0.1.9 bootstrap and installed integration
 contract. On 2026-10-08, all three bootstrap programs built for both supported
 architectures with the release toolchain (Go 1.25.13) matched the published
 v0.1.9 manifest hashes. The 12 installed integration files also matched the
 published AMD64 payload. This supports an ordinary signed dashboard update from
 an unmodified v0.1.9 appliance; it is not a real-appliance update test or a claim
-that v0.2.0 has already been published.
+that any later source tree shares those bytes.
 
 Published v0.1.7 and earlier appliances still require the one-time signed full
 distribution installer introduced for v0.1.8. Changing a version label cannot

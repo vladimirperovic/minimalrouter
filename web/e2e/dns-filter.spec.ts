@@ -44,6 +44,7 @@ test("retains draft through navigation, failed status and failed asynchronous ap
   await page.evaluate(() => { location.hash = "#dns-filter"; });
   await expect(page.getByLabel("Adult content",{exact:true})).toBeChecked();
   await page.getByRole("button",{name:"Apply protection",exact:true}).click();
+  await expect(page.getByText(/Request accepted\. Existing protection remains active/)).toBeVisible();
   state.failStatus = true;
   await page.getByRole("button",{name:"Refresh status",exact:true}).click();
   await expect(page.getByText("Status unavailable",{exact:true})).toBeVisible();
@@ -62,6 +63,7 @@ test("clears draft only after the accepted operation reports a verified outcome"
   const {state} = await fixture(page); await page.goto("/#dns-filter");
   await page.getByLabel("Adult content",{exact:true}).check();
   await page.getByRole("button",{name:"Apply protection",exact:true}).click();
+  await expect(page.getByText(/Request accepted\. Existing protection remains active/)).toBeVisible();
   await expect(page.getByText("Unapplied changes",{exact:true})).toBeVisible();
   state.policy = {revision:8,categories:{adult:true},exceptions:[]};
   state.operation = {...state.operation!,state:"completed",phase:"verified",applied_revision:8};
