@@ -69,7 +69,11 @@ test("sidebar services distinguish enabled configuration from measured runtime",
 });
 
 for (const design of ["noema", "studio"]) for (const dark of [false, true]) {
-  test(`${design} ${dark ? "dark" : "light"}: network alerts, actions, pagination and retained device options`, async ({ page }) => {
+  test(`${design} ${dark ? "dark" : "light"}: network alerts, actions, pagination and retained device options`, async ({ page, browserName }) => {
+    // CI traces show successful Linux WebKit clicks taking 3–8 seconds. The
+    // full alert lifecycle needs more than the default 30-second test budget.
+    // Retain every interaction, actionability check and five-second assertion.
+    if (browserName === "webkit" && process.platform === "linux") test.setTimeout(90_000);
     await page.addInitScript(({ design, dark }) => { localStorage.setItem("minimalrouter:design", design); localStorage.setItem("minimalrouter:theme", dark ? "dark" : "light"); }, { design, dark });
     const state = await fixture(page);
     const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
