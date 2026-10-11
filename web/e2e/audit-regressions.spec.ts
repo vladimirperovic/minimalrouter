@@ -180,7 +180,7 @@ test("firmware another-tab completion between idle polls reloads on the running-
   const r = await router(page, { firmwareStatus: firmwareStatus("old", "succeeded", "0.1.4", "0.1.4") });
   await page.goto("/#network"); await openUpdates(page);
   await advanceFirmwarePoll(page, r, firmwareStatus("other-tab", "succeeded", "v0.1.5", "0.1.5"), 60000, { expectReload: true });
-  await page.clock.runFor(1000); await expect.poll(r.documents).toBe(2);
+  await expect.poll(async () => { await page.clock.runFor(1000); return r.documents(); }).toBe(2);
   await expect(page.locator(".dashboard-app")).toBeVisible(); await page.clock.runFor(2000); expect(r.documents()).toBe(2);
 });
 
