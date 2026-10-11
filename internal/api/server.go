@@ -437,6 +437,10 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/v1/system", gate(s.authMiddleware(s.handleGetSystem)))
 	mux.HandleFunc("GET /api/v1/system/interfaces", gate(s.authMiddleware(s.handleDiscoverInterfaces)))
+	mux.HandleFunc("GET /api/v1/network/lan", gate(s.authMiddleware(s.handleLANStatus)))
+	mux.HandleFunc("GET /api/v1/network/devices", gate(s.authMiddleware(s.handleNetworkDevices)))
+	mux.HandleFunc("GET /api/v1/network/leases", gate(s.authMiddleware(s.handleDHCPLeases)))
+	mux.HandleFunc("GET /api/v1/network/address-check", gate(s.authMiddleware(s.handleLANAddressCheck)))
 	mux.HandleFunc("GET /api/v1/system/diagnostics", gate(s.authMiddleware(s.handleGetDiagnostics)))
 	mux.HandleFunc("GET /api/v1/audit/events", gate(s.authMiddleware(s.handleGetAuditEvents)))
 	mux.HandleFunc("GET /api/v1/config", gate(s.authMiddleware(s.handleGetConfig)))
@@ -1324,6 +1328,7 @@ func (s *Server) handleGetPendingTransaction(w http.ResponseWriter, _ *http.Requ
 		"state":                 tx.CurrentState,
 		"confirmation_deadline": tx.ConfirmationDeadline,
 		"management_access":     tx.Config.System.ManagementAccess,
+		"management_url":        managementURL(tx.Config),
 	})
 }
 

@@ -1,9 +1,9 @@
-import { previewAndApplyConfig, readConfiguration } from "../lib/configuration";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ReservationDialog from "./ReservationDialog";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { AccountingSnapshot, DeviceUsage, RouterConfig } from "../api-types";
 import { apiFetch } from "../lib/api";
 import { recentDeviceActivity } from "../lib/deviceActivity";
-import { insidePool, liveLeaseConflictMessage, reservationConflictMessage, reservationHostnameMessage, suggestReservationAddress } from "./deviceReservation";
+import { useVisiblePolling } from "../lib/useVisiblePolling";
 import "./DeviceLeasesTable.css";
 
 type Lease = { expires_at: number; mac: string; ip_address: string; hostname?: string };
@@ -94,11 +94,9 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
   const [pauseBusyIP, setPauseBusyIP] = useState<string | null>(null);
   const [pauseError, setPauseError] = useState("");
   const [reservationTarget, setReservationTarget] = useState<Lease | null>(null);
-  const [reservationIP, setReservationIP] = useState("");
-  const [reservationHostname, setReservationHostname] = useState("");
-  const [reservationBusy, setReservationBusy] = useState(false);
-  const [reservationError, setReservationError] = useState("");
   const [wakeBusyMac, setWakeBusyMac] = useState<string | null>(null);
+  const [wakeNotice, setWakeNotice] = useState("");
+  const pauseEpoch = useRef(0);
 
   const loadActivity = useCallback(async (signal?: AbortSignal) => {
     if (!config.accounting?.enabled) {
@@ -125,44 +123,25 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
   }, [config.accounting?.enabled]);
 
   const loadPauses = useCallback(async (signal?: AbortSignal) => {
+    const generation = pauseEpoch.current;
     try {
       const response = await apiFetch("/api/v1/devices/pauses", { signal });
-      if (!response.ok) return;
+      if (!response.ok) throw new Error("Pause state unavailable");
       const body = await response.json() as { pauses?: DevicePause[] };
-      setPauses(Array.isArray(body.pauses) ? body.pauses : []);
+      if (!signal?.aborted && generation === pauseEpoch.current) setPauses(Array.isArray(body.pauses) ? body.pauses : []);
     } catch (error) {
-      if ((error as Error).name !== "AbortError") setPauseError("Pause state unavailable");
+      if (!signal?.aborted && generation === pauseEpoch.current && (error as Error).name !== "AbortError") setPauseError("Pause state unavailable");
     }
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadActivity(controller.signal);
-    void loadPauses(controller.signal);
-    const timer = window.setInterval(() => {
-      setClock(Date.now());
-      void loadActivity(controller.signal);
-      void loadPauses(controller.signal);
-    }, 30000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+  const poll = useCallback(async (signal: AbortSignal) => {
+    setClock(Date.now());
+    await Promise.allSettled([loadActivity(signal), loadPauses(signal)]);
   }, [loadActivity, loadPauses]);
-
-  useEffect(() => {
-    if (!reservationTarget) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !reservationBusy) {
-        setReservationTarget(null);
-        setReservationError("");
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reservationBusy, reservationTarget]);
+  useVisiblePolling(poll, 30000);
 
   const setDevicePause = async (ip: string, seconds: number) => {
+    pauseEpoch.current++;
     setPauseBusyIP(ip);
     setPauseError("");
     try {
@@ -183,6 +162,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
   };
 
   const resumeDevice = async (ip: string) => {
+    pauseEpoch.current++;
     setPauseBusyIP(ip);
     setPauseError("");
     try {
@@ -203,6 +183,8 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
 
   const wakeDevice = async (mac: string) => {
     setWakeBusyMac(mac);
+    setWakeNotice("");
+    setPauseError("");
     try {
       const response = await apiFetch("/api/v1/network/wol", {
         method: "POST",
@@ -213,6 +195,9 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
         const body = await response.json().catch(() => ({}));
         throw new Error(body.error || `Wake-on-LAN failed (${response.status})`);
       }
+      setWakeNotice("Wake packet sent. This does not confirm the device is awake.");
+    } catch (error) {
+      setPauseError(error instanceof Error ? error.message : "Wake-on-LAN failed");
     } finally {
       setWakeBusyMac(null);
     }
@@ -301,95 +286,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
     : activityState === "unavailable" ? "Device activity is temporarily unavailable."
     : "No device traffic recorded in the last 10 minutes.";
 
-  const reservationConflict = useMemo(() => {
-    if (!reservationTarget) return "";
-    const staticConflict = reservationConflictMessage(reservationIP, reservationTarget.mac, config.dhcp.static_leases || []);
-    if (staticConflict) return staticConflict;
-    return liveLeaseConflictMessage(reservationIP, reservationTarget.mac, leases);
-  }, [config.dhcp.static_leases, leases, reservationIP, reservationTarget]);
-
-  const poolConflict = Boolean(
-    reservationTarget &&
-    reservationIP &&
-    insidePool(reservationIP, config.dhcp.range_start, config.dhcp.range_end),
-  );
-
-  const openReservationDialog = (lease: Lease) => {
-    setReservationTarget(lease);
-    setReservationHostname(lease.hostname || "");
-    const taken = [
-      ...(config.dhcp.static_leases || []).map((item) => item.ip_address),
-      ...leases.filter((item) => item.mac.toLowerCase() !== lease.mac.toLowerCase()).map((item) => item.ip_address),
-    ];
-    const suggested = suggestReservationAddress(config.lan.ip_address, config.dhcp.range_start, taken);
-    setReservationIP(suggested || lease.ip_address);
-    setReservationError("");
-    setPauseMenuIP(null);
-  };
-
-  const closeReservationDialog = () => {
-    if (reservationBusy) return;
-    setReservationTarget(null);
-    setReservationIP("");
-    setReservationHostname("");
-    setReservationError("");
-  };
-
-  const hostnameError = reservationHostnameMessage(reservationHostname);
-
-  const saveReservation = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!reservationTarget || reservationConflict || poolConflict || hostnameError) return;
-
-    const target = reservationTarget;
-    const requestedIP = reservationIP.trim();
-    const requestedHostname = reservationHostname.trim();
-    const normalisedMac = target.mac.trim().toLowerCase();
-    setReservationBusy(true);
-    setReservationError("");
-
-    try {
-      // Re-read the authoritative configuration immediately before saving so a
-      // reservation added in another session cannot be overwritten by stale UI state.
-      const next = await readConfiguration({ cache: "reload" });
-      const freshConflict = reservationConflictMessage(requestedIP, normalisedMac, next.dhcp.static_leases || []);
-      if (freshConflict) {
-        setReservationError(freshConflict);
-        return;
-      }
-      if (insidePool(requestedIP, next.dhcp.range_start, next.dhcp.range_end)) {
-        setReservationError(`${requestedIP} is inside the dynamic DHCP pool (${next.dhcp.range_start}–${next.dhcp.range_end}). Choose an address outside it.`);
-        return;
-      }
-
-      next.dhcp = {
-        ...next.dhcp,
-        static_leases: [
-          ...(next.dhcp.static_leases || []),
-          {
-            id: `lease-${Date.now().toString(36)}`,
-            hostname: requestedHostname,
-            mac: normalisedMac,
-            ip_address: requestedIP,
-          },
-        ],
-      };
-
-      const result = await previewAndApplyConfig(next);
-      if (result.cancelled) return;
-
-      setReservationTarget(null);
-      setReservationIP("");
-      setReservationHostname("");
-      if (onReservationSaved) {
-        await onReservationSaved();
-      }
-    } catch (error) {
-      setReservationError(error instanceof Error ? error.message : "Reservation failed");
-    } finally {
-      setReservationBusy(false);
-    }
-  };
+  const openReservationDialog = (lease: Lease) => { setReservationTarget(lease); setPauseMenuIP(null); };
 
   if (compact && activeOnly) return (
     <section className="studio-card studio-device-card" id="overview-devices">
@@ -421,6 +318,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
         </div>
       </div>
       <p className="device-presence-note">{activeOnly ? "Based on routed traffic, sampled every 5 minutes. Last seen is the collection time; quiet or local-only devices may not appear." : "A DHCP lease reserves an address until it expires. It does not confirm that the device is online."}</p>
+      {wakeNotice && <p className="device-pause-error" role="status">{wakeNotice}</p>}
       {pauseError && <div className="device-pause-error" role="alert">{pauseError}</div>}
 
       <div className="elegant-table-container">
@@ -455,7 +353,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
                           {pauseMenuIP === row.ip_address && <div className="device-pause-menu" role="menu"><button onClick={() => void setDevicePause(row.ip_address, 900)} type="button">15 min</button><button onClick={() => void setDevicePause(row.ip_address, 3600)} type="button">1 hour</button><button onClick={() => void setDevicePause(row.ip_address, 0)} type="button">Until resumed</button></div>}
                         </div>
                       )}
-                      {row.liveLease && !isStatic && <button type="button" onClick={() => openReservationDialog({ ...row.liveLease!, hostname: row.hostname })} className="device-reserve-button device-action-reserve" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
+                      {row.liveLease && !isStatic && <button type="button" onClick={e => { e.currentTarget.focus(); openReservationDialog({ ...row.liveLease!, hostname: row.hostname }); }} className="device-reserve-button device-action-reserve" title="Add static DHCP reservation" aria-label={`Reserve an IP address for ${row.hostname || row.mac}`}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14" /></svg><span>Reserve IP</span></button>}
                     </div>
                   </td>
                 </tr>
@@ -465,55 +363,7 @@ export default function DeviceLeasesTable({ leases, config, onReservationSaved, 
         </table>
       </div>
 
-      {reservationTarget && (
-        <div className="device-reservation-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeReservationDialog(); }}>
-          <div className="device-reservation-dialog" role="dialog" aria-modal="true" aria-labelledby="device-reservation-title">
-            <form onSubmit={saveReservation}>
-              <div className="device-reservation-header">
-                <div>
-                  <span className="device-reservation-kicker">DHCP reservation</span>
-                  <h3 id="device-reservation-title">Reserve an IP for {reservationTarget.hostname || "this device"}</h3>
-                  <p>Choose a name and the address this device should always receive. The MAC address comes from its active lease.</p>
-                </div>
-                <button type="button" className="device-reservation-close" onClick={closeReservationDialog} disabled={reservationBusy} aria-label="Close reservation dialog">×</button>
-              </div>
-
-              <div className="device-reservation-fields">
-                <label className="device-reservation-field device-reservation-name">
-                  <span>Device name</span>
-                  <input value={reservationHostname} disabled={reservationBusy} onChange={(event) => { setReservationHostname(event.target.value); setReservationError(""); }} placeholder="e.g. office-laptop" autoComplete="off" spellCheck={false} aria-invalid={Boolean(hostnameError)} aria-describedby="reservation-name-hint" />
-                  <small id="reservation-name-hint">Optional hostname: letters, numbers and hyphens, up to 63 characters.</small>
-                </label>
-                <label className="device-reservation-field">
-                  <span>MAC address</span>
-                  <input readOnly value={reservationTarget.mac} />
-                </label>
-                <label className="device-reservation-field">
-                  <span>Reserved IPv4 address</span>
-                  <input autoFocus inputMode="numeric" value={reservationIP} disabled={reservationBusy} onChange={(event) => { setReservationIP(event.target.value); setReservationError(""); }} placeholder="192.168.1.20" aria-invalid={Boolean(reservationConflict)} />
-                </label>
-              </div>
-
-              {hostnameError && <p className="device-reservation-message is-error" role="alert">{hostnameError}</p>}
-              {poolConflict && !reservationConflict && (
-                <p className="device-reservation-message is-error" role="alert">
-                  {reservationIP.trim()} is inside the dynamic DHCP pool ({config.dhcp.range_start}–{config.dhcp.range_end}). The router refuses a reservation that overlaps the pool — choose an address outside it, or shrink the pool first.
-                </p>
-              )}
-              {reservationConflict && <p className="device-reservation-message is-error" role="alert">{reservationConflict}</p>}
-              {reservationError && !reservationConflict && <p className="device-reservation-message is-error" role="alert">{reservationError}</p>}
-
-              <div className="device-reservation-actions">
-                <span>Current lease: <strong>{reservationTarget.ip_address}</strong></span>
-                <div>
-                  <button type="button" className="button secondary" onClick={closeReservationDialog} disabled={reservationBusy}>Cancel</button>
-                  <button type="submit" className="button primary" disabled={reservationBusy || Boolean(reservationConflict) || poolConflict || Boolean(hostnameError)}>{reservationBusy ? "Saving…" : "Reserve IP"}</button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {reservationTarget && <ReservationDialog config={config} leases={leases} device={reservationTarget} onClose={() => setReservationTarget(null)} onSaved={() => { void onReservationSaved?.(); }}/>}
     </section>
   );
 }

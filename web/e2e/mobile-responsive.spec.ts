@@ -1,3 +1,4 @@
+import { networkFixture } from "./fixtures/network";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 const CONFIG = {
@@ -191,26 +192,18 @@ for (const width of [390, 768, 1024, 1440]) {
 
     test("independent network forms retain one inset and no accumulated heading margins", async ({ page }) => {
       await page.goto("/#network");
-      const forms = page.locator("#network > .settings-form");
-      await expect(forms).toHaveCount(5);
-      const form = forms.filter({ has: page.getByRole("textbox", { name: "WAN interface", exact: true }) });
-      await expect(form).toBeVisible();
-      const heading = await page.locator("#network > .dashboard-section-heading").boundingBox();
-      const box = await form.boundingBox();
-      const fieldset = await form.locator(":scope > fieldset").first().boundingBox();
-      const gap = box!.y - heading!.y - heading!.height;
-      expect(gap).toBeGreaterThanOrEqual(12);
-      expect(gap).toBeLessThanOrEqual(32);
-      const input = await form.getByRole("textbox", { name: "WAN interface", exact: true }).boundingBox();
-      expect(input!.x - box!.x).toBeGreaterThanOrEqual(12);
-      expect(input!.x - box!.x).toBeLessThanOrEqual(32);
-      expect(fieldset!.x + fieldset!.width).toBeLessThan(box!.x + box!.width);
-      for (const section of await forms.all()) {
-        const bounds = (await section.boundingBox())!;
-        const inset = (await section.locator(":scope > fieldset").first().boundingBox())!;
-        expect(inset.x - bounds.x).toBeGreaterThanOrEqual(12);
-        expect(inset.x - bounds.x).toBeLessThanOrEqual(32);
-        expect(inset.x + inset.width).toBeLessThan(bounds.x + bounds.width);
+      const forms = page.locator("#network .net-config-grid .net-editor");
+      await expect(forms).toHaveCount(4);
+      for (const form of await forms.all()) {
+        const bounds = (await form.boundingBox())!;
+        const body = (await form.locator(".net-card-body").boundingBox())!;
+        expect(body.x).toBeGreaterThanOrEqual(bounds.x);
+        expect(body.x + body.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+        for (const input of await form.locator("input").all()) {
+          const field = (await input.boundingBox())!;
+          expect(field.x - bounds.x).toBeGreaterThanOrEqual(12);
+          expect(field.x + field.width).toBeLessThanOrEqual(bounds.x + bounds.width - 12);
+        }
       }
       await expectNoPageOverflow(page);
     });
@@ -243,15 +236,11 @@ for (const width of [390, 768, 1024, 1440]) {
     });
 
     test("connected device names remain readable beside fixed-width columns", async ({ page }) => {
-      await page.route("**/api/v1/system", route => json(route, {
-        ...SYSTEM,
-        runtime: { ...SYSTEM.runtime, dhcp_leases: [{
-          hostname: "workstation", ip_address: "192.168.1.50", mac: "00:00:5e:00:53:10",
-          expires_at: Math.floor(Date.now() / 1000) + 3600,
-        }] },
-      }));
+      await page.route("**/api/v1/network/devices", route => json(route, networkFixture("/api/v1/network/devices", CONFIG, [{
+        hostname: "workstation", ip_address: "192.168.1.50", mac: "00:00:5e:00:53:10", expires_at: Math.floor(Date.now() / 1000) + 3600,
+      }])));
       await page.goto("/#network");
-      const name = page.locator(".modern-device-section .elegant-cell-name").filter({ hasText: "workstation" });
+      const name = page.locator(".net-device-identity").filter({ hasText: "workstation" });
       await expect(name).toBeVisible();
       const box = await name.boundingBox();
       expect(box!.width).toBeGreaterThanOrEqual(180);

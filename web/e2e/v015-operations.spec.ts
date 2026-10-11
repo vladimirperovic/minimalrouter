@@ -1,3 +1,4 @@
+import { networkFixture, type TestLease } from "./fixtures/network";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type { RouterConfig, StaticLease } from "../src/api-types";
 
@@ -61,6 +62,18 @@ const ACCOUNTING = {
   ],
 };
 
+async function networkAPI(page: Page, getConfig: () => RouterConfig = () => CONFIG as RouterConfig, leases: TestLease[] = SYSTEM.runtime.dhcp_leases) {
+  await page.route("**/api/v1/network/**", route => {
+    const config = getConfig();
+    const body = networkFixture(new URL(route.request().url()).pathname, config, leases);
+    const result = body && "activity" in body ? { ...body, activity: {
+      available: Boolean(config.accounting?.enabled), enabled: Boolean(config.accounting?.enabled),
+      devices: config.accounting?.enabled ? ACCOUNTING.months[0].devices.map(item => ({ address: item.address, last_seen_epoch: item.last_seen_epoch, month_bytes: item.total_bytes, new_this_month: true })) : [],
+    } } : body;
+    return route.fulfill({ json: result ?? {} });
+  });
+}
+
 async function stubDashboard(page: Page) {
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
   await page.route("**/api/v1/**", (route) => json(route, {}));
@@ -87,6 +100,7 @@ async function stubDashboard(page: Page) {
   await page.route("**/api/v1/audit/events**", (route) => json(route, { events: [] }));
   await page.route("**/api/v1/accounting**", (route) => json(route, ACCOUNTING));
   await page.route("**/api/v1/devices/pauses", (route) => json(route, { pauses: [] }));
+  await networkAPI(page);
   await page.route("**/api/v1/startup/boots", (route) => json(route, { boots: [{ id: "test-boot", started_at: NOW.toISOString(), completed: true, readiness: { management_seconds: 2, pppoe_seconds: 4, dns_seconds: 3, internet_seconds: 5, wireguard_seconds: 6 } }] }));
 }
 
@@ -106,20 +120,22 @@ test("Gateway Health exposes measured availability, IP changes and fixed recover
   await page.goto("/");
   await openSection(page, isMobile, "Gateway Quality");
   await expect(page.getByText("99.97%", { exact: true })).toBeVisible();
-  await expect(page.getByText(/30 days · 3 outages/)).toBeVisible();
+  await expect(page.locator(".gateway-quality")).toContainText("3 outages");
   const ipHistory = page.locator(".gateway-ip-history");
-  await expect(ipHistory.getByRole("heading", { name: "Public IP history" })).toBeVisible();
+  await ipHistory.locator("summary").click();
   await expect(ipHistory.getByText("77.46.245.108", { exact: true })).toBeVisible();
   await expect(ipHistory.getByText("203.0.113.25", { exact: true })).toBeVisible();
 
+  await page.locator(".gateway-service-controls > summary").click();
   await page.getByRole("button", { name: "Reconnect WAN" }).click();
   await expect.poll(() => requestedAction).toBe("wan-reconnect");
-  await expect(page.getByText("WAN reconnect completed.")).toBeVisible();
+  await expect(page.getByText("Service recovery completed. Check now to verify current connectivity.")).toBeVisible();
 });
 
 test("Known devices shows activity and sends a timed Internet pause", async ({ page, isMobile }) => {
   await stubDashboard(page);
   let pauseRequest: { ip?: string; seconds?: number } = {};
+  await page.route("**/api/v1/devices/pauses", route => route.fulfill({ json: { pauses: pauseRequest.ip ? [{ ip: pauseRequest.ip, until_unix: CURRENT_EPOCH + 900 }] : [] } }));
   await page.route("**/api/v1/devices/pause", async (route) => {
     pauseRequest = route.request().postDataJSON() as { ip?: string; seconds?: number };
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true, pauses: [{ ip: "192.168.1.60", until_unix: Math.floor(Date.now() / 1000) + 900 }] }) });
@@ -127,14 +143,14 @@ test("Known devices shows activity and sends a timed Internet pause", async ({ p
 
   await page.goto("/");
   await openSection(page, isMobile, "LAN & DHCP");
-  const row = page.getByRole("row", { name: /Kids iPad/ });
+  const row = page.locator(".net-device-row").filter({ hasText: "Kids iPad" });
   await expect(row).toContainText("DHCP lease");
   await expect(row).not.toContainText("Online");
-  await expect(row).toContainText("New");
+  await expect(row).toContainText("Traffic sampled");
   await row.getByRole("button", { name: "Pause Internet" }).click();
   await page.getByRole("button", { name: "15 min" }).click();
   await expect.poll(() => pauseRequest).toEqual({ ip: "192.168.1.60", seconds: 900 });
-  await expect(row).toContainText("Paused");
+  await expect(row).toContainText("Internet paused");
   await expect(row.getByRole("button", { name: "Resume" })).toBeVisible();
 });
 
@@ -148,31 +164,32 @@ for (const accountingEnabled of [false, true]) {
     config.dhcp.static_leases = [{ id: "test-reservation", hostname: oldLease.hostname, mac: oldLease.mac, ip_address: oldLease.ip_address }];
     await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
     await page.route("**/api/v1/system", (route) => route.fulfill({ json: { ...SYSTEM, runtime: { ...SYSTEM.runtime, dhcp_leases: [oldLease, newLease] } } }));
+    await networkAPI(page, () => config, [oldLease, newLease]);
     await page.goto("/");
     await openSection(page, isMobile, "LAN & DHCP");
-    const table = page.locator(".modern-device-section");
-    await expect(table.getByRole("heading", { name: "Known devices" })).toBeVisible();
-    await expect(table).toContainText("2 DHCP leases · 1 static reservation");
-    await expect(table).toContainText("It does not confirm that the device is online.");
-    const oldRow = table.getByRole("row", { name: /test-laptop/ });
+    const table = page.locator(".net-devices");
+    await expect(table.getByRole("heading", { name: "Devices & reservations" })).toBeVisible();
+    await expect(table.locator(".net-device-row").filter({ hasText: "DHCP lease" })).toHaveCount(2);
+    await expect(table).toContainText("A lease is not proof a device is online.");
+    const oldRow = table.locator(".net-device-row").filter({ hasText: "test-laptop" });
     await expect(oldRow).toContainText("192.168.1.14");
-    await expect(oldRow).toContainText("DHCP lease · expires in");
+    await expect(oldRow).toContainText("Lease expires");
     await expect(oldRow).not.toContainText(/Online|Last seen|just now/);
-    await expect(oldRow.getByRole("button", { name: "Wake test-laptop" })).toBeVisible();
-    const newRow = table.getByRole("row", { name: /192\.168\.1\.236/ });
-    await expect(newRow).toContainText("DHCP lease · no expiry");
+    await expect(oldRow.getByRole("button", { name: "Wake" })).toBeVisible();
+    const newRow = table.locator(".net-device-row").filter({ hasText: "192.168.1.236" });
+    await expect(newRow).toContainText("Lease has no expiry");
     await expect(newRow).not.toContainText("Static");
     for (const row of [oldRow, newRow]) {
-      const status = await row.locator(".device-activity-state").boundingBox();
-      const action = await row.locator(".device-row-actions button").first().boundingBox();
+      const status = await row.locator(".net-device-state").boundingBox();
+      const action = await row.locator(".net-device-actions button").first().boundingBox();
       expect(status).not.toBeNull();
       expect(action).not.toBeNull();
       expect(status!.x + status!.width <= action!.x || status!.y + status!.height <= action!.y).toBe(true);
     }
     await expect(table.locator(".is-online, .is-offline")).toHaveCount(0);
     if (accountingEnabled) {
-      const history = table.getByRole("row", { name: /Kids iPad/ });
-      await expect(history).toContainText("Last seen");
+      const history = table.locator(".net-device-row").filter({ hasText: "192.168.1.60" });
+      await expect(history).toContainText("Traffic sampled");
       await expect(history).not.toContainText(/Online|Offline|DHCP lease/);
     }
     if (!accountingEnabled) await table.screenshot({ path: testInfo.outputPath("dhcp-presence.png") });
@@ -187,23 +204,17 @@ test("LAN tables fit laptop and phone widths without horizontal scroll or clippe
   await page.route("**/api/v1/config", (route) => route.fulfill({ json: config }));
   await page.goto("/");
   await openSection(page, isMobile, "LAN & DHCP");
-  await expect(page.locator(".static-leases tbody tr")).toHaveCount(12);
-  for (const selector of [".modern-device-section", ".static-leases"]) {
-    const card = page.locator(selector);
-    const overflow = await card.evaluate((element) => {
-      const container = element.querySelector(".elegant-table-container")!;
-      const boundary = container.getBoundingClientRect();
-      const actions = [...container.querySelectorAll("button")].map((button) => button.getBoundingClientRect());
-      return {
-        scroll: container.scrollWidth - container.clientWidth,
-        clippedActions: actions.some((rect) => rect.left < boundary.left || rect.right > boundary.right + 1),
-        clippedLastRow: container.querySelector("tbody tr:last-child")!.getBoundingClientRect().bottom > boundary.bottom + 1,
-      };
-    });
-    expect(overflow).toEqual({ scroll: 0, clippedActions: false, clippedLastRow: false });
-  }
-  await page.locator(".static-leases").screenshot({ path: testInfo.outputPath("reservations-fit.png") });
-  await page.locator(".modern-device-section").screenshot({ path: testInfo.outputPath("devices-fit.png") });
+  const card = page.locator(".net-devices");
+  await expect(card.locator(".net-device-row")).toHaveCount(13);
+  const overflow = await card.evaluate(container => {
+    const boundary = container.getBoundingClientRect();
+    const actions = [...container.querySelectorAll("button")].map(button => button.getBoundingClientRect());
+    return { scroll: container.scrollWidth - container.clientWidth,
+      clippedActions: actions.some(rect => rect.left < boundary.left || rect.right > boundary.right + 1),
+      clippedLastRow: container.querySelector(".net-device-row:last-child")!.getBoundingClientRect().bottom > boundary.bottom + 1 };
+  });
+  expect(overflow).toEqual({ scroll: 0, clippedActions: false, clippedLastRow: false });
+  await card.screenshot({ path: testInfo.outputPath("devices-fit.png") });
 });
 
 for (const name of [" office-tablet ", ""]) {
@@ -218,6 +229,7 @@ for (const name of [" office-tablet ", ""]) {
       }
       await route.fulfill({ json: config });
     });
+    await networkAPI(page, () => config);
     await page.route("**/api/v1/config/preview", (route) => route.fulfill({ json: { changes: ["Reserve device address"], risk: "low", requires_confirmation: false } }));
     page.on("dialog", (dialog) => dialog.accept());
 
@@ -246,9 +258,9 @@ for (const name of [" office-tablet ", ""]) {
       { id: expect.any(String), hostname: name.trim(), mac: "00:00:5e:00:53:13", ip_address: "192.168.1.14" },
     ]);
     await expect(dialog).not.toBeVisible();
-    const connected = page.locator(".modern-device-section");
-    await expect(connected.getByRole("row", { name: name ? /office-tablet/ : /Kids iPad/ })).toContainText("Static");
-    await expect(page.locator(".static-leases").getByRole("row", { name: name ? /office-tablet/ : /Unnamed device/ })).toContainText("192.168.1.14");
+    const connected = page.locator(".net-devices");
+    await expect(connected.locator(".net-device-row").filter({ hasText: "192.168.1.14" })).toContainText("Reserved");
+    await expect(connected.locator(".net-device-row").filter({ hasText: "192.168.1.14" })).toContainText(name.trim() || "Unnamed device");
   });
 }
 
@@ -257,8 +269,15 @@ test("Every device search keeps the icon clear of placeholder and entered text",
   await page.goto("/");
   for (const section of ["Overview", "LAN & DHCP"]) {
     if (section !== "Overview") await openSection(page, isMobile, section);
+    if (section === "LAN & DHCP") {
+      const search = page.getByRole("searchbox", { name: "Search devices" });
+      await expect(search).toHaveCount(1);
+      await search.fill("no-match"); await expect(page.locator(".net-device-row")).toHaveCount(0);
+      await search.fill("Kids"); await expect(page.locator(".net-device-row")).toHaveCount(1);
+      continue;
+    }
     const searches = page.locator(".modern-search-wrapper");
-    await expect(searches).toHaveCount(section === "Overview" ? 1 : 2);
+    await expect(searches).toHaveCount(1);
     for (const search of await searches.all()) {
       const input = search.locator("input");
       for (const text of ["", "tablet"]) {

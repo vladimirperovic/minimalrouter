@@ -96,11 +96,16 @@ type TunnelStatus struct {
 	Peers         []TunnelPeerStatus `json:"peers,omitempty"`
 }
 
-// FirewallCounters contains only aggregate packet counts, never rules or addresses.
+// FirewallCounters contains bounded counter and base-policy metadata, never raw
+// rules, source/destination addresses or dynamic set contents.
 type FirewallCounters struct {
-	Seen       uint64 `json:"seen"`
-	Accepted   uint64 `json:"accepted"`
-	Generation string `json:"generation"`
+	Seen           uint64            `json:"seen"`
+	Accepted       uint64            `json:"accepted"`
+	Generation     string            `json:"generation"`
+	ObservedAt     time.Time         `json:"observed_at"`
+	Policies       map[string]string `json:"policies"`
+	LoadedRevision *config.Revision  `json:"loaded_revision,omitempty"`
+	RulePackets    map[string]uint64 `json:"rule_packets"`
 }
 
 // ApplyResponse represents the structured execution output from router-applyd.

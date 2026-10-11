@@ -11,7 +11,7 @@ export function reservationHostnameMessage(value: string): string {
 export function isValidIPv4(value: string): boolean {
   const parts = value.trim().split(".");
   if (parts.length !== 4) return false;
-  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+  return parts.every((part) => /^(0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
 }
 
 function ipv4ToNumber(value: string): number {
@@ -28,7 +28,7 @@ function numberToIPv4(value: number): string {
   return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join(".");
 }
 
-// suggestReservationAddress finds the lowest address below the dynamic pool that
+// suggestReservationAddress finds the lowest usable address outside the dynamic pool that
 // no reservation and no live lease is using. A device's current address always
 // comes from the pool, and the appliance refuses a reservation that overlaps it,
 // so offering that address back was offering a value that could never be saved.
@@ -36,12 +36,24 @@ export function suggestReservationAddress(
   lanIP: string,
   poolStart: string,
   takenIPs: readonly string[],
+  cidr = `${lanIP}/24`,
+  poolEnd = poolStart,
 ): string {
-  if (!isValidIPv4(lanIP) || !isValidIPv4(poolStart)) return "";
+  if (!isValidIPv4(lanIP) || !isValidIPv4(poolStart) || !isValidIPv4(poolEnd)) return "";
+  const [networkIP, rawPrefix] = cidr.split("/");
+  const prefix = Number(rawPrefix);
+  if (!isValidIPv4(networkIP) || !/^\d+$/.test(rawPrefix) || prefix < 1 || prefix > 30) return "";
+  const mask = (0xffffffff << (32 - prefix)) >>> 0;
+  const first = (ipv4ToNumber(networkIP) & mask) >>> 0;
+  const last = first + 2 ** (32 - prefix) - 1;
   const gateway = ipv4ToNumber(lanIP.trim());
   const firstDynamic = ipv4ToNumber(poolStart.trim());
+  const lastDynamic = ipv4ToNumber(poolEnd.trim());
   const taken = new Set(takenIPs.map((item) => item.trim()).filter(Boolean));
-  for (let candidate = gateway + 1; candidate < firstDynamic; candidate += 1) {
+  for (let candidate = first + 1, checks = 0; candidate < last && checks <= taken.size + 3; candidate += 1, checks += 1) {
+    if (candidate >= firstDynamic && candidate <= lastDynamic) candidate = lastDynamic + 1;
+    if (candidate >= last) break;
+    if (candidate === gateway) continue;
     const address = numberToIPv4(candidate);
     if (!taken.has(address)) return address;
   }

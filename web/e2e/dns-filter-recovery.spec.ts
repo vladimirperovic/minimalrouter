@@ -109,15 +109,16 @@ for (const design of ["noema", "studio"]) for (const mode of ["light", "dark"]) 
       await expect(page.locator(`.dashboard-navigation a[href="#${section}"]`)).toHaveClass(/is-active/);
       if (section === "dns-filter") await expect(page.getByRole("heading", {name:"Network protection",exact:true})).toBeVisible();
       const result = await page.locator(".dashboard-main").evaluate(main => {
-        const required = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--card-gap"));
         const errors: string[] = [];
         for (const parent of [main, ...main.querySelectorAll(".dashboard-section,.dns-filter,.classic-dashboard-overview,.studio-overview,.overview-content-grid,.recovery-workflows,.dns-protection-columns")]) {
+          const required = parseFloat(getComputedStyle(parent).getPropertyValue("--card-gap"));
           const items = [...parent.children].filter(el => { const r = el.getBoundingClientRect(); return !el.matches(".dashboard-topbar") && r.width > 0 && r.height > 0 && getComputedStyle(el).position !== "fixed"; });
           for (let i = 1; i < items.length; i++) {
             const a = items[i - 1].getBoundingClientRect(), b = items[i].getBoundingClientRect();
             if (b.y > a.y + 2 && b.x < a.right && a.x < b.right && b.y - a.bottom < required - 1) errors.push(`${parent.className}: ${items[i-1].className} -> ${items[i].className}: ${Math.round(b.y - a.bottom)}px`);
           }
         }
+        const required = parseFloat(getComputedStyle(main).getPropertyValue("--card-gap"));
         const overview = main.querySelector(".classic-dashboard-overview:not(.classic-security-page)"), devices = main.querySelector(".overview-devices");
         if (overview && devices && devices.getBoundingClientRect().y - overview.getBoundingClientRect().bottom < required - 1) errors.push("Overview devices touch the preceding cards");
         return { errors, overflow: document.documentElement.scrollWidth - innerWidth };

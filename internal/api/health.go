@@ -72,7 +72,7 @@ func (s *Server) healthSnapshot() health.Snapshot {
 
 	var dnsResolves *bool
 	var dnsError string
-	if cfg.DHCP.Enabled || cfg.DHCP.DNSEnabled {
+	{
 		resolves, err := health.ProbeFunctionalDNS(4 * time.Second)
 		dnsResolves = &resolves
 		if err != nil {
@@ -80,8 +80,10 @@ func (s *Server) healthSnapshot() health.Snapshot {
 		}
 	}
 
+	firewall := s.firewallHealth(cfg.Revision)
 	snapshot := health.Build(health.Input{
-		Config: cfg, Runtime: runtimeStatus, Engine: s.engine.GetStatus(), Gateway: gatewaySummary,
+		Firewall: &firewall,
+		Config:   cfg, Runtime: runtimeStatus, Engine: s.engine.GetStatus(), Gateway: gatewaySummary,
 		GatewayConfigured: gatewayConfigured, UpdateTrustConfigured: updateTrustConfigured,
 		Facts: facts, LastBackupAt: lastBackupAt, BackupHistoryUnavailable: backupHistoryUnavailable, DNSResolves: dnsResolves, DNSError: dnsError,
 		Now: time.Now().UTC(),

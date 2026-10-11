@@ -27,7 +27,7 @@ test('design and color are independent, persist after reload, and switching pres
   const mutations = await stub(page);
   await page.goto('/#network');
   await expect(page.locator('html')).toHaveAttribute('data-design', 'noema');
-  const draft = page.locator('#network input[type="text"]').first();
+  const draft = page.locator('#network [name="lan_ip"]');
   await draft.fill('a theme switch keeps this draft');
   let panel = await picker(page);
   await panel.getByRole('radio', { name: /Studio/ }).check();

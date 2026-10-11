@@ -20,7 +20,7 @@
 :root:root .dashboard-app .overview-masthead h2 {
   font-size: var(--text-2xl);
   line-height: 1.08;
-  margin: var(--space-3) 0 var(--space-4);
+  margin: 8px 0;
 }
 
 :root:root .dashboard-app .overview-masthead > p {
@@ -28,7 +28,7 @@
   line-height: var(--leading-body);
   color: var(--text-secondary);
   max-width: 46ch;
-  margin: 0 0 var(--gap-group);
+  margin: 0;
 }
 
 :root:root .dashboard-app .overview-hero-kicker {
@@ -85,8 +85,8 @@
 :root:root .dashboard-app .overview-groups {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gap-section);
-  margin-top: var(--gap-section);
+  gap: 24px;
+  margin-top: 20px;
 }
 
 :root:root .dashboard-app .overview-group h2 {
@@ -96,23 +96,23 @@
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--ink-eyebrow);
-  margin: 0 0 var(--space-3);
-  padding-bottom: var(--space-3);
+  margin: 0 0 8px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--classic-text);
 }
 
 :root:root .dashboard-app .overview-group dl {
   margin: 0;
   display: grid;
-  gap: var(--space-3);
+  gap: 8px;
 }
 
 :root:root .dashboard-app .overview-group dl > div {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: var(--space-4);
-  padding-bottom: var(--space-3);
+  gap: 4px 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--classic-border);
 }
 
@@ -160,9 +160,9 @@
    two grids fighting, and a label below any size a person reads. */
 :root:root .dashboard-app .overview-technical-facts {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--gap-section);
-  margin-top: var(--gap-section);
-  padding: var(--gap-group) 0 0;
+  gap: 20px;
+  margin-top: 16px;
+  padding: 12px 0 0;
   border-top: 1px solid var(--classic-border);
   border-radius: 0;
   background: none;
@@ -202,7 +202,7 @@
 :root:root .dashboard-app .overview-service-ribbon > * {
   font-size: var(--text-xs);
   border-radius: var(--radius-pill);
-  min-height: var(--control-height-sm);
+  min-height: 28px;
 }
 
 /* ── Panels below ───────────────────────────────────────────
@@ -237,14 +237,15 @@
   flex-wrap: wrap;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 760px) {
   :root:root .dashboard-app .overview-content-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
 :root:root .dashboard-app .overview-chart-wrap {
-  min-height: 168px;
+  min-height: 128px;
+  height: 128px;
 }
 
 :root:root .dashboard-app .overview-bandwidth-now strong {
@@ -440,14 +441,14 @@
   flex-direction: column;
   gap: var(--space-1);
   margin: 0;
-  padding: var(--space-5) var(--space-6);
+  padding: 14px 16px;
   background: var(--classic-panel);
 }
 
 :root:root .dashboard-app .overview-headline-readings dd {
   order: -1;
   margin: 0;
-  font-size: var(--text-2xl);
+  font-size: 28px;
   line-height: 1.05;
 }
 
@@ -493,5 +494,231 @@
 
   :root:root .dashboard-app .overview-headline-readings dd {
     font-size: var(--text-xl);
+  }
+}
+
+/* Overview keeps the existing type and palette, with a denser reading rhythm.
+   Scope spacing to this page so forms and touch controls retain their sizes. */
+:root:root .dashboard-app #overview.classic-dashboard-overview {
+  --card-gap: 16px;
+}
+
+:root:root .dashboard-app #overview .overview-status-hero,
+:root:root .dashboard-app #overview .overview-panel {
+  padding: 20px;
+}
+
+:root:root .dashboard-app #overview .overview-summary-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 24px;
+}
+
+:root:root .dashboard-app #overview .overview-masthead h1 {
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+:root:root .dashboard-app #overview .overview-inline-action {
+  order: 2;
+  align-self: flex-start;
+  border: 1px solid var(--classic-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--classic-text);
+  min-height: 30px;
+  padding: 4px 8px;
+  font: 600 11px/1.4 var(--font-ui);
+  cursor: pointer;
+}
+:root:root .dashboard-app #overview .overview-inline-action:disabled { opacity: .55; cursor: default; }
+:root:root .dashboard-app #overview .overview-inline-action:focus-visible { outline: 2px solid var(--classic-blue); outline-offset: 3px; }
+:root:root .dashboard-app #overview .overview-speed-test .overview-speed-note {
+  order: 3;
+  font-size: 10px;
+  line-height: 1.4;
+}
+:root:root .dashboard-app #overview .overview-speed-test .overview-speed-error {
+  order: 4;
+  color: var(--classic-orange);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+:root:root .dashboard-app #overview .overview-top-traffic {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--classic-border);
+}
+:root:root .dashboard-app #overview .overview-top-traffic header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+:root:root .dashboard-app #overview .overview-top-traffic h3 {
+  margin: 0;
+  font: 600 12px/1.5 var(--font-ui);
+}
+:root:root .dashboard-app #overview .overview-top-traffic h3 small {
+  margin-left: 8px;
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-size: 11px;
+}
+:root:root .dashboard-app #overview .overview-top-traffic a {
+  font-size: 11px;
+  color: var(--overview-info);
+  text-underline-offset: 3px;
+}
+:root:root .dashboard-app #overview .overview-top-traffic ol {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+:root:root .dashboard-app #overview .overview-top-traffic li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+:root:root .dashboard-app #overview .overview-top-traffic li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root:root .dashboard-app #overview .overview-top-traffic strong { font-variant-numeric: tabular-nums; }
+:root:root .dashboard-app #overview .overview-top-traffic p {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+:root:root .dashboard-app #overview .overview-masthead > p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+:root:root .dashboard-app #overview .overview-headline-readings {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+:root:root .dashboard-app #overview .overview-headline-readings dd {
+  font-size: clamp(20px, 2vw, 28px);
+  overflow-wrap: anywhere;
+}
+
+:root:root .dashboard-app #overview .overview-group dd {
+  font-size: 14px;
+}
+
+:root:root .dashboard-app #overview .overview-group dd.is-identifier {
+  font-size: 12px;
+}
+
+:root:root .dashboard-app #overview .overview-technical-facts > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+:root:root .dashboard-app #overview .overview-technical-facts strong {
+  margin: 0;
+  font-size: 12px;
+}
+
+:root:root .dashboard-app #overview .health-banner-main {
+  padding: 12px 20px;
+}
+
+:root:root .dashboard-app #overview .overview-panel-header,
+:root:root .dashboard-app #overview .boot-activity-head {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
+:root:root .dashboard-app #overview .overview-panel-header h2,
+:root:root .dashboard-app #overview .boot-activity-head h2 {
+  font-size: 20px;
+}
+
+:root:root .dashboard-app #overview .overview-bandwidth-now strong {
+  font-size: 26px;
+}
+
+:root:root .dashboard-app #overview .overview-chart-wrap {
+  height: 128px;
+  min-height: 128px;
+}
+
+:root:root .dashboard-app #overview .overview-resource-list {
+  gap: 12px;
+}
+
+:root:root .dashboard-app #overview .overview-resource-note {
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+:root:root .dashboard-app #overview .overview-quality-plot {
+  padding: 10px 12px;
+}
+
+:root:root .dashboard-app #overview .boot-activity-actions {
+  width: auto;
+  gap: 12px;
+}
+
+@media (max-width: 1200px) {
+  :root:root .dashboard-app #overview .overview-summary-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+@media (max-width: 680px) {
+  :root:root .dashboard-app #overview .overview-status-hero,
+  :root:root .dashboard-app #overview .overview-panel {
+    padding: 16px;
+  }
+
+  :root:root .dashboard-app #overview .overview-masthead h1 {
+    font-size: 26px;
+  }
+
+  :root:root .dashboard-app #overview .overview-headline-readings > div {
+    padding: 12px 8px;
+  }
+
+  :root:root .dashboard-app #overview .overview-headline-readings dd {
+    font-size: 20px;
+  }
+
+  :root:root .dashboard-app #overview .overview-headline-readings dt {
+    font-size: 10px;
+    letter-spacing: .04em;
+  }
+
+  :root:root .dashboard-app #overview .overview-headline-readings small {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+
+  :root:root .dashboard-app #overview .overview-groups {
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  :root:root .dashboard-app #overview .overview-technical-facts {
+    gap: 8px;
   }
 }

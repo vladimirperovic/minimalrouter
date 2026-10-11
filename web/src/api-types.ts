@@ -69,6 +69,8 @@ export type RouterConfig = {
       src_ip?: string;
       dst_port?: number;
       enabled: boolean;
+      scope?: "wan" | "all";
+      preset_id?: string;
     }>;
   };
   wireguard: {
@@ -131,6 +133,8 @@ export type RouterConfig = {
 };
 
 export type PendingTransaction = {
+  management_url?: string;
+  config?: RouterConfig;
   pending?: boolean;
   id: string;
   state: string;
@@ -191,6 +195,7 @@ export type SystemStatus = {
       devices: Array<{ interface: string; kind: string; root: boolean; parent?: string }>;
     };
     dhcp_leases?: Array<{ expires_at: number; mac: string; ip_address: string; hostname?: string }>;
+    dhcp_lease_status?: { available: boolean; collected_at: string; truncated: boolean; rejected_entries: number; error?: string };
     wireguard_active_peers?: number;
     wireguard_peers?: Array<{
       public_key: string;
@@ -309,6 +314,8 @@ export type FirewallCustomRule = {
   src_ip?: string;
   dst_port?: number;
   enabled: boolean;
+  scope?: "all" | "wan";
+  preset_id?: string;
 };
 
 export type StaticLease = { id: string; hostname: string; mac: string; ip_address: string };

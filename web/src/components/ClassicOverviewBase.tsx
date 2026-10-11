@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { ApplianceHealth, GatewayHistoryPoint, GatewaySummary, RouterConfig, SystemStatus } from "../api-types";
 import { apiFetch } from "../lib/api";
 import HealthBanner, { HealthCheckDetails } from "./HealthBanner";
 import BootActivityPanel from "./BootActivityPanel";
+import OverviewAvailability from "./OverviewAvailability";
+import OverviewSpeedTest from "./OverviewSpeedTest";
+import OverviewTopTraffic from "./OverviewTopTraffic";
+import { useVisiblePolling } from "../lib/useVisiblePolling";
 
 type Runtime = NonNullable<SystemStatus["runtime"]>;
-type WANSpeedEstimate = { download_mbps: number; upload_mbps: number };
 
 type Props = {
   config: RouterConfig;
@@ -19,26 +22,10 @@ type Props = {
   lastRefresh: Date | null;
   health: ApplianceHealth | null;
   healthUnavailable: boolean;
+  onOpenUpdates?: () => void;
 };
 
 type IconName = "check" | "gateway" | "key" | "shield" | "traffic" | "clock";
-
-const WAN_ESTIMATE_STORAGE_KEY = "minimalrouter:wan-speed-estimate";
-const WAN_ESTIMATE_ATTEMPT_KEY = "minimalrouter:wan-speed-estimate-attempt";
-const WAN_ESTIMATE_RETRY_MS = 24 * 60 * 60 * 1000;
-
-function storedWANEstimate(): WANSpeedEstimate | null {
-  try {
-    const raw = window.localStorage.getItem(WAN_ESTIMATE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<WANSpeedEstimate>;
-    if (typeof parsed.download_mbps !== "number" || !Number.isFinite(parsed.download_mbps) || parsed.download_mbps <= 0) return null;
-    if (typeof parsed.upload_mbps !== "number" || !Number.isFinite(parsed.upload_mbps) || parsed.upload_mbps <= 0) return null;
-    return { download_mbps: parsed.download_mbps, upload_mbps: parsed.upload_mbps };
-  } catch {
-    return null;
-  }
-}
 
 function OverviewIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -52,7 +39,8 @@ function OverviewIcon({ name }: { name: IconName }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-function formatBytes(value = 0) {
+function formatBytes(value?: number) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "Unavailable";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let amount = Math.max(0, value);
   let unit = 0;
@@ -161,97 +149,67 @@ export default function ClassicOverview({
   lastRefresh,
   health,
   healthUnavailable,
+  onOpenUpdates,
 }: Props) {
   const [history, setHistory] = useState<GatewayHistoryPoint[]>([]);
+  const [historyUnavailable, setHistoryUnavailable] = useState(false);
   const [bandwidthHistory, setBandwidthHistory] = useState<Array<{ rx: number; tx: number }>>([]);
+  const [bandwidthUnavailable, setBandwidthUnavailable] = useState(false);
   const [securityCount, setSecurityCount] = useState<number | null>(null);
   const [lastLogin, setLastLogin] = useState<{ timestamp: string; actor: string } | null>(null);
   const [healthDetailsOpen, setHealthDetailsOpen] = useState(false);
-  const [wanEstimate, setWanEstimate] = useState<WANSpeedEstimate | null>(storedWANEstimate);
   const lastBytesRef = useRef<{ rx: number; tx: number; time: number } | null>(null);
   const toggleHealthDetails = () => {
     setHealthDetailsOpen((open) => !open);
   };
 
-  useEffect(() => {
-    let active = true;
-    let timer = 0;
-
-    const sample = async () => {
-      if (!active || document.hidden) return;
-      try {
-        const response = await apiFetch("/api/v1/system");
-        if (!response.ok) throw new Error("System status unavailable");
-        const data = await response.json() as SystemStatus;
-        if (!active || !data.runtime) return;
-        const now = Date.now();
-        const rx = data.runtime.rx_bytes || 0;
-        const tx = data.runtime.tx_bytes || 0;
-        if (lastBytesRef.current) {
-          const elapsed = Math.max(0.1, (now - lastBytesRef.current.time) / 1000);
-          const rxRate = Math.max(0, (rx - lastBytesRef.current.rx) * 8 / (1024 * 1024 * elapsed));
-          const txRate = Math.max(0, (tx - lastBytesRef.current.tx) * 8 / (1024 * 1024 * elapsed));
-          setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-12));
-        }
-        lastBytesRef.current = { rx, tx, time: now };
-      } catch {
-        // Live bandwidth is advisory; a failed sample must not disturb routing UI.
+  const sampleBandwidth = useCallback(async (signal: AbortSignal) => {
+    // A hidden tab must start a new baseline rather than average its idle time.
+    signal.addEventListener("abort", () => { lastBytesRef.current = null; }, { once: true });
+    try {
+      const response = await apiFetch("/api/v1/system", { signal });
+      if (!response.ok) throw new Error("System status unavailable");
+      const data = (await response.json() as SystemStatus).runtime;
+      if (signal.aborted) return;
+      const rx = data?.rx_bytes;
+      const tx = data?.tx_bytes;
+      if (!data?.available || typeof rx !== "number" || typeof tx !== "number"
+        || !Number.isFinite(rx) || !Number.isFinite(tx) || rx < 0 || tx < 0) throw new Error("Missing counters");
+      const now = performance.now();
+      const last = lastBytesRef.current;
+      if (last && rx >= last.rx && tx >= last.tx) {
+        const elapsed = Math.max(0.1, (now - last.time) / 1000);
+        const rxRate = (rx - last.rx) * 8 / (1_000_000 * elapsed);
+        const txRate = (tx - last.tx) * 8 / (1_000_000 * elapsed);
+        setBandwidthHistory((previous) => [...previous, { rx: rxRate, tx: txRate }].slice(-13));
+      } else {
+        setBandwidthHistory([]);
       }
-    };
-
-    const schedule = () => {
-      window.clearTimeout(timer);
-      if (!active || document.hidden) return;
-      timer = window.setTimeout(() => {
-        void sample().finally(schedule);
-      }, 5000);
-    };
-
-    const resume = () => {
-      window.clearTimeout(timer);
-      if (!active || document.hidden) return;
+      lastBytesRef.current = { rx, tx, time: now };
+      setBandwidthUnavailable(false);
+    } catch {
+      if (signal.aborted) return;
       lastBytesRef.current = null;
-      void sample().finally(schedule);
-    };
-
-    const onVisibilityChange = () => {
-      if (document.hidden) {
-        window.clearTimeout(timer);
-        return;
-      }
-      resume();
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    resume();
-    return () => {
-      active = false;
-      window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
+      setBandwidthHistory([]);
+      setBandwidthUnavailable(true);
+    }
   }, []);
+  useVisiblePolling(sampleBandwidth, 5000);
 
-  useEffect(() => {
-    const refreshEstimate = () => setWanEstimate(storedWANEstimate());
-    window.addEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
-    return () => window.removeEventListener("minimalrouter:wan-speed-estimate", refreshEstimate);
+  const loadHistory = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch("/api/v1/gateway/history?window=1h", { signal });
+      if (!response.ok) throw new Error("History unavailable");
+      const body = await response.json() as { points?: GatewayHistoryPoint[] };
+      if (!Array.isArray(body.points)) throw new Error("History unavailable");
+      if (signal.aborted) return;
+      setHistory(body.points);
+      setHistoryUnavailable(false);
+    } catch {
+      if (!signal.aborted) { setHistory([]); setHistoryUnavailable(true); }
+    }
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    const controller = new AbortController();
-    void apiFetch("/api/v1/gateway/history?window=1h", { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const body = await response.json() as { points?: GatewayHistoryPoint[] };
-        if (active && Array.isArray(body.points)) setHistory(body.points);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-      controller.abort();
-    };
-  }, [lastRefresh]);
+  useVisiblePolling(loadHistory, 30_000);
 
   useEffect(() => {
     let active = true;
@@ -287,17 +245,20 @@ export default function ClassicOverview({
   );
   const latestBandwidth = bandwidthHistory.at(-1);
   const gatewayState = gatewaySummary?.state || "unknown";
-  const connectionKnown = Boolean(gatewaySummary?.available) || typeof runtime.wan_connected === "boolean";
-  const wanConnected = gatewaySummary?.link?.connected ?? runtime.wan_connected ?? false;
-  const verified = wanConnected && config.firewall.stateful_firewall && !system.recovery_required;
-  const headline = system.recovery_required
+  const connectionKnown = Boolean(gatewaySummary?.available) || (runtime.available === true && typeof runtime.wan_connected === "boolean");
+  const wanConnected = gatewaySummary?.available ? gatewaySummary.link.connected : runtime.available === true && runtime.wan_connected === true;
+  const recoveryRequired = system.recovery_required || (!healthUnavailable && health?.state === "recovery_required");
+  const verified = wanConnected && config.firewall.stateful_firewall && !recoveryRequired
+    && !healthUnavailable && health?.state === "healthy" && gatewaySummary?.available === true && gatewayState === "healthy";
+  const statusUnknown = healthUnavailable || !health || health.state === "unknown" || !gatewaySummary?.available || gatewayState === "unknown";
+  const headline = recoveryRequired
     ? "Recovery required"
     : !connectionKnown
       ? "Checking connection"
       : verified
-        ? gatewayState === "degraded" || gatewayState === "flapping" ? "Online with warnings" : "Online and verified"
-        : "WAN disconnected";
-  const heroState = verified ? "is-good" : system.recovery_required ? "is-bad" : "is-warning";
+        ? "Online and verified"
+        : wanConnected ? statusUnknown ? "Online · checks unavailable" : "Online with warnings" : "WAN disconnected";
+  const heroState = verified ? "is-good" : recoveryRequired || (connectionKnown && !wanConnected) ? "is-bad" : "is-warning";
   const loadAverage = runtime.load_average?.length ? runtime.load_average.map((value) => value.toFixed(2)).join(" / ") : "Unavailable";
   const cpuIdle = typeof runtime.cpu_load_percent === "number" ? `${Math.max(0, 100 - runtime.cpu_load_percent).toFixed(0)}% idle` : "Unavailable";
   const ddnsProvider = config.cloudflare.ddns_provider === "noip" ? "No-IP" : "Cloudflare";
@@ -305,24 +266,9 @@ export default function ClassicOverview({
   const lastLoginDate = lastLogin ? new Date(lastLogin.timestamp) : null;
   const lastLoginTime = lastLoginDate ? lastLoginDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Checking";
   const lastLoginDetail = lastLogin && lastLoginDate ? `${lastLogin.actor} · ${lastLoginDate.toLocaleDateString()}` : "Audit event pending";
-  const loss = Math.min(100, Math.max(0, gatewaySummary?.packet_loss_percent || 0));
+  const loss = gatewaySummary?.available && Number.isFinite(gatewaySummary.packet_loss_percent)
+    ? Math.min(100, Math.max(0, gatewaySummary.packet_loss_percent)) : undefined;
   const today = `${new Date().toLocaleDateString("en-GB").replaceAll("/", ".")}.`;
-
-  useEffect(() => {
-    if (wanEstimate || !wanConnected || document.hidden) return;
-    try {
-      const lastAttempt = Number(window.localStorage.getItem(WAN_ESTIMATE_ATTEMPT_KEY) || 0);
-      if (Date.now() - lastAttempt < WAN_ESTIMATE_RETRY_MS) return;
-      window.localStorage.setItem(WAN_ESTIMATE_ATTEMPT_KEY, String(Date.now()));
-    } catch {
-      return;
-    }
-
-    const controller = new AbortController();
-    void apiFetch("/api/v1/qos/speedtest?mode=estimate", { method: "POST", signal: controller.signal })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [wanConnected, wanEstimate]);
 
   const dnsCheck = health?.checks?.find((check) => check.id === "dns_dhcp" || check.id.startsWith("dns"));
   const dnsChipClass = healthUnavailable || !dnsCheck
@@ -336,14 +282,21 @@ export default function ClassicOverview({
           : "is-warning";
   const dnsChipLabel = healthUnavailable || !dnsCheck ? "unknown" : dnsCheck.state === "healthy" ? "ok" : dnsCheck.state.replace("_", " ");
 
-  const worstResource = Math.max(memoryPercent, diskPercent, Math.min(100, runtime.cpu_load_percent ?? 0));
-  const resourceNote = typeof runtime.memory_total_bytes !== "number"
+  const cpuKnown = runtime.available === true && Number.isFinite(runtime.cpu_load_percent) && runtime.cpu_load_percent! >= 0;
+  const memoryKnown = runtime.available === true && Number.isFinite(runtime.memory_used_bytes) && runtime.memory_used_bytes! >= 0
+    && Number.isFinite(runtime.memory_total_bytes) && runtime.memory_total_bytes! > 0;
+  const diskKnown = runtime.available === true && Number.isFinite(runtime.disk_used_bytes) && runtime.disk_used_bytes! >= 0
+    && Number.isFinite(runtime.disk_total_bytes) && runtime.disk_total_bytes! > 0;
+  const worstResource = Math.max(memoryKnown ? memoryPercent : 0, diskKnown ? diskPercent : 0, cpuKnown ? Math.min(100, runtime.cpu_load_percent!) : 0);
+  const resourceNote = !cpuKnown && !memoryKnown && !diskKnown
     ? { className: "is-unknown", label: "Resource telemetry unavailable" }
     : worstResource >= 90
       ? { className: "is-bad", label: `Resource pressure: highest usage is ${worstResource.toFixed(0)}%` }
       : worstResource >= 80
         ? { className: "is-warning", label: `Approaching limits: highest usage is ${worstResource.toFixed(0)}%` }
-        : { className: "is-good", label: "Within normal operating range" };
+        : !cpuKnown || !memoryKnown || !diskKnown
+          ? { className: "is-unknown", label: "Some resource telemetry unavailable" }
+          : { className: "is-good", label: "Within normal operating range" };
 
   const storage = runtime.storage;
   const storageChip = !storage || !storage.available
@@ -371,12 +324,12 @@ export default function ClassicOverview({
     {storage && storage.level === "critical" && (
       <div className="dashboard-alert is-error" role="alert">
         <strong>Storage critical ({storage.usage_percent.toFixed(0)}% used):</strong> configuration changes are rejected until
-        space is freed. Routing and the active firewall are unaffected.
+        space is freed. Routing and the active firewall are unaffected. <a href="#recovery">Open Recovery →</a>
       </div>
     )}
     {storage && storage.level === "warning" && (
       <div className="dashboard-alert is-warning" role="status">
-        <strong>Storage at {storage.usage_percent.toFixed(0)}%.</strong> Durable configuration changes stop working at 90%.
+        <strong>Storage at {storage.usage_percent.toFixed(0)}%.</strong> Durable configuration changes stop working at 90%. <a href="#recovery">Open Recovery →</a>
       </div>
     )}
 
@@ -384,6 +337,7 @@ export default function ClassicOverview({
       {/* The masthead answers the question the page exists for, then states
           the four readings an operator checks next. Everything else on the
           page is detail behind that answer. */}
+      <div className="overview-summary-header">
       <header className="overview-masthead">
         <span className="overview-hero-kicker"><i aria-hidden="true" className={heroState} />System status · {today}</span>
         <h1>{headline}</h1>
@@ -393,8 +347,9 @@ export default function ClassicOverview({
       <dl className="overview-headline-readings" aria-label="Headline readings">
         <div><dt>Uptime</dt><dd>{formatUptime(gatewaySummary?.pppoe_uptime_seconds || 0)}</dd><small>{gatewaySummary?.reconnects_24h ?? 0} reconnects / 24h</small></div>
         <div><dt>Latency</dt><dd>{formatMetric(gatewaySummary?.latency_ms, " ms")}</dd><small>jitter {formatMetric(gatewaySummary?.jitter_ms, " ms")}</small></div>
-        <div><dt>Line estimate</dt><dd className={wanEstimate ? undefined : "is-info"}>{wanEstimate ? `${wanEstimate.download_mbps.toFixed(0)} / ${wanEstimate.upload_mbps.toFixed(0)}` : wanConnected ? "Measuring" : "—"}</dd><small>{wanEstimate ? "Mbps down / up" : "not measured yet"}</small></div>
+        <OverviewSpeedTest connected={wanConnected} />
       </dl>
+      </div>
 
       {/* Three groups, equal weight, each a ruled list. A reading belongs to
           exactly one of them, so nothing has to be hunted for twice. */}
@@ -418,14 +373,14 @@ export default function ClassicOverview({
             <div><dt>Load average</dt><dd>{loadAverage}</dd></div>
             <div><dt>Conntrack</dt><dd>{runtime.conntrack_count ?? 0} / {runtime.conntrack_max ?? 0}</dd></div>
             <div className="overview-request-state"><dt>Rejected requests</dt><dd className={securityCount === null ? "is-info" : undefined}>{securityCount ?? "Checking"}</dd></div>
-            <div><dt>30-day uptime</dt><dd className="is-info">collecting</dd></div>
+            <OverviewAvailability />
           </dl>
         </section>
 
         <section className="overview-group" aria-label="Trust and access">
           <h2>Trust &amp; access</h2>
           <dl>
-            <div><dt>Update trust</dt><dd>{system.update_trust_configured ? "Signed updates enabled" : "Signed updates disabled"}</dd><small>{system.update_trust_configured ? "Package verification enforced" : "Signing key unavailable"}</small></div>
+            <div><dt>Update trust</dt><dd>{system.update_trust_configured ? "Signed updates enabled" : "Updates unavailable"}</dd><small>{system.update_trust_configured ? "Package verification enforced" : "Signing key unavailable"}</small></div>
             <div><dt>Last admin access</dt><dd className="is-nowrap">{lastLoginTime}</dd><small>{lastLoginDetail}</small></div>
             <div><dt>Time synchronization</dt><dd className={runtime.time_synchronized ? "is-good" : "is-warning"}>{runtime.time_synchronized ? "Synchronized" : "Not synchronized"}</dd></div>
           </dl>
@@ -442,8 +397,8 @@ export default function ClassicOverview({
     </article>
 
     <div className="overview-health-drawer">
-      <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} />
-      {healthDetailsOpen && <HealthCheckDetails health={health} unavailable={healthUnavailable} />}
+      <HealthBanner health={health} unavailable={healthUnavailable} onShowDetails={toggleHealthDetails} detailsOpen={healthDetailsOpen} onOpenUpdates={onOpenUpdates} />
+      {healthDetailsOpen && <HealthCheckDetails health={health} unavailable={healthUnavailable} onOpenUpdates={onOpenUpdates} />}
     </div>
 
     <section className="overview-diagnostic-strip" aria-label="Appliance diagnostics">
@@ -454,7 +409,7 @@ export default function ClassicOverview({
     <div className="overview-content-grid">
       <section className="overview-panel overview-bandwidth-panel" aria-labelledby="bandwidth-title">
         <header className="overview-panel-header"><div><h2 id="bandwidth-title">Live bandwidth</h2><p>WAN throughput · last 60 seconds</p></div><div className="overview-legend"><span><i className="is-download" />Download</span><span><i className="is-upload" />Upload</span></div></header>
-        <div className="overview-bandwidth-now"><p><strong>{latestBandwidth ? `${latestBandwidth.rx.toFixed(1)} Mbps ↓` : "Collecting"}</strong><small>Download</small></p><p><strong>{latestBandwidth ? `${latestBandwidth.tx.toFixed(1)} Mbps ↑` : "Collecting"}</strong><small>Upload</small></p></div>
+        <div className="overview-bandwidth-now"><p><strong>{latestBandwidth ? `${latestBandwidth.rx.toFixed(1)} Mbps ↓` : bandwidthUnavailable ? "Unavailable" : "Collecting"}</strong><small>Download</small></p><p><strong>{latestBandwidth ? `${latestBandwidth.tx.toFixed(1)} Mbps ↑` : bandwidthUnavailable ? "Unavailable" : "Collecting"}</strong><small>Upload</small></p></div>
         <div className="overview-chart-wrap">
           <svg viewBox="0 0 1000 150" preserveAspectRatio="none" role="img" aria-label="Live bandwidth history">
             <defs>
@@ -468,7 +423,7 @@ export default function ClassicOverview({
             {bandwidthHistory.length > 1 && rxPath && <><path className="overview-chart-area" d={`${rxPath} L1000,145 L0,145 Z`} /><path className="overview-chart-line is-download" d={rxPath} /></>}
             {bandwidthHistory.length > 1 && txPath && <path className="overview-chart-line is-upload" d={txPath} />}
           </svg>
-          {bandwidthHistory.length < 2 && <span className="overview-chart-empty">Collecting live samples</span>}
+          {bandwidthHistory.length < 2 && <span className="overview-chart-empty">{bandwidthUnavailable ? "Bandwidth telemetry unavailable" : "Collecting live samples"}</span>}
         </div>
         <div className="overview-chart-axis"><span>60 sec ago</span><span>45 sec</span><span>30 sec</span><span>15 sec</span><span>Now</span></div>
       </section>
@@ -476,11 +431,12 @@ export default function ClassicOverview({
       <section className="overview-panel overview-resources-panel" aria-labelledby="resources-title">
         <header className="overview-panel-header"><div><h2 id="resources-title">Appliance resources</h2><p>Live system utilization</p></div></header>
         <div className="overview-resource-list">
-          <article><div><span>CPU</span><small>{runtime.cpu_count || 0} logical cores</small></div><strong>{(runtime.cpu_load_percent || 0).toFixed(2)}%</strong><progress max="100" value={Math.min(100, runtime.cpu_load_percent || 0)} /></article>
-          <article><div><span>Memory</span><small title="Used includes reclaimable kernel file cache">{formatBytes(runtime.memory_used_bytes)} of {formatBytes(runtime.memory_total_bytes)}{runtime.app_memory_bytes ? ` · apps ${formatBytes(runtime.app_memory_bytes)}` : ""}</small></div><strong>{formatBytes(runtime.memory_used_bytes)}</strong><progress max="100" value={Math.min(100, memoryPercent)} /></article>
-          <article><div><span>Disk</span><small>{formatBytes(runtime.disk_used_bytes)} of {formatBytes(runtime.disk_total_bytes)}</small></div><strong>{formatBytes(runtime.disk_used_bytes)}</strong><progress max="100" value={Math.min(100, diskPercent)} /></article>
+          <article><div><span>CPU</span><small>{runtime.cpu_count ?? "Unknown"} logical cores</small></div><strong>{cpuKnown ? formatMetric(runtime.cpu_load_percent, "%", 2) : "Unavailable"}</strong>{cpuKnown && <progress aria-label="CPU usage" max="100" value={Math.min(100, runtime.cpu_load_percent!)} />}</article>
+          <article><div><span>Memory</span><small title="Used includes reclaimable kernel file cache">{memoryKnown ? `${formatBytes(runtime.memory_used_bytes)} of ${formatBytes(runtime.memory_total_bytes)}` : "Unavailable"}{memoryKnown && runtime.app_memory_bytes ? ` · apps ${formatBytes(runtime.app_memory_bytes)}` : ""}</small></div><strong>{memoryKnown ? formatBytes(runtime.memory_used_bytes) : "Unavailable"}</strong>{memoryKnown && <progress aria-label="Memory usage" max="100" value={Math.min(100, memoryPercent)} />}</article>
+          <article><div><span>Disk</span><small>{diskKnown ? `${formatBytes(runtime.disk_used_bytes)} of ${formatBytes(runtime.disk_total_bytes)}` : "Unavailable"}</small></div><strong>{diskKnown ? formatBytes(runtime.disk_used_bytes) : "Unavailable"}</strong>{diskKnown && <progress aria-label="Disk usage" max="100" value={Math.min(100, diskPercent)} />}</article>
         </div>
         <div className={`overview-resource-note ${resourceNote.className}`}><OverviewIcon name="check" /><span>{resourceNote.label}</span></div>
+        <OverviewTopTraffic enabled={config.accounting?.enabled === true} />
       </section>
 
       <section className="overview-panel overview-quality-panel" aria-labelledby="quality-title">
@@ -499,13 +455,13 @@ export default function ClassicOverview({
               <g className="overview-chart-grid"><line x1="0" y1="20" x2="1000" y2="20" /><line x1="0" y1="65" x2="1000" y2="65" /><line x1="0" y1="110" x2="1000" y2="110" /><line x1="0" y1="145" x2="1000" y2="145" /></g>
               {latencySegments.map((path, index) => <path className="overview-chart-line is-latency" d={path} key={index} />)}
             </svg>
-            {history.length === 0 && <span className="overview-chart-empty">Waiting for gateway history</span>}
+            {history.length === 0 && <span className="overview-chart-empty">{historyUnavailable ? "Gateway history unavailable" : "Waiting for gateway history"}</span>}
             {history.length > 0 && latencySegments.length === 0 && <span className="overview-chart-empty">No successful probes in this window</span>}
           </div>
           <div className="overview-chart-axis"><span>60 min</span><span>45 min</span><span>30 min</span><span>15 min</span><span>Now</span></div>
           {history.length > measuredLatencyCount && <p className="overview-chart-note">{history.length - measuredLatencyCount} of {history.length} samples had no successful probe; those periods are left blank rather than drawn as 0&nbsp;ms.</p>}
         </div>
-        <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss.toFixed(1)}% throughout</strong></div><progress max="100" value={loss} /></div>
+        <div className="overview-loss-band"><div><span><i />Packet loss</span><strong>{loss === undefined ? "Unavailable" : `${loss.toFixed(1)}% latest sample`}</strong></div>{loss !== undefined && <progress aria-label="Packet loss" max="100" value={loss} />}</div>
         <p className="overview-quality-note">Read-only WAN quality monitor</p>
       </section>
 

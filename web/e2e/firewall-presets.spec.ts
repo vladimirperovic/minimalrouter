@@ -33,8 +33,8 @@ async function routerFixture(page: Page) {
 }
 
 for (const design of ["noema", "studio"]) {
-  test(`${design}: a suggested firewall rule can be ticked and turned on`, async ({ page, isMobile }) => {
-    test.skip(isMobile, "desktop table layout");
+  test(`${design}: a suggested firewall rule can be ticked and turned on`, async ({ page }) => {
+
     await page.addInitScript((value) => localStorage.setItem("minimalrouter:design", value), design);
     const writes = await routerFixture(page);
     page.on("dialog", (dialog) => void dialog.accept());
@@ -45,7 +45,7 @@ for (const design of ["noema", "studio"]) {
     expect(box.width).toBeGreaterThanOrEqual(14);
     expect(box.height).toBeLessThanOrEqual(24);
 
-    const row = page.getByRole("row").filter({ has: tick });
+    const row = page.getByRole("article", { name: "Block Telnet", exact: true });
     await expect(row.getByRole("button", { name: "Turn on" })).toBeDisabled();
     await tick.check();
     await row.getByRole("button", { name: "Turn on" }).click();

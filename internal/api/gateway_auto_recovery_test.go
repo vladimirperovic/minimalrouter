@@ -74,3 +74,22 @@ func TestAutoRecoveryDueHonorsSafetyGatesAndCooldown(t *testing.T) {
 		t.Fatal("recovery should be allowed after cooldown")
 	}
 }
+
+func TestRecoveryStatusExplainsSafetyGates(t *testing.T) {
+	now := time.Now()
+	fresh := gateway.Summary{Enabled: true, Available: true, State: gateway.StateOffline, Timestamp: now}
+	down := now.Add(-4 * time.Minute)
+	if got := recoveryStatus(true, fresh, apply.EngineStatus{}, false, down, time.Time{}, now); got.State != "verifying" || got.NextAttemptAt == nil {
+		t.Fatalf("unexpected verification status: %+v", got)
+	}
+	if got := recoveryStatus(true, fresh, apply.EngineStatus{}, true, down, time.Time{}, now); got.State != "blocked" {
+		t.Fatalf("pending confirmation: %+v", got)
+	}
+	if got := recoveryStatus(true, fresh, apply.EngineStatus{}, false, down, now.Add(-time.Minute), now); got.State != "cooldown" {
+		t.Fatalf("cooldown: %+v", got)
+	}
+	fresh.Timestamp = now.Add(-3 * time.Minute)
+	if got := recoveryStatus(true, fresh, apply.EngineStatus{}, false, down, time.Time{}, now); got.State != "waiting" || got.NextAttemptAt != nil {
+		t.Fatalf("stale evidence: %+v", got)
+	}
+}

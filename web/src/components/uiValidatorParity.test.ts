@@ -27,8 +27,8 @@ describe("DHCP reservation addresses", () => {
     expect(suggested).toBe("192.168.1.4");
   });
 
-  it("returns nothing when the subnet has no room below the pool", () => {
-    expect(suggestReservationAddress("192.168.1.1", "192.168.1.2", [])).toBe("");
+  it("returns nothing when the whole usable subnet is allocated", () => {
+    expect(suggestReservationAddress("192.168.1.1", "192.168.1.2", [], "192.168.1.1/24", "192.168.1.254")).toBe("");
   });
 
   it("never suggests the gateway itself", () => {

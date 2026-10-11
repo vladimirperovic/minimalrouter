@@ -148,7 +148,7 @@ test("hidden Logs stop polling and leaving the route aborts its work", async ({ 
   await page.clock.install();
   const state = await fixture(page);
   await expect(page.locator(".audit-table-scroll")).toContainText("security.nil");
-  const logRequests = () => state.requests.filter(path => path.startsWith("/api/v1/audit/") || path.startsWith("/api/v1/startup/"));
+  const logRequests = () => state.requests.filter(path => path.startsWith("/api/v1/audit/") && !path.includes("event_type=firewall.transaction") || path.startsWith("/api/v1/startup/"));
   await page.evaluate(() => { Object.defineProperty(document, "hidden", { configurable: true, get: () => true }); document.dispatchEvent(new Event("visibilitychange")); });
   const hiddenCount = logRequests().length;
   await page.clock.runFor(65_000);

@@ -12,6 +12,7 @@ import { apiFetch, responseError } from "./lib/api";
 import { updateBadgeLabel, useUpdates } from "./lib/updates";
 import type { GatewaySettings, GatewaySummary, PendingTransaction, RouterConfig, SystemStatus } from "./api-types";
 import DashboardSections, { type SectionID } from "./components/DashboardSections";
+import { managementURL } from "./lib/network";
 import { useApplianceHealth } from "./components/HealthBanner";
 import { DNSRiskProvider, useDNSRisk } from "./lib/dnsRisk";
 import { DNSRiskCallout } from "./components/DNSRiskPanel";
@@ -607,14 +608,15 @@ function Dashboard() {
         {error && <div className="dashboard-alert is-error" role="alert">{error}<button aria-label="Dismiss error" onClick={() => setError("")} type="button">✕</button></div>}
         {notice && <div className="dashboard-alert is-success" role="status">{notice}<button aria-label="Dismiss notice" onClick={() => setNotice("")} type="button">✕</button></div>}
         {system.recovery_required && <div className="dashboard-alert is-error" role="alert"><strong>Recovery required:</strong> {system.recovery_reason || "Canonical reconciliation failed."}<button className="button primary classic-alert-recover" disabled={busy} onClick={() => void triggerRecovery()} type="button">{busy ? "Recovering..." : "Reconcile now"}</button></div>}
-        {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.</span><button className="button primary" disabled={busy} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
+        {pendingTx && <div className="dashboard-alert is-warning"><span>A connectivity-critical change is awaiting confirmation. Automatic rollback in {countdown}s.{(pendingTx.management_url || pendingTx.config?.lan.ip_address !== config.lan.ip_address && pendingTx.config) && <span> Open <a href={pendingTx.management_url || managementURL(pendingTx.config!)}>the candidate dashboard address</a>, sign in if requested, then confirm access.</span>}</span><button className="button primary" disabled={busy || countdown <= 0} onClick={() => void confirmPending()} type="button">Confirm access</button></div>}
 
-        {active === "overview" && <Overview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} />}
+        {active === "overview" && <Overview config={config} system={system} runtime={runtime} gatewaySummary={gatewaySummary} gatewayTargetCount={gatewaySettings.targets.length} memoryPercent={memoryPercent} diskPercent={diskPercent} lastRefresh={lastRefresh} health={health} healthUnavailable={healthUnavailable} onOpenUpdates={() => setUpdateDialogOpen(true)} />}
         {active !== "dns-activity" && (riskCount > 0 || active === "overview" || active === "security" || active === "dns-filter") && <DNSRiskCallout onOpen={() => showSection("dns-activity")} />}
         {active === "security" && <SecuritySettings config={config} onError={setError} />}
         {active !== "security" && !(active === "overview" && design === "studio") && (
           <DashboardSections
             active={active}
+            health={healthUnavailable ? null : health}
             applyConfig={applyConfig}
             markSectionSaved={markSectionSaved}
             savedSection={savedSection}

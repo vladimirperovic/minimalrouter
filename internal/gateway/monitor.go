@@ -8,11 +8,14 @@ import (
 )
 
 type Monitor struct {
-	store  *Store
-	prober Prober
-	link   LinkReader
-	now    func() time.Time
-	wake   chan struct{}
+	store      *Store
+	prober     Prober
+	link       LinkReader
+	now        func() time.Time
+	wake       chan struct{}
+	collectMu  sync.Mutex
+	manualMu   sync.Mutex
+	lastManual time.Time
 
 	mu             sync.RWMutex
 	latest         Summary
@@ -25,7 +28,7 @@ func NewMonitor(store *Store, prober Prober, link LinkReader) *Monitor {
 	return &Monitor{
 		store: store, prober: prober, link: link,
 		now: time.Now, wake: make(chan struct{}, 1),
-		latest: Summary{Available: true, State: StateUnknown},
+		latest: Summary{Available: false, State: StateUnknown},
 	}
 }
 
@@ -39,11 +42,13 @@ func (m *Monitor) Run(ctx context.Context) {
 		if err == nil {
 			interval = settings.Interval()
 		}
-		if _, collectErr := m.Collect(ctx); collectErr != nil {
+		summary, collectErr := m.Collect(ctx)
+		if collectErr != nil {
 			m.mu.Lock()
 			m.latest.Available = false
 			m.mu.Unlock()
 		}
+		interval = collectionInterval(interval, summary, collectErr)
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
@@ -59,6 +64,11 @@ func (m *Monitor) Run(ctx context.Context) {
 func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 	if m == nil || m.store == nil || m.prober == nil || m.link == nil {
 		return Summary{}, fmt.Errorf("gateway monitor is not configured")
+	}
+	m.collectMu.Lock()
+	defer m.collectMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Summary{}, err
 	}
 	settings, err := m.store.Settings()
 	if err != nil {
@@ -79,6 +89,9 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 	linkCtx, cancelLink := context.WithTimeout(ctx, 2*time.Second)
 	linkStatus := m.link.Read(linkCtx)
 	cancelLink()
+	if err := ctx.Err(); err != nil {
+		return Summary{}, err
+	}
 
 	m.mu.Lock()
 	if !m.initialized {
@@ -140,6 +153,9 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return Summary{}, err
+	}
 	reconnects1H, err := m.store.CountReconnects(now.Add(-time.Hour))
 	if err != nil {
 		return Summary{}, err
@@ -179,6 +195,50 @@ func (m *Monitor) Collect(ctx context.Context) (Summary, error) {
 	return summary, nil
 }
 
+// Long public-probe intervals must not starve recovery of fresh link evidence.
+// Once disconnected (or unmeasurable), recheck at most every 30 seconds. This
+// keeps the existing two-minute freshness gate rather than trusting older data.
+func collectionInterval(configured time.Duration, summary Summary, err error) time.Duration {
+	if configured > 30*time.Second && (err != nil || (summary.Enabled && !summary.Link.Connected)) {
+		return 30 * time.Second
+	}
+	return configured
+}
+
+// ProbeNow serializes callers and bounds manual traffic, including diagnostics.
+func (m *Monitor) ProbeNow(ctx context.Context) (Summary, error) {
+	if m == nil {
+		return Summary{}, fmt.Errorf("gateway monitor unavailable")
+	}
+	if !m.manualMu.TryLock() {
+		return Summary{}, fmt.Errorf("a gateway check is already running")
+	}
+	defer m.manualMu.Unlock()
+	settings, err := m.Settings()
+	if err != nil {
+		return Summary{}, err
+	}
+	if !settings.Enabled {
+		return Summary{}, fmt.Errorf("enable gateway monitoring before checking")
+	}
+	if !m.lastManual.IsZero() && m.now().Sub(m.lastManual) < 10*time.Second {
+		return Summary{}, fmt.Errorf("wait 10 seconds between gateway checks")
+	}
+	m.lastManual = m.now()
+	result, err := m.Collect(ctx)
+	if err != nil {
+		m.mu.Lock()
+		m.latest.Available = false
+		m.mu.Unlock()
+	} else if result.Enabled && !result.Link.Connected {
+		select {
+		case m.wake <- struct{}{}:
+		default:
+		}
+	}
+	return result, err
+}
+
 func (m *Monitor) Settings() (Settings, error) {
 	if m == nil || m.store == nil {
 		return Settings{}, fmt.Errorf("gateway monitor is unavailable")
@@ -190,6 +250,8 @@ func (m *Monitor) UpdateSettings(settings Settings) error {
 	if m == nil || m.store == nil {
 		return fmt.Errorf("gateway monitor is unavailable")
 	}
+	m.collectMu.Lock()
+	defer m.collectMu.Unlock()
 	if err := m.store.requireDurableWrite(); err != nil {
 		return err
 	}

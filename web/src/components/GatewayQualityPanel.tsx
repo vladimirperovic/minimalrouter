@@ -1,256 +1,123 @@
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import type { GatewaySettings, GatewaySummary } from "../api-types";
+import { apiFetch, responseError } from "../lib/api";
 import { useVisiblePolling } from "../lib/useVisiblePolling";
-import { FormEvent, useCallback, useMemo, useState } from "react";
-import type { GatewayHistoryPoint, GatewaySettings, GatewaySummary } from "../api-types";
-import { apiFetch } from "../lib/api";
+import { date, diagnosticAdvice, duration, finite, localTime, metric, record, summaryState, validDiagnostic, validEvents, validInsights, validPoints, validRecovery, validSummary, type Diagnostic } from "../lib/gatewayQuality";
+import GatewayHistoryChart from "./GatewayHistoryChart";
 import "./GatewayQualityPanel.css";
 
+type Props = { summary: GatewaySummary | null; settings: GatewaySettings; busy: boolean; onApply: (settings: GatewaySettings) => void; onError: (message: string) => void };
 type WindowName = "1h" | "24h" | "7d" | "30d";
+const hours = { "1h": 1, "24h": 24, "7d": 168, "30d": 720 };
 
-const WINDOWS: Array<{ value: WindowName; label: string; note: string }> = [
-  { value: "1h", label: "1 hour", note: "live samples" },
-  { value: "24h", label: "24 hours", note: "live samples" },
-  { value: "7d", label: "7 days", note: "live samples" },
-  { value: "30d", label: "30 days", note: "hourly averages" },
-];
-
-type Props = {
-  summary: GatewaySummary | null;
-  settings: GatewaySettings;
-  busy: boolean;
-  onApply: (settings: GatewaySettings) => void;
-  onError: (message: string) => void;
-};
-
-type DiagnosticResult = {
-  overall: "healthy" | "degraded" | "failed";
-  cause: string;
-  checks: Record<string, { ok: boolean; detail: string }>;
-};
-
-type GatewayInsights = {
-  available: boolean;
-  sampled_hours: number;
-  samples: number;
-  up_samples: number;
-  uptime_percent: number;
-  outages: number;
-  public_ip_changes: Array<{ timestamp: string; old_ip: string; new_ip: string }>;
-};
-
-type ServiceAction = "wan-reconnect" | "dns-dhcp-restart" | "wireguard-restart";
-
-function stateLabel(state?: GatewaySummary["state"]) {
-  return state ? state.charAt(0).toUpperCase() + state.slice(1) : "Unknown";
+function useGatewayData<T>(path: string, validate: (value: unknown) => value is T, refresh: string) {
+  const [result, setResult] = useState<{ path: string; data: T | null; error: string; at: number }>({ path: "", data: null, error: "", at: Date.now() });
+  const load = useCallback(async (signal: AbortSignal) => {
+    try {
+      const response = await apiFetch(path, { signal });
+      if (!response.ok) throw new Error("Data unavailable. Try checking again.");
+      const body: unknown = await response.json();
+      if (!validate(body)) throw new Error("Invalid response. Data unavailable.");
+      if (!signal.aborted) setResult({ path, data: body, error: "", at: Date.now() });
+    } catch (e) { if (!signal.aborted) setResult({ path, data: null, error: e instanceof Error ? e.message : "Data unavailable.", at: Date.now() }); }
+  }, [path, validate]);
+  useVisiblePolling(load, 30_000, true, refresh);
+  return result.path === path ? result : { path, data: null, error: "", at: Date.now() };
 }
 
-function metric(value?: number, suffix = "") {
-  return Number.isFinite(value) ? `${Math.round(value || 0)}${suffix}` : "—";
-}
-
-function formatInsightCoverage(insights: GatewayInsights | null) {
-  if (!insights?.available || insights.sampled_hours <= 0) return { value: "Collecting", note: "30-day sampled history" };
-  const outageLabel = `${insights.outages} outage${insights.outages === 1 ? "" : "s"}`;
-  if (insights.sampled_hours >= 29 * 24) {
-    return { value: `${insights.uptime_percent.toFixed(2)}%`, note: `30 days · ${outageLabel}` };
-  }
-  const days = Math.max(1, Math.floor(insights.sampled_hours / 24));
-  return { value: `${insights.uptime_percent.toFixed(2)}%`, note: `${days}d coverage · ${outageLabel}` };
-}
-
-function HistoryChart({ points }: { points: GatewayHistoryPoint[] }) {
-  const width = 760;
-  const height = 240;
-  const padding = 30;
-  const plotWidth = width - padding * 2;
-  const plotHeight = height - padding * 2;
-  const maxLatency = Math.max(100, ...points.map((point) => point.latency_ms || 0));
-  const latencyPath = useMemo(() => {
-    let penDown = false;
-    return points.map((point, index) => {
-      if (typeof point.latency_ms !== "number") {
-        penDown = false;
-        return "";
-      }
-      const x = padding + (points.length <= 1 ? 0 : index / (points.length - 1)) * plotWidth;
-      const y = padding + plotHeight - Math.min(1, point.latency_ms / maxLatency) * plotHeight;
-      const command = penDown ? "L" : "M";
-      penDown = true;
-      return `${command}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).filter(Boolean).join(" ");
-  }, [points, maxLatency, plotHeight, plotWidth]);
-  const lossPath = useMemo(() => points.map((point, index) => {
-    const x = padding + (points.length <= 1 ? 0 : index / (points.length - 1)) * plotWidth;
-    const y = padding + plotHeight - Math.min(1, point.packet_loss_percent / 100) * plotHeight;
-    return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(" "), [points, plotHeight, plotWidth]);
-
-  if (points.length === 0) {
-    return <div className="gateway-chart-empty">History will appear after the first monitoring samples.</div>;
-  }
-  return <div className="gateway-chart-wrap">
-    <svg aria-label="Latency and packet loss history" className="gateway-chart" role="img" viewBox={`0 0 ${width} ${height}`}>
-      {[0, 0.25, 0.5, 0.75, 1].map((ratio) => <line className="gateway-chart-grid" key={ratio} x1={padding} x2={width - padding} y1={padding + plotHeight * ratio} y2={padding + plotHeight * ratio} />)}
-      <path className="gateway-chart-latency" d={latencyPath} fill="none" />
-      <path className="gateway-chart-loss" d={lossPath} fill="none" />
-    </svg>
-    <div className="gateway-chart-legend"><span className="is-latency">Latency, max {Math.round(maxLatency)} ms</span><span className="is-loss">Packet loss, 0–100%</span></div>
-  </div>;
-}
-
-export default function GatewayQualityPanel({ summary, settings, busy, onApply, onError }: Props) {
+export default function GatewayQualityPanel({ summary, settings, busy, onApply }: Props) {
   const [windowName, setWindowName] = useState<WindowName>("1h");
-  const [points, setPoints] = useState<GatewayHistoryPoint[]>([]);
-  const [insights, setInsights] = useState<GatewayInsights | null>(null);
-  const [diagnosing, setDiagnosing] = useState(false);
-  const [diagnostics, setDiagnostics] = useState<DiagnosticResult | null>(null);
-  const [serviceAction, setServiceAction] = useState<ServiceAction | null>(null);
-  const [serviceNotice, setServiceNotice] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [measured, setMeasured] = useState<GatewaySummary | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [action, setAction] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [diagnostics, setDiagnostics] = useState<{ result: Diagnostic; at: string } | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const settingsRef = useRef<HTMLDetailsElement>(null);
+  const history = useGatewayData(`/api/v1/gateway/history?window=${windowName}`, validPoints, String(refresh));
+  const insights = useGatewayData("/api/v1/gateway/insights", validInsights, String(refresh));
+  const events = useGatewayData("/api/v1/gateway/events", validEvents, String(refresh));
+  const recovery = useGatewayData("/api/v1/gateway/recovery", validRecovery, String(refresh));
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => { window.clearInterval(timer); request.current?.abort(); }; }, []);
+  const latest = measured && Date.parse(measured.timestamp || "") > Date.parse(summary?.timestamp || "1970-01-01") ? measured : summary;
+  const status = summaryState(latest, settings.interval_seconds, now);
+  const live = !["Unavailable", "Stale", "Monitoring off", "Unknown"].includes(status);
+  const locked = busy || !!action;
+  const coverage = insights.data;
+  const advice = diagnostics ? diagnosticAdvice[diagnostics.result.cause] : undefined;
+  const showSettings = () => { if (settingsRef.current) { settingsRef.current.open = true; settingsRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); } };
 
-  const loadHistory = useCallback(async (signal: AbortSignal) => {
+  const run = async (kind: string, path: string) => {
+    if (request.current || busy) return;
+    const controller = new AbortController(); request.current = controller;
+    setAction(kind); setError(""); setNotice("");
+    if (kind === "diagnose") setDiagnostics(null);
     try {
-      const response = await apiFetch(`/api/v1/gateway/history?window=${windowName}`, { signal });
-      if (!response.ok) throw new Error(`Gateway history unavailable (${response.status})`);
-      const body = await response.json() as { points?: GatewayHistoryPoint[] };
-      if (!signal.aborted) setPoints(Array.isArray(body.points) ? body.points : []);
-    } catch (error) {
-      if (!signal.aborted) onError(error instanceof Error ? error.message : "Gateway history unavailable");
-    }
-  }, [windowName, onError]);
-  const loadInsights = useCallback(async (signal: AbortSignal) => {
-    try {
-      const response = await apiFetch("/api/v1/gateway/insights", { signal });
-      if (!response.ok) throw new Error("Gateway insights unavailable");
-      const body = await response.json() as GatewayInsights;
-      if (!signal.aborted) setInsights(body);
-    } catch { if (!signal.aborted) setInsights(null); }
-  }, []);
-  useVisiblePolling(loadHistory, 30_000);
-  useVisiblePolling(loadInsights, 30_000);
-
+      const response = await apiFetch(path, { method: "POST", signal: controller.signal });
+      if (!response.ok) throw new Error(await responseError(response, "Check failed. Try again."));
+      const body: unknown = await response.json();
+      if (controller.signal.aborted) return;
+      if (kind === "probe") {
+        if (!validSummary(body) || !date(body.timestamp) || !body.available) throw new Error("No valid measurement returned.");
+        setMeasured(body); setNotice("Fresh gateway measurement received.");
+      } else if (kind === "diagnose") {
+        if (!validDiagnostic(body)) throw new Error("Diagnostics returned an invalid response. Please try again.");
+        setDiagnostics({ result: body, at: new Date().toISOString() });
+      } else {
+        if (!record(body) || body.success !== true) throw new Error("Service completion could not be verified. Check Logs before retrying.");
+        setNotice("Service recovery completed. Check now to verify current connectivity.");
+      }
+    } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Request failed."); }
+    finally { if (!controller.signal.aborted) { request.current = null; setAction(""); setRefresh(v => v + 1); } }
+  };
   const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    onApply({
-      enabled: form.get("enabled") === "on",
-      targets: [String(form.get("target_1") || "").trim(), String(form.get("target_2") || "").trim()],
-      interval_seconds: Number(form.get("interval_seconds")) || 30,
-    });
+    event.preventDefault(); const form = new FormData(event.currentTarget);
+    onApply({ enabled: form.get("enabled") === "on", targets: [String(form.get("target_1") || "").trim(), String(form.get("target_2") || "").trim()], interval_seconds: Number(form.get("interval_seconds")) || 30 });
   };
-
-  const diagnose = async () => {
-    setDiagnosing(true);
-    setDiagnostics(null);
-    try {
-      const response = await apiFetch("/api/v1/gateway/diagnose", { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Diagnostics failed (${response.status})`);
-      setDiagnostics(body as DiagnosticResult);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : "Network diagnostics failed");
-    } finally {
-      setDiagnosing(false);
-    }
-  };
-
-  const runServiceAction = async (action: ServiceAction) => {
-    const labels: Record<ServiceAction, string> = {
-      "wan-reconnect": "WAN reconnect completed.",
-      "dns-dhcp-restart": "DNS & DHCP restarted.",
-      "wireguard-restart": "WireGuard restarted.",
-    };
-    setServiceAction(action);
-    setServiceNotice("");
-    try {
-      const response = await apiFetch(`/api/v1/system/actions/${action}`, { method: "POST" });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || `Service action failed (${response.status})`);
-      setServiceNotice(labels[action]);
-    } catch (error) {
-      onError(error instanceof Error ? error.message : "Service action failed");
-    } finally {
-      setServiceAction(null);
-    }
-  };
-
-  const availability = formatInsightCoverage(insights);
+  const targets = Array.isArray(latest?.targets) ? latest.targets.filter(t => record(t) && typeof t.target === "string" && typeof t.reachable === "boolean") : [];
 
   return <section className="dashboard-section gateway-quality" id="gateway">
     <div className="dashboard-section-heading has-facts">
-      <div className="subpage-hero-head"><div><p className="eyebrow">WAN observability & recovery</p><h2>Gateway quality</h2><small>Continuous health monitoring with conservative PPPoE auto-recovery after a verified 3-minute link outage.</small></div><span className={`classic-status-chip ${summary?.state === "healthy" ? "" : "is-warning"}`}>{summary?.enabled ? stateLabel(summary.state) : "Monitoring off"}</span></div>
+      <div className="subpage-hero-head"><div><p className="eyebrow">WAN health</p><h2>Gateway quality</h2><small>Connection quality, recent interruptions and recovery.</small></div><div className="gateway-hero-actions"><span className={`classic-status-chip ${status === "Healthy" ? "" : "is-warning"}`}>{status}</span><button className="button secondary" disabled={locked || !settings.enabled} onClick={() => void run("probe", "/api/v1/gateway/probe")}>{action === "probe" ? "Checking…" : "Check now"}</button></div></div>
+      <p className="gateway-freshness">Last measured: {localTime(latest?.timestamp)} · {settings.enabled ? `Every ${duration(settings.interval_seconds)}` : "Monitoring disabled"}</p>
       <dl className="subpage-hero-facts six">
-        <div><dt>State</dt><dd>{summary?.enabled ? stateLabel(summary.state) : "Disabled"}</dd><small>{summary?.link?.connected ? summary.link?.local_ip || "PPPoE connected" : "PPPoE disconnected"}</small></div>
-        <div><dt>Latency</dt><dd>{metric(summary?.latency_ms, " ms")}</dd><small>reachable targets</small></div>
-        <div><dt>Jitter</dt><dd>{metric(summary?.jitter_ms, " ms")}</dd><small>reply variation</small></div>
-        <div><dt>Packet loss</dt><dd>{metric(summary?.packet_loss_percent, "%")}</dd><small>target average</small></div>
-        <div><dt>PPPoE uptime</dt><dd>{summary?.pppoe_uptime_seconds ? `${Math.floor(summary.pppoe_uptime_seconds / 3600)}h ${Math.floor((summary.pppoe_uptime_seconds % 3600) / 60)}m` : "—"}</dd><small>{summary?.link?.peer_ip ? `Peer ${summary.link.peer_ip}` : "Peer unavailable"}</small></div>
-        <div><dt>Availability</dt><dd>{availability.value}</dd><small>{availability.note}</small></div>
+        <div><dt>State</dt><dd>{status}</dd><small>{live ? latest?.link.connected ? latest.link.local_ip || "PPPoE connected" : "PPPoE disconnected" : "No current link evidence"}</small></div>
+        <div><dt>Latency</dt><dd>{live ? metric(latest?.latency_ms, " ms") : "—"}</dd><small>reachable targets</small></div>
+        <div><dt>Jitter</dt><dd>{live ? metric(latest?.jitter_ms, " ms") : "—"}</dd><small>reply variation</small></div>
+        <div><dt>Packet loss</dt><dd>{live ? metric(latest?.packet_loss_percent, "%") : "—"}</dd><small>latest sample average</small></div>
+        <div><dt>PPPoE uptime</dt><dd>{live && finite(latest?.pppoe_uptime_seconds) ? duration(latest.pppoe_uptime_seconds) : "—"}</dd><small>{live && latest?.link.peer_ip ? `Peer ${latest.link.peer_ip}` : "Peer unavailable"}</small></div>
+        <div><dt>Availability · 30d</dt><dd>{coverage?.available && coverage.samples > 0 ? `${coverage.uptime_percent.toFixed(2)}%` : insights.error ? "Unavailable" : coverage ? "Collecting" : "Loading…"}</dd><small>{coverage?.available ? `${duration(coverage.sampled_hours * 3600)} sampled · ${coverage.outages} outages` : "Based on observed link samples"}</small></div>
       </dl>
+      {error && <p className="gateway-error" role="alert">{error}</p>}{notice && <p className="gateway-service-notice" role="status">{notice}</p>}
     </div>
 
-    <article className="card gateway-history-card">
-      <div className="card-title-row"><div><h3>Quality history</h3><p>Bounded local SQLite history with no cloud telemetry. {windowName === "30d" ? "30-day view uses hourly averages." : "Live sample resolution."}</p></div><div className="gateway-window-tabs">{WINDOWS.map((item) => <button className={windowName === item.value ? "is-active" : ""} key={item.value} onClick={() => setWindowName(item.value)} title={item.note} type="button">{item.value}</button>)}</div></div>
-      <HistoryChart points={points} />
+    <article className="card gateway-history-card"><div className="card-title-row"><div><h3>Quality history</h3><p>{hours[windowName] >= 168 ? "Hourly rollups, grouped to fit the selected period." : "Measured samples, averaged when needed."} Local time.</p></div><div className="gateway-window-tabs" aria-label="History period">{(Object.keys(hours) as WindowName[]).map(w => <button key={w} type="button" aria-pressed={windowName === w} className={windowName === w ? "is-active" : ""} onClick={() => setWindowName(w)}>{w}</button>)}</div></div>
+      {history.error ? <p className="gateway-error" role="status">History unavailable. Previous samples cleared.</p> : !history.data ? <p className="gateway-empty-copy">Loading history…</p> : <GatewayHistoryChart key={windowName} points={history.data.points} hours={hours[windowName]} now={history.at} interval={settings.interval_seconds}/>}
+    </article>
+    <article className="card gateway-target-results"><div className="card-title-row"><div><h3>Probe targets</h3><p>Each public target and the PPPoE peer.</p></div><button type="button" className="gateway-text-button" onClick={showSettings}>Edit targets →</button></div>
+      <div className="gateway-target-list">{!live ? <p>Current target measurements unavailable.</p> : !targets.length ? <p>No target results returned.</p> : targets.map(t => <div className="gateway-target" key={t.target}><div><strong>{t.target}</strong><span className={t.reachable ? "" : "gateway-error"}>{t.reachable ? "Reachable" : "No reply"}</span></div><p>Ping {metric(t.latency_ms," ms")} · jitter {metric(t.jitter_ms," ms")} · loss {metric(t.packet_loss_percent,"%")}</p><small>{metric(t.packets_received)} / {metric(t.packets_sent)} packets{typeof t.error === "string" && t.error ? ` · ${t.error}` : ""}</small></div>)}
+      {live && latest?.peer_probe && record(latest.peer_probe) && <p className="gateway-peer">Peer {latest.peer_probe.target}: {latest.peer_probe.reachable ? metric(latest.peer_probe.latency_ms," ms") : "No reply · peer ICMP may be filtered"}</p>}</div>
     </article>
 
-    <article className="card gateway-ip-history">
-      <div className="card-title-row"><div><h3>Public IP history</h3><p>Only address changes are retained locally; no browsing destinations or traffic metadata are recorded.</p></div>{insights?.public_ip_changes?.length ? <span className="quiet-meta">{insights.public_ip_changes.length} change{insights.public_ip_changes.length === 1 ? "" : "s"}</span> : null}</div>
-      {insights?.public_ip_changes?.length ? (
-        <div className="gateway-ip-scroll" tabIndex={0} role="region" aria-label="Public IP address changes">
-          {insights.public_ip_changes.map((change) => <div className="gateway-ip-event" key={`${change.timestamp}-${change.new_ip}`}><code className="is-old">{change.old_ip}</code><span aria-hidden="true">→</span><code className="is-new">{change.new_ip}</code><time dateTime={change.timestamp}>{new Date(change.timestamp).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>)}
-        </div>
-      ) : <p className="gateway-empty-copy">No public-IP change recorded yet.</p>}
+    <article className="card gateway-diagnostics-card"><div className="card-title-row"><div><h3>Network diagnostics</h3><p>Fresh checks of PPPoE, public targets, DNS and HTTPS.</p></div><button className="button secondary" disabled={locked || !settings.enabled} onClick={() => void run("diagnose", "/api/v1/gateway/diagnose")} type="button">{action === "diagnose" ? "Diagnosing…" : "Diagnose connection"}</button></div>
+      {diagnostics ? <div className="diag"><div className={`diag-result ${diagnostics.result.overall === "healthy" ? "is-good" : "is-bad"}`}><div><strong>{diagnostics.result.overall === "healthy" ? "Internet path is healthy" : `Likely problem: ${diagnostics.result.cause.replaceAll("_", " ")}`}</strong><small>{localTime(diagnostics.at)}</small></div></div><div className="diag-checks">{Object.entries(diagnostics.result.checks).map(([name,c]) => <article key={name} className={`diag-check ${c.ok ? "is-good" : "is-bad"}`}><span aria-hidden="true">{c.ok ? "✓" : "!"}</span><div><b>{name.toUpperCase()} · {c.ok ? "Passed" : "Failed"}</b><small>{c.detail}</small></div></article>)}</div>{advice && <p className="gateway-advice">{advice.text} {diagnostics.result.cause === "internet_reachability" ? <button className="gateway-text-button" onClick={showSettings}>{advice.label} →</button> : <a href={advice.href}>{advice.label} →</a>}</p>}</div> : <p className="gateway-empty-copy">Run a check to identify the failing step. Router settings stay unchanged.</p>}
+    </article>
+    <article className="card rec-card"><div className="rec-head"><div><h3>Automatic recovery</h3><p>{recovery.data?.reason || (recovery.error ? "Recovery status unavailable." : "Loading recovery status…")}</p></div><span className={`rec-chip ${recovery.data?.state === "armed" ? "is-armed" : "is-off"}`}>{recovery.data?.state || "Unknown"}</span></div>
+      <p>{recovery.data?.next_attempt_at ? `Next eligible attempt: ${localTime(recovery.data.next_attempt_at)}` : "Only a verified PPPoE link outage can trigger recovery."}</p>
+      <p className="gateway-freshness">Reconnects: {live ? `${metric(latest?.reconnects_1h)} / ${metric(latest?.reconnects_24h)} (1h / 24h)` : "Unavailable"}{recovery.data?.last_attempt_at && ` · Last attempt ${localTime(recovery.data.last_attempt_at)} (${recovery.data.last_result || "in progress"})`}</p>
+      <details><summary>How recovery works</summary><p>After 3 minutes of fresh link-down evidence, WAN is reconnected through the existing verified service action. Attempts are at least 10 minutes apart and stop during configuration changes or recovery. A detected outage is sampled every 30 seconds or faster, even with a longer normal interval. DNS failures and packet loss do not trigger reconnection.</p></details>
     </article>
 
-    <article className="card gateway-diagnostics-card">
-      <div className="card-title-row"><div><h3>Network diagnostics</h3><p>One bounded check across PPPoE, public reachability, DNS and HTTPS. No configuration is changed.</p></div><button className="button secondary" disabled={busy || diagnosing} onClick={() => void diagnose()} type="button">{diagnosing ? "Diagnosing…" : "Diagnose connection"}</button></div>
-      {diagnostics && (
-        <div className="diag">
-          <div className={`diag-result ${diagnostics.overall === "healthy" ? "is-good" : "is-bad"}`}>
-            <span className="diag-result-icon" aria-hidden="true">{diagnostics.overall === "healthy" ? "✓" : "!"}</span>
-            <div><small>Result</small><strong>{diagnostics.overall === "healthy" ? "Internet path is healthy" : `Likely problem: ${diagnostics.cause.replaceAll("_", " ")}`}</strong></div>
-          </div>
-          <div className="diag-checks">
-            {Object.entries(diagnostics.checks).map(([name, check]) => (
-              <article key={name} className={`diag-check ${check.ok ? "is-good" : "is-bad"}`}>
-                <span className="diag-check-icon" aria-hidden="true">{check.ok ? "✓" : "✕"}</span>
-                <div><b>{name.toUpperCase()}</b><small>{check.detail}</small></div>
-              </article>
-            ))}
-          </div>
-        </div>
-      )}
-    </article>
+    <details className="card gateway-events"><summary>Interruptions & recovery history <span>Recent observed events</span></summary><div className="gateway-details-body">
+      <h3>Link interruptions · last 7 days</h3><p>Up to 20 recent episodes in retained samples. Durations are approximate; gaps are not counted as confirmed downtime.</p>
+      {events.error ? <p role="status">Event history unavailable.</p> : !events.data ? <p>Loading events…</p> : events.data.outages.length ? <ol className="gateway-event-list">{events.data.outages.map((o,i) => <li key={`${o.started_at}-${i}`}><strong>{localTime(o.started_at)} · {o.outcome === "recovered" ? "Link restored" : o.outcome === "ongoing" ? "Still down at last sample" : "Outcome unknown — measurement gap"}</strong><span>{duration(o.duration_seconds)} observed{o.partial ? " · partial start" : ""} · {o.ended_at ? `Restored ${localTime(o.ended_at)}` : `Last seen ${localTime(o.last_observed_at)}`}</span></li>)}</ol> : <p>No link interruptions in retained samples.</p>}
+      <h3>WAN recovery attempts</h3>{events.data && !events.data.recovery_history_available ? <p>Recovery history unavailable.</p> : events.data?.recoveries?.length ? <ol className="gateway-event-list">{events.data.recoveries.map(e => <li key={e.id}><strong>{localTime(e.timestamp)} · {e.event_type.includes("auto_recovery") ? "Automatic" : "Manual"} · {e.event_type.endsWith("failed") ? "Failed" : "Completed"}</strong><span>{finite(Number(e.details.duration_seconds)) && e.details.duration_seconds !== undefined ? `Action duration ${duration(Number(e.details.duration_seconds))}` : "Action duration not recorded"}</span></li>)}</ol> : <p>{events.data ? "No retained WAN recovery attempts." : "Recovery history unavailable."}</p>}<a href="#logs">Open diagnostic logs →</a>
+    </div></details>
+    <details className="card gateway-ip-history"><summary>Public IP history <span>{coverage ? `${coverage.public_ip_changes.length} retained changes` : "Recent changes"}</span></summary><div className="gateway-details-body">{insights.error ? <p>Public-IP history unavailable.</p> : !coverage ? <p>Loading public-IP history…</p> : coverage.public_ip_changes.length ? <div className="gateway-ip-scroll" tabIndex={0} role="region" aria-label="Public IP address changes">{coverage.public_ip_changes.map(c => <div className="gateway-ip-event" key={`${c.timestamp}-${c.new_ip}`}><code>{c.old_ip}</code><span>→</span><code>{c.new_ip}</code><time dateTime={c.timestamp}>{localTime(c.timestamp)}</time></div>)}</div> : <p>No public-IP change recorded yet.</p>}</div></details>
 
-    <article className="card gateway-service-controls">
-      <div className="card-title-row"><div><h3>Service recovery</h3><p>Restart a connection or network service when troubleshooting. Active connections may briefly disconnect.</p></div></div>
-      <div className="gateway-service-grid">
-        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wan-reconnect")} type="button">
-          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6M1 20v-6h6" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg></span>
-          <span className="gateway-action-text"><strong>{serviceAction === "wan-reconnect" ? "Reconnecting…" : "Reconnect WAN"}</strong><small>Renegotiate the PPPoE session on ppp0</small></span>
-        </button>
-        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("dns-dhcp-restart")} type="button">
-          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="7" rx="2" /><rect x="2" y="13" width="20" height="7" rx="2" /><path d="M6 7.5h.01M6 16.5h.01" /></svg></span>
-          <span className="gateway-action-text"><strong>{serviceAction === "dns-dhcp-restart" ? "Restarting…" : "Restart DNS & DHCP"}</strong><small>Reload dnsmasq; leases are kept</small></span>
-        </button>
-        <button className="gateway-action-tile" disabled={busy || serviceAction !== null} onClick={() => void runServiceAction("wireguard-restart")} type="button">
-          <span className="gateway-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg></span>
-          <span className="gateway-action-text"><strong>{serviceAction === "wireguard-restart" ? "Restarting…" : "Restart WireGuard"}</strong><small>Bring wg0 down and re-key the tunnel</small></span>
-        </button>
-      </div>
-      {serviceNotice && <p className="gateway-service-notice" role="status">{serviceNotice}</p>}
-    </article>
-
-    <form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}>
-      <fieldset aria-labelledby="gateway-targets-title"><div className="fieldset-title" id="gateway-targets-title">Monitoring targets</div><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox" /><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} inputMode="decimal" name="target_1" required /></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} inputMode="decimal" name="target_2" required /></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds"><option value="15">15 seconds</option><option value="30">30 seconds</option><option value="60">60 seconds</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select></label></div><p className="form-note">Targets must be two different public IPv4 addresses. Target failures are diagnostic only; automatic recovery is triggered solely by a sustained PPPoE link-down state.</p></fieldset>
-      <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Apply monitoring settings</button></div>
-    </form>
-    <article className="card rec-card">
-      <div className="rec-head">
-        <div><h3>Automatic recovery</h3><p>Conservative PPPoE auto-recovery after a verified 3-minute link outage — it never reacts to packet loss, DNS failure or one unreachable website.</p></div>
-        <span className={`rec-chip ${settings.enabled ? "is-armed" : "is-off"}`}><i aria-hidden="true" />{settings.enabled ? "Armed" : "Paused"}</span>
-      </div>
-      <p className="rec-note">Recovery re-applies the canonical last-known-good configuration through the existing verified privilege boundary. Attempts are rate-limited to once every 10 minutes and are suspended while a configuration change or recovery is already in progress. Current reconnect counters: {summary?.reconnects_1h || 0} / {summary?.reconnects_24h || 0} (1h / 24h).</p>
-    </article>
-
+    <details className="card gateway-settings-details" ref={settingsRef}><summary>Monitoring settings <span>{settings.enabled ? "Enabled" : "Disabled"} · {duration(settings.interval_seconds)}</span></summary><form className="settings-form gateway-settings" key={`${settings.enabled}-${settings.targets.join("-")}-${settings.interval_seconds}`} onSubmit={submit}><fieldset aria-labelledby="gateway-targets-title"><div className="fieldset-title" id="gateway-targets-title">Monitoring targets</div><label className="checkbox-row"><input defaultChecked={settings.enabled} name="enabled" type="checkbox"/><span>Enable gateway monitoring and link auto-recovery</span></label><div className="form-grid two"><label className="field"><span>Primary public IPv4</span><input defaultValue={settings.targets[0] || "1.1.1.1"} name="target_1" required/></label><label className="field"><span>Secondary public IPv4</span><input defaultValue={settings.targets[1] || "8.8.8.8"} name="target_2" required/></label><label className="field"><span>Sample interval</span><select defaultValue={String(settings.interval_seconds || 30)} name="interval_seconds">{[15,30,60,120,300].map(n => <option key={n} value={n}>{n < 60 ? `${n} seconds` : `${n/60} minute${n>60?"s":""}`}</option>)}</select></label></div><p className="form-note">Use two different public IPv4 addresses. Monitoring failures never trigger recovery while the PPPoE link is connected.</p></fieldset><div className="form-actions"><button className="button primary" disabled={locked} type="submit">Apply monitoring settings</button></div></form></details>
+    <details className="card gateway-service-controls"><summary>Service recovery <span>Manual troubleshooting</span></summary><div className="gateway-details-body"><p>These actions can briefly disconnect active sessions.</p><div className="gateway-service-grid">{[["wan-reconnect","Reconnect WAN","Renegotiate the PPPoE session"],["dns-dhcp-restart","Restart DNS & DHCP","Restart dnsmasq; leases are kept"],["wireguard-restart","Restart WireGuard","Restart the configured tunnel"]].map(([id,label,note]) => <button key={id} className="gateway-action-tile" disabled={locked} onClick={() => void run(id, `/api/v1/system/actions/${id}`)} type="button"><span className="gateway-action-text"><strong>{action === id ? "Working…" : label}</strong><small>{note}</small></span></button>)}</div></div></details>
   </section>;
 }

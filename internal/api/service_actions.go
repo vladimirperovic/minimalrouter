@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,13 +21,15 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
+	started := time.Now()
 	if err := s.engine.RunServiceAction(ctx, action); err != nil {
+		s.appendAudit("service.recovery_failed", auditActor(r.RemoteAddr), map[string]string{"action": action, "duration_seconds": strconv.FormatInt(int64(time.Since(started).Seconds()), 10)})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
-	s.appendAudit("service.recovery", auditActor(r.RemoteAddr), map[string]string{"action": action})
+	s.appendAudit("service.recovery", auditActor(r.RemoteAddr), map[string]string{"action": action, "duration_seconds": strconv.FormatInt(int64(time.Since(started).Seconds()), 10)})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "action": action})

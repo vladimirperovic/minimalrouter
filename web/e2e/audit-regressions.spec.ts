@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import type { SystemStatus } from "../src/api-types";
 import type { FirmwareStatus, UpdateOperationState } from "../src/lib/updates";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
+import { networkFixture } from "./fixtures/network";
 
 async function router(page: Page, options: { auditFailed?: boolean; logoutFailed?: boolean; firmwareStatus?: FirmwareStatus; wgPreview?: { status?: number; server_key_configured?: boolean }; qos?: NonNullable<SystemStatus["runtime"]>["qos"] } = {}) {
   const config = structuredClone(CONFIG);
@@ -30,6 +31,7 @@ async function router(page: Page, options: { auditFailed?: boolean; logoutFailed
     else if (path === "/api/v1/audit/events") { body = { events: [] }; if (options.auditFailed) status = 503; }
     else if (path === "/api/v1/wireguard/provisioning-preview") { previews++; status = wgPreview.status; body = { client_ip: "10.8.0.2", server_endpoint: "router.example.test:51820", server_key_configured: wgPreview.server_key_configured }; }
     else if (path === "/api/v1/firmware/status") { firmware.requests++; body = firmware.status ?? {}; }
+    const network = networkFixture(path, config); if (network) body = network;
     await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
   });
   return { config, writes, wgPreview, firmware, previews: () => previews, documents: () => documents };
@@ -56,6 +58,7 @@ test("password change preserves every character and retains a failed form", asyn
 
 test("Enter saves DHCP, canonical refresh is immediate and unrelated WAN/DHCP drafts survive", async ({ page }) => {
   const r = await router(page); page.on("dialog", d => d.accept()); await page.goto("/#network");
+  await page.locator(".net-wan > summary").click();
   await page.locator('[name="pppoe_username"]').fill("unsaved-wan");
   await page.locator('[name="lease_time"]').fill("24h"); await page.locator('[name="lease_time"]').press("Enter");
   await expect.poll(() => r.config.dhcp.lease_time).toBe("24h"); expect(r.config.wan.username).toBe("isp");
@@ -207,11 +210,12 @@ for (const outcome of ["failed", "rolling_back", "rolled_back", "recovery_requir
 
 test("cancelling reservation preview retains the input and sends no PUT", async ({ page }) => {
   const r = await router(page); page.on("dialog", d => d.dismiss()); await page.goto("/#network");
-  const editor = page.locator(".static-leases");
+  await page.getByRole("button", { name: "Add reservation", exact: true }).click();
+  const editor = page.getByRole("dialog");
   await editor.getByLabel("Device name", { exact: true }).fill("test-draft");
   await editor.getByLabel("MAC address", { exact: true }).fill("02:00:00:00:01:50");
-  await editor.getByLabel("Reserved address", { exact: true }).fill("192.168.1.20");
-  await editor.getByRole("button", { name: "Reserve address", exact: true }).click();
+  await editor.getByLabel("Reserved IPv4 address", { exact: true }).fill("192.168.1.20");
+  await editor.getByRole("button", { name: "Reserve IP", exact: true }).click();
   await expect.poll(() => r.writes.filter(w => w.path.endsWith("/preview")).length).toBe(1);
   await expect(editor.getByLabel("Device name", { exact: true })).toHaveValue("test-draft");
   expect(r.writes.filter(w => w.path === "/api/v1/config")).toHaveLength(0);
