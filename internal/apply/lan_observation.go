@@ -2,9 +2,9 @@ package apply
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/network"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -18,6 +18,8 @@ func inspectLANChange(current, candidate config.SystemConfig) ([]string, error) 
 // Observations can reject a known collision, but can never prove an IP is free.
 // This shared guard covers API, MCP and restores at the transaction boundary.
 func inspectLANObservation(current, candidate config.SystemConfig, snapshot telemetry.DHCPLeaseSnapshot) ([]string, error) {
+	currentGateway := network.IPv4Identity(current.LAN.IPAddress)
+	candidateGateway := network.IPv4Identity(candidate.LAN.IPAddress)
 	previousByID := map[string]config.StaticLease{}
 	for _, reservation := range current.DHCP.StaticLeases {
 		previousByID[reservation.ID] = reservation
@@ -25,15 +27,17 @@ func inspectLANObservation(current, candidate config.SystemConfig, snapshot tele
 	changedByIP := map[string]string{}
 	for _, reservation := range candidate.DHCP.StaticLeases {
 		previous, exists := previousByID[reservation.ID]
-		if !exists || previous.IPAddress != reservation.IPAddress || !strings.EqualFold(previous.MAC, reservation.MAC) {
-			changedByIP[reservation.IPAddress] = reservation.MAC
+		ip, mac := network.IPv4Identity(reservation.IPAddress), network.MACIdentity(reservation.MAC)
+		if !exists || network.IPv4Identity(previous.IPAddress) != ip || network.MACIdentity(previous.MAC) != mac {
+			changedByIP[ip] = mac
 		}
 	}
 	for _, lease := range snapshot.Leases {
-		if candidate.LAN.IPAddress != current.LAN.IPAddress && candidate.LAN.IPAddress == lease.IPAddress {
+		leaseIP := network.IPv4Identity(lease.IPAddress)
+		if candidateGateway != currentGateway && candidateGateway == leaseIP {
 			return nil, fmt.Errorf("new LAN gateway is currently leased to %s", lease.MAC)
 		}
-		if mac, changed := changedByIP[lease.IPAddress]; changed && !strings.EqualFold(mac, lease.MAC) {
+		if mac, changed := changedByIP[leaseIP]; changed && mac != network.MACIdentity(lease.MAC) {
 			return nil, fmt.Errorf("reserved address %s is currently leased to %s", lease.IPAddress, lease.MAC)
 		}
 	}

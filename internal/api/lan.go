@@ -12,6 +12,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/accounting"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/network"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -183,6 +184,7 @@ type addressAssessment struct {
 }
 
 func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnapshot, address, mac, excludeID string) addressAssessment {
+	address, mac = network.IPv4Identity(address), network.MACIdentity(mac)
 	result := addressAssessment{Revision: cfg.Revision, Address: address, State: "unknown", Conflicts: []string{}, LeaseStatus: snapshot.DHCPLeaseStatus, Limitation: "Only configured and observed DHCP conflicts are checked. No active scan is performed; an unobserved static device may use this address."}
 	first, last, valid := hostRange(cfg.LAN)
 	ip, ipOK := ipv4Number(address)
@@ -192,19 +194,19 @@ func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnaps
 		if !valid || !ipOK || ip <= first || ip >= last {
 			result.Conflicts = append(result.Conflicts, "Choose a usable host address in the LAN subnet.")
 		}
-		if address == cfg.LAN.IPAddress {
+		if address == network.IPv4Identity(cfg.LAN.IPAddress) {
 			result.Conflicts = append(result.Conflicts, "This is the router gateway address.")
 		}
 		if ipOK && ip >= start && ip <= end {
 			result.Conflicts = append(result.Conflicts, "This address is inside the dynamic DHCP pool.")
 		}
 		for _, reservation := range cfg.DHCP.StaticLeases {
-			if reservation.ID != excludeID && (reservation.IPAddress == address || (mac != "" && strings.EqualFold(mac, reservation.MAC))) {
+			if reservation.ID != excludeID && (network.IPv4Identity(reservation.IPAddress) == address || (mac != "" && mac == network.MACIdentity(reservation.MAC))) {
 				result.Conflicts = append(result.Conflicts, "Address or MAC is already reserved for "+reservation.Hostname+" ("+reservation.MAC+").")
 			}
 		}
 		for _, lease := range snapshot.Leases {
-			if lease.IPAddress == address && !strings.EqualFold(mac, lease.MAC) {
+			if network.IPv4Identity(lease.IPAddress) == address && mac != network.MACIdentity(lease.MAC) {
 				result.Conflicts = append(result.Conflicts, "Address is currently leased to "+lease.MAC+".")
 			}
 		}

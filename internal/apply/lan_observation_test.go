@@ -30,3 +30,22 @@ func TestLANChangeRejectsObservedAddressCollision(t *testing.T) {
 		t.Fatal("unknown observation was hidden", warnings, err)
 	}
 }
+
+func TestLANChangeComparesEquivalentAddressSpellings(t *testing.T) {
+	current := config.DefaultConfig()
+	snapshot := telemetry.DHCPLeaseSnapshot{DHCPLeaseStatus: telemetry.DHCPLeaseStatus{Available: true}, Leases: []telemetry.DHCPLease{{MAC: "02:00:00:00:00:20", IPAddress: "192.168.1.20"}}}
+	candidate := current.DeepCopy()
+	candidate.LAN.IPAddress = "::ffff:192.168.1.20"
+	if _, err := inspectLANObservation(current, candidate, snapshot); err == nil {
+		t.Fatal("mapped IPv4 gateway bypassed collision protection")
+	}
+	candidate = current.DeepCopy()
+	candidate.DHCP.StaticLeases = []config.StaticLease{{ID: "test", MAC: "02-00-00-00-00-21", IPAddress: "::ffff:192.168.1.20"}}
+	if _, err := inspectLANObservation(current, candidate, snapshot); err == nil {
+		t.Fatal("mapped IPv4 reservation bypassed collision protection")
+	}
+	candidate.DHCP.StaticLeases[0].MAC = "0200.0000.0020"
+	if _, err := inspectLANObservation(current, candidate, snapshot); err != nil {
+		t.Fatalf("equivalent MAC must recognize the device's own lease: %v", err)
+	}
+}

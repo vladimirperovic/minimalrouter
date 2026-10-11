@@ -57,6 +57,24 @@ func TestLANAddressSuggestionSkipsPoolAndDNSAddresses(t *testing.T) {
 	}
 }
 
+func TestLANAddressAssessmentUsesAddressIdentity(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DHCP.StaticLeases = []config.StaticLease{{ID: "reserved", IPAddress: "::ffff:192.168.1.30", MAC: "02-00-00-00-00-30"}}
+	snapshot := telemetry.DHCPLeaseSnapshot{DHCPLeaseStatus: telemetry.DHCPLeaseStatus{Available: true}, Leases: []telemetry.DHCPLease{{IPAddress: "192.168.1.20", MAC: "02:00:00:00:00:20"}}}
+	for _, tc := range []struct{ ip, mac, state string }{
+		{"::ffff:192.168.1.1", "", "conflict"},
+		{"::ffff:192.168.1.20", "02:00:00:00:00:21", "conflict"},
+		{"::ffff:192.168.1.20", "02-00-00-00-00-20", "no_known_conflict"},
+		{"192.168.1.30", "", "conflict"},
+		{"192.168.1.40", "0200.0000.0030", "conflict"},
+	} {
+		got := assessLANAddress(cfg, snapshot, tc.ip, tc.mac, "")
+		if got.State != tc.state {
+			t.Fatalf("ip %q mac %q: got %+v, want %s", tc.ip, tc.mac, got, tc.state)
+		}
+	}
+}
+
 func TestLANReadRoutesRequireAuthentication(t *testing.T) {
 	_, _, handler, dir := setupTestServer(t)
 	defer os.RemoveAll(dir)
