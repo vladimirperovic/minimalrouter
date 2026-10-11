@@ -40,6 +40,7 @@ function systemStatus(overrides: Record<string, unknown> = {}) {
     revision: 42,
     update_trust_configured: true,
     recovery_required: false,
+    ...overrides,
     runtime: {
       available: true,
       wan_connected: true,
@@ -69,7 +70,6 @@ function systemStatus(overrides: Record<string, unknown> = {}) {
       tx_bytes: 500,
       ...(overrides.runtime as Record<string, unknown> ?? {}),
     },
-    ...overrides,
   };
 }
 
@@ -90,6 +90,8 @@ async function stubApi(page: Page, options: {
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
+  // Unrelated panels must not reach a local router during this isolated test.
+  await page.route("**/api/v1/**", route => json(route, {}, 503));
   await page.route("**/api/v1/auth/session", (route) => json(route, { authenticated: true, csrf_token: "test" }));
   await page.route("**/api/v1/setup/status", (route) => json(route, { first_run: false }));
   await page.route("**/api/v1/config", (route) => json(route, CONFIG));
@@ -98,6 +100,7 @@ async function stubApi(page: Page, options: {
     json(route, { available: true, enabled: true, state: "healthy", link: { connected: true, interface: "ppp0" }, packet_loss_percent: 0, pppoe_uptime_seconds: 3600, reconnects_1h: 0, reconnects_24h: 0 }));
   await page.route("**/api/v1/gateway/settings", (route) => json(route, { enabled: true, targets: ["1.1.1.1", "8.8.8.8"], interval_seconds: 30 }));
   await page.route("**/api/v1/gateway/history**", (route) => json(route, { window: "1h", points: [] }));
+  await page.route("**/api/v1/gateway/insights", (route) => json(route, { available: true, sampled_hours: 0, uptime_percent: 0, outages: 0 }));
   await page.route("**/api/v1/snapshots", (route) => json(route, []));
   await page.route("**/api/v1/transactions/pending", (route) => json(route, {}));
   await page.route("**/api/v1/audit/events**", (route) => json(route, { events: [] }));
@@ -131,6 +134,9 @@ test("a degraded DNS check turns the DNS chip away from green", async ({ page })
   await expect(chip).toBeVisible();
   await expect(chip).not.toHaveClass(/is-good/);
   await expect(page.getByRole("region", { name: "Appliance health", exact: true })).toContainText("Degraded");
+  await expect(page.locator(".overview-status-hero")).not.toHaveClass(/is-good/);
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Online with warnings");
+  await expect(page.locator(".overview-masthead")).not.toContainText("operating normally");
 });
 
 test("an unreachable health endpoint reports unknown rather than healthy", async ({ page }) => {
@@ -139,6 +145,7 @@ test("an unreachable health endpoint reports unknown rather than healthy", async
   const banner = page.getByRole("region", { name: "Appliance health", exact: true });
   await expect(banner).toContainText("Appliance health unavailable");
   await expect(banner).not.toContainText("All systems normal");
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Online · checks unavailable");
 });
 
 // A 200 response is not proof of a readable body. A payload without `checks`
@@ -204,4 +211,223 @@ test("recovery state is shown and the notification bell reports real alerts", as
     await expect(bell).toHaveAttribute("aria-label", /Recovery required/);
     await expect(bell).not.toHaveAttribute("aria-label", /No active appliance alerts/);
   }
+});
+
+test("healthy checks verify the hero and a disabled firewall does not imply a disconnected WAN", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/");
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Online and verified");
+  await page.route("**/api/v1/config", route => route.fulfill({ json: { ...CONFIG, firewall: { ...CONFIG.firewall, stateful_firewall: false } } }));
+  await page.reload();
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Online with warnings");
+});
+
+test("availability shows measured coverage and clears stale results after a failed refresh", async ({ page }) => {
+  await page.clock.install();
+  await stubApi(page);
+  let failed = false;
+  await page.route("**/api/v1/gateway/insights", route => route.fulfill({ status: failed ? 503 : 200,
+    json: { available: true, sampled_hours: 3, uptime_percent: 98.75, outages: 1 } }));
+  await page.goto("/");
+  const row = page.locator(".overview-availability-row");
+  await expect(row).toContainText("98.75%");
+  await expect(row).toContainText("3h sampled · 1 outage");
+  failed = true;
+  await page.clock.fastForward(31_000);
+  await expect(row).toContainText("Unavailable");
+  await expect(row).not.toContainText("98.75%");
+});
+
+test("malformed availability cannot crash the overview", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await stubApi(page);
+  await page.route("**/api/v1/gateway/insights", route => route.fulfill({ json: { available: true, sampled_hours: 24 } }));
+  await page.goto("/");
+  await expect(page.locator(".overview-availability-row")).toContainText("Unavailable");
+  await expect(page.locator(".overview-masthead h1")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("missing telemetry is unavailable rather than zero usage or zero loss", async ({ page }) => {
+  await stubApi(page, { system: { ...systemStatus(), runtime: { available: false } } });
+  await page.route("**/api/v1/gateway/summary", route => route.fulfill({ status: 503, json: {} }));
+  await page.route("**/api/v1/gateway/history**", route => route.fulfill({ status: 503, json: {} }));
+  await page.goto("/");
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Checking connection");
+  await expect(page.locator(".overview-bandwidth-panel")).toContainText("Bandwidth telemetry unavailable");
+  await expect(page.locator(".overview-resources-panel")).not.toContainText("0.00%");
+  await expect(page.locator(".overview-resources-panel progress")).toHaveCount(0);
+  await expect(page.locator(".overview-resource-note")).toContainText("Resource telemetry unavailable");
+  await expect(page.locator(".overview-loss-band")).toContainText("Unavailable");
+  await expect(page.locator(".overview-quality-panel")).toContainText("Gateway history unavailable");
+});
+
+test("bandwidth uses decimal Mbps, clears failed samples and resets after counter rollover", async ({ page }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  await stubApi(page);
+  let bytes = 10_000_000;
+  let fail = false;
+  await page.route("**/api/v1/system", route => route.fulfill({ status: fail ? 503 : 200,
+    json: systemStatus({ runtime: { rx_bytes: bytes, tx_bytes: bytes / 2 } }) }));
+  await page.goto("/");
+  const panel = page.locator(".overview-bandwidth-panel");
+  await expect(panel).toContainText("Collecting live samples");
+  await expect(page.locator(".overview-masthead h1")).toHaveText("Online and verified");
+  bytes += 5_000_000;
+  await page.clock.runFor(5_000);
+  await expect(panel).toContainText("8.0 Mbps ↓");
+  await expect(panel).toContainText("4.0 Mbps ↑");
+  fail = true;
+  await page.clock.runFor(5_000);
+  await expect(panel).toContainText("Bandwidth telemetry unavailable");
+  await expect(panel).not.toContainText("8.0 Mbps");
+  fail = false;
+  bytes = 100;
+  await page.clock.runFor(5_000);
+  await expect(panel).toContainText("Collecting live samples");
+  bytes += 5_000_000;
+  await page.clock.runFor(5_000);
+  await expect(panel).toContainText("8.0 Mbps ↓");
+  bytes = 0;
+  await page.clock.runFor(5_000);
+  await expect(panel).toContainText("Collecting live samples");
+  await expect(panel).not.toContainText("0.0 Mbps");
+});
+
+test("Overview speed test is manual, prevents duplicate requests and keeps the previous result on failure", async ({ page }) => {
+  await stubApi(page);
+  let calls = 0;
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/v1/qos/speedtest**", async route => {
+    calls++;
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["x-csrf-token"]).toBe("test");
+    if (calls === 1) {
+      await pending;
+      await route.fulfill({ json: { download_mbps: 221.4, upload_mbps: 46.8 } });
+    } else await route.fulfill({ status: 409, contentType: "text/plain", body: "A speed test is already running." });
+  });
+  await page.goto("/");
+  const tile = page.locator(".overview-speed-test");
+  await expect(tile.getByRole("button", { name: "Measure speed" })).toBeEnabled();
+  expect(calls).toBe(0);
+  await tile.getByRole("button", { name: "Measure speed" }).click();
+  await expect(tile.getByRole("button", { name: "Testing" })).toBeDisabled();
+  await expect.poll(() => calls).toBe(1);
+  release();
+  await expect(tile.locator("dd")).toHaveText("221 / 47");
+  await tile.getByRole("button", { name: "Test again" }).click();
+  await expect(tile.getByRole("alert")).toContainText("A speed test is already running.");
+  await expect(tile.locator("dd")).toHaveText("221 / 47");
+  await expect(tile.getByRole("button", { name: "Test again" })).toBeEnabled();
+  expect(calls).toBe(2);
+  await page.reload();
+  await expect(tile.locator("dd")).toHaveText("221 / 47");
+  expect(calls).toBe(2);
+});
+
+test("invalid speed measurements are rejected and a disconnected WAN disables measurement", async ({ page }) => {
+  await stubApi(page);
+  await page.route("**/api/v1/qos/speedtest**", route => route.fulfill({ json: { download_mbps: -1, upload_mbps: 0 } }));
+  await page.goto("/");
+  const tile = page.locator(".overview-speed-test");
+  await tile.getByRole("button", { name: "Measure speed" }).click();
+  await expect(tile.getByRole("alert")).toContainText("No valid speed measurement");
+  await expect(tile.locator("dd")).toHaveText("Not measured");
+  await page.route("**/api/v1/gateway/summary", route => route.fulfill({ json: { available: true, state: "offline", link: { connected: false } } }));
+  await page.reload();
+  await expect(tile.getByRole("button", { name: "Measure speed" })).toBeDisabled();
+  await expect(tile).toContainText("Connect WAN to measure.");
+});
+
+test("navigating away aborts an in-flight Overview speed test", async ({ page }) => {
+  await stubApi(page);
+  let requestStarted = false;
+  let requestFailed = false;
+  await page.route("**/api/v1/qos/speedtest**", async () => { requestStarted = true; });
+  page.on("requestfailed", request => { if (request.url().includes("/qos/speedtest")) requestFailed = true; });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Measure speed" }).click();
+  await expect.poll(() => requestStarted).toBe(true);
+  await page.goto("/#traffic");
+  await expect.poll(() => requestFailed).toBe(true);
+});
+
+async function enableTraffic(page: Page) {
+  await page.route("**/api/v1/config", route => route.fulfill({ json: { ...CONFIG, accounting: { enabled: true, retention_months: 13 } } }));
+}
+
+const TRAFFIC = {
+  available: true, enabled: true, period: "today", collected_at: new Date().toISOString(),
+  points: [{ samples: 1 }],
+  devices: [
+    { hostname: "Small device", address: "192.0.2.1", total_bytes: 100 },
+    { hostname: "Second device", address: "192.0.2.2", total_bytes: 2_000_000 },
+    { hostname: "Top device", address: "192.0.2.3", total_bytes: 3_000_000 },
+    { hostname: "Third device", address: "192.0.2.4", total_bytes: 1_000_000 },
+  ],
+};
+
+test("top traffic consumers sort measured bytes, show only three and clear failed refreshes", async ({ page }) => {
+  await page.clock.install();
+  await stubApi(page);
+  await enableTraffic(page);
+  let failed = false;
+  await page.route("**/api/v1/accounting/insights?period=today", route => route.fulfill({ status: failed ? 503 : 200, json: TRAFFIC }));
+  await page.goto("/");
+  const panel = page.getByRole("region", { name: "Top traffic consumers" });
+  await expect(panel.locator("li")).toHaveCount(3);
+  await expect(panel.locator("li span")).toHaveText(["Top device", "Second device", "Third device"]);
+  await expect(panel).toContainText("Today · UTC");
+  await expect(panel.getByRole("link", { name: "All traffic" })).toHaveAttribute("href", "#traffic");
+  failed = true;
+  await page.clock.fastForward(31_000);
+  await expect(panel).toContainText("Traffic usage unavailable.");
+  await expect(panel.locator("li")).toHaveCount(0);
+});
+
+test("disabled accounting does not poll or fabricate top consumers", async ({ page }) => {
+  await stubApi(page);
+  let calls = 0;
+  await page.route("**/api/v1/accounting/insights**", route => { calls++; return route.fulfill({ json: TRAFFIC }); });
+  await page.goto("/");
+  const panel = page.getByRole("region", { name: "Top traffic consumers" });
+  await expect(panel).toContainText("Accounting is off");
+  await expect(panel.getByRole("link", { name: "Enable accounting" })).toHaveAttribute("href", "#traffic");
+  expect(calls).toBe(0);
+});
+
+test("empty history and delayed collection remain explicit", async ({ page }) => {
+  await stubApi(page);
+  await enableTraffic(page);
+  await page.route("**/api/v1/accounting/insights**", route => route.fulfill({ json: { ...TRAFFIC, points: [] } }));
+  await page.goto("/");
+  const panel = page.getByRole("region", { name: "Top traffic consumers" });
+  await expect(panel).toContainText("Waiting for traffic samples.");
+  await expect(panel.locator("li")).toHaveCount(0);
+  await page.route("**/api/v1/accounting/insights**", route => route.fulfill({ json: { ...TRAFFIC, collected_at: "2020-01-01T00:00:00Z" } }));
+  await page.reload();
+  await expect(panel).toContainText("Collection delayed");
+});
+
+test("warnings link directly to the matching settings and update warning opens the update dialog", async ({ page }) => {
+  await stubApi(page, { healthBody: health("warning", [
+    { id: "backup", label: "Encrypted backup", state: "warning", summary: "Backup overdue" },
+    { id: "dns_dhcp", label: "DNS and DHCP", state: "degraded", summary: "Resolver unavailable" },
+    { id: "wireguard", label: "WireGuard", state: "warning", summary: "Tunnel down" },
+    { id: "update", label: "Updates", state: "warning", summary: "Update staged" },
+  ]) });
+  await page.goto("/");
+  const banner = page.getByRole("region", { name: "Appliance health", exact: true });
+  await expect(banner.getByRole("link", { name: "Encrypted backup → Recovery" })).toHaveAttribute("href", "#recovery");
+  await expect(banner.getByRole("link", { name: "WireGuard → WireGuard" })).toHaveAttribute("href", "#wireguard");
+  await banner.getByRole("button", { name: "Updates → Updates", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Software update" })).toBeVisible();
+  await page.getByRole("dialog").getByLabel("Close", { exact: true }).click();
+  await banner.getByRole("link", { name: "DNS and DHCP → LAN & DHCP" }).click();
+  await expect(page).toHaveURL(/#network$/);
+  await expect(page.getByRole("heading", { name: "LAN & DHCP", exact: true, level: 2 })).toBeVisible();
 });

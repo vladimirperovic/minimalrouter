@@ -78,3 +78,32 @@ func TestReadDHCPLeasesTracksFileReplacementAndBounds(t *testing.T) {
 		t.Fatal("oversized lease file accepted")
 	}
 }
+
+func TestDHCPObservationDistinguishesEmptyUnavailableAndIncomplete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "leases")
+	missing := readDHCPLeaseSnapshot(path)
+	if missing.Available || missing.Error == "" || missing.CollectedAt.IsZero() {
+		t.Fatalf("missing file: %+v", missing)
+	}
+	if err := os.WriteFile(path, []byte{}, 0600); err != nil {
+		t.Fatal(err)
+	}
+	empty := readDHCPLeaseSnapshot(path)
+	if !empty.Available || len(empty.Leases) != 0 || empty.Error != "" {
+		t.Fatalf("empty: %+v", empty)
+	}
+	if err := os.WriteFile(path, []byte("malformed\n0 02:00:00:00:00:22 192.168.1.22 good *\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	partial := readDHCPLeaseSnapshot(path)
+	if !partial.Available || partial.RejectedEntries != 1 || len(partial.Leases) != 1 {
+		t.Fatalf("partial: %+v", partial)
+	}
+	if err := os.WriteFile(path, []byte(strings.Repeat("0 02:00:00:00:00:22 192.168.1.22 test *\n", maxDHCPLeaseEntries+1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	limited := readDHCPLeaseSnapshot(path)
+	if !limited.Truncated || len(limited.Leases) != maxDHCPLeaseEntries {
+		t.Fatal("truncation not disclosed")
+	}
+}

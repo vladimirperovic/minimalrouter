@@ -16,8 +16,10 @@ func healthyInput() Input {
 	cfg.WireGuard.Enabled = false
 	now := time.Date(2026, 8, 1, 7, 0, 0, 0, time.UTC)
 	backup := now.Add(-24 * time.Hour)
+	dnsResolves := true
 	return Input{
-		Config: cfg,
+		Config:      cfg,
+		DNSResolves: &dnsResolves,
 		Runtime: telemetry.RuntimeStatus{
 			Available:             true,
 			MemoryUsedBytes:       256,
@@ -47,6 +49,29 @@ func TestBuildHealthyAppliance(t *testing.T) {
 	snapshot := Build(healthyInput())
 	if snapshot.State != StateHealthy {
 		t.Fatalf("state = %q, want healthy; checks=%+v", snapshot.State, snapshot.Checks)
+	}
+}
+
+func TestDNSHealthRemainsObservedWithDHCPDisabled(t *testing.T) {
+	input := healthyInput()
+	input.Config.DHCP.Enabled = false
+	failed := false
+	input.DNSResolves = &failed
+	check := func() Check {
+		for _, c := range Build(input).Checks {
+			if c.ID == "dns_dhcp" {
+				return c
+			}
+		}
+		t.Fatal("DNS check missing")
+		return Check{}
+	}
+	if c := check(); c.State != StateDegraded {
+		t.Fatalf("failed DNS: %+v", c)
+	}
+	input.DNSResolves = nil
+	if c := check(); c.State != StateUnknown {
+		t.Fatalf("unobserved DNS: %+v", c)
 	}
 }
 

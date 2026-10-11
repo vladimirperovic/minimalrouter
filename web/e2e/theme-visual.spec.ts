@@ -1,3 +1,5 @@
+import { networkFixture } from "./fixtures/network";
+import type { RouterConfig } from "../src/api-types";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +47,7 @@ const CONFIG = {
   wan: { enabled: true, mode: "pppoe", interface: "eth0", username: "subscriber@example.net", password: "[REDACTED]", mtu: 1492 },
   lan: { interface: "eth1", ip_address: "192.168.1.1", cidr: "192.168.1.1/24" },
   dhcp: {
-    enabled: true, start: "192.168.1.100", end: "192.168.1.200", lease_time: "12h",
+    enabled: true, range_start: "192.168.1.100", range_end: "192.168.1.200", lease_time: "12h",
     dns_servers: ["1.1.1.1", "9.9.9.9"],
     static_leases: [
       { id: "l1", hostname: "workstation", mac: "00:00:5e:00:53:10", ip_address: "192.168.1.40" },
@@ -57,7 +59,7 @@ const CONFIG = {
     port_forwards: [
       { id: "pf1", name: "web", protocol: "tcp", external_port: 443, internal_ip: "192.168.1.40", internal_port: 8443, enabled: true },
     ],
-    rules: [],
+    custom_rules: [],
   },
   wireguard: { enabled: true, interface: "wg0", address: "10.7.0.1/24", listen_port: 51820, private_key: "[REDACTED]", peers: [] },
   wg_client: { enabled: false, interface: "wg1", private_key: "[REDACTED]", preshared_key: "[REDACTED]" },
@@ -97,11 +99,27 @@ async function stub(page: Page) {
   // catch-all goes first and every specific stub below overrides it. Reversed,
   // it would swallow /api/v1/config and the dashboard would never render.
   await page.route("**/api/v1/**", (r) => json(r, {}));
+  await page.route("**/api/v1/network/**", r => {
+    const body = networkFixture(new URL(r.request().url()).pathname, CONFIG as unknown as RouterConfig);
+    if (body?.lease_status) body.lease_status.collected_at = NOW.toISOString();
+    return json(r, body ?? {});
+  });
+  await page.route("**/api/v1/devices/pauses", r => json(r, { pauses: [] }));
   await page.route("**/api/v1/auth/session", (r) => json(r, { authenticated: true, csrf_token: "visual", read_only: false }));
   await page.route("**/api/v1/setup/status", (r) => json(r, { is_configured: true }));
   await page.route("**/api/v1/config", (r) => json(r, CONFIG));
   await page.route("**/api/v1/system", (r) => json(r, SYSTEM));
   await page.route("**/api/v1/health", (r) => json(r, HEALTH));
+  await page.route("**/api/v1/firewall/status", (r) => json(r, {
+    revision: 42, runtime: { available: true, observed_at: NOW.toISOString(), default_deny: true,
+      policies: { input: "drop", forward: "drop", output: "drop" }, loaded_revision: 42,
+      revision_matches: true, configuration_match: "unverified" },
+    rules: [], warnings: [], engine: { apply_in_progress: false }, pending_transaction: null,
+  }));
+  await page.route("**/api/v1/firewall/activity", (r) => json(r, {
+    available: true, collected_at: NOW.toISOString(), allowed: 1000, blocked: 23,
+    points: [{ start: NOW.toISOString(), allowed: 1000, blocked: 23, samples: 1 }],
+  }));
   await page.route("**/api/v1/gateway/summary", (r) => json(r, GATEWAY));
   await page.route("**/api/v1/gateway/history", (r) => json(r, { available: true, points: [] }));
   await page.route("**/api/v1/gateway/settings", (r) => json(r, { enabled: true, interval_seconds: 30, targets: ["1.1.1.1"] }));
@@ -189,7 +207,7 @@ async function freezeClock(page: Page) {
   await page.clock.setFixedTime(NOW);
 }
 
-async function openDashboard(page: Page) {
+async function openDashboard(page: Page, gateway = false) {
   await freezeClock(page);
   // Until Studio becomes the only look, the baseline has to ask for it
   // explicitly. Afterwards this is a harmless no-op, which is what makes the
@@ -202,6 +220,14 @@ async function openDashboard(page: Page) {
     }
   });
   await stub(page);
+  if (gateway) {
+    const target = { target: "1.1.1.1", reachable: true, packets_sent: 4, packets_received: 4, packet_loss_percent: 0, latency_ms: 18, jitter_ms: 2 };
+    await page.route("**/api/v1/gateway/summary", r => r.fulfill({ json: { ...GATEWAY, targets: [target, { ...target, target: "9.9.9.9" }] } }));
+    await page.route("**/api/v1/gateway/history?*", r => r.fulfill({ json: { points: Array.from({ length: 60 }, (_, i) => ({ timestamp: new Date(NOW.getTime()-(60-i)*60000).toISOString(), latency_ms: 18+i%5, packet_loss_percent: i===40?100:0, state: i===40?"offline":"healthy" })) } }));
+    await page.route("**/api/v1/gateway/insights", r => r.fulfill({ json: { available: true, sampled_hours: 192, samples: 23040, uptime_percent: 99.97, outages: 2, public_ip_changes: [] } }));
+    await page.route("**/api/v1/gateway/recovery", r => r.fulfill({ json: { state: "armed", reason: "Watching the PPPoE link", updated_at: NOW.toISOString() } }));
+    await page.route("**/api/v1/gateway/events", r => r.fulfill({ json: { outages: [], recoveries: [], recovery_history_available: true } }));
+  }
   await page.goto("/");
   // The sidebar is off-canvas on phones, so wait for the shell itself.
   await page.waitForSelector(".dashboard-main", { timeout: 15_000 });
@@ -221,7 +247,7 @@ test.describe("Studio look", () => {
     test(`section ${section}`, async ({ page }) => {
       const crashes: string[] = [];
       page.on("pageerror", (event) => crashes.push(event.message));
-      await openDashboard(page);
+      await openDashboard(page, section === "gateway");
 
       const link = page.locator(`a[href="#${section}"]`).first();
       await link.waitFor({ state: "visible" });
@@ -249,7 +275,7 @@ test.describe("Studio look", () => {
   for (const section of SECTIONS) {
     test(`phone ${section}`, async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
-      await openDashboard(page);
+      await openDashboard(page, section === "gateway");
       const menu = page.locator(".dashboard-menu:visible").first();
       await menu.click();
       const link = page.locator(`a[href="#${section}"]`).first();

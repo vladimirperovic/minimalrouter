@@ -4,6 +4,7 @@ import type { PortForwardRule } from "../api-types";
 
 interface Props {
   onError: (message: string) => void;
+  blocked?: boolean;
 }
 
 const isValidPort = (value: string): boolean => {
@@ -20,7 +21,7 @@ const isValidIPv4 = (value: string): boolean => {
   });
 };
 
-export default function PortForwardsPanel({ onError }: Props) {
+export default function PortForwardsPanel({ onError, blocked = false }: Props) {
   const config = useConfiguration();
   const rules = config?.firewall.port_forwards || [];
   const loaded = config !== null;
@@ -33,12 +34,14 @@ export default function PortForwardsPanel({ onError }: Props) {
   const [internalIP, setInternalIP] = useState("");
   const [internalPort, setInternalPort] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [original, setOriginal] = useState<PortForwardRule | null>(null);
 
-  const persist = async (next: PortForwardRule[]) => {
+  const persist = async (mutate: (current: PortForwardRule[]) => PortForwardRule[]) => {
+    if (saving || blocked) return false;
     setSaving(true);
     try {
       const config = await readConfiguration({ cache: "reload" });
-      config.firewall.port_forwards = next;
+      config.firewall.port_forwards = mutate(config.firewall.port_forwards || []);
       const result = await previewAndApplyConfig(config);
       if (result.cancelled) return false;
       onError("");
@@ -52,6 +55,7 @@ export default function PortForwardsPanel({ onError }: Props) {
   };
 
   const startEdit = (rule: PortForwardRule) => {
+    setOriginal(structuredClone(rule));
     setEditingId(rule.id);
     setName(rule.name);
     setProtocol(rule.protocol);
@@ -61,6 +65,7 @@ export default function PortForwardsPanel({ onError }: Props) {
   };
 
   const cancelEdit = () => {
+    setOriginal(null);
     setEditingId(null);
     setName("");
     setProtocol("tcp");
@@ -92,11 +97,15 @@ export default function PortForwardsPanel({ onError }: Props) {
       return;
     }
     if (editingId) {
-      const saved = await persist(rules.map((rule) => (
+      const saved = await persist(current => {
+        const latest = current.find(rule => rule.id === editingId);
+        if (!latest || JSON.stringify(latest) !== JSON.stringify(original)) throw Error("This tunnel rule changed in another session. Cancel and reopen it before saving.");
+        return current.map((rule) => (
         rule.id === editingId
           ? { ...rule, name: name.trim(), protocol, external_port: Number(externalPort), internal_ip: internalIP, internal_port: Number(internalPort) }
           : rule
-      )));
+        ));
+      });
       if (saved) cancelEdit();
       return;
     }
@@ -109,7 +118,7 @@ export default function PortForwardsPanel({ onError }: Props) {
       internal_port: Number(internalPort),
       enabled: true,
     };
-    if (!await persist([...rules, rule])) return;
+    if (!await persist(current => [...current, rule])) return;
     setName("");
     setExternalPort("");
     setInternalIP("");
@@ -117,11 +126,11 @@ export default function PortForwardsPanel({ onError }: Props) {
   };
 
   const toggle = async (id: string) => {
-    await persist(rules.map((rule) => (rule.id === id ? { ...rule, enabled: !rule.enabled } : rule)));
+    await persist(current => current.map((rule) => (rule.id === id ? { ...rule, enabled: !rule.enabled } : rule)));
   };
 
   const remove = async (id: string) => {
-    await persist(rules.filter((rule) => rule.id !== id));
+    await persist(current => current.filter((rule) => rule.id !== id));
   };
 
   return (
@@ -157,7 +166,7 @@ export default function PortForwardsPanel({ onError }: Props) {
               <label className="field port-forward-address"><span>LAN destination</span><input onChange={(event) => setInternalIP(event.target.value)} placeholder="192.168.1.50" value={internalIP} /></label>
               <label className="field"><span>Service port</span><input inputMode="numeric" onChange={(event) => setInternalPort(event.target.value)} placeholder="4080" value={internalPort} /></label>
             </div>
-            <div className="port-forward-submit"><p><strong>Route preview</strong><span>{tunnelAddress || "tunnel address"}:{externalPort || "port"} → {internalIP || "LAN device"}:{internalPort || "port"}</span></p>{editingId && <button className="modal-action-button" disabled={saving} onClick={cancelEdit} type="button">Cancel edit</button>}<button className="modal-action-button" disabled={saving} type="submit"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>{saving ? "Applying…" : editingId ? "Save changes" : "Add tunnel rule"}</button></div>
+            <div className="port-forward-submit"><p><strong>Route preview</strong><span>{tunnelAddress || "tunnel address"}:{externalPort || "port"} → {internalIP || "LAN device"}:{internalPort || "port"}</span></p>{editingId && <button className="modal-action-button" disabled={saving || blocked} onClick={cancelEdit} type="button">Cancel edit</button>}<button className="modal-action-button" disabled={saving || blocked} type="submit"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>{saving ? "Applying…" : editingId ? "Save changes" : "Add tunnel rule"}</button></div>
           </form>
 
           {rules.length === 0 ? (
@@ -168,8 +177,8 @@ export default function PortForwardsPanel({ onError }: Props) {
                 <article className={rule.enabled ? "is-enabled" : ""} key={rule.id}>
                   <div className="port-forward-rule-name"><i aria-hidden="true" /><span><strong>{rule.name}</strong><small>{rule.enabled ? "Forwarding active" : "Rule paused"}</small></span></div>
                   <code>{rule.protocol.toUpperCase()}</code>
-                  <div className="port-forward-route"><span>10.8.0.1:{rule.external_port}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M5 12h14M14 7l5 5-5 5" /></svg><strong>{rule.internal_ip}:{rule.internal_port}</strong></div>
-                  <div className="port-forward-actions"><button disabled={saving} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">{editingId === rule.id ? "Cancel" : "Edit"}</button><button disabled={saving} onClick={() => toggle(rule.id)} type="button">{rule.enabled ? "Pause" : "Enable"}</button><button className="is-remove" disabled={saving} onClick={() => remove(rule.id)} type="button" aria-label={`Remove ${rule.name}`} title={`Remove ${rule.name}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l.7 13h9.6l.7-13M10 11v5M14 11v5" /></svg></button></div>
+                  <div className="port-forward-route"><span>{tunnelAddress}:{rule.external_port}</span><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M5 12h14M14 7l5 5-5 5" /></svg><strong>{rule.internal_ip}:{rule.internal_port}</strong></div>
+                  <div className="port-forward-actions"><button disabled={saving || blocked} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">{editingId === rule.id ? "Cancel" : "Edit"}</button><button disabled={saving || blocked} onClick={() => toggle(rule.id)} type="button">{rule.enabled ? "Pause" : "Enable"}</button><button className="is-remove" disabled={saving || blocked} onClick={() => remove(rule.id)} type="button" aria-label={`Remove ${rule.name}`} title={`Remove ${rule.name}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h16M9 7V4h6v3M6.5 7l.7 13h9.6l.7-13M10 11v5M14 11v5" /></svg></button></div>
                 </article>
               ))}
             </div>

@@ -56,8 +56,8 @@ test("sidebar services distinguish enabled configuration from measured runtime",
   await page.route("**/api/v1/config", route => route.fulfill({ contentType: "application/json", body: JSON.stringify(config) }));
   await page.route("**/api/v1/system", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ ...SYSTEM, runtime: { available: true, wan_connected: false, ddns: { running: true } } }) }));
   await page.goto("/#network");
-  await expect(page.locator("#network .subpage-hero-head")).toContainText("WAN Disconnected");
-  await expect(page.locator("#network .subpage-hero-facts")).toContainText("plain upstream DNS");
+  await expect(page.locator("#network .net-facts")).toContainText("DNS health");
+  await expect(page.locator("#network")).toContainText("Upstreams use plain DNS");
   await page.goto("/#cloudflare");
   await expect(page.locator("#cloudflare .subpage-hero-head")).toContainText("Service running");
   await expect(page.locator("#cloudflare .subpage-hero-head")).not.toContainText("In sync");
@@ -69,7 +69,11 @@ test("sidebar services distinguish enabled configuration from measured runtime",
 });
 
 for (const design of ["noema", "studio"]) for (const dark of [false, true]) {
-  test(`${design} ${dark ? "dark" : "light"}: network alerts, actions, pagination and retained device options`, async ({ page }) => {
+  test(`${design} ${dark ? "dark" : "light"}: network alerts, actions, pagination and retained device options`, async ({ page, browserName }) => {
+    // CI traces show successful Linux WebKit clicks taking 3–8 seconds. The
+    // full alert lifecycle needs more than the default 30-second test budget.
+    // Retain every interaction, actionability check and five-second assertion.
+    if (browserName === "webkit" && process.platform === "linux") test.setTimeout(90_000);
     await page.addInitScript(({ design, dark }) => { localStorage.setItem("minimalrouter:design", design); localStorage.setItem("minimalrouter:theme", dark ? "dark" : "light"); }, { design, dark });
     const state = await fixture(page);
     const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));

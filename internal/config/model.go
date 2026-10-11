@@ -297,6 +297,9 @@ type FirewallRule struct {
 	SrcIP     string `json:"src_ip,omitempty"`
 	DstPort   int    `json:"dst_port,omitempty"`
 	Enabled   bool   `json:"enabled"`
+	// Empty scope preserves existing forward-deny behavior across all routed zones.
+	Scope    string `json:"scope,omitempty"`
+	PresetID string `json:"preset_id,omitempty"`
 }
 
 // AccountingConfig controls per-device traffic accounting. Only aggregate byte

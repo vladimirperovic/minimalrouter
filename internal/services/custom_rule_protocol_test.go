@@ -57,7 +57,7 @@ func TestCustomPortRulesKeepTheirExistingShape(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rules, "tcp dport 445 drop") {
+	if !strings.Contains(rules, "tcp dport 445 counter name "+FirewallRuleCounter(cfg.Firewall.CustomRules[0])+" drop") {
 		t.Fatal("the TCP custom rule lost its expected shape")
 	}
 }

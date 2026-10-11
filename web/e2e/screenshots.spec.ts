@@ -34,7 +34,7 @@ const CONFIG = {
       { id: "l2", hostname: "printer", mac: "00:00:5e:00:53:12", ip_address: "192.168.1.21" },
     ],
   },
-  dns: { records: [{ id: "d1", name: "nas.lan", ip_address: "192.168.1.30" }] },
+  dns: { records: [{ id: "d1", name: "nas.lan", ip: "192.168.1.30" }] },
   firewall: {
     default_wan_input_policy: "deny", wan_ingress_mode: "wireguard_only", stateful_firewall: true,
     port_forwards: [
@@ -233,10 +233,9 @@ test("capture every dashboard section", async ({ page }) => {
     const link = page.locator(`a[href="#${id}"]`).first();
     await link.waitFor({ state: "visible" });
     await link.click();
-    await page.waitForFunction(
-      (section) => document.querySelector(`a[href="#${section}"]`)?.classList.contains("is-active") === true,
-      id,
-    );
+    await page.waitForTimeout(50);
+    expect(crashes, `Dashboard crash on ${id}`).toEqual([]);
+    await expect(link).toHaveClass(/is-active/);
     await page.waitForTimeout(700);
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.waitForTimeout(150);

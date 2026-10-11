@@ -171,7 +171,9 @@ func RuntimeSnapshot(wanInterface, lanInterface, dataDir string) RuntimeStatus {
 			status.ConntrackUsagePercent = 100
 		}
 	}
-	status.DHCPLeases = CurrentDHCPLeases()
+	leaseSnapshot := CurrentDHCPLeaseSnapshot()
+	status.DHCPLeases = leaseSnapshot.Leases
+	status.DHCPLeaseStatus = leaseSnapshot.DHCPLeaseStatus
 	status.WireguardPeers = readWireGuardPeers()
 	status.WireguardActivePeers = countActive(status.WireguardPeers)
 	status.WireGuardClient = readWireGuardClientStatus()
@@ -431,4 +433,8 @@ func readProcessMemoryBytes() uint64 {
 // not collect process, storage, conntrack or WireGuard telemetry.
 func CurrentDHCPLeases() []DHCPLease {
 	return readDHCPLeases(dnsmasqLeasePath)
+}
+
+func CurrentDHCPLeaseSnapshot() DHCPLeaseSnapshot {
+	return readDHCPLeaseSnapshot(dnsmasqLeasePath)
 }

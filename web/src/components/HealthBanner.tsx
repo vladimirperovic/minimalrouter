@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { RefObject } from "react";
 import { apiFetch } from "../lib/api";
 import type { ApplianceHealth, ApplianceHealthCheck, ApplianceHealthState } from "../api-types";
+import HealthCheckLink from "./HealthCheckLink";
 
 // The appliance-health API has existed since the health package landed, but the
 // dashboard never called it: every service chip inferred health from
@@ -103,16 +104,17 @@ type Props = {
   onShowDetails?: () => void;
   /** Whether the detail list below is open, so the control can say so. */
   detailsOpen?: boolean;
+  onOpenUpdates?: () => void;
 };
 
-export default function HealthBanner({ health, unavailable, onShowDetails, detailsOpen = false }: Props) {
+export default function HealthBanner({ health, unavailable, onShowDetails, detailsOpen = false, onOpenUpdates }: Props) {
   if (unavailable || !health) {
     return (
       <section className="health-banner is-unknown" aria-label="Appliance health">
         <div className="health-banner-main">
           <span className="health-banner-dot" aria-hidden="true" />
           <div>
-            <strong>Appliance health unavailable</strong>
+            <strong><a className="health-settings-link" href="#logs">Appliance health unavailable</a></strong>
             <p>The health endpoint could not be read. This is not a healthy result — it means the router could not be measured.</p>
           </div>
         </div>
@@ -128,8 +130,12 @@ export default function HealthBanner({ health, unavailable, onShowDetails, detai
       <div className="health-banner-main">
         <span className="health-banner-dot" aria-hidden="true" />
         <div className="health-banner-copy">
-          <strong>{STATE_LABEL[health.state]}</strong>
-          <p>{health.headline}</p>
+          <strong>{attention.length > 0
+            ? <HealthCheckLink id={attention[0].id} label={STATE_LABEL[health.state]} onOpenUpdates={onOpenUpdates}>{STATE_LABEL[health.state]} ↗</HealthCheckLink>
+            : STATE_LABEL[health.state]}</strong>
+          {attention.length > 0 ? <p className="health-alert-links">{attention.map(check =>
+            <HealthCheckLink key={check.id} id={check.id} label={check.label} onOpenUpdates={onOpenUpdates}>{check.label} ↗</HealthCheckLink>
+          )}</p> : <p>{health.headline}</p>}
         </div>
         <div className="health-banner-meta">
           <span>
@@ -164,7 +170,7 @@ type HealthCheckDetailsProps = Props & {
   sectionRef?: RefObject<HTMLElement | null>;
 };
 
-export function HealthCheckDetails({ health, unavailable, sectionRef }: HealthCheckDetailsProps) {
+export function HealthCheckDetails({ health, unavailable, sectionRef, onOpenUpdates }: HealthCheckDetailsProps) {
   if (unavailable || !health) return null;
 
   const attention = health.checks.filter(needsAttention).sort((a, b) => STATE_RANK[b.state] - STATE_RANK[a.state]);
@@ -187,7 +193,7 @@ export function HealthCheckDetails({ health, unavailable, sectionRef }: HealthCh
           <li className={`health-check ${STATE_CLASS[check.state]}`} key={check.id}>
             <span className="health-check-dot" aria-hidden="true" />
             <div>
-              <strong>{check.label}</strong>
+              <strong>{needsAttention(check) ? <HealthCheckLink id={check.id} label={check.label} onOpenUpdates={onOpenUpdates}>{check.label} ↗</HealthCheckLink> : check.label}</strong>
               <p>{check.summary}</p>
             </div>
             <em>{check.state.replace("_", " ")}</em>

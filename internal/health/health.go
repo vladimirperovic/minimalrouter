@@ -48,6 +48,7 @@ type Input struct {
 	DNSResolves              *bool
 	DNSError                 string
 	Now                      time.Time
+	Firewall                 *Check
 }
 
 func Build(input Input) Snapshot {
@@ -58,6 +59,9 @@ func Build(input Input) Snapshot {
 	checks := make([]Check, 0, 14)
 	add := func(id, label string, state State, summary string) {
 		checks = append(checks, Check{ID: id, Label: label, State: state, Summary: summary})
+	}
+	if input.Firewall != nil {
+		checks = append(checks, *input.Firewall)
 	}
 
 	if input.Engine.RecoveryRequired {
@@ -152,7 +156,8 @@ func Build(input Input) Snapshot {
 			add("services", "Core services", StateDegraded, "A supervised router process or the privileged apply socket is unavailable; inspect crash-loop/service state.")
 		}
 
-		if input.Config.DHCP.Enabled || input.Config.DHCP.DNSEnabled {
+		// DNS remains enabled independently of the DHCP allocator.
+		{
 			if !input.Facts.DnsmasqStarted {
 				add("dns_dhcp", "DNS / DHCP", StateDegraded, "DNS/DHCP is configured but dnsmasq is not started.")
 			} else if input.DNSResolves != nil && !*input.DNSResolves {
@@ -161,6 +166,8 @@ func Build(input Input) Snapshot {
 					detail = ": " + input.DNSError
 				}
 				add("dns_dhcp", "DNS / DHCP", StateDegraded, "dnsmasq is started but cannot resolve public names"+detail)
+			} else if input.DNSResolves == nil {
+				add("dns_dhcp", "DNS / DHCP", StateUnknown, "dnsmasq is started; DNS resolution has not been observed.")
 			} else {
 				add("dns_dhcp", "DNS / DHCP", StateHealthy, "dnsmasq is started and resolves public names.")
 			}

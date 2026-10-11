@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
 
 // ChangePreview is a read-only assessment of a candidate configuration. It
@@ -15,6 +16,10 @@ type ChangePreview struct {
 	RequiresConfirmation bool     `json:"requires_confirmation"`
 	RollbackSeconds      int      `json:"rollback_seconds,omitempty"`
 	ExpectedInterruption string   `json:"expected_interruption"`
+	FirewallChanges      []string `json:"firewall_changes,omitempty"`
+	FirewallWarnings     []string `json:"firewall_warnings,omitempty"`
+	NetworkChanges       []string `json:"network_changes,omitempty"`
+	NetworkWarnings      []string `json:"network_warnings,omitempty"`
 }
 
 func PreviewTransition(current, candidate config.SystemConfig) (ChangePreview, error) {
@@ -38,6 +43,10 @@ func PreviewTransition(current, candidate config.SystemConfig) (ChangePreview, e
 	}
 	if err := validateTransitionSafety(current, candidate); err != nil {
 		return ChangePreview{}, fmt.Errorf("transition safety validation failed: %w", err)
+	}
+	networkWarnings, err := inspectLANChange(current, candidate)
+	if err != nil {
+		return ChangePreview{}, err
 	}
 
 	changes := changedSections(current, candidate)
@@ -63,6 +72,10 @@ func PreviewTransition(current, candidate config.SystemConfig) (ChangePreview, e
 		RequiresConfirmation: confirmation,
 		RollbackSeconds:      rollbackSeconds,
 		ExpectedInterruption: interruption,
+		FirewallChanges:      services.DescribeFirewallChanges(current.Firewall, candidate.Firewall),
+		FirewallWarnings:     services.FirewallWarnings(candidate),
+		NetworkChanges:       services.DescribeNetworkChanges(current, candidate),
+		NetworkWarnings:      networkWarnings,
 	}, nil
 }
 

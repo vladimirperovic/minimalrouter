@@ -1,3 +1,4 @@
+import { networkFixture } from "./fixtures/network";
 import { expect, test, type Page } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 
@@ -25,7 +26,7 @@ async function setup(page: Page, enabled = true) {
         { month: "2026-09", devices: [{ ...usage("192.168.1.200", now - 300, "static-sensor"), mac: leases[2].mac }] },
       ] },
     };
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify(data[path] ?? {}) });
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(data[path] ?? networkFixture(path, CONFIG, leases) ?? {}) });
   });
   return state;
 }
@@ -48,8 +49,8 @@ for (const design of ["noema", "studio"]) {
     await expect(section.getByText("No devices match your search.")).toBeVisible();
     }
     await section.getByRole("link", { name: "View all devices" }).click();
-    await expect(page.getByRole("heading", { name: "Known devices", exact: true })).toBeVisible();
-    await expect(page.locator(".modern-device-section .device-hostname")).toHaveText(["active-laptop", "sleeping-laptop", "lease-only"]);
+    await expect(page.getByRole("heading", { name: "Devices & reservations", exact: true })).toBeVisible();
+    await expect(page.locator(".net-device-identity strong")).toHaveText(["active-laptop", "lease-only", "sleeping-laptop"]);
     expect(state.writes).toBe(0);
   });
 }
@@ -61,7 +62,7 @@ test("disabled accounting and failures are not presented as zero connected devic
   await expect(section.getByText("Device activity is unavailable while traffic accounting is off.")).toBeVisible();
   await expect(section.locator(".device-hostname")).toHaveCount(0);
   await section.getByRole("link", { name: "View all devices" }).click();
-  await expect(page.locator(".modern-device-section .device-hostname")).toHaveCount(3);
+  await expect(page.locator(".net-device-identity strong")).toHaveCount(3);
   expect(state.writes).toBe(0);
 });
 

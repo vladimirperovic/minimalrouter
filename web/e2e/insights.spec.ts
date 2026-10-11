@@ -26,16 +26,22 @@ async function fixture(page:Page){
  });
  return {mutations,fail:()=>{fail=true}};
 }
-for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(const width of [390,1440]){
- test(`${design} ${mode} ${width}: cards retain controls and large tables`,async({page})=>{
+// Keep each test focused enough for mobile WebKit to exercise every control
+// within its own timeout, instead of sharing one timeout across five pages.
+for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(const width of [390,1440])for(const routes of [['traffic','firewall','security'],['dns-filter','wireguard']]){
+ test(`${design} ${mode} ${width} ${routes.join('/')}: cards retain controls and large tables`,async({page,browserName})=>{
+  // Linux WebKit's software renderer takes several seconds per real click in
+  // these journeys. Keep actionability checks and assertions, but allow the
+  // complete sequence to finish; individual expect timeouts remain unchanged.
+  if(browserName==='webkit' && process.platform==='linux')test.setTimeout(90_000);
   await page.setViewportSize({width,height:1000});await page.addInitScript(({design,mode})=>{localStorage.setItem('minimalrouter:design',design);localStorage.setItem('minimalrouter:theme',mode)},{design,mode});
   const state=await fixture(page);const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('**/', async route => {
    const response=await route.fetch();
    await route.fulfill({response,headers:{...response.headers(),'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'; img-src 'self' data:; font-src 'self'; connect-src 'self'"}});
   });
-  for(const route of ['traffic','firewall','security','dns-filter','wireguard']){
-   if(route==='traffic') await page.goto('/#traffic');
+  for(const route of routes){
+   if(route===routes[0]) await page.goto(`/#${route}`);
    else {
     // Use the dashboard's navigation. Direct fragment loads also start WebKit's
     // native anchor scrolling, which can move controls between mouse events.

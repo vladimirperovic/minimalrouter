@@ -31,6 +31,14 @@ func (e *Engine) auditTransaction(tx *Transaction, previous config.Revision, pha
 	if phase == "timeout_rollback" {
 		reason = "confirmation_deadline_expired"
 	}
+	if tx.FirewallChanged {
+		if err := e.store.AppendAuditEvent("firewall.transaction", "local", map[string]string{
+			"transaction_id": tx.ID, "state": string(tx.CurrentState), "phase": phase, "reason": reason,
+			"previous_revision": fmt.Sprint(previous), "candidate_revision": fmt.Sprint(tx.Config.Revision),
+		}); err != nil {
+			log.Printf("[AUDIT] failed to persist firewall outcome: %v", err)
+		}
+	}
 	if err := e.store.AppendAuditEvent("config.transaction", "local", map[string]string{
 		"transaction_id": tx.ID, "state": string(tx.CurrentState), "phase": phase, "reason": reason,
 		"previous_revision": fmt.Sprint(previous), "candidate_revision": fmt.Sprint(tx.Config.Revision),

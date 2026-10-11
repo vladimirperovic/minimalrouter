@@ -1,6 +1,9 @@
 import type { DNSRiskAlert, DNSRiskException, Snapshot } from "../api-types";
 import type { Boot, AuditEvent } from "./logs";
 import { demoDNSRequest } from "./demoDNS";
+import { ruleScope } from "./firewall";
+import { demoNetworkRequest } from "./demoNetwork";
+import type { RouterConfig } from "../api-types";
 
 export const isDemoMode = import.meta.env.VITE_DEMO_MODE === "true";
 
@@ -22,7 +25,7 @@ let config = {
   lan: { interface: "eth1", ip_address: "192.168.1.1", netmask: "255.255.255.0", cidr: "192.168.1.1/24" },
   dhcp: {
     enabled: true,
-    dns_enabled: true,
+    dns_enabled: false,
     range_start: "192.168.1.100",
     range_end: "192.168.1.200",
     lease_time: "12h",
@@ -92,7 +95,7 @@ const health = {
     { id: "dns_dhcp", label: "DNS and DHCP", state: "healthy", summary: "Local services are responding" },
     { id: "updates", label: "Updates", state: "healthy", summary: "Firmware verification trust anchor is configured" },
     { id: "backup", label: "Encrypted backup", state: "warning", summary: "Last encrypted backup export was 11 days ago" },
-    { id: "firewall", label: "Firewall", state: "healthy", summary: "Default-deny policy is enforced" },
+    { id: "firewall", label: "Firewall base policy", state: "healthy", summary: "Demo observation: default-drop base policies; full ruleset equivalence is unverified" },
     { id: "wireguard", label: "WireGuard", state: "healthy", summary: "2 remote devices connected" },
     { id: "gateway", label: "Gateway monitoring", state: "healthy", summary: "Both public probes are reachable" },
     { id: "storage", label: "Storage", state: "healthy", summary: "30% used with 5.2 GB free" },
@@ -176,11 +179,17 @@ function liveSystem() {
   };
 }
 
-function gatewayHistory() {
+let gatewaySettings = { enabled: true, targets: ["1.1.1.1", "9.9.9.9"], interval_seconds: 30 };
+function gatewaySummary() {
+  return { available: true, enabled: gatewaySettings.enabled, state: gatewaySettings.enabled ? "healthy" : "unknown", timestamp: new Date().toISOString(), link: { connected: gatewaySettings.enabled, interface: "ppp0", local_ip: "203.0.113.9", peer_ip: "203.0.113.1" }, latency_ms: 18.4, jitter_ms: 2.1, packet_loss_percent: 0, pppoe_uptime_seconds: 691200, reconnects_1h: 0, reconnects_24h: 1,
+    targets: gatewaySettings.targets.map((target,i) => ({ target, reachable:true, packets_sent:4, packets_received:4, latency_ms:18+i, jitter_ms:2, packet_loss_percent:0 })), peer_probe:{target:"203.0.113.1",reachable:true,packets_sent:4,packets_received:4,latency_ms:4,jitter_ms:1,packet_loss_percent:0} };
+}
+function gatewayHistory(windowName = "1h") {
+  const span = ({"1h":1,"24h":24,"7d":168,"30d":720} as Record<string,number>)[windowName] || 1;
   return Array.from({ length: 110 }, (_, index) => ({
-    timestamp: new Date(Date.now() - (110 - index) * 30000).toISOString(), state: "healthy",
+    timestamp: new Date(Date.now() - (110 - index) * span * 3600000 / 110).toISOString(), state: index===65 ? "offline" : "healthy",
     latency_ms: 18.2 + Math.sin(index / 9) * 0.42 + Math.sin(index / 2.7) * 0.11,
-    jitter_ms: 1.8 + Math.sin(index / 11) * 0.18, packet_loss_percent: 0,
+    jitter_ms: 1.8 + Math.sin(index / 11) * 0.18, packet_loss_percent: index===65 ? 100 : 0,
     pppoe_uptime_seconds: 691200 - (110 - index) * 30,
     rx_bytes: 900000000 + index * 2100000, tx_bytes: 120000000 + index * 310000,
   }));
@@ -206,6 +215,8 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   const url = new URL(raw, window.location.origin);
   const path = url.pathname;
   const method = (init.method ?? "GET").toUpperCase();
+  const networkResponse = demoNetworkRequest(url, init, config as RouterConfig, liveSystem().runtime.dhcp_leases);
+  if (networkResponse) return networkResponse;
 
   if (path === "/api/v1/recovery/status") return json({ generated_at: new Date().toISOString(), revision: config.revision, last_backup_export_at: new Date(startedAt - 11 * 86400000).toISOString(), snapshot_count: snapshots.length, retention: { manual: 20, automatic: 20 }, pending: null, operation: null, demo: true });
   const snapshotAction = path.match(/^\/api\/v1\/snapshots\/([^/]+)(?:\/(preview|restore))?$/);
@@ -275,6 +286,10 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     if (!dnsSettings.enabled) { riskAlerts = []; dnsHistoryCleared = true; }
     return json({ available: true, ...dnsSettings });
   }
+  if (path === "/api/v1/gateway/probe" && method === "POST") return gatewaySettings.enabled ? json(gatewaySummary()) : json({error:"Enable gateway monitoring before checking."},409);
+  if (path === "/api/v1/gateway/diagnose" && method === "POST") return gatewaySettings.enabled ? json({overall:"healthy",cause:"healthy",checks:{pppoe:{ok:true,detail:"PPPoE connected (demo)"},internet:{ok:true,detail:"Both probe targets replied (demo)"},dns:{ok:true,detail:"DNS resolution works (demo)"},https:{ok:true,detail:"HTTPS reachable (demo)"}}}) : json({error:"Enable gateway monitoring before checking."},409);
+  if (path === "/api/v1/gateway/settings" && method === "PUT") { const next=parseBody(init); if (next) gatewaySettings={enabled:Boolean(next.enabled),targets:next.targets as string[],interval_seconds:Number(next.interval_seconds)}; return json(gatewaySettings); }
+  if (path.startsWith("/api/v1/system/actions/") && method === "POST") return json({success:true,demo:true});
   if (method !== "GET") return json({ state: "Committed", demo: true });
 
   if (path === "/api/v1/auth/session") return json({ authenticated: true, csrf_token: "public-demo", read_only: false, totp_enabled: false });
@@ -282,9 +297,12 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
   if (path === "/api/v1/config") return json(config);
   if (path === "/api/v1/system") return json(liveSystem());
   if (path === "/api/v1/health") return json(health);
-  if (path === "/api/v1/gateway/summary") return json({ available: true, enabled: true, state: "healthy", link: { connected: true, interface: "ppp0", local_ip: "203.0.113.9", peer_ip: "203.0.113.1" }, latency_ms: 18.4, jitter_ms: 2.1, packet_loss_percent: 0, pppoe_uptime_seconds: 691200, reconnects_1h: 0, reconnects_24h: 0, targets: ["1.1.1.1", "9.9.9.9"] });
-  if (path === "/api/v1/gateway/settings") return json({ enabled: true, targets: ["1.1.1.1", "9.9.9.9"], interval_seconds: 30 });
-  if (path === "/api/v1/gateway/history") return json({ window: url.searchParams.get("window") ?? "1h", points: gatewayHistory() });
+  if (path === "/api/v1/gateway/summary") return json(gatewaySummary());
+  if (path === "/api/v1/gateway/settings") return json(gatewaySettings);
+  if (path === "/api/v1/gateway/history") return json({ window: url.searchParams.get("window") ?? "1h", points: gatewayHistory(url.searchParams.get("window") || "1h") });
+  if (path === "/api/v1/gateway/recovery") return json({state:gatewaySettings.enabled?"armed":"paused",reason:gatewaySettings.enabled?"Watching the PPPoE link":"Monitoring is disabled",updated_at:new Date().toISOString()});
+  if (path === "/api/v1/gateway/events") { const end=new Date(Date.now()-3600000).toISOString(); return json({outage_window_days:7,outages:[{started_at:new Date(Date.now()-3780000).toISOString(),ended_at:end,last_observed_at:new Date(Date.now()-3630000).toISOString(),duration_seconds:180,outcome:"recovered",partial:false}],recovery_history_available:true,recoveries:[{id:"demo-recovery",timestamp:end,event_type:"gateway.auto_recovery_completed",details:{duration_seconds:"8"}}]}); }
+  if (path === "/api/v1/gateway/insights") return json({ available: true, window_days: 30, sampled_hours: 192, samples: 23040, up_samples: 23033, uptime_percent: 99.97, outages: 2, public_ip_changes: [] });
   if (path === "/api/v1/snapshots") return json({ snapshots });
   if (path === "/api/v1/transactions/pending") return json({});
   if (path === "/api/v1/audit/events") return json(demoAuditPage(url));
@@ -328,6 +346,12 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     const devices = [["studio-mac", "192.168.1.20", .46, 214], ["living-room-tv", "192.168.1.42", .31, 58], ["gaming-console", "192.168.1.64", .23, 41]].filter(([, address]) => scale > 0 && (!device || address === device)).map(([hostname, address, share, siteCount]) => ({ address, hostname, lookups: device ? total : Math.round(total * Number(share)), sites: siteCount, last_seen: last }));
     const flagged = [["192.168.1.42", "living-room-tv", "googlevideo.com", "youtube", 2810], ["192.168.1.42", "living-room-tv", "youtube.com", "youtube", 640], ["192.168.1.64", "gaming-console", "roblox.com", "roblox", 1120]].filter(([address]) => !device || address === device).map(([address, hostname, site, category, lookups]) => ({ address, hostname, site, category, lookups: Math.round(Number(lookups) * days), first_seen: last - 30000, last_seen: last }));
     return json({ available: true, enabled: dnsSettings.enabled, collection: { state: dnsSettings.enabled ? "active" : "disabled", last_success: now.toISOString() }, retention_days: dnsSettings.retention_days, period, from: from.toISOString(), until: until.toISOString(), device: device || undefined, search: search || undefined, history_started_at: scale ? new Date(day.getTime() - 21 * 86400000).toISOString() : null, collected_at: now.toISOString(), total_lookups: total, unitemized_lookups: 0, site_count: scale ? device ? 120 : 412 : 0, points, devices, sites: scale ? sites : [], flagged: scale ? flagged : [] });
+  }
+  if (path === "/api/v1/firewall/status") {
+    return json({demo:true,revision:config.revision,runtime:{available:true,observed_at:new Date().toISOString(),default_deny:true,policies:{input:"drop",forward:"drop",output:"drop"},loaded_revision:config.revision,revision_matches:true,configuration_match:"unverified"},rules:config.firewall.custom_rules.map((rule,i)=>({id:rule.id,name:rule.name,scope:ruleScope(rule),packets:rule.enabled ? 248+i*115 : null,last_increase_observed_at:null})),engine:{apply_in_progress:false,recovery_required:false},pending_transaction:null,warnings:[],limitations:["Demo data, no appliance connected."]});
+  }
+  if (path === "/api/v1/firewall/explain") {
+    return json({revision:config.revision,checked_at:new Date().toISOString(),basis:"demo",verdict:"unknown",reason:"This preview has no connected appliance. On your router, this check evaluates the configured rules, scopes and service restrictions.",source_zone:"demo source",destination_zone:"demo destination",limitations:["No packet was sent. Demo data cannot confirm a firewall decision."]});
   }
   if(path==='/api/v1/firewall/activity') {
     const now=new Date();const points=Array.from({length:48},(_,i)=>({start:new Date(now.getTime()-(47-i)*1800000).toISOString(),allowed:Math.round(22000+Math.sin(i*.4)*9000+i%7*1500),blocked:i%9+1,samples:30}));

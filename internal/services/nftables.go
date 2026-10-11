@@ -103,7 +103,7 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
 			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
 		}
-		if direction == "forward" && action == "allow" {
+		if direction == "forward" && config.FirewallRuleScope(rule) == "wan" {
 			// Custom forward allows are strictly LAN -> WAN egress. They must
 			// never match traffic toward an extra LAN or a tunnel, or a generic
 			// rule could silently override segment isolation policies.
@@ -117,7 +117,7 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 			verdict = "accept"
 		}
 		buf.WriteString(fmt.Sprintf("    # Custom LAN %s %s rule: %s\n", direction, action, sanitizeComment(rule.Name)))
-		buf.WriteString(fmt.Sprintf("    %s %s\n", strings.Join(match, " "), verdict))
+		buf.WriteString(fmt.Sprintf("    %s counter name %s %s\n", strings.Join(match, " "), FirewallRuleCounter(rule), verdict))
 	}
 }
 
@@ -421,6 +421,16 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 
 	// router-applyd wraps this owned table in an atomic delete-and-create batch.
 	buf.WriteString("table inet minimalrouter {\n")
+	fmt.Fprintf(&buf, "  counter mr_revision_%d { }\n", cfg.Revision)
+	seenRuleCounters := map[string]bool{}
+	for _, rule := range cfg.Firewall.CustomRules {
+		name := FirewallRuleCounter(rule)
+		emitted := rule.Direction != "forward" || config.FirewallRuleScope(rule) != "wan" || cfg.WAN.Enabled
+		if rule.Enabled && emitted && !seenRuleCounters[name] {
+			fmt.Fprintf(&buf, "  counter %s { }\n", name)
+			seenRuleCounters[name] = true
+		}
+	}
 	writeDeviceProfileObjects(&buf, cfg)
 	writeAccountingSets(&buf, cfg)
 	// Observation chains have no verdict rules. Accept policy in these base

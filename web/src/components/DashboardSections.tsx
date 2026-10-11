@@ -1,4 +1,4 @@
-import FirewallActivityPanel from "./FirewallActivityPanel";
+import FirewallPage from "./FirewallPage";
 import { useCallback } from "react";
 import { qosStatus } from "../lib/qos";
 import RecoveryPanel from "./RecoveryPanel";
@@ -9,13 +9,11 @@ import { apiFetch } from "../lib/api";
 import AuditLogPanel from "./AuditLogPanel";
 import GatewayQualityPanel from "./GatewayQualityPanel";
 import DeviceLeasesTable from "./DeviceLeasesTable";
-import StaticLeasesEditor from "./StaticLeasesEditor";
-import FirewallRulesEditor from "./FirewallRulesEditor";
-import FirewallPresets from "./FirewallPresets";
+import NetworkPage from "./NetworkPage";
 import WireGuardPeerDetails, { type PeerDetails } from "./WireGuardPeerDetails";
 import TrafficPanel from "./TrafficPanel";
 import DNSActivityPanel from "./DNSActivityPanel";
-import type { GatewaySettings, GatewaySummary, RouterConfig, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
+import type { ApplianceHealth, GatewaySettings, GatewaySummary, RouterConfig, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
 
 const DNSFilterPanel = lazy(() => import("./DNSFilterPanel"));
@@ -34,6 +32,7 @@ type SpeedTestResult = {
 
 type Props = {
   active: SectionID;
+  health?: ApplianceHealth | null;
   config: RouterConfig;
   gatewaySummary: GatewaySummary | null;
   gatewaySettings: GatewaySettings;
@@ -251,18 +250,7 @@ function WGClientPanel({
   );
 }
 
-const DNS_NAME_PATTERN = /^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?$/;
-const DNS_IP_PATTERN = /^(\d{1,3}\.){3}\d{1,3}$/;
 
-type DNSRecordRow = { name: string; ip: string };
-
-// StaticDNSRecordsEditor renders the host-record table. Rows are plain inputs
-// named dns_record_name_<i> / dns_record_ip_<i> so the parent form's
-// the shared per-section handler picks them up; add/remove stays local state
-// until "Save records".
-// Reset only when canonical DNS records change; unrelated saves retain drafts.
-// dhcp.dns_servers takes IPv4 addresses only.
-const IPV4_PATTERN = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
 
 // WiFiRadioFields couples the channel control to the band. The appliance
 // accepts 1-11 on 2.4 GHz and exactly 36, 40, 44 or 48 on the portable 5 GHz
@@ -300,227 +288,11 @@ function WiFiRadioFields({ band, channel }: { band: string; channel: number }) {
   );
 }
 
-// Each network section saves on its own. The submitter's value tells the
-// shared handler which slice of the configuration to write, which keeps every
-// fieldset a direct child of one form and leaves the existing CSS untouched.
-function SectionSave({ busy, label, saved, section }: { busy: boolean; label: string; saved: boolean; section: string }) {
-  return (
-    <div className="form-actions section-actions">
-      <span aria-live="polite" className={saved ? "section-saved is-visible" : "section-saved"}>
-        {saved && (
-          <>
-            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
-            Saved
-          </>
-        )}
-      </span>
-      <button className="button primary" disabled={busy} name="section" type="submit" value={section}>{label}</button>
-    </div>
-  );
-}
-
-function netmaskForPrefix(prefix: number): string {
-  const mask = prefix >= 32 ? 0xffffffff : prefix <= 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
-  return [24, 16, 8, 0].map((shift) => (mask >>> shift) & 255).join(".");
-}
-
-function formValue(form: FormData, name: string) {
-  return String(form.get(name) ?? "").trim();
-}
-
-function ipToNumber(value: string): number | null {
-  const parts = value.trim().split(".");
-  if (parts.length !== 4) return null;
-  let total = 0;
-  for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) return null;
-    const octet = Number(part);
-    if (octet > 255) return null;
-    total = total * 256 + octet;
-  }
-  return total;
-}
-
-function StaticDNSRecordsEditor({ records, disabled, busy, saved }: { records: DNSRecordRow[]; disabled: boolean; busy: boolean; saved: boolean }) {
-  const [rows, setRows] = useState<DNSRecordRow[]>(records.map((r) => ({ name: r.name || "", ip: r.ip || "" })));
-  const update = (index: number, patch: Partial<DNSRecordRow>) =>
-    setRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  return (
-    <fieldset className="dns-records-fieldset" aria-labelledby="dns-records-title">
-      <div className="fieldset-title" id="dns-records-title">Static DNS records</div>
-      <p className="form-note">Names resolved by the router itself (host-record), useful for fixed devices and local services — e.g. <code>immich.home.arpa → 10.20.30.10</code>.</p>
-      {rows.length === 0 ? (
-        <div className="dns-records-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z" /><path d="M12 8v5" /><path d="M12 16.5v.5" /></svg>
-          <span>No static records yet — add one below.</span>
-        </div>
-      ) : (
-        <div className="dns-records-list">
-          {rows.map((row, i) => (
-            <div className="dns-record-row" key={i}>
-              <label className="field">
-                <span>Name</span>
-                <input
-                  className={!row.name || DNS_NAME_PATTERN.test(row.name) ? "" : "is-invalid"}
-                  name={`dns_record_name_${i}`}
-                  onChange={(e) => update(i, { name: e.target.value })}
-                  pattern="[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?"
-                  placeholder="immich.home.arpa"
-                  title="Lowercase hostname, dots allowed"
-                  value={row.name}
-                />
-              </label>
-              <label className="field">
-                <span>IPv4 address</span>
-                <input
-                  className={!row.ip || DNS_IP_PATTERN.test(row.ip) ? "" : "is-invalid"}
-                  name={`dns_record_ip_${i}`}
-                  onChange={(e) => update(i, { ip: e.target.value })}
-                  pattern="(\d{1,3}\.){3}\d{1,3}"
-                  placeholder="10.20.30.10"
-                  title="IPv4 address, e.g. 10.20.30.10"
-                  value={row.ip}
-                />
-              </label>
-              <button
-                className="dns-record-remove"
-                disabled={disabled}
-                onClick={() => setRows((rows) => rows.filter((_, idx) => idx !== i))}
-                title={`Remove ${row.name || "record"}`}
-                type="button"
-                aria-label={`Remove ${row.name || "record"}`}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <button
-        className="dns-record-add"
-        disabled={disabled}
-        onClick={() => setRows((rows) => [...rows, { name: "", ip: "" }])}
-        type="button"
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-        Add record
-      </button>
-      <SectionSave busy={busy} label="Save records" saved={saved} section="records" />
-    </fieldset>
-  );
-}
-
 export default function DashboardSections({
-  active, config, gatewaySummary, gatewaySettings, runtime, leases, busy,
-  load, applyConfig, applyGatewayMonitoring, markSectionSaved, savedSection, submitCloudflare, submitSquid,
-  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleWAN, toggleDHCP, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, setError, onNavigate }: Props) {
-  const [staticPrefill, setStaticPrefill] = useState<{ mac?: string; ip?: string; hostname?: string } | null>(null);
+  active, health, config, gatewaySummary, gatewaySettings, runtime, leases, busy,
+  load, applyConfig, applyGatewayMonitoring, submitCloudflare, submitSquid,
+  submitWiFi, submitQoS, submitWireGuardClient, runSpeedTest, toggleQoS, toggleCloudflare, toggleSquid, toggleWiFi, toggleWGClient, speedTest, speedTesting, setError }: Props) {
   const qosState = qosStatus(config, runtime.qos);
-  const lanPrefix = Number(String(config.lan.cidr || "").split("/")[1]) || 24;
-
-  // Pool size and occupancy are derived, not stored, so the DHCP section can
-  // say what the range actually costs before it is changed.
-  const poolStart = ipToNumber(config.dhcp.range_start || "");
-  const poolEnd = ipToNumber(config.dhcp.range_end || "");
-  const poolSize = poolStart !== null && poolEnd !== null && poolEnd >= poolStart ? poolEnd - poolStart + 1 : 0;
-  const inPool = (address: string) => {
-    const value = ipToNumber(address);
-    return value !== null && poolStart !== null && poolEnd !== null && value >= poolStart && value <= poolEnd;
-  };
-  const poolLeased = poolSize > 0 ? leases.filter((lease) => inPool(lease.ip_address)).length : 0;
-  const reservationsOutsidePool = (config.dhcp.static_leases || []).filter((lease) => !inPool(lease.ip_address)).length;
-
-  const confirmSaved = (section: string, ok: boolean) => {
-    if (ok) markSectionSaved(section);
-  };
-
-  const submitNetworkSection = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const section = event.currentTarget.dataset.section || submitter?.value || "";
-
-    if (section === "wan") {
-      const ok = await applyConfig((next) => {
-        next.wan = {
-          ...next.wan,
-          interface: formValue(form, "wan_interface"),
-          username: formValue(form, "pppoe_username"),
-          password: formValue(form, "pppoe_password") || next.wan.password,
-          mtu: Number(formValue(form, "wan_mtu")) || 1492,
-        };
-      }, "WAN settings saved.");
-      confirmSaved("wan", ok);
-      return;
-    }
-
-    if (section === "lan") {
-      const ok = await applyConfig((next) => {
-        const prefix = Number(String(next.lan.cidr || "").split("/")[1]) || 24;
-        const address = formValue(form, "lan_ip");
-        next.lan = {
-          ...next.lan,
-          interface: formValue(form, "lan_interface"),
-          ip_address: address,
-          cidr: `${address}/${prefix}`,
-          netmask: netmaskForPrefix(prefix),
-        };
-      }, "LAN settings saved.");
-      confirmSaved("lan", ok);
-      return;
-    }
-
-    if (section === "dhcp") {
-      const ok = await applyConfig((next) => {
-        next.dhcp = {
-          ...next.dhcp,
-          range_start: formValue(form, "dhcp_start"),
-          range_end: formValue(form, "dhcp_end"),
-          lease_time: formValue(form, "lease_time"),
-        };
-      }, "DHCP settings saved.");
-      confirmSaved("dhcp", ok);
-      return;
-    }
-
-    if (section === "dns") {
-      const resolvers = formValue(form, "dns_servers").split(",").map((item) => item.trim()).filter(Boolean);
-      if (resolvers.length < 1 || resolvers.length > 3) {
-        setError("Enter between one and three upstream resolvers, separated by commas.");
-        return;
-      }
-      const badResolver = resolvers.find((item) => !IPV4_PATTERN.test(item));
-      if (badResolver) {
-        setError(`"${badResolver}" is not a valid IPv4 address.`);
-        return;
-      }
-      const ok = await applyConfig((next) => {
-        next.dhcp = {
-          ...next.dhcp,
-          // DNS-over-HTTPS stays off: the appliance refuses the flag until a
-          // verified local resolver ships, so the control is disabled above.
-          dns_enabled: false,
-          dns_servers: resolvers,
-        };
-      }, "DNS settings saved.");
-      confirmSaved("dns", ok);
-      return;
-    }
-
-    if (section === "records") {
-      const records: Array<{ name: string; ip: string }> = [];
-      for (const [key, value] of Array.from(form.entries())) {
-        if (!key.startsWith("dns_record_name_")) continue;
-        const name = String(value).trim();
-        const ip = String(form.get(key.replace("dns_record_name_", "dns_record_ip_")) || "").trim();
-        if (name || ip) records.push({ name, ip });
-      }
-      const ok = await applyConfig((next) => {
-        next.dns = { ...next.dns, records };
-      }, "Static DNS records saved.");
-      confirmSaved("records", ok);
-    }
-  };
 
   const [ddnsTab, setDdnsTab] = useState(config.cloudflare.ddns_provider || "noip");
   // The status card reports the provider the router is actually running, which
@@ -646,92 +418,14 @@ export default function DashboardSections({
     }
   };
 
-  const changeWAN = (enabled: boolean) => {
-    if (!enabled && !window.confirm("Disable PPPoE WAN? This will disconnect Internet access until WAN is enabled again.")) return;
-    toggleWAN(enabled);
-  };
-
-  const changeDHCP = (enabled: boolean) => {
-    if (!enabled && !window.confirm("Disable the DHCP server? Devices may lose network access when their current leases expire.")) return;
-    toggleDHCP(enabled);
-  };
-
   return <>
-{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable view="active" leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} /></section>}
+{active === "overview" && <section className="dashboard-section overview-devices" id="overview-devices"><DeviceLeasesTable view="active" leases={leases} config={config} /></section>}
 
 {active === "gateway" && <GatewayQualityPanel busy={busy} onApply={applyGatewayMonitoring} onError={setError} settings={gatewaySettings} summary={gatewaySummary} />}
 
-{active === "network" && <section className="dashboard-section" id="network">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Connectivity</p><h2>WAN, LAN and DHCP</h2><p className="section-copy">Configure the uplink, local gateway, address allocation and local DNS records from one controlled network workspace.</p></div><span className={`classic-status-chip ${config.wan.enabled && runtime.wan_connected === true ? "" : "is-off"}`}>WAN {config.wan.enabled ? runtime.wan_connected === true ? "Connected" : runtime.wan_connected === false ? "Disconnected" : "Unknown" : "Disabled"}</span></div><dl className="subpage-hero-facts"><div><dt>Uplink</dt><dd>{config.wan.enabled ? "PPPoE" : "Off"}</dd><small>{config.wan.interface || "No interface"}</small></div><div><dt>LAN gateway</dt><dd>{config.lan.ip_address}</dd><small>{config.lan.interface}</small></div><div><dt>DHCP configuration</dt><dd>{config.dhcp.enabled ? "Enabled" : "Disabled"}</dd><small>{config.dhcp.range_start} – {config.dhcp.range_end}</small></div><div><dt>DNS resolvers</dt><dd>{config.dhcp.dns_servers?.length || 0}</dd><small>{config.dhcp.dns_enabled ? "encrypted upstream DNS" : "plain upstream DNS"}</small></div></dl></div>
-  <form className="settings-form" data-section="wan" key={JSON.stringify([config.wan.interface, config.wan.mtu, config.wan.username, config.wan.password])} onSubmit={submitNetworkSection}>
-    <fieldset aria-labelledby="network-wan-title">
-      <div className="fieldset-title" id="network-wan-title">WAN / PPPoE</div>
-      <label className="checkbox-row"><input checked={config.wan.enabled} type="checkbox" onChange={(e) => changeWAN(e.target.checked)} /><span>Enable PPPoE WAN</span></label>
-      <div className="form-grid two">
-        <label className="field"><span>WAN interface</span><input defaultValue={config.wan.interface} name="wan_interface" required /></label>
-        <label className="field"><span>MTU</span><input defaultValue={config.wan.mtu} max="1500" min="1280" name="wan_mtu" type="number" /></label>
-        <label className="field"><span>PPPoE username</span><input defaultValue={config.wan.username} name="pppoe_username" /></label>
-        <label className="field"><span>New PPPoE password</span><input autoComplete="new-password" name="pppoe_password" placeholder="Leave blank to keep stored secret" type="password" /></label>
-      </div>
-      <SectionSave busy={busy} label="Save WAN" saved={savedSection === "wan"} section="wan" />
-    </fieldset>
+{active === "network" && <NetworkPage config={config} busy={busy} applyConfig={applyConfig} health={health}/>}
 
-  </form>
-  <form className="settings-form" data-section="lan" key={JSON.stringify(config.lan)} onSubmit={submitNetworkSection}>
-    <fieldset aria-labelledby="network-lan-title">
-      <div className="fieldset-title" id="network-lan-title">LAN interface</div>
-      <div className="form-grid three">
-        <label className="field"><span>Interface</span><input defaultValue={config.lan.interface} name="lan_interface" required /></label>
-        <label className="field"><span>Gateway IPv4</span><input defaultValue={config.lan.ip_address} name="lan_ip" required /></label>
-        <label className="field"><span>Prefix</span><input defaultValue={`/${lanPrefix}`} disabled name="lan_prefix_display" title="Changing the LAN subnet requires the local recovery console" /></label>
-      </div>
-      <p className="form-note">Changing the gateway address moves the Dashboard with it. The apply is provisional: confirm access afterwards or the router rolls back.</p>
-      <SectionSave busy={busy} label="Save LAN" saved={savedSection === "lan"} section="lan" />
-    </fieldset>
-
-  </form>
-  <form className="settings-form" data-section="dhcp" key={JSON.stringify([config.dhcp.range_start, config.dhcp.range_end, config.dhcp.lease_time])} onSubmit={submitNetworkSection}>
-    <fieldset aria-labelledby="network-dhcp-title">
-      <div className="fieldset-title" id="network-dhcp-title">DHCP server</div>
-      <label className="checkbox-row"><input checked={config.dhcp.enabled} type="checkbox" onChange={(e) => changeDHCP(e.target.checked)} /><span>Enable DHCP server</span></label>
-      <div className="form-grid three">
-        <label className="field"><span>Range start</span><input defaultValue={config.dhcp.range_start} name="dhcp_start" required /></label>
-        <label className="field"><span>Range end</span><input defaultValue={config.dhcp.range_end} name="dhcp_end" required /></label>
-        <label className="field"><span>Lease time</span><input defaultValue={config.dhcp.lease_time} name="lease_time" pattern="\s*\d+\s*[mh]\s*" placeholder="12h" required title="A duration between 1m and 168h, using minutes or hours, for example 30m, 12h or 168h" /></label>
-      </div>
-      <p className="form-note">
-        Lease time accepts minutes or hours between <code>1m</code> and <code>168h</code>, for example <code>30m</code> or <code>12h</code>. Days are not a unit here.
-        {poolSize > 0 && <> Pool holds <strong>{poolSize}</strong> address{poolSize === 1 ? "" : "es"}; <strong>{poolLeased}</strong> currently leased. Reservations outside the pool: <strong>{reservationsOutsidePool}</strong>.</>}
-      </p>
-      <SectionSave busy={busy} label="Save DHCP" saved={savedSection === "dhcp"} section="dhcp" />
-    </fieldset>
-
-  </form>
-  <form className="settings-form" data-section="dns" key={JSON.stringify([config.dhcp.dns_enabled, config.dhcp.dns_servers])} onSubmit={submitNetworkSection}>
-    <fieldset aria-labelledby="network-dns-title">
-      <div className="fieldset-title" id="network-dns-title">DNS</div>
-      <label className="checkbox-row is-unavailable"><input checked={false} disabled name="dns_enabled" readOnly type="checkbox" /><span>Encrypt upstream DNS (DNS-over-HTTPS)<small>Unavailable until a verified local resolver ships with the appliance. The router already answers DNS for LAN clients whenever DHCP is on; this would only encrypt the upstream hop.</small></span></label>
-      <div className="form-grid">
-        <label className="field"><span>Upstream resolvers, comma separated</span><input defaultValue={(config.dhcp.dns_servers || []).join(", ")} name="dns_servers" required /></label>
-      </div>
-      <p className="form-note">Handed to clients in DHCP option 6. With the router answering DNS, clients are pointed at {config.lan.ip_address} and these resolvers are used upstream.</p>
-      <SectionSave busy={busy} label="Save DNS" saved={savedSection === "dns"} section="dns" />
-    </fieldset>
-
-  </form>
-  <form className="settings-form" data-section="records" onSubmit={submitNetworkSection}>
-    <StaticDNSRecordsEditor busy={busy} disabled={busy} key={JSON.stringify(config.dns?.records || [])} records={config.dns?.records || []} saved={savedSection === "records"} />
-  </form>
-  <DeviceLeasesTable leases={leases} config={config} onAddStatic={(lease) => { setStaticPrefill({ mac: lease.mac, ip: lease.ip_address, hostname: lease.hostname }); onNavigate("network"); }} />
-  <StaticLeasesEditor applyConfig={applyConfig} busy={busy} config={config} liveLeases={leases} prefill={staticPrefill} onPrefillConsumed={() => setStaticPrefill(null)} />
-</section>}
-
-{active === "firewall" && <section className="dashboard-section" id="firewall">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Default deny</p><h2>Firewall policy</h2><p className="section-copy">Review the enforced WAN posture, state tracking and the only paths permitted into the local network.</p></div></div><dl className="subpage-hero-facts"><div><dt>WAN input</dt><dd>Deny</dd><small>unsolicited traffic blocked</small></div><div><dt>State tracking</dt><dd>{config.firewall.stateful_firewall ? "On" : "Invalid"}</dd><small>established traffic tracked</small></div><div><dt>Remote entry</dt><dd>WireGuard</dd><small>{config.firewall.wan_ingress_mode || "wireguard_only"}</small></div><div><dt>Tunnel forwards</dt><dd>{(config.firewall.port_forwards || []).filter((item) => item.enabled).length}</dd><small>WAN remains closed</small></div></dl></div>
-  <FirewallActivityPanel />
-  <FirewallRulesEditor applyConfig={applyConfig} busy={busy} config={config} />
-  <FirewallPresets applyConfig={applyConfig} busy={busy} config={config} />
-</section>}
+{active === "firewall" && <FirewallPage config={config} runtime={runtime} busy={busy} applyConfig={applyConfig}/>}
 
 {active === "traffic" && <TrafficPanel applyConfig={applyConfig} busy={busy} config={config} />}
 {active === "dns-activity" && <DNSActivityPanel busy={busy} />}

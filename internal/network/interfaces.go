@@ -18,6 +18,7 @@ type InterfaceInfo struct {
 	MACAddress   string `json:"mac_address,omitempty"`
 	Up           bool   `json:"up"`
 	Carrier      bool   `json:"carrier"`
+	CarrierKnown bool   `json:"carrier_known"`
 	Physical     bool   `json:"physical"`
 	DefaultRoute bool   `json:"default_route"`
 	Score        int    `json:"score"`
@@ -57,11 +58,14 @@ func DiscoverFrom(sysClassNet, routeFile string, interfaces []net.Interface) (Ro
 			Physical:     physicalInterface(sysClassNet, iface.Name),
 			DefaultRoute: defaultRoutes[iface.Name],
 		}
+		if raw, err := os.ReadFile(filepath.Join(sysClassNet, iface.Name, "carrier")); err == nil {
+			item.CarrierKnown = strings.TrimSpace(string(raw)) == "0" || strings.TrimSpace(string(raw)) == "1"
+		}
 		item.Score = score(item)
 		items = append(items, item)
 	}
 	if len(items) < 2 {
-		return RoleRecommendation{}, errors.New("at least two usable network interfaces are required")
+		return RoleRecommendation{Interfaces: items, Warnings: []string{"At least two usable interfaces are required to recommend WAN/LAN roles."}}, errors.New("at least two usable network interfaces are required")
 	}
 
 	sort.SliceStable(items, func(i, j int) bool {

@@ -71,6 +71,10 @@ type ChangePreview = {
   rollback_seconds?: number;
   expected_interruption?: string;
   error?: string;
+  firewall_changes?: string[];
+  firewall_warnings?: string[];
+  network_changes?: string[];
+  network_warnings?: string[];
 };
 
 async function confirmConfigChange(body: string): Promise<boolean> {
@@ -93,6 +97,10 @@ async function confirmConfigChange(body: string): Promise<boolean> {
     "Smart Change Preview",
     "",
     changes,
+    ...(preview.network_changes?.length ? ["", "Network changes", ...preview.network_changes.map(item => `• ${item}`)] : []),
+    ...(preview.network_warnings?.length ? ["", "Network review", ...preview.network_warnings.map(item => `• ${item}`)] : []),
+    ...(preview.firewall_changes?.length ? ["", "Firewall changes", ...preview.firewall_changes.map(item => `• ${item}`)] : []),
+    ...(preview.firewall_warnings?.length ? ["", "Review", ...preview.firewall_warnings.map(item => `• ${item}`)] : []),
     "",
     `Risk: ${risk}`,
     preview.expected_interruption || "Affected services may restart briefly.",

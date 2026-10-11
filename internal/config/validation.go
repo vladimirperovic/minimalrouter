@@ -18,6 +18,7 @@ var (
 	hostnamePattern              = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 	domainPattern                = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
 	safeNamePattern              = regexp.MustCompile(`^[\pL\pN][\pL\pN ._()/-]{0,63}$`)
+	presetIDPattern              = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	credentialNamePattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	cloudflareTokenPattern       = regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`)
 	wireGuardEndpointHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
@@ -288,6 +289,15 @@ func (c *SystemConfig) Validate() error {
 			if lanIP != nil && !cidrIP.Equal(lanIP) {
 				appendFieldError(&errs, "lan.cidr", "address must exactly match lan.ip_address")
 			}
+			if lanIP != nil {
+				broadcast := make(net.IP, net.IPv4len)
+				for i := range broadcast {
+					broadcast[i] = network.IP.To4()[i] | ^network.Mask[i]
+				}
+				if lanIP.Equal(network.IP) || lanIP.Equal(broadcast) || lanIP.IsUnspecified() || lanIP.IsLoopback() || lanIP.IsMulticast() {
+					appendFieldError(&errs, "lan.ip_address", "must be a usable host address, not a network, broadcast, loopback or multicast address")
+				}
+			}
 			expectedMask := net.IP(network.Mask).String()
 			if c.LAN.Netmask != expectedMask {
 				appendFieldError(&errs, "lan.netmask", "must match the CIDR prefix")
@@ -297,6 +307,24 @@ func (c *SystemConfig) Validate() error {
 		appendFieldError(&errs, "lan.cidr", "is required")
 	}
 
+	// dnsmasq remains the LAN resolver even when address allocation is disabled.
+	if len(c.DHCP.DNSServers) < 1 || len(c.DHCP.DNSServers) > 3 {
+		appendFieldError(&errs, "dhcp.dns_servers", "must contain between one and three explicit upstream resolvers")
+	}
+	seenDNS := make(map[string]bool)
+	for i, dns := range c.DHCP.DNSServers {
+		ip := parseIPv4(dns)
+		field := fmt.Sprintf("dhcp.dns_servers[%d]", i)
+		if ip == nil {
+			appendFieldError(&errs, field, "must be a valid IPv4 address")
+		} else if ip.IsUnspecified() || ip.IsLoopback() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) || ip.Equal(lanIP) {
+			appendFieldError(&errs, field, "must be a unicast upstream resolver, not the router's own DNS listener")
+		} else if seenDNS[ip.String()] {
+			appendFieldError(&errs, field, "duplicates another upstream resolver")
+		} else {
+			seenDNS[ip.String()] = true
+		}
+	}
 	if c.DHCP.Enabled {
 		startIP := parseIPv4(c.DHCP.RangeStart)
 		endIP := parseIPv4(c.DHCP.RangeEnd)
@@ -327,17 +355,9 @@ func (c *SystemConfig) Validate() error {
 				appendFieldError(&errs, "dhcp.range", "cannot contain the LAN gateway address")
 			}
 		}
-		if len(c.DHCP.DNSServers) < 1 || len(c.DHCP.DNSServers) > 3 {
-			appendFieldError(&errs, "dhcp.dns_servers", "must contain between one and three explicit upstream resolvers")
-		}
 		leaseTime, err := time.ParseDuration(c.DHCP.LeaseTime)
 		if err != nil || leaseTime < time.Minute || leaseTime > 7*24*time.Hour {
 			appendFieldError(&errs, "dhcp.lease_time", "must be a duration between 1m and 168h")
-		}
-		for i, dns := range c.DHCP.DNSServers {
-			if parseIPv4(dns) == nil {
-				appendFieldError(&errs, fmt.Sprintf("dhcp.dns_servers[%d]", i), "must be a valid IPv4 address")
-			}
 		}
 		seenMAC := make(map[string]struct{})
 		seenLeaseIP := make(map[string]struct{})
@@ -440,6 +460,15 @@ func (c *SystemConfig) Validate() error {
 	}
 
 	for i, rule := range c.Firewall.CustomRules {
+		if rule.Scope != "" && rule.Scope != "all" && rule.Scope != "wan" {
+			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].scope", i), "must be all or wan")
+		}
+		if rule.Direction == "input" && rule.Scope == "wan" {
+			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].scope", i), "WAN scope is only valid for forward rules")
+		}
+		if rule.PresetID != "" && !presetIDPattern.MatchString(rule.PresetID) {
+			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].preset_id", i), "must be a short preset identifier")
+		}
 		if !safeNamePattern.MatchString(rule.Name) || hasUnsafeControl(rule.Name) {
 			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].name", i), "contains unsupported characters")
 		}
@@ -473,7 +502,7 @@ func (c *SystemConfig) Validate() error {
 				}
 			} else if _, srcNetwork, err := net.ParseCIDR(rule.SrcIP); err != nil || srcNetwork.IP.To4() == nil {
 				appendFieldError(&errs, field, "must be a valid LAN source address or IPv4 CIDR")
-			} else if lanNetwork != nil && !lanNetwork.Contains(srcNetwork.IP) {
+			} else if lanNetwork != nil && !networkContainsNetwork(lanNetwork, srcNetwork) {
 				appendFieldError(&errs, field, "must be contained in the LAN network")
 			}
 		}

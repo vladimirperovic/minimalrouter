@@ -40,6 +40,7 @@ type Transaction struct {
 	CreatedAt            time.Time           `json:"created_at"`
 	ConfirmedAt          *time.Time          `json:"confirmed_at,omitempty"`
 	ConfirmationDeadline *time.Time          `json:"confirmation_deadline,omitempty"`
+	FirewallChanged      bool                `json:"firewall_changed,omitempty"`
 }
 
 const (
@@ -172,6 +173,7 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 	defer e.mu.Unlock()
 
 	tx := &Transaction{ID: txID, CurrentState: StateReceived, Config: newCfg, CreatedAt: time.Now()}
+	tx.FirewallChanged = !config.EqualSection(e.currentConfig.Firewall, newCfg.Firewall)
 	previousRevision := e.currentConfig.Revision
 	defer func() { e.auditTransaction(tx, previousRevision, "apply") }()
 	e.activeTx = tx
@@ -226,6 +228,11 @@ func (e *Engine) processTransaction(txID string, newCfg config.SystemConfig, all
 		return tx, err
 	}
 	if !allowInterfaceChange {
+		if _, err := inspectLANChange(e.currentConfig, newCfg); err != nil {
+			tx.CurrentState = StateRejected
+			tx.Error = err.Error()
+			return tx, err
+		}
 		if err := validateTransitionSafety(e.currentConfig, newCfg); err != nil {
 			tx.CurrentState = StateRejected
 			tx.Error = "Transition safety validation failed: " + err.Error()

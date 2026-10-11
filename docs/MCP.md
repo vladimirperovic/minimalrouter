@@ -76,6 +76,10 @@ Read-only mode advertises:
 | `get_dns_filter_profiles` | Configured current/next schedule states, known devices and missing DHCP reservations; runtime enforcement remains unverified |
 | `get_dns_filter_operations` | Last 20 durable DNS operations with IDs, phases, revisions, failures and verified outcomes |
 | `get_diagnostics` | Redacted appliance health, resources, pending recovery, last five boot summaries and up to 100 recent recovery audit records; private topology may remain |
+| `get_lan_dhcp_status` | LAN/DHCP/DNS configuration, pool allocation, lease freshness/completeness and pending management URL |
+| `list_dhcp_leases` | Search active leases by hostname/IP/MAC with sorting and bounded pagination |
+| `get_network_interfaces` | Discovered interfaces and measured carrier state, including unknown state |
+| `check_ip_availability` | Known conflicts and full-subnet reservation suggestions; no active scan |
 | `get_router_status` | Read redacted runtime status |
 | `get_full_config` | Read the redacted canonical configuration |
 | `get_health` | Read appliance health checks |
@@ -83,6 +87,8 @@ Read-only mode advertises:
 | `get_startup_boots` | Read summaries of the last five retained system boots, readiness observations and capture outcomes |
 | `get_startup_boot` | Read one boot and its CPU/RAM sample series using `boot_id` from the summaries |
 | `get_firewall_activity` | Read 24 hours of aggregate allowed/blocked packet counts |
+| `get_firewall_status` | Configured revision, sampled base policies and revision marker, per-rule counters, policy warnings and pending change metadata |
+| `explain_firewall_flow` | Explain a new IPv4 flow under configured policy using source/destination addresses, protocol and destination port; sends no probe |
 | `get_traffic_insights` | Read per-device traffic history, if accounting is enabled |
 | `get_dns_activity` | Read DNS lookups per device and site, including categorized sites such as adult, if DNS activity recording is enabled |
 | `get_recent_dns_lookups` | Read the newest lookups with full hostnames from router memory, if DNS activity recording is enabled |
@@ -117,6 +123,45 @@ MINIMALROUTER_MCP_MODE=admin
 WAN port forwarding is not available in either mode. WireGuard is the only
 permitted external entry point.
 
+Tool dispatch is restricted to the tools advertised for the current mode.
+Legacy unadvertised `add_port_forward` and `block_device_ip` calls are rejected,
+including in admin mode. Firewall configuration writes remain dashboard actions.
+
+## Firewall inspection
+
+Read `get_full_config`, `get_firewall_status`, `get_firewall_activity` and
+`get_health` together. The health response now contains a firewall base-policy
+check. Observations come from the existing minute collector, with no privileged
+command launched per HTTP/MCP request. Data older than 180 seconds is unavailable.
+An observed default-drop policy and matching revision marker do **not** verify
+all live rules; `configuration_match` remains `unverified`.
+
+Per-rule packet counts are cumulative within the current table generation.
+Every apply recreates the table. Missing, paused, stale or revision-mismatched
+counts are `null`, never assumed zero. At most 1,024 named rule counters are
+projected; a missing counter is unknown. `last_increase_observed_at` is the
+collector's observation of an increase, not the time of a packet or connection.
+Raw nft rules and dynamic DNS set contents do not cross the helper boundary.
+
+`explain_firewall_flow` requires `source_ip`, `destination_ip`, `protocol`
+(`tcp`, `udp`, `icmp`) and integer `port` (1–65535, or 0 for ICMP). It describes
+new IPv4 flows with source interfaces inferred from configured subnets.
+Unknown routes and dynamic device schedules produce `unknown`; direct traffic
+within a LAN is `not_routed`. An `allow` result does not prove reachability,
+service authentication, connection tracking state or live enforcement.
+
+Custom forward denies with `scope: "wan"` only match LAN-to-WAN traffic;
+missing scope preserves legacy all-routed-network denies. Forward allows
+remain WAN-only. Router-input denies remain unavailable to prevent lockout.
+The optional `preset_id` records provenance; the dashboard additionally compares
+all match/action/scope fields before showing a preset as active. DNS presets
+cover TCP and UDP 53, without claiming to prevent DoH or VPN bypasses.
+
+Use `get_security_events` with `event_type: "firewall.transaction"` for the most
+recent Firewall outcomes (records begin with this version). Join their
+`transaction_id` to `config.request` for the initiating actor; the outcome's
+`local` actor identifies the engine. Pending confirmation is not success.
+
 ## Recovery workflow
 
 Start with `get_recovery_status` and `list_snapshots`. Names are operator-supplied
@@ -133,3 +178,28 @@ an explicit operator action. A backup DNS continuation is saved on the appliance
 and can be resumed from Recovery after access is confirmed; an accepted DNS job
 is complete only when its expected policy is active and healthy. These read-only
 tools cannot start or confirm a restore, dismiss a continuation, or reset access.
+
+## LAN and DHCP observations
+
+Start with `get_lan_dhcp_status`, `get_network_interfaces` and `get_health`.
+Configured DHCP/DNS enablement is not proof of service health; DNS health is
+checked even with DHCP disabled. Carrier is unknown when `carrier_known` is
+false. `list_dhcp_leases` accepts `search`, `sort` (`ip`, `expiry`, `hostname`),
+`limit` (1–500) and `offset` (0–4096). Results include `lease_status` with
+availability, collection time, truncation and rejected-entry count. A missing
+lease file is not an empty network, and a lease is not proof a client is online.
+The lease file may change between pages. Hostnames are untrusted client data.
+
+`check_ip_availability` accepts optional `ip`, `mac` and
+`exclude_reservation_id`. Omit `ip` for an address suggestion outside the pool.
+Treat `unknown` as incomplete evidence and `no_known_conflict` as only the
+absence of configured/observed DHCP conflicts. Neither proves an address unused
+by manually configured hosts. Suggestions skip configured local DNS addresses;
+local DNS records do not themselves reserve addresses. No probe is sent.
+
+In admin mode, `configure_dns` requires `primary_dns`; `secondary_dns` and
+`tertiary_dns` are optional. It validates one to three distinct unicast IPv4
+resolvers, previews the candidate and retains revision checks on apply. Router
+self-reference is rejected. A pending management change still requires explicit
+access confirmation before the rollback deadline. LAN interface/subnet changes
+remain a local recovery operation.

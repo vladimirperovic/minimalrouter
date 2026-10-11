@@ -17,6 +17,26 @@ compatibility may still change between releases.
 
 ### Fixed
 
+- Gateway Quality now distinguishes unavailable/stale measurements from disabled
+  monitoring, validates diagnostic responses and clears failed history loads.
+  Fresh manual checks, per-target results, time-based charts and bounded outage
+  and recovery histories are available in a compact layout. Detected link
+  outages are sampled at least every 30 seconds even with a five-minute normal
+  interval, preserving the existing recovery freshness and safety gates.
+- Firewall presets now have stable ownership, report modified matches, preserve
+  manually named rules and can be reviewed/applied as one batch. New presets
+  restrict LAN-to-WAN traffic; existing all-network denies retain their scope.
+  External DNS covers TCP and UDP 53, with accurate encrypted-DNS limitations.
+- Firewall now distinguishes configured policy from sampled base-chain/revision
+  observations, exposes generation-scoped rule counters and adds a read-only
+  connection policy explanation. Unknown live routes and dynamic schedules are
+  never presented as verified access. MCP exposes the same observations and
+  rejects unadvertised legacy mutation handlers even in admin mode.
+- Redesigned Firewall cards, rule search/filtering, policy notes, detailed change
+  previews and recent transaction outcomes. Hidden pages stop polling and stale
+  connection checks are cancelled. Delayed collection retains historical charts;
+  allowed and blocked traffic have separate views. Tunnel forwards use the
+  configured tunnel address and preserve concurrent edits to other rules.
 - Require Go 1.26.9 and update `golang.org/x/net` to v0.60.0 (with its
   `x/crypto`/`x/sys` dependencies) to address the October 2026 HTTP/TLS
   vulnerabilities reported by the mandatory Go vulnerability scan.

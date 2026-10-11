@@ -50,6 +50,7 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 			stop()
 			if err == nil && response.Success && response.FirewallCounters != nil {
 				c := response.FirewallCounters
+				server.PublishFirewallObservation(c)
 				if err := store.RecordFirewall(time.Now().UTC(), c.Generation, c.Seen, c.Accepted); err != nil {
 					log.Printf("[FIREWALL] Activity storage failed: %v", err)
 				}
@@ -110,6 +111,7 @@ func configureAccounting(server *api.Server, engine *apply.Engine, dataDir strin
 		cancel()
 		<-done
 		<-firewallDone
+		server.PublishFirewallObservation(nil)
 		<-dnsDone
 		<-riskDone
 		server.ConfigureDNSRisk(nil)

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { RouterConfig } from "../src/api-types";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
+import { networkFixture } from "./fixtures/network";
 
 test("a reservation saves the edited device name and cancels discard name changes", async ({ page }) => {
   let config = structuredClone(CONFIG) as RouterConfig;
@@ -23,6 +24,7 @@ test("a reservation saves the edited device name and cancels discard name change
     else if (path === "/api/v1/gateway/settings") body = GW_SETTINGS;
     else if (path === "/api/v1/snapshots") body = [];
     else if (path === "/api/v1/devices/pauses") body = { pauses: [] };
+    const network = networkFixture(path, config, [lease]); if (network) body = network;
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
   });
   page.on("dialog", (dialog) => dialog.accept());

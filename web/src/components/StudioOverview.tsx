@@ -38,7 +38,7 @@ function plot(values: Array<number | null>, maximum: number) {
   }).join(' ');
 }
 
-export default function StudioOverview({ config, runtime, gatewaySummary, health, healthUnavailable, memoryPercent, diskPercent }: ComponentProps<typeof ClassicOverview>) {
+export default function StudioOverview({ config, runtime, gatewaySummary, health, healthUnavailable, memoryPercent, diskPercent, onOpenUpdates }: ComponentProps<typeof ClassicOverview>) {
   const [checks, setChecks] = useState(false);
   const [chart, setChart] = useState<'bandwidth' | 'gateway'>('bandwidth');
   const [samples, setSamples] = useState<Array<{ rx: number; tx: number }>>([]);
@@ -118,7 +118,7 @@ export default function StudioOverview({ config, runtime, gatewaySummary, health
     ] as const).map(([icon,label,value,note]) => <article key={label}><Icon name={icon}/><div><span>{label}</span><strong>{value}</strong><small>{note}</small></div></article>)}</div>
     <div className="studio-detail-grid"><DeviceLeasesTable view="active" compact leases={leaseList} config={config} />
       <section className="studio-card studio-resource-card"><header className="studio-card-header"><div><p className="studio-eyebrow">APPLIANCE HEALTH</p><h2>{known && Math.max(runtime.cpu_load_percent ?? 100, memoryPercent, diskPercent) < 80 ? "Room to breathe." : "Appliance resources."}</h2></div><Icon name="activity"/></header><div className="studio-resources">{resourceRows.map(([label,value,percent]) => <div key={label}><div><span>{label}</span><strong>{value}</strong></div>{percent !== undefined && <progress value={Math.min(100,Math.max(0,percent))} max="100" aria-label={label}/>}</div>)}</div><div className="studio-resource-footer"><span>Connection tracking</span><strong>{known ? `${runtime.conntrack_count ?? '—'} / ${runtime.conntrack_max ?? '—'}` : 'Unavailable'}</strong></div></section></div>
-    <div className="studio-health-drawer"><HealthBanner health={health} unavailable={healthUnavailable} detailsOpen={checks} onShowDetails={() => setChecks(!checks)}/>{checks && <HealthCheckDetails health={health} unavailable={healthUnavailable}/>}</div>
+    <div className="studio-health-drawer"><HealthBanner health={health} unavailable={healthUnavailable} detailsOpen={checks} onShowDetails={() => setChecks(!checks)} onOpenUpdates={onOpenUpdates}/>{checks && <HealthCheckDetails health={health} unavailable={healthUnavailable} onOpenUpdates={onOpenUpdates}/>}</div>
     <div className="studio-bottom-grid"><section className="studio-card studio-identifiers"><header className="studio-card-header"><div><p className="studio-eyebrow">THE CONNECTION DETAILS</p><h2>Everything in its place.</h2></div><Icon name="network"/></header><dl><div><dt>Public IP</dt><dd>{runtime.public_ip || 'Unavailable'}</dd></div><div><dt>WAN MAC · {config.wan.interface}</dt><dd>{runtime.wan_mac || 'Unavailable'}</dd></div><div><dt>LAN MAC · {config.lan.interface}</dt><dd>{runtime.lan_mac || 'Unavailable'}</dd></div><div><dt>Time synchronization</dt><dd>{known ? runtime.time_synchronized ? 'Synchronized' : 'Not synchronized' : 'Unavailable'}</dd></div></dl></section><BootActivityPanel pppoeEnabled={config.wan.enabled} wireGuardEnabled={config.wireguard.enabled}/></div>
     <footer className="studio-page-footer"><span>Minimal Router OS</span><a href="/help.html" target="_blank" rel="noreferrer">Help & operator guide ↗</a></footer>
   </section>;

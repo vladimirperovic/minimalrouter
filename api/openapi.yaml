@@ -21,6 +21,138 @@ components:
       name: X-CSRF-Token
 
   schemas:
+    DHCPLeaseStatus:
+      type: object
+      required: [available, collected_at, truncated, rejected_entries]
+      properties:
+        available: {type: boolean, description: False means observation failed, not an empty network}
+        collected_at: {type: string, format: date-time, description: Collection time, not proof of client presence}
+        truncated: {type: boolean, description: At most 4096 valid leases and 1 MiB are read}
+        rejected_entries: {type: integer, minimum: 0}
+        error: {type: string}
+    DHCPLease:
+      type: object
+      properties:
+        ip_address: {type: string, format: ipv4}
+        mac: {type: string}
+        hostname: {type: string, description: Untrusted client label}
+        expires_at: {type: integer, format: int64, description: Unix seconds; zero means no expiry}
+    LANStatus:
+      type: object
+      properties:
+        revision: {type: integer, format: int64}
+        generated_at: {type: string, format: date-time}
+        lan: {type: object}
+        runtime_interface: {type: string}
+        dhcp_enabled: {type: boolean, description: Configured state; does not prove service health}
+        lease_time: {type: string}
+        lease_status: {$ref: '#/components/schemas/DHCPLeaseStatus'}
+        pool:
+          type: object
+          properties:
+            start: {type: string, format: ipv4}
+            end: {type: string, format: ipv4}
+            capacity: {type: integer, format: int64}
+            observed_leases: {type: integer}
+            free: {type: integer, nullable: true, description: Unallocated pool addresses; null if observation is unavailable or incomplete. Unobserved static hosts may still occupy these addresses.}
+            reservations: {type: integer}
+        dns:
+          type: object
+          properties:
+            enabled: {type: boolean, description: Resolver is configured independently of DHCP; use /health for measured health}
+            encrypted_upstream_supported: {type: boolean, enum: [false]}
+            client_resolver: {type: string, format: ipv4}
+            upstreams: {type: array, minItems: 1, maxItems: 3, items: {type: string, format: ipv4}}
+            local_records: {type: integer}
+        pending_transaction:
+          type: object
+          nullable: true
+          properties:
+            id: {type: string}
+            state: {type: string}
+            confirmation_deadline: {type: string, format: date-time}
+            management_url: {type: string, format: uri}
+        warnings: {type: array, items: {type: string}}
+        limitations: {type: array, items: {type: string}}
+    LANAddressAssessment:
+      type: object
+      properties:
+        revision: {type: integer, format: int64}
+        address: {type: string}
+        state: {type: string, enum: [conflict, unknown, no_known_conflict]}
+        conflicts: {type: array, items: {type: string}}
+        suggested_address: {type: string, format: ipv4}
+        lease_status: {$ref: '#/components/schemas/DHCPLeaseStatus'}
+        limitation: {type: string, description: No active scan; no_known_conflict does not prove the address is unused}
+    FirewallRule:
+      type: object
+      required: [id, name, action, direction, protocol, enabled]
+      properties:
+        id: {type: string}
+        name: {type: string, maxLength: 64}
+        action: {type: string, enum: [allow, deny]}
+        direction: {type: string, enum: [input, forward], description: Enabled input denies are rejected to prevent management lockout}
+        protocol: {type: string, enum: [tcp, udp, icmp, any]}
+        src_ip: {type: string, description: Optional IPv4 address or whole subnet within the configured LAN}
+        dst_port: {type: integer, minimum: 0, maximum: 65535, description: Required 1-65535 for TCP/UDP; must be zero for ICMP/any}
+        enabled: {type: boolean}
+        scope: {type: string, enum: [all, wan], description: Missing scope preserves all-network forward denies. Forward allows are always WAN-only. WAN scope is invalid for input rules.}
+        preset_id: {type: string, pattern: '^[a-z][a-z0-9-]{0,31}$', description: Optional preset provenance; does not certify that its semantics still match the preset}
+    FirewallStatus:
+      type: object
+      properties:
+        revision: {type: integer, format: int64}
+        runtime:
+          type: object
+          properties:
+            available: {type: boolean, description: Observation is at most 180 seconds old}
+            observed_at: {type: string, format: date-time, nullable: true}
+            default_deny: {type: boolean, description: Fresh observation of input/forward/output filter base chains at priority zero with drop policy}
+            policies: {type: object, additionalProperties: {type: string}}
+            loaded_revision: {type: integer, format: int64, nullable: true}
+            revision_matches: {type: boolean}
+            configuration_match: {type: string, enum: [unverified], description: A revision marker never proves complete ruleset equivalence}
+            generation: {type: string}
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              name: {type: string}
+              scope: {type: string, enum: [router, wan, all]}
+              packets: {type: integer, format: int64, nullable: true, description: Since table generation; null when unavailable, stale, paused, not emitted or revision-mismatched. Helper projects at most 1024 counters.}
+              last_increase_observed_at: {type: string, format: date-time, nullable: true, description: Sample time when counter increase was observed; not a packet timestamp}
+        warnings: {type: array, items: {type: string}}
+        limitations: {type: array, items: {type: string}}
+        engine:
+          type: object
+          properties:
+            apply_in_progress: {type: boolean}
+            recovery_required: {type: boolean}
+            recovery_reason: {type: string}
+            transaction_id: {type: string}
+            transaction_state: {type: string}
+        pending_transaction:
+          type: object
+          nullable: true
+          description: Metadata only; never contains candidate configuration or secrets
+          properties:
+            id: {type: string}
+            state: {type: string}
+            confirmation_deadline: {type: string, format: date-time, nullable: true}
+    FirewallExplanation:
+      type: object
+      properties:
+        revision: {type: integer, format: int64}
+        checked_at: {type: string, format: date-time}
+        basis: {type: string, enum: [configured_policy]}
+        verdict: {type: string, enum: [allow, deny, unknown, not_routed]}
+        reason: {type: string}
+        rule_id: {type: string}
+        source_zone: {type: string}
+        destination_zone: {type: string}
+        limitations: {type: array, items: {type: string}}
     RecoveryAssessment:
       type: object
       required: [can_apply, blockers, changes, risk, requires_confirmation, expected_interruption]
@@ -546,6 +678,13 @@ components:
       description: Complete canonical configuration. Unlisted fields remain part of the versioned model.
       additionalProperties: true
       properties:
+        firewall:
+          type: object
+          additionalProperties: true
+          properties:
+            custom_rules:
+              type: array
+              items: {$ref: '#/components/schemas/FirewallRule'}
         revision:
           type: integer
           minimum: 1
@@ -561,6 +700,85 @@ components:
           description: Compatibility JSON key; user-facing name is DNS Filter
 
 paths:
+  /gateway/probe:
+    post:
+      summary: Collect a fresh gateway measurement without changing network configuration
+      description: Uses the configured public targets. Serialized with background collection; manual checks and diagnostics share a 10-second cooldown. Disabled monitoring rejects the request. The request has a 20-second budget.
+      security: [{sessionCookie: [], csrfToken: []}]
+      responses:
+        '200':
+          description: Fresh gateway summary with timestamp, link and per-target probe results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available, enabled, state, timestamp, link]
+                properties:
+                  available: {type: boolean}
+                  enabled: {type: boolean}
+                  state: {type: string, enum: [unknown, healthy, degraded, offline, flapping]}
+                  timestamp: {type: string, format: date-time}
+                  link: {type: object}
+                  targets: {type: array, items: {type: object}}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network, read-only session or missing CSRF token}
+        '409': {description: Disabled monitoring, concurrent check, cooldown or failed measurement}
+        '503': {description: Monitoring unavailable}
+  /gateway/recovery:
+    get:
+      summary: Read the current automatic WAN recovery state
+      description: Uses current link evidence and apply-engine safety gates. A detected link outage is collected every 30 seconds or faster even when the normal probe interval is longer. The two-minute freshness gate, three-minute outage requirement and ten-minute cooldown remain enforced.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Current state; last attempt refers to this management process
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, reason, updated_at]
+                properties:
+                  state: {type: string, enum: [armed, paused, waiting, blocked, verifying, cooldown, recovering]}
+                  reason: {type: string}
+                  updated_at: {type: string, format: date-time}
+                  disconnected_since: {type: string, format: date-time}
+                  next_attempt_at: {type: string, format: date-time}
+                  last_attempt_at: {type: string, format: date-time}
+                  last_result: {type: string, enum: [completed, failed]}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network}
+        '503': {description: Recovery observer unavailable}
+  /gateway/events:
+    get:
+      summary: Read recent sampled link interruptions and retained WAN recovery attempts
+      description: Returns at most 20 link-down episodes from up to seven days of retained raw samples, plus at most 20 WAN recovery audit events. Durations are approximate. Gaps over two minutes end an episode with unknown outcome. Recovery action duration is separate from outage duration; older audit events may lack it.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Bounded local histories with independent recovery-history availability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outage_window_days: {type: integer, enum: [7]}
+                  recovery_history_available: {type: boolean}
+                  outages:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      properties:
+                        started_at: {type: string, format: date-time}
+                        ended_at: {type: string, format: date-time}
+                        last_observed_at: {type: string, format: date-time}
+                        duration_seconds: {type: integer, minimum: 0}
+                        partial: {type: boolean}
+                        outcome: {type: string, enum: [ongoing, recovered, unknown]}
+                  recoveries: {type: array, nullable: true, maxItems: 20, items: {type: object}}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network}
+        '503': {description: Outage history unavailable}
   /accounting:
     get:
       summary: Read retained monthly device traffic totals
@@ -969,8 +1187,7 @@ paths:
   /dns-activity/clear:
     post:
       summary: Delete all DNS activity history and risk alerts
-      description: Also invalidates queued risk checks. Saved exceptions and downloaded public lists remain.
-      description: Deletes stored daily and hourly statistics and the in-memory recent list. Recorded in the audit log.
+      description: Deletes stored daily/hourly statistics and the in-memory recent list, and invalidates queued risk checks. Saved exceptions and downloaded public lists remain. Recorded in the audit log.
       security: [{sessionCookie: []}]
       responses:
         '200': {description: History deleted}
@@ -991,6 +1208,68 @@ paths:
         '401': {description: Authentication required}
         '403': {description: Untrusted management network}
         '503': {description: Activity storage unavailable}
+  /firewall/status:
+    get:
+      summary: Inspect configured Firewall and cached runtime evidence
+      description: Uses the existing minute collector. Never executes privileged commands per request. Base policies and revision markers do not prove full live ruleset equivalence. Names are untrusted operator data.
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: No-store status; missing or stale observation remains unavailable
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FirewallStatus'}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+  /firewall/explain:
+    get:
+      summary: Explain a new IPv4 flow using configured policy
+      description: No packet is sent. Source interfaces are inferred from configured subnets. Unknown routes and dynamic device schedules return unknown. Same-subnet LAN traffic is normally direct. Allow does not prove runtime enforcement, service reachability or authentication.
+      security: [{sessionCookie: []}]
+      parameters:
+        - {in: query, name: source_ip, required: true, schema: {type: string, format: ipv4}}
+        - {in: query, name: destination_ip, required: true, schema: {type: string, format: ipv4}}
+        - {in: query, name: protocol, required: true, schema: {type: string, enum: [tcp, udp, icmp]}}
+        - {in: query, name: port, required: true, schema: {type: integer, minimum: 0, maximum: 65535}, description: 1-65535 for TCP/UDP; zero for ICMP}
+      responses:
+        '200':
+          description: No-store configured policy explanation and limitations
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FirewallExplanation'}
+        '400': {description: Invalid IPv4 address, protocol or port}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted management network}
+  /config/preview:
+    post:
+      summary: Validate a candidate and review concrete changes before applying
+      security: [{sessionCookie: [], csrfToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SystemConfig'}
+      responses:
+        '200':
+          description: Does not apply; applying still requires current revision and safety checks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes: {type: array, items: {type: string}}
+                  network_changes: {type: array, items: {type: string}, description: Up to 50 concrete LAN/DHCP/DNS/WAN changes plus truncation notice; credentials are redacted}
+                  network_warnings: {type: array, items: {type: string}, description: Includes unavailable or incomplete lease observation}
+                  firewall_changes: {type: array, items: {type: string}, description: Up to 50 concrete changes plus truncation notice}
+                  firewall_warnings: {type: array, items: {type: string}}
+                  risk: {type: string}
+                  requires_confirmation: {type: boolean}
+                  rollback_seconds: {type: integer}
+                  expected_interruption: {type: string}
+        '400': {description: Invalid configuration payload}
+        '422': {description: Invalid or stale candidate}
+        '401': {description: Authentication required}
+        '403': {description: Untrusted network or missing CSRF token}
   /auth/login:
     post:
       summary: Authenticate administrator and establish session
@@ -1660,6 +1939,116 @@ paths:
           csrfToken: []
       responses:
         '200': { description: Firmware signature verified }
+
+  /network/lan:
+    get:
+      summary: Read LAN, DHCP allocation and configured DNS state
+      operationId: getLANStatus
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Bounded observation with explicit availability and pending access confirmation
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LANStatus'}
+  /network/devices:
+    get:
+      summary: Read compact device inventory without traffic time series
+      operationId: getNetworkDevices
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Leases and reservations, plus at most 512 address activity summaries over current and previous calendar months when accounting is enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revision: {type: integer, format: int64}
+                  updated_at: {type: string, format: date-time}
+                  lease_status: {$ref: '#/components/schemas/DHCPLeaseStatus'}
+                  leases: {type: array, items: {$ref: '#/components/schemas/DHCPLease'}}
+                  reservations: {type: array, items: {type: object}}
+                  activity:
+                    type: object
+                    properties:
+                      available: {type: boolean}
+                      enabled: {type: boolean}
+                      devices:
+                        type: array
+                        maxItems: 512
+                        items:
+                          type: object
+                          properties:
+                            address: {type: string}
+                            last_seen_epoch: {type: integer, format: int64, description: Traffic sample time at this address, not proof of a device identity}
+                            month_bytes: {type: integer, format: int64}
+                            new_this_month: {type: boolean}
+  /network/leases:
+    get:
+      summary: Search and paginate current DHCP lease observations
+      operationId: listDHCPLeases
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: search, in: query, schema: {type: string, maxLength: 253}}
+        - {name: sort, in: query, schema: {type: string, enum: [ip, expiry, hostname], default: ip}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 500, default: 100}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0, maximum: 4096, default: 0}}
+      responses:
+        '200':
+          description: Lease observation with filtered total; the lease file can change between pages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lease_status: {$ref: '#/components/schemas/DHCPLeaseStatus'}
+                  leases: {type: array, items: {$ref: '#/components/schemas/DHCPLease'}}
+                  total: {type: integer}
+                  limit: {type: integer}
+                  offset: {type: integer}
+        '400': {description: Invalid filter or pagination}
+  /network/address-check:
+    get:
+      summary: Check known configured and DHCP address conflicts without sending a network probe
+      operationId: checkLANAddress
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: ip, in: query, schema: {type: string, format: ipv4}, description: Optional address to check; omit to request a suggestion}
+        - {name: mac, in: query, schema: {type: string}, description: Optional 48-bit device MAC to exclude its own lease}
+        - {name: exclude_reservation_id, in: query, schema: {type: string, maxLength: 128}}
+      responses:
+        '200':
+          description: Explicit conflict, unknown or no_known_conflict, with a bounded full-subnet address suggestion
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LANAddressAssessment'}
+        '400': {description: Invalid address, MAC or reservation ID}
+  /system/interfaces:
+    get:
+      summary: Discover management-visible interface and carrier observations
+      operationId: getNetworkInterfaces
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Available interfaces and discovery warnings; carrier is unknown when carrier_known is false. Partial inventory may be returned; setup still requires two eligible interfaces.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  interfaces:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: {type: string}
+                        mac_address: {type: string}
+                        up: {type: boolean}
+                        carrier: {type: boolean}
+                        carrier_known: {type: boolean}
+                  warnings: {type: array, items: {type: string}}
+        '503': {description: Interface inventory unavailable}
 
   /network/wol:
     post:

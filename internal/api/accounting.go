@@ -36,6 +36,8 @@ func (s *Server) configuredAccountingStore() *accounting.Store {
 // RegisterAccountingRoutes exposes the read-only per-device usage summary.
 func (s *Server) RegisterAccountingRoutes(mux *http.ServeMux) {
 	sh := s.securityHeadersMiddleware
+	mux.HandleFunc("GET /api/v1/firewall/status", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleFirewallStatus))))
+	mux.HandleFunc("GET /api/v1/firewall/explain", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleFirewallExplain))))
 	mux.HandleFunc("GET /api/v1/firewall/activity", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleFirewallActivity))))
 	mux.HandleFunc("GET /api/v1/accounting/insights", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleAccountingInsights))))
 	mux.HandleFunc("GET /api/v1/accounting", sh(s.trustedNetworksMiddleware(s.authMiddleware(s.handleGetAccounting))))

@@ -12,12 +12,17 @@ func (s *Server) handleDiscoverSetupInterfaces(w http.ResponseWriter, r *http.Re
 		http.NotFound(w, r)
 		return
 	}
-	s.handleDiscoverInterfaces(w, r)
+	result, err := networkinfo.Discover()
+	if err != nil {
+		writeGatewayJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
+		return
+	}
+	writeGatewayJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleDiscoverInterfaces(w http.ResponseWriter, _ *http.Request) {
 	result, err := networkinfo.Discover()
-	if err != nil {
+	if err != nil && result.Interfaces == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

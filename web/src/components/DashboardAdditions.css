@@ -87,6 +87,22 @@
 .health-banner-toggle:hover { border-color: var(--separator-strong); }
 .health-banner-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.dashboard-app .health-settings-link {
+  color: inherit;
+  font: inherit;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--separator-strong);
+  text-underline-offset: 3px;
+}
+.dashboard-app .health-settings-link:hover { text-decoration-color: currentColor; }
+.dashboard-app .health-settings-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.health-alert-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
 .health-checks-section {
   margin-top: 18px;
   border: 1px solid var(--separator);

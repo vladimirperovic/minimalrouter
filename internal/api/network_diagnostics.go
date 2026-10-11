@@ -25,7 +25,13 @@ func (s *Server) handleNetworkDiagnose(w http.ResponseWriter, r *http.Request) {
 		writeGatewayJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "Gateway monitoring is unavailable."})
 		return
 	}
-	summary := monitor.Summary()
+	probeCtx, probeCancel := context.WithTimeout(r.Context(), 20*time.Second)
+	summary, probeErr := monitor.ProbeNow(probeCtx)
+	probeCancel()
+	if probeErr != nil {
+		writeGatewayJSON(w, http.StatusConflict, map[string]string{"error": probeErr.Error()})
+		return
+	}
 	checks := map[string]diagnosticCheck{}
 	checks["pppoe"] = diagnosticCheck{OK: summary.Link.Connected, Detail: "PPPoE link is disconnected"}
 	if summary.Link.Connected {

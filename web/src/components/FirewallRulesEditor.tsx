@@ -1,251 +1,471 @@
 import { type FormEvent, useState } from "react";
-import type { FirewallCustomRule, RouterConfig } from "../api-types";
+import type { FirewallCustomRule } from "../api-types";
+import {
+  ruleScope,
+  scopeLabel,
+  validateRule,
+  type FirewallProps,
+  type FirewallStatus,
+} from "../lib/firewall";
 
-// internal/services/nftables.go has always emitted custom rules into all four
-// input/forward x allow/deny positions. Until now the only way to create one was
-// a hand-written PUT to /api/v1/config, so the capability was effectively
-// invisible. The generator's constraints are mirrored in the help text below so
-// the form cannot promise something nftables will not do.
+const blankRule = (): FirewallCustomRule => ({
+  id: "",
+  name: "",
+  direction: "forward",
+  action: "deny",
+  protocol: "tcp",
+  src_ip: "",
+  dst_port: 0,
+  scope: "wan",
+  enabled: true,
+});
 
-type Props = {
-  config: RouterConfig;
-  busy: boolean;
-  applyConfig: (mutate: (next: RouterConfig) => void, success: string) => Promise<boolean>;
-};
-
-const DIRECTIONS = [
-  { value: "input", label: "To the router (input)" },
-  { value: "forward", label: "Through the router (forward)" },
-];
-
-const ACTIONS = [
-  { value: "allow", label: "Allow" },
-  { value: "deny", label: "Deny" },
-];
-
-const PROTOCOLS = ["tcp", "udp", "any"];
-
-function isValidSource(value: string): boolean {
-  if (value === "") return true;
-  const [address, prefix] = value.split("/");
-  const parts = address.split(".");
-  if (parts.length !== 4) return false;
-  if (!parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)) return false;
-  if (prefix === undefined) return true;
-  return /^\d{1,2}$/.test(prefix) && Number(prefix) <= 32;
+function RuleIcon({ allow }: { allow: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      aria-hidden="true"
+    >
+      <path d="m12 3 8 3v6c0 5-5 8-8 10-3-2-8-5-8-10V6l8-3Z" />
+      {allow ? <path d="m8 12 3 3 5-6" /> : <path d="M8 12h8" />}
+    </svg>
+  );
 }
 
-export default function FirewallRulesEditor({ config, busy, applyConfig }: Props) {
-  const rules: FirewallCustomRule[] = config.firewall.custom_rules || [];
-  const [name, setName] = useState("");
-  const [direction, setDirection] = useState("input");
-  const [action, setAction] = useState("allow");
-  const [protocol, setProtocol] = useState("tcp");
-  const [srcIP, setSrcIP] = useState("");
-  const [dstPort, setDstPort] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
+function RuleRow({
+  rule,
+  counter,
+  busy,
+  onEdit,
+  onToggle,
+  onRemove,
+}: {
+  rule: FirewallCustomRule;
+  counter?: FirewallStatus["rules"][number];
+  busy: boolean;
+  onEdit: (rule: FirewallCustomRule) => void;
+  onToggle: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const destination = {
+    router: "Router",
+    wan: "Internet / WAN",
+    all: "All routed networks",
+  }[ruleScope(rule)];
+  return (
+    <article
+      className={`fw-rule ${rule.enabled ? "" : "is-paused"}`}
+      aria-label={rule.name}
+    >
+      <div className="fw-rule-main">
+        <span
+          className={`fw-rule-verdict ${rule.action === "deny" ? "is-deny" : "is-allow"}`}
+        >
+          <RuleIcon allow={rule.action === "allow"} />
+        </span>
+        <div className="fw-rule-identity">
+          <h4>{rule.name}</h4>
+          <div className="fw-rule-tags">
+            <span
+              className={`fw-rule-state ${rule.enabled ? "is-enabled" : ""}`}
+            >
+              <i />
+              {rule.enabled ? "Enabled" : "Paused"}
+            </span>
+            <span>
+              {rule.action === "deny" ? "Deny traffic" : "Allow traffic"}
+            </span>
+            {rule.preset_id && <span>Preset</span>}
+          </div>
+        </div>
+      </div>
+      <div className="fw-rule-flow" aria-label={scopeLabel(rule)}>
+        <div>
+          <small>From LAN</small>
+          <code>{rule.src_ip || "All devices"}</code>
+        </div>
+        <span className="fw-flow-arrow" aria-hidden="true">
+          →
+        </span>
+        <div>
+          <small>To</small>
+          <strong>{destination}</strong>
+        </div>
+        <span className="fw-rule-protocol">
+          {rule.protocol.toUpperCase()}
+          {rule.dst_port ? ` / ${rule.dst_port}` : ""}
+        </span>
+      </div>
+      <div className="fw-rule-count">
+        <small>Packets since apply</small>
+        <strong>
+          {counter?.packets == null
+            ? "—"
+            : new Intl.NumberFormat().format(counter.packets)}
+        </strong>
+        <span>
+          {counter?.last_increase_observed_at
+            ? `Increase seen ${new Date(counter.last_increase_observed_at).toLocaleTimeString()}`
+            : "No match time observed"}
+        </span>
+      </div>
+      <div className="fw-row-actions">
+        <button
+          disabled={busy}
+          onClick={() => onEdit(rule)}
+          aria-label={`Edit ${rule.name}`}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            aria-hidden="true"
+          >
+            <path d="m4 12 9-9 4 4-9 9-5 1 1-5ZM11 5l4 4" />
+          </svg>
+          Edit rule
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => onToggle(rule.id)}
+          aria-label={`${rule.enabled ? "Pause" : "Enable"} ${rule.name}`}
+        >
+          {rule.enabled ? "Pause" : "Enable"}
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => onRemove(rule.id)}
+          className="is-remove"
+          aria-label={`Remove ${rule.name}`}
+          title={`Remove ${rule.name}`}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            aria-hidden="true"
+          >
+            <path d="M3 5h14M7 5V3h6v2M5 5l1 12h8l1-12M8 8v6M12 8v6" />
+          </svg>
+          <span className="sr-only">Remove</span>
+        </button>
+      </div>
+    </article>
+  );
+}
+
+export default function FirewallRulesEditor({
+  config,
+  busy,
+  applyConfig,
+  status,
+}: FirewallProps & { status: FirewallStatus | null }) {
+  const [draft, setDraft] = useState(blankRule);
+  const [original, setOriginal] = useState<FirewallCustomRule | null>(null);
+  const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
-
-  const needsPort = protocol === "tcp" || protocol === "udp";
-
-  const startEdit = (rule: FirewallCustomRule) => {
-    setEditingId(rule.id);
-    setName(rule.name);
-    setDirection(rule.direction);
-    setAction(rule.action);
-    setProtocol(rule.protocol);
-    setSrcIP(rule.src_ip || "");
-    setDstPort(rule.dst_port ? String(rule.dst_port) : "");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const rules = config.firewall.custom_rules || [];
+  const visible = rules.filter(
+    (rule) =>
+      (filter === "all" ||
+        (filter === "paused"
+          ? !rule.enabled
+          : rule.enabled && rule.action === filter)) &&
+      `${rule.name} ${rule.src_ip} ${rule.protocol} ${rule.dst_port} ${scopeLabel(rule)}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+  const needsPort = draft.protocol === "tcp" || draft.protocol === "udp";
+  const set = (value: Partial<FirewallCustomRule>) =>
+    setDraft((current) => ({ ...current, ...value }));
+  function close() {
+    setOpen(false);
+    setOriginal(null);
+    setDraft(blankRule());
     setError("");
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setName("");
-    setDirection("input");
-    setAction("allow");
-    setProtocol("tcp");
-    setSrcIP("");
-    setDstPort("");
+  }
+  function edit(rule: FirewallCustomRule) {
+    setOriginal(structuredClone(rule));
+    setDraft({ ...rule, scope: ruleScope(rule) === "wan" ? "wan" : "all" });
+    setOpen(true);
     setError("");
-  };
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  }
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
-    if (name.trim() === "") {
-      setError("Give the rule a name so it is recognisable in the ruleset.");
-      return;
-    }
-    if (!isValidSource(srcIP.trim())) {
-      setError("Source must be an IPv4 address or CIDR, or left empty for any LAN host.");
-      return;
-    }
-    const port = Number(dstPort);
-    if (needsPort && (!Number.isInteger(port) || port < 1 || port > 65535)) {
-      setError("Destination port must be between 1 and 65535 for TCP and UDP rules.");
-      return;
-    }
-    if (editingId) {
-      const saved = await applyConfig((next) => {
-        next.firewall = {
-          ...next.firewall,
-          custom_rules: (next.firewall.custom_rules || []).map((rule) => (
-            rule.id === editingId
-              ? { ...rule, name: name.trim(), action, direction, protocol, src_ip: srcIP.trim(), dst_port: needsPort ? port : 0 }
-              : rule
-          )),
-        };
-      }, "Firewall rule updated.");
-      if (saved) cancelEdit();
-      return;
-    }
-    const saved = await applyConfig((next) => {
-      next.firewall = {
-        ...next.firewall,
-        custom_rules: [
-          ...(next.firewall.custom_rules || []),
-          {
-            id: `rule-${Date.now().toString(36)}`,
-            name: name.trim(),
-            action,
-            direction,
-            protocol,
-            src_ip: srcIP.trim(),
-            dst_port: needsPort ? port : 0,
-            enabled: true,
-          },
-        ],
-      };
-    }, "Firewall rule saved.");
-    if (!saved) return;
-    setName("");
-    setSrcIP("");
-    setDstPort("");
-  };
-
-  const toggle = (id: string) => {
-    applyConfig((next) => {
-      next.firewall = {
-        ...next.firewall,
-        custom_rules: (next.firewall.custom_rules || []).map((rule) =>
-          rule.id === id ? { ...rule, enabled: !rule.enabled } : rule,
-        ),
-      };
+    const candidate = {
+      ...draft,
+      name: draft.name.trim(),
+      src_ip: draft.src_ip?.trim(),
+      dst_port: needsPort ? draft.dst_port : 0,
+      scope:
+        draft.direction === "input"
+          ? undefined
+          : draft.action === "allow"
+            ? ("wan" as const)
+            : draft.scope,
+    };
+    const message = validateRule(candidate, config);
+    setError(message);
+    if (message) return;
+    const saved = await applyConfig(
+      (next) => {
+        const latest = next.firewall.custom_rules || [];
+        if (original) {
+          const current = latest.find((r) => r.id === original.id);
+          if (!current || JSON.stringify(current) !== JSON.stringify(original))
+            throw Error(
+              "This rule changed in another session. Cancel and reopen it before saving.",
+            );
+          next.firewall.custom_rules = latest.map((r) =>
+            r.id === original.id ? candidate : r,
+          );
+        } else
+          next.firewall.custom_rules = [
+            ...latest,
+            { ...candidate, id: `rule-${crypto.randomUUID()}` },
+          ];
+      },
+      original ? "Firewall rule updated." : "Firewall rule added.",
+    );
+    if (saved) close();
+  }
+  function toggle(id: string) {
+    void applyConfig((next) => {
+      next.firewall.custom_rules = (next.firewall.custom_rules || []).map(
+        (r) => (r.id === id ? { ...r, enabled: !r.enabled } : r),
+      );
     }, "Firewall rule updated.");
-  };
-
-  const remove = (id: string) => {
-    applyConfig((next) => {
-      next.firewall = {
-        ...next.firewall,
-        custom_rules: (next.firewall.custom_rules || []).filter((rule) => rule.id !== id),
-      };
+  }
+  function remove(id: string) {
+    void applyConfig((next) => {
+      next.firewall.custom_rules = (next.firewall.custom_rules || []).filter(
+        (r) => r.id !== id,
+      );
     }, "Firewall rule removed.");
-  };
+  }
 
   return (
-    <article className="card table-card firewall-rules">
-      <div className="card-title-row">
+    <section className="fw-panel" aria-labelledby="fw-rules-title">
+      <header className="fw-panel-head">
         <div>
-          <h3>Custom rules</h3>
-          <p>Extra allow/deny rules evaluated alongside the default-deny policy.</p>
+          <p className="fw-eyebrow">Your policy</p>
+          <h3 id="fw-rules-title">Custom rules</h3>
+          <p>
+            LAN rules with an explicit destination scope. Denies run before
+            allows.
+          </p>
         </div>
-        <span className="quiet-meta">{rules.filter((rule) => rule.enabled).length} active</span>
+        <button
+          className="button primary"
+          disabled={busy}
+          onClick={() => {
+            close();
+            setOpen(true);
+          }}
+        >
+          + Add rule
+        </button>
+      </header>
+      <div className="fw-toolbar">
+        <label className="fw-search">
+          <span className="sr-only">Search firewall rules</span>
+          <input
+            type="search"
+            placeholder="Search name, source, protocol or port"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <label>
+          <span className="sr-only">Filter firewall rules</span>
+          <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+            <option value="all">All rules</option>
+            <option value="deny">Active denies</option>
+            <option value="allow">Active allows</option>
+            <option value="paused">Paused</option>
+          </select>
+        </label>
+        <span className="fw-meta">
+          {visible.length} / {rules.length} rules
+        </span>
       </div>
-
-      <div className="elegant-table-container">
-        <table className="elegant-device-table">
-          <colgroup><col /><col className="elegant-col-expires" /><col className="elegant-col-data" /><col /><col className="elegant-col-data" /><col className="elegant-col-actions" /></colgroup>
-          <thead>
-            <tr><th>Name</th><th>Direction</th><th>Action</th><th>Match</th><th>State</th><th className="elegant-th-actions">Actions</th></tr>
-          </thead>
-          <tbody>
-            {rules.length === 0 ? (
-              <tr><td className="empty-state" colSpan={6}>No custom rules. The default-deny policy applies on its own.</td></tr>
-            ) : (
-              rules.map((rule) => (
-                <tr className={rule.enabled ? "" : "is-paused"} key={rule.id}>
-                  <td className="elegant-cell-name">{rule.name}</td>
-                  <td>{rule.direction === "forward" ? "Through router" : "To router"}</td>
-                  <td className={rule.action === "deny" ? "is-bad" : "is-good"}>{rule.action}</td>
-                  <td>
-                    <code>
-                      {rule.src_ip || "any LAN host"}
-                      {rule.protocol !== "any" ? ` · ${rule.protocol}` : ""}
-                      {rule.dst_port ? `/${rule.dst_port}` : ""}
-                    </code>
-                  </td>
-                  <td>{rule.enabled ? "Enabled" : "Paused"}</td>
-                  <td className="elegant-cell-actions">
-                    <div className="device-row-actions">
-                      <button className="button secondary small" disabled={busy} onClick={() => (editingId === rule.id ? cancelEdit() : startEdit(rule))} type="button">
-                        {editingId === rule.id ? "Cancel" : "Edit"}
-                      </button>
-                      <button className="button secondary small" disabled={busy} onClick={() => toggle(rule.id)} type="button">
-                        {rule.enabled ? "Pause" : "Enable"}
-                      </button>
-                      <button className="button secondary small danger" disabled={busy} onClick={() => remove(rule.id)} type="button">
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <form className="settings-form" onSubmit={submit}>
-        <div className="form-grid three">
-          <label className="field">
-            <span>Rule name</span>
-            <input onChange={(event) => setName(event.target.value)} placeholder="Allow printer" required value={name} />
-          </label>
-          <label className="field">
-            <span>Direction</span>
-            <select onChange={(event) => setDirection(event.target.value)} value={direction}>
-              {DIRECTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span>Action</span>
-            <select onChange={(event) => setAction(event.target.value)} value={action}>
-              {ACTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span>Source (blank = any LAN host)</span>
-            <input onChange={(event) => setSrcIP(event.target.value)} placeholder="192.168.1.50" value={srcIP} />
-          </label>
-          <label className="field">
-            <span>Protocol</span>
-            <select onChange={(event) => setProtocol(event.target.value)} value={protocol}>
-              {PROTOCOLS.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
-            </select>
-          </label>
-          <label className="field">
-            <span>Destination port</span>
-            <input
-              disabled={!needsPort}
-              onChange={(event) => setDstPort(event.target.value)}
-              placeholder="631"
-              type="number"
-              value={dstPort}
+      <div className="fw-rule-list">
+        {visible.length === 0 ? (
+          <p className="fw-empty">
+            {rules.length
+              ? "No rules match your filters."
+              : "No custom rules. The built-in policy remains in place."}
+          </p>
+        ) : (
+          visible.map((rule) => (
+            <RuleRow
+              key={rule.id}
+              rule={rule}
+              counter={
+                status?.revision === config.revision
+                  ? status.rules.find((r) => r.id === rule.id)
+                  : undefined
+              }
+              busy={busy}
+              onEdit={edit}
+              onToggle={toggle}
+              onRemove={remove}
             />
-          </label>
-        </div>
-        <p className="form-note">
-          Rules match traffic arriving on the LAN interface. A forward <strong>allow</strong> is restricted to LAN&nbsp;→&nbsp;WAN
-          egress by the generator: it can never open a path toward another LAN segment or a tunnel.
-        </p>
-        {error && <p className="form-note is-error" role="alert">{error}</p>}
-        <div className="form-actions">
-          {editingId && <button className="button secondary" disabled={busy} onClick={cancelEdit} type="button">Cancel edit</button>}
-          <button className="button primary" disabled={busy} type="submit">{editingId ? "Save changes" : "Add rule"}</button>
-        </div>
-      </form>
-    </article>
+          ))
+        )}
+      </div>
+      {open && (
+        <form
+          className="fw-editor"
+          onSubmit={submit}
+          aria-label={original ? "Edit firewall rule" : "New firewall rule"}
+        >
+          <div className="fw-editor-title">
+            <div>
+              <p className="fw-eyebrow">
+                {original ? "Update rule" : "Create rule"}
+              </p>
+              <h4>{original?.name || "Define the traffic to match"}</h4>
+            </div>
+            <button
+              className="button secondary small"
+              type="button"
+              onClick={close}
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="fw-form-grid">
+            <label className="field">
+              <span>Rule name</span>
+              <input
+                required
+                maxLength={64}
+                value={draft.name}
+                onChange={(e) => set({ name: e.target.value })}
+                placeholder="Block outbound service"
+              />
+            </label>
+            <label className="field">
+              <span>Direction</span>
+              <select
+                value={draft.direction}
+                onChange={(e) =>
+                  set({
+                    direction: e.target.value,
+                    action: e.target.value === "input" ? "allow" : draft.action,
+                    scope: "wan",
+                  })
+                }
+              >
+                <option value="forward">Through router</option>
+                <option
+                  value="input"
+                  disabled={
+                    config.system.management_access === "wireguard_only"
+                  }
+                >
+                  To router
+                </option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Action</span>
+              <select
+                value={draft.action}
+                onChange={(e) => set({ action: e.target.value })}
+              >
+                <option value="deny" disabled={draft.direction === "input"}>
+                  Deny
+                </option>
+                <option value="allow">Allow</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Source device or subnet</span>
+              <input
+                value={draft.src_ip || ""}
+                onChange={(e) => set({ src_ip: e.target.value })}
+                placeholder={`All LAN · ${config.lan.cidr}`}
+              />
+            </label>
+            <label className="field">
+              <span>Protocol</span>
+              <select
+                value={draft.protocol}
+                onChange={(e) => set({ protocol: e.target.value })}
+              >
+                {["tcp", "udp", "icmp", "any"].map((p) => (
+                  <option key={p} value={p}>
+                    {p.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Destination port</span>
+              <input
+                type="number"
+                min={1}
+                max={65535}
+                required={needsPort}
+                disabled={!needsPort}
+                value={needsPort ? draft.dst_port || "" : ""}
+                onChange={(e) => set({ dst_port: Number(e.target.value) })}
+                placeholder={needsPort ? "1–65535" : "Not applicable"}
+              />
+            </label>
+            <label className="field">
+              <span>Destination scope</span>
+              <select
+                disabled={
+                  draft.direction === "input" || draft.action === "allow"
+                }
+                value={
+                  draft.direction === "input" || draft.action === "allow"
+                    ? "wan"
+                    : draft.scope || "all"
+                }
+                onChange={(e) =>
+                  set({ scope: e.target.value as "wan" | "all" })
+                }
+              >
+                <option value="wan">
+                  {draft.direction === "input"
+                    ? "Router only"
+                    : "Internet / WAN only"}
+                </option>
+                <option value="all">
+                  All routed networks, including tunnels
+                </option>
+              </select>
+            </label>
+          </div>
+          <p className="fw-note">
+            Router-input denies are disabled to protect access. Forward allows
+            are WAN-only and cannot override earlier denies, device schedules or
+            segment isolation.
+          </p>
+          {error && (
+            <p role="alert" className="fw-error">
+              {error}
+            </p>
+          )}
+          <div className="fw-form-footer">
+            <span>Changes are validated and reviewed before applying.</span>
+            <button className="button primary" disabled={busy}>
+              {busy ? "Reviewing…" : "Review rule"}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
   );
 }
