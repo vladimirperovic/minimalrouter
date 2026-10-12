@@ -6,13 +6,44 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
+**Minimal Router OS v0.3.0 — Beta.**
+
+The build tree (`VERSION`, `web/package.json`) targets v0.3.0: unified LAN &
+DHCP, Firewall and Gateway Quality workspaces, redesigned Logs, Recovery and
+DNS Filter, named snapshots, revision-bound restores and expanded read-only MCP
+tools ([release notes](releases/v0.3.0.md)). v0.2.1 is published; v0.3.0 is not.
+This is not a publication claim. Exact-candidate CI, ISO and signed-release
+gates remain required under [the release process](RELEASE_PROCESS.md).
+
+v0.3.0 changes `router-recovery` and `router-setup` and the Go toolchain, so
+existing appliances take it once through the signed full distribution
+installer, not the dashboard updater (see [`WEB-UPDATE.md`](WEB-UPDATE.md)).
+
+Evidence for this line, precisely:
+
+- pull requests #163 and #164 ran every required workflow. On the merged `main`
+  commit e6751de all required checks passed, including Linux Go race tests, vet
+  and vulnerability scanning, ARM64/QEMU smoke tests, the WAN, router and LAN
+  namespace laboratory, crash recovery/fuzzing, a clean Alpine install and
+  wizard, four dashboard browser profiles and **Build, flash and boot
+  minimalrouter golden ISO**. That is CI evidence, not real-lab validation;
+- on a macOS workstation, 2026-10-12: `go vet ./...` and `go test ./...`,
+  dashboard lint, 79 Vitest tests and the production build passed;
+- the owner appliance's current configuration, read through the read-only MCP
+  tool with secrets redacted, produced exactly the same validation results
+  under v0.2.1 and v0.3.0 rules: the stricter LAN, DNS-resolver and source-CIDR
+  admission introduces no new rejection for that configuration.
+
+No v0.3.0 owner-Proxmox, ISP or data-plane evidence has been collected yet.
+
+## v0.2.1 line (previous release)
+
 **Minimal Router OS v0.2.1 — Beta.**
 
-The build tree (`VERSION`, `web/package.json`) targets v0.2.1: the v0.2.0 DNS
-filter generation-probe retry, the Network protection header Apply action and
-clearer list-refresh guidance. v0.2.0 is published; v0.2.1 is not. This is not a
-publication claim. Exact-candidate CI, ISO and signed-release gates remain
-required under [the release process](RELEASE_PROCESS.md).
+The v0.2.1 build tree added the v0.2.0 DNS filter generation-probe retry, the
+Network protection header Apply action and clearer list-refresh guidance.
+v0.2.1 was published on 2026-10-08. As of 2026-10-12 the owner appliance reports
+v0.2.1 (commit 756871a) through the read-only MCP status tool.
 
 Owner-Proxmox evidence collected 2026-10-08: a v0.2.0 appliance failed every
 DNS category-blocking activation with rollback ("DNS filter activation failed;

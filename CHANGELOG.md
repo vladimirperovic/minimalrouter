@@ -6,14 +6,19 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.3.0] — 2026-10-12
+
 ### Upgrade compatibility
 
 - These changes alter the shared configuration store used by `router-recovery`
   and `router-setup`, and update the Go build toolchain and dependencies.
-  The next signed release requires the full distribution
-  installer once for existing v0.2.1 and earlier appliances; ordinary dashboard
-  A/B activation remains blocked by the existing byte-identity safety check.
-  Published v0.2.1 artifacts are unchanged. See `docs/WEB-UPDATE.md`.
+  v0.3.0 requires the full signed distribution installer once for existing
+  v0.2.1 and earlier appliances; ordinary dashboard A/B activation remains
+  blocked by the existing byte-identity safety check. See `docs/WEB-UPDATE.md`.
+- Configuration validation now rejects a LAN address that is the network,
+  broadcast, loopback or multicast address, requires explicit upstream DNS
+  resolvers even when DHCP allocation is disabled, and requires custom-rule
+  source CIDRs to lie entirely inside the LAN.
 
 ### Fixed
 
