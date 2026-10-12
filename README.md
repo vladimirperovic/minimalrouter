@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.2.1"><img alt="Beta release: v0.2.1" src="https://img.shields.io/badge/beta-v0.2.1-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.3.0"><img alt="Beta release: v0.3.0" src="https://img.shields.io/badge/beta-v0.3.0-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -44,33 +44,34 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **Beta — v0.2.1.** The preferred AMD64/Proxmox installation path is the
+> **Beta — v0.3.0.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
-> then runs a short first-boot router configuration. v0.2.1 makes DNS category
-> blocking activation reliable with real-size catalogs, adds an Apply action to
-> the Network protection header and clearer list-refresh guidance, on top of the
-> v0.2.0 network-wide DNS risk alerts, opt-in blocking, maintained lists, Recovery
-> redesign and dashboard spacing. Existing v0.1.9 appliances take v0.2.1 as a normal
-> dashboard web update; older appliances still need the signed full
-> distribution installer once. This is still a controlled-pilot Beta, not an unattended
+> then runs a short first-boot router configuration. v0.3.0 unifies the LAN &
+> DHCP, Firewall and Gateway Quality workspaces, redesigns Logs, Recovery and
+> DNS Filter around authoritative router state, adds named snapshots and
+> revision-bound restores, and extends the read-only MCP tools. Because the
+> shared configuration store and Go toolchain changed, existing v0.2.1 and
+> earlier appliances take v0.3.0 through the signed full distribution installer
+> once; later releases that keep those tools unchanged can again be dashboard
+> web updates. This is still a controlled-pilot Beta, not an unattended
 > pfSense/OpenWrt replacement. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## v0.2.1 quick start — Proxmox
+## v0.3.0 quick start — Proxmox
 
-Download these assets from the **v0.2.1 GitHub release**:
+Download these assets from the **v0.3.0 GitHub release**:
 
 ```text
-minimalrouter-0.2.1-amd64.iso
-minimalrouter-0.2.1-amd64.iso.sha256
+minimalrouter-0.3.0-amd64.iso
+minimalrouter-0.3.0-amd64.iso.sha256
 ```
 
 Verify before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.2.1-amd64.iso.sha256
+sha256sum -c minimalrouter-0.3.0-amd64.iso.sha256
 ```
 
 Create a QEMU/KVM VM with the currently proven target profile:
@@ -105,7 +106,7 @@ Serial:    ttyS0 @ 115200
 Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
 [`docs/PROXMOX.md`](docs/PROXMOX.md).
 
-> The installer ISO contains BIOS and UEFI boot metadata, but the v0.2.1
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.3.0
 > **installed Golden target** that is fully exercised end-to-end is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
@@ -225,7 +226,7 @@ login and verifies the installed appliance.
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.2.1 ISO install
+- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.3.0 ISO install
 - [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — exact ISO architecture and rebuild rules
 - [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and pilot procedure
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is actually proven

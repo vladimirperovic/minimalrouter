@@ -87,25 +87,26 @@ byte-identity check in `cmd/router-update`.
 
 ## Current checkout and installation boundary
 
-The unreleased dashboard/recovery changes after the **v0.2.1 tag** change
-`router-recovery` and `router-setup` on AMD64 and ARM64. Their shared configuration
-store now migrates named snapshots and durable recovery/backup metadata, and
-configuration transactions retain sanitized audit outcomes. The initial CI
-comparison with the old toolchain isolated drift in those two binaries. The
-checkout also now requires Go 1.26.9 and updated `x/net`, `x/crypto` and `x/sys`
-to resolve the October 2026 vulnerability scan findings; toolchain/dependency
-changes are additional bootstrap build inputs. Consequently, a release containing
-these changes requires the **full signed distribution installer once** on
+v0.3.0 changes `router-recovery` and `router-setup` on AMD64 and ARM64. Their
+shared configuration store now migrates named snapshots and durable
+recovery/backup metadata, and configuration transactions retain sanitized audit
+outcomes. The initial CI comparison with the old toolchain isolated drift in
+those two binaries. v0.3.0 also requires Go 1.26.9 and updated `x/net`,
+`x/crypto` and `x/sys` to resolve the October 2026 vulnerability scan findings;
+toolchain/dependency changes are additional bootstrap build inputs.
+Consequently, v0.3.0 requires the **full signed distribution installer once** on
 existing v0.2.1 and earlier appliances. The dashboard A/B updater correctly
 refuses this transition; its byte-identity and rollback checks remain intact.
 This is not an instruction to reflash an existing installation with the Golden
-ISO, which deliberately refuses an occupied target disk.
+ISO, which deliberately refuses an occupied target disk. A replacement appliance
+may instead be installed on a blank disk from the v0.3.0 Golden ISO and receive
+the old router's configuration through an encrypted backup restore.
 
-The acknowledgement in `bootstrap-baseline.json` follows the current checkout's
-`VERSION` (still 0.2.1); it does not change the published v0.2.1 payload or promise
-a same-version web update. Release preparation must advance the version and its
-acknowledgement together, validate the full signed installer and Golden ISO,
-then establish the new published baseline before claiming later A/B compatibility.
+`bootstrap-baseline.json` acknowledges this change for version 0.3.0 and keeps
+`bootstrap_baseline_ref` at v0.1.8 until the v0.3.0 tag exists. After v0.3.0 is
+published, a follow-up change moves the baseline to v0.3.0 so that later releases
+are compared against the bytes appliances actually run, before any later A/B
+compatibility is claimed.
 
 For historical context, the v0.2.0 candidate preserved the v0.1.9 bootstrap and installed integration
 contract. On 2026-10-08, all three bootstrap programs built for both supported
