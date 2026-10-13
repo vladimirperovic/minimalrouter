@@ -274,6 +274,16 @@ jobs:
           subject-path: build/minimalrouter-linux-arm64.tar.gz
           sbom-path: build/minimalrouter-linux-arm64.spdx.json
 
+      # The SBOM steps above publish SPDX attestations only. Without build
+      # provenance the documented `gh attestation verify <archive>` (whose
+      # default predicate is SLSA provenance) answered 404 for v0.3.0.
+      - name: Attest release archive provenance
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
+        with:
+          subject-path: |
+            build/minimalrouter-linux-amd64.tar.gz
+            build/minimalrouter-linux-arm64.tar.gz
+
       - name: Attest signed manifests and checksums
         uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4
         with:

@@ -177,6 +177,19 @@ gh attestation verify minimalrouter-linux-amd64.tar.gz \
   -R vladimirperovic/minimalrouter
 ```
 
+The archives also carry an SPDX SBOM attestation, which `gh` checks only when
+asked for that predicate:
+
+```sh
+gh attestation verify minimalrouter-linux-amd64.tar.gz \
+  -R vladimirperovic/minimalrouter \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+Releases up to and including v0.3.0 attested the archives with the SBOM only,
+so for those the plain command above returns HTTP 404; use the
+`--predicate-type` form. The ISO has provenance in every release.
+
 For archive updates, the appliance's pinned Ed25519 verification remains the
 final local authorization boundary. GitHub attestations supplement it; they do
 not replace it.
