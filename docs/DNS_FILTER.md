@@ -62,8 +62,16 @@ specific exceptions forward through the configured upstreams. Local DNS records,
 hosts entries and DHCP names take precedence, as documented by
 [dnsmasq](https://thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html).
 This is a queried-domain filter, not inspection of page content or arbitrary
-CNAME chains. External encrypted DNS, VPNs, direct IP connections and mobile
-data can bypass router DNS. Category blocking does not create per-child identity.
+CNAME chains. Category blocking does not create per-child identity.
+
+The filter only sees lookups that reach the router. A device configured with
+another resolver — even plain DNS such as `8.8.8.8` — skips every category,
+exception and schedule; a live test resolved a blocked gambling domain that way.
+The DNS Filter page therefore leads with **Force all devices through router
+DNS**, which switches on the Firewall presets *Block direct external DNS* (UDP
+and TCP 53) and *Block DNS-over-TLS* (TCP 853) for the whole LAN. Router DNS keeps
+working. DNS-over-HTTPS, VPNs, direct IP connections and mobile data remain
+outside that control.
 
 Scheduled service sets have a 16,384-address bound and four-hour maximum
 lifetime. Unchanged sets retain validated, unexpired IPv4 destinations through

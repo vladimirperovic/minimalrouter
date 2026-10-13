@@ -1,5 +1,43 @@
 import { describe, expect, it } from "vitest";
+import type { RouterConfig } from "../api-types";
 import { PRESETS, ruleNameFor } from "./FirewallPresets";
+import { dnsEnforcementState, setDNSEnforcement } from "../lib/firewall";
+
+const withRules = (rules: RouterConfig["firewall"]["custom_rules"] = []) =>
+  ({ firewall: { custom_rules: rules } }) as unknown as RouterConfig;
+
+describe("router DNS enforcement", () => {
+  it("starts off and becomes active with deny rules for udp/tcp 53 and tcp 853", () => {
+    const config = withRules();
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Off");
+    setDNSEnforcement(config, true);
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Active");
+    const ports = config.firewall.custom_rules
+      .filter((rule) => rule.enabled && rule.action === "deny" && rule.scope === "wan")
+      .map((rule) => `${rule.protocol}/${rule.dst_port}`)
+      .sort();
+    expect(ports).toEqual(["tcp/53", "tcp/853", "udp/53"]);
+  });
+
+  it("pauses its own rules when switched off and leaves other rules alone", () => {
+    const other = { id: "keep", name: "Keep", action: "deny", direction: "forward", protocol: "tcp", dst_port: 25, enabled: true, scope: "wan" };
+    const config = withRules([other] as RouterConfig["firewall"]["custom_rules"]);
+    setDNSEnforcement(config, true);
+    setDNSEnforcement(config, false);
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Off");
+    expect(config.firewall.custom_rules.find((rule) => rule.id === "keep")?.enabled).toBe(true);
+    expect(config.firewall.custom_rules.filter((rule) => rule.preset_id).every((rule) => !rule.enabled)).toBe(true);
+  });
+
+  it("reports partial enforcement when only one of the presets is active", () => {
+    const config = withRules();
+    setDNSEnforcement(config, true);
+    config.firewall.custom_rules = config.firewall.custom_rules.map((rule) =>
+      rule.preset_id === "dot" ? { ...rule, enabled: false } : rule,
+    );
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Partial");
+  });
+});
 
 // The appliance validates every custom rule name against safeNamePattern in
 // internal/config/validation.go:
