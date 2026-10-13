@@ -30,6 +30,7 @@ import "./theme/spacing.css";
 import "./theme/recovery.css";
 import "./theme/dns-filter.css";
 import "./theme/card-hover.css";
+import "./theme/responsive-pages.css";
 import { initializeAppearance } from "./theme/preferences";
 
 initializeAppearance();

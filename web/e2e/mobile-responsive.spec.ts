@@ -370,7 +370,7 @@ test("every dashboard section stays inside the mobile viewport", async ({ page, 
   }
 });
 
-test("startup timeline is horizontal and scrolls inside Logs on mobile", async ({ page, isMobile }) => {
+test("startup timeline stacks vertically inside Logs on mobile", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile-only responsive regression");
   await stubApi(page);
   await page.goto("/#logs");
@@ -383,15 +383,19 @@ test("startup timeline is horizontal and scrolls inside Logs on mobile", async (
     flow: getComputedStyle(element).gridAutoFlow,
     overflowX: getComputedStyle(element).overflowX,
   }));
-  expect(layout.flow).toContain("column");
-  expect(layout.overflowX).toBe("auto");
+  // Seven 122px cards in a sideways strip were too cramped on a phone; the
+  // steps now read top to bottom with full-width descriptions.
+  expect(layout.flow).toContain("row");
+  expect(layout.overflowX).toBe("visible");
 
   const first = await items.nth(0).boundingBox();
   const second = await items.nth(1).boundingBox();
   expect(first).not.toBeNull();
   expect(second).not.toBeNull();
-  expect((second?.x ?? 0) - (first?.x ?? 0)).toBeGreaterThan(120);
-  expect(Math.abs((second?.y ?? 0) - (first?.y ?? 0))).toBeLessThanOrEqual(2);
+  expect((second?.y ?? 0) - (first?.y ?? 0)).toBeGreaterThan(20);
+  expect(Math.abs((second?.x ?? 0) - (first?.x ?? 0))).toBeLessThanOrEqual(2);
+  const bodyWidth = await timeline.locator(".tl-body").first().evaluate((element) => element.getBoundingClientRect().width);
+  expect(bodyWidth).toBeGreaterThan(180);
   await expectNoPageOverflow(page);
 });
 

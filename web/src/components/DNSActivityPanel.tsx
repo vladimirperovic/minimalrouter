@@ -301,22 +301,22 @@ export default function DNSActivityPanel({ busy }: Props) {
           )}
 
           {current && (
-            <article className="card table-card">
+            <article className="card table-card dns-activity-sites">
               <div className="card-title-row">
                 <div><h3>Sites</h3><p>{count(current.site_count)} sites{device ? ` for ${current.devices[0]?.hostname || device}` : ""}, busiest first (top {current.sites.length}).</p></div>
                 <input aria-label="Filter sites" className="dns-activity-search" maxLength={64} onChange={(event) => setSearch(event.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ""))} placeholder="Filter sites" type="search" value={search} />
               </div>
               <div className="elegant-table-container traffic-table-scroll">
-                <table className="elegant-device-table">
+                <table className="elegant-device-table dns-sites-table">
                   <thead><tr><th>Site</th><th>Category</th><th>Lookups</th><th>Devices</th><th>Last seen</th></tr></thead>
                   <tbody>
                     {current.sites.map((site) => (
                       <tr className={site.category === "adult" ? "is-sensitive" : ""} key={site.site}>
                         <td className="elegant-cell-name"><code>{site.site}</code></td>
-                        <td>{categoryLabel(site.category) || "—"}</td>
-                        <td className="elegant-cell-data"><strong>{count(site.lookups)}</strong></td>
-                        <td className="elegant-cell-data">{site.devices}</td>
-                        <td className="elegant-cell-data">{seen(site.last_seen)}</td>
+                        <td data-label="Category">{categoryLabel(site.category) || "—"}</td>
+                        <td className="elegant-cell-data" data-label="Lookups"><strong>{count(site.lookups)}</strong></td>
+                        <td className="elegant-cell-data" data-label="Devices">{site.devices}</td>
+                        <td className="elegant-cell-data" data-label="Last seen">{seen(site.last_seen)}</td>
                       </tr>
                     ))}
                     {current.sites.length === 0 && <tr><td colSpan={5}>{search ? "No sites match the filter." : "No sites recorded for this period."}</td></tr>}

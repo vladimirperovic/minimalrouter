@@ -119,7 +119,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
             </div>
           )}
 
-          <article className="card table-card">
+          <article className="card table-card traffic-devices">
             <div className="card-title-row">
               <div>
                 <h3>{monthLabel(active.month)}</h3>
@@ -128,7 +128,7 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
               <button className="button secondary small" disabled={busy} onClick={() => void load()} type="button">Refresh</button>
             </div>
             <div className="elegant-table-container traffic-table-scroll">
-              <table className="elegant-device-table">
+              <table className="elegant-device-table traffic-device-table">
                 <colgroup><col /><col className="elegant-col-mac" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-data" /><col className="elegant-col-w170" /></colgroup>
                 <thead>
                   <tr><th>Device</th><th>Address</th><th>Download</th><th>Upload</th><th>Total</th><th>Share</th></tr>
@@ -140,10 +140,10 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
                       <tr key={device.address}>
                         <td className="elegant-cell-name">{device.hostname || "Unknown device"}</td>
                         <td className="elegant-cell-ip"><code>{device.address}</code></td>
-                        <td className="elegant-cell-data">{formatBytes(device.rx_bytes)}</td>
-                        <td className="elegant-cell-data">{formatBytes(device.tx_bytes)}</td>
-                        <td className="elegant-cell-data"><strong className="traffic-total-value">{formatBytes(device.total_bytes)}</strong></td>
-                        <td className="traffic-share">
+                        <td className="elegant-cell-data" data-label="Download">{formatBytes(device.rx_bytes)}</td>
+                        <td className="elegant-cell-data" data-label="Upload">{formatBytes(device.tx_bytes)}</td>
+                        <td className="elegant-cell-data" data-label="Total"><strong className="traffic-total-value">{formatBytes(device.total_bytes)}</strong></td>
+                        <td className="traffic-share" data-label="Share">
                           <progress max="100" value={share} />
                           <small>{share.toFixed(1)}%</small>
                         </td>
