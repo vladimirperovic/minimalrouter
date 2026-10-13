@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSnapshotIntegrityIsCheckedOnRead(t *testing.T) {
@@ -68,5 +69,47 @@ func TestSnapshotRetentionIsBounded(t *testing.T) {
 	}
 	if len(snapshots) != 20 {
 		t.Fatalf("snapshot retention kept %d entries, want 20", len(snapshots))
+	}
+}
+
+// Live v0.3.0 finding: snapshots taken while the RTC ran two hours ahead were
+// listed as the newest restore points after NTP corrected the clock.
+func TestSnapshotsOrderByRevisionNotWallClock(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	future := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	if _, err := store.db.Exec(`INSERT INTO snapshots (id, revision, created_at, checksum, config_json, kind) VALUES ('snap-future', 2, ?, 'x', '{}', 'automatic')`, future); err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.Revision = 10
+	created, err := store.CreateSnapshot(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshots, err := store.ListSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshots) != 2 || snapshots[0].ID != created.ID {
+		t.Fatalf("newest revision must be listed first, got %+v", snapshots)
+	}
+	for i := 0; i < snapshotRetentionPerKind; i++ {
+		cfg.Revision++
+		if _, err := store.CreateSnapshot(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshots, err = store.ListSnapshots()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.ID == "snap-future" {
+			t.Fatal("retention kept the oldest revision because its timestamp was in the future")
+		}
 	}
 }
