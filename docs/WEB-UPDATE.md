@@ -87,26 +87,31 @@ byte-identity check in `cmd/router-update`.
 
 ## Current checkout and installation boundary
 
-v0.3.0 changes `router-recovery` and `router-setup` on AMD64 and ARM64. Their
-shared configuration store now migrates named snapshots and durable
-recovery/backup metadata, and configuration transactions retain sanitized audit
-outcomes. The initial CI comparison with the old toolchain isolated drift in
-those two binaries. v0.3.0 also requires Go 1.26.9 and updated `x/net`,
-`x/crypto` and `x/sys` to resolve the October 2026 vulnerability scan findings;
-toolchain/dependency changes are additional bootstrap build inputs.
-Consequently, v0.3.0 requires the **full signed distribution installer once** on
-existing v0.2.1 and earlier appliances. The dashboard A/B updater correctly
-refuses this transition; its byte-identity and rollback checks remain intact.
-This is not an instruction to reflash an existing installation with the Golden
-ISO, which deliberately refuses an occupied target disk. A replacement appliance
-may instead be installed on a blank disk from the v0.3.0 Golden ISO and receive
-the old router's configuration through an encrypted backup restore.
+`bootstrap_baseline_ref` is v0.3.0, the bytes published appliances run since
+2026-10-12. v0.3.1 changes `router-recovery` and `router-setup` on AMD64 and
+ARM64 again, for fixes found in the v0.3.0 live test: the shared configuration
+store lists and prunes snapshots by configuration revision (a corrected clock
+could otherwise make old snapshots look newest and prune the real newest ones),
+configuration deep copies keep missing lists distinct from empty ones (restore
+previews showed a phantom change), and the shared network package gained the
+ARP neighbour reader behind the LAN address check. `router-update` is
+byte-identical to v0.3.0 on both architectures. Consequently, v0.3.1 requires
+the **full signed distribution installer once** on existing v0.3.0 and earlier
+appliances, and `bootstrap-baseline.json` acknowledges the change for version
+0.3.1. As with v0.3.0, the dashboard A/B updater refuses the transition, the
+Golden ISO refuses an occupied disk, and a replacement appliance may be
+installed on a blank disk from the v0.3.1 Golden ISO and restored from an
+encrypted backup. After v0.3.1 is published, the baseline moves to v0.3.1.
 
-`bootstrap-baseline.json` acknowledges this change for version 0.3.0 and keeps
-`bootstrap_baseline_ref` at v0.1.8 until the v0.3.0 tag exists. After v0.3.0 is
-published, a follow-up change moves the baseline to v0.3.0 so that later releases
-are compared against the bytes appliances actually run, before any later A/B
-compatibility is claimed.
+v0.3.0 changed the same two binaries for a larger reason: the shared
+configuration store began migrating named snapshots and durable recovery/backup
+metadata, configuration transactions began retaining sanitized audit outcomes,
+and Go 1.26.9 with updated `x/net`, `x/crypto` and `x/sys` (the October 2026
+vulnerability scan findings) changed the bootstrap build inputs. v0.3.0
+therefore required the full signed distribution installer once on v0.2.1 and
+earlier appliances. Its acknowledgement kept `bootstrap_baseline_ref` at v0.1.8
+until the v0.3.0 tag existed; v0.3.1 moves the baseline to v0.3.0 so the
+comparison is against the bytes appliances actually run.
 
 For historical context, the v0.2.0 candidate preserved the v0.1.9 bootstrap and installed integration
 contract. On 2026-10-08, all three bootstrap programs built for both supported
