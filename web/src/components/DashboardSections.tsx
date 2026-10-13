@@ -16,6 +16,7 @@ import DNSActivityPanel from "./DNSActivityPanel";
 import type { ApplianceHealth, GatewaySettings, GatewaySummary, RouterConfig, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
 import { confirmAction } from "../lib/confirmAction";
+import { breakable } from "../lib/breakable";
 
 const DNSFilterPanel = lazy(() => import("./DNSFilterPanel"));
 
@@ -618,7 +619,7 @@ export default function DashboardSections({
               <span className="wg-assign-copy">Minimal Router will assign</span>
               <dl>
                 <div><dt>Client IP</dt><dd><code>{wgPreview?.client_ip || "…"}</code></dd></div>
-                <div><dt>Server endpoint</dt><dd><code>{wgPreview?.server_endpoint || endpointFor(config)}</code></dd></div>
+                <div><dt>Server endpoint</dt><dd><code>{breakable(wgPreview?.server_endpoint || endpointFor(config))}</code></dd></div>
               </dl>
             </div>
           </div>
@@ -643,7 +644,7 @@ export default function DashboardSections({
 {active === "cloudflare" && <section className="dashboard-section" id="cloudflare">
   <div className="dashboard-section-heading ddns-heading has-facts">
     <div className="subpage-hero-head"><div><p className="eyebrow">Optional integration</p><h2>Dynamic DNS</h2><p className="ddns-lead">Keep a hostname pointing at your router, even when your public IP changes.</p></div><span className={`classic-status-chip ${runtime.ddns?.running ? "" : "is-off"}`}>{!config.cloudflare.ddns_enabled ? "Disabled" : runtime.ddns?.running ? "Service running" : runtime.ddns ? "Stopped" : "Unknown"}</span></div>
-    <dl className="subpage-hero-facts"><div><dt>Provider</dt><dd>{configuredProviderLabel}</dd><small>{config.cloudflare.ddns_enabled ? "updates enabled" : "updates disabled"}</small></div><div><dt>Hostname</dt><dd>{runtime.ddns?.hostname || config.cloudflare.domain || "Not set"}</dd><small>public update target</small></div><div><dt>Registered IP</dt><dd>{runtime.ddns?.last_ip || "—"}</dd><small>last observed address</small></div><div><dt>Last update</dt><dd>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Never"}</dd><small>refresh every 5 minutes</small></div></dl>
+    <dl className="subpage-hero-facts"><div><dt>Provider</dt><dd>{configuredProviderLabel}</dd><small>{config.cloudflare.ddns_enabled ? "updates enabled" : "updates disabled"}</small></div><div><dt>Hostname</dt><dd>{breakable(runtime.ddns?.hostname || config.cloudflare.domain || "Not set")}</dd><small>public update target</small></div><div><dt>Registered IP</dt><dd>{runtime.ddns?.last_ip || "—"}</dd><small>last observed address</small></div><div><dt>Last update</dt><dd>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Never"}</dd><small>refresh every 5 minutes</small></div></dl>
   </div>
 
   <div className="ddns-provider" role="tablist" aria-label="Dynamic DNS provider">
@@ -706,7 +707,7 @@ export default function DashboardSections({
 {active === "dns-filter" && <Suspense fallback={<p role="status">Loading DNS protection…</p>}><DNSFilterPanel apiConnected onError={setError} leases={leases} /></Suspense>}
 
 {active === "wifi" && <section className="dashboard-section" id="wifi">
-  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Optional hardware</p><h2>Wi-Fi access point</h2><p className="section-copy">Control the local radio, network identity and channel settings when compatible wireless hardware is installed.</p></div><span className={`classic-status-chip ${config.wifi.enabled ? "" : "is-off"}`}>Wi-Fi {config.wifi.enabled ? "Enabled" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Radio configuration</dt><dd>{config.wifi.enabled ? "Enabled" : "Off"}</dd><small>{config.wifi.interface || "no interface"}</small></div><div><dt>Network</dt><dd>{config.wifi.ssid || "Not set"}</dd><small>{config.wifi.hide_ssid ? "hidden SSID" : "visible SSID"}</small></div><div><dt>Band</dt><dd>{config.wifi.band}</dd><small>wireless spectrum</small></div><div><dt>Channel</dt><dd>{config.wifi.channel}</dd><small>manual selection</small></div></dl></div>
+  <div className="dashboard-section-heading has-facts"><div className="subpage-hero-head"><div><p className="eyebrow">Optional hardware</p><h2>Wi-Fi access point</h2><p className="section-copy">Control the local radio, network identity and channel settings when compatible wireless hardware is installed.</p></div><span className={`classic-status-chip ${config.wifi.enabled ? "" : "is-off"}`}>Wi-Fi {config.wifi.enabled ? "Enabled" : "Off"}</span></div><dl className="subpage-hero-facts"><div><dt>Radio configuration</dt><dd>{config.wifi.enabled ? "Enabled" : "Off"}</dd><small>{config.wifi.interface || "no interface"}</small></div><div><dt>Network</dt><dd>{breakable(config.wifi.ssid || "Not set")}</dd><small>{config.wifi.hide_ssid ? "hidden SSID" : "visible SSID"}</small></div><div><dt>Band</dt><dd>{config.wifi.band}</dd><small>wireless spectrum</small></div><div><dt>Channel</dt><dd>{config.wifi.channel}</dd><small>manual selection</small></div></dl></div>
   <article className="service-config-card">
     <header className="service-config-header">
       <div className="service-config-title"><span className="service-config-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5a11 11 0 0 1 14 0M8.5 16a6 6 0 0 1 7 0M12 20h.01M2 9a16 16 0 0 1 20 0" /></svg></span><div><p>Radio controls</p><h3>Local wireless network</h3><span>Identity, spectrum and access policy in a single card.</span></div></div>

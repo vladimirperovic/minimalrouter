@@ -1,0 +1,206 @@
+/* Page-by-page density pass (1440 px review of every page). Each rule fixes a
+   specific uneven or wasteful layout; nothing here changes colours or type. */
+
+/* Side-by-side content cards end on the same line. Security's Configuration
+   card stopped ~140 px above Preferences; Gateway's Quality history and Probe
+   targets, and Network diagnostics and Automatic recovery, likewise. The
+   collapsible Gateway sections keep their own height so opening one never
+   stretches its closed neighbour into an empty card. */
+:root:root .dashboard-app .security-settings-columns {
+  align-items: stretch;
+}
+:root:root .dashboard-app .gateway-quality > :is(.gateway-history-card, .gateway-target-results, .gateway-diagnostics-card, .rec-card) {
+  align-self: stretch;
+}
+
+/* LAN & DHCP: the actions column was a fixed 260 px, so Wake / Reserve IP /
+   Pause Internet wrapped onto two lines while the middle of the row stayed
+   empty. On wide lists the actions take the width they need, on one line. */
+.dashboard-app .net-device-list {
+  container-type: inline-size;
+}
+@container (min-width: 960px) {
+  .dashboard-app .net-device-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
+  }
+  .dashboard-app .net-device-actions {
+    max-width: none;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+  }
+  .dashboard-app .net-device-actions > .button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* Firewall: ten suggested rules in two columns took half the page. Three
+   columns fit comfortably once the panel is wide. */
+.dashboard-app .fw-panel {
+  container-type: inline-size;
+}
+@container (min-width: 1000px) {
+  .dashboard-app .fw-presets-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* WireGuard: three peers in two columns left one card alone on a row. */
+.dashboard-app .wg-peer-panel {
+  container-type: inline-size;
+}
+@container (min-width: 1040px) {
+  :root:root .dashboard-app #wireguard .wg-peer-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* QoS: algorithm, download and upload belong on one row; upload used to sit
+   alone across the full width. */
+@media (min-width: 900px) {
+  .dashboard-app #qos .form-grid.two {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .dashboard-app #qos .form-grid.two > .form-span {
+    grid-column: auto;
+  }
+}
+
+/* Sidebar version: label and version stay whole and drop to two lines
+   together instead of breaking mid-word ("V0.2.0- / DEMO"). */
+.dashboard-app .dashboard-brand-revision {
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 4px;
+}
+.dashboard-app .dashboard-brand-revision,
+.dashboard-app .dashboard-brand-revision span {
+  white-space: nowrap;
+}
+
+/* Phone Overview: nine status chips in a two-column grid took ~210 px before
+   any content; at their natural width they flow three or four to a row. The
+   Active devices count and "View all devices" share one row instead of two. */
+@media (max-width: 640px) {
+  :root:root .dashboard-app .overview-service-ribbon {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  :root:root .dashboard-app .overview-service-ribbon > .overview-service-chip {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 100%;
+  }
+  :root:root .dashboard-app .active-device-section .modern-device-tools .modern-device-count {
+    flex: 1 1 auto;
+    width: auto;
+    align-self: center;
+  }
+}
+
+/* Phone LAN & DHCP: the three hero facts and the three address-space numbers
+   were stacked one per full-width row (~330 px and ~225 px). Gateway and DHCP
+   share a row with DNS health underneath; the short pool numbers sit three
+   across. */
+@media (max-width: 640px) {
+  :root:root .dashboard-app .net-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 16px;
+  }
+  :root:root .dashboard-app .net-facts > div + div {
+    border-top: 0;
+    border-left: 1px solid var(--separator);
+    padding: 0 0 0 16px;
+  }
+  :root:root .dashboard-app .net-facts > div:nth-child(3) {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--separator);
+    padding: 14px 0 0;
+  }
+  :root:root .dashboard-app .net-pool-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+/* Phone Firewall: each suggested-rule footer stacked a centred protocol line
+   above a centred Select / Turn on row. Protocol left, actions right, one row:
+   ten cards get ~40 px shorter each. */
+@media (max-width: 640px) {
+  :root:root .dashboard-app .fw-preset > footer {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+}
+
+/* Phone Security: the posture tiles ran ~20 px past the card edge (a fixed
+   width plus side margins) and the fifth tile sat next to an empty cell. The
+   events table squeezed "auth.login_succeeded" into three broken lines; it
+   becomes one labelled card per event. */
+@media (max-width: 640px) {
+  :root:root .dashboard-app .classic-security-command-facts {
+    width: auto;
+  }
+  :root:root .dashboard-app .classic-security-command-facts > div:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+}
+.dashboard-app .classic-security-feed {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  :root:root .dashboard-app .security-events-table,
+  :root:root .dashboard-app .security-events-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  :root:root .dashboard-app .security-events-table thead {
+    display: none;
+  }
+  :root:root .dashboard-app .security-events-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--separator);
+  }
+  :root:root .dashboard-app .security-events-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  :root:root .dashboard-app .security-events-table td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* Event name first and full width, when on the right, actor and details below. */
+  :root:root .dashboard-app .security-events-table td[data-label="Event"] {
+    grid-row: 1;
+    grid-column: 1;
+  }
+  :root:root .dashboard-app .security-events-table td[data-label="When"] {
+    grid-row: 1;
+    grid-column: 2;
+    color: var(--text-secondary);
+    text-align: right;
+  }
+  :root:root .dashboard-app .security-events-table td[data-label="Actor"],
+  :root:root .dashboard-app .security-events-table td[data-label="Details"] {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+  }
+  :root:root .dashboard-app .security-events-table td[data-label="Actor"]::before,
+  :root:root .dashboard-app .security-events-table td[data-label="Details"]::before {
+    content: attr(data-label) " · ";
+    color: var(--text-tertiary);
+  }
+}

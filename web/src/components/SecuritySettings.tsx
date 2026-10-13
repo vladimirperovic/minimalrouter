@@ -93,14 +93,14 @@ export default function SecuritySettings({ config, onError }: Props) {
           {loading && <p className="classic-security-empty">Loading events…</p>}
           {!loading && events !== null && !auditError && secure.length === 0 && <p className="classic-security-empty">No security events recorded.</p>}
           {!loading && secure.length > 0 && (
-            <div className="classic-security-table-wrap"><table className="classic-security-table">
+            <div className="classic-security-table-wrap"><table className="classic-security-table security-events-table">
               <thead><tr><th>When</th><th>Event</th><th>Actor</th><th>Details</th></tr></thead>
               <tbody>{secure.map((event) => (
                 <tr key={event.id}>
-                  <td>{since(event.timestamp)}</td>
-                  <td><code>{event.event_type}</code></td>
-                  <td>{event.actor}</td>
-                  <td>{Object.entries(event.details ?? {}).filter(([, v]) => v).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Recorded"}</td>
+                  <td data-label="When">{since(event.timestamp)}</td>
+                  <td data-label="Event"><code>{event.event_type}</code></td>
+                  <td data-label="Actor">{event.actor}</td>
+                  <td data-label="Details">{Object.entries(event.details ?? {}).filter(([, v]) => v).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ") || "Recorded"}</td>
                 </tr>
               ))}</tbody>
             </table></div>
