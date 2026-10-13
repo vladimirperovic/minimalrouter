@@ -125,12 +125,16 @@ EOF
 }
 
 build_syslinux_config() {
+    # PROMPT 1 shows a boot: prompt on VGA and ttyS0 for five seconds; without
+    # it the BIOS path booted the default at once and the serial entry could
+    # not be chosen at all, e.g. from a Proxmox serial socket.
     cat > "$BUILD_DIR/syslinux.cfg" <<'EOF'
 SERIAL 0 115200
-CONSOLE 0
-PROMPT 0
-TIMEOUT 20
+PROMPT 1
+TIMEOUT 50
 DEFAULT minimalrouter
+SAY MinimalRouter installer: press Enter or wait 5 seconds for the VGA/noVNC installer.
+SAY To install from this serial console instead, type  minimalrouter-serial  and press Enter.
 
 LABEL minimalrouter
   MENU LABEL MinimalRouter Installer (VGA/noVNC)

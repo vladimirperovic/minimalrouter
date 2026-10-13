@@ -65,7 +65,7 @@ safer during initial qualification.
 1. Create the blank VM using the profile above.
 2. Attach the verified `minimalrouter-0.3.0-amd64.iso`.
 3. Keep the LAN isolated from the production DHCP domain.
-4. Boot the ISO using VGA/noVNC or the dedicated serial entry.
+4. Boot the ISO using VGA/noVNC, or type `minimalrouter-serial` at the `boot:` prompt for the serial installer.
 5. The live flasher verifies the Golden image and automatically selects the only
    clearly virtual disk in the normal one-disk VM case.
 6. Wait for the raw image copy and automatic reboot.

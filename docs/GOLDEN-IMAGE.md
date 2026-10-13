@@ -264,7 +264,10 @@ MinimalRouter Installer (VGA/noVNC)
 MinimalRouter Installer (serial ttyS0 115200)
 ```
 
-VGA/noVNC is the default. Serial passes:
+VGA/noVNC is the default. On BIOS boot ISOLINUX shows a five-second `boot:`
+prompt on VGA and `ttyS0` (`PROMPT 1`, `TIMEOUT 50`) where the operator can type
+the `minimalrouter-serial` label; before that the default booted immediately and
+the serial entry was unreachable. Serial passes:
 
 ```text
 minimalrouter.console=ttyS0 console=ttyS0,115200

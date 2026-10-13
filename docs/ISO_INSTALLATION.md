@@ -64,15 +64,18 @@ qm set <VMID> --serial0 socket
 qm terminal <VMID>
 ```
 
-The ISO has two entries:
+On BIOS/SeaBIOS boot the ISO shows a `boot:` prompt on both the VGA console and
+`ttyS0` for five seconds:
 
 ```text
-MinimalRouter Installer (VGA/noVNC)
-MinimalRouter Installer (serial ttyS0 115200)
+MinimalRouter installer: press Enter or wait 5 seconds for the VGA/noVNC installer.
+To install from this serial console instead, type  minimalrouter-serial  and press Enter.
+boot:
 ```
 
-The VGA/noVNC entry is the production default. Select the serial entry when you
-want the entire install UI on `ttyS0`.
+The VGA/noVNC installer is the production default. Type `minimalrouter-serial`
+at that prompt when you want the entire install UI on `ttyS0`. UEFI boot uses
+GRUB, which lists the same two entries as a menu on both consoles.
 
 After installation, `ttyS0` remains a password-protected recovery login at
 115200 baud. For the first real pilot, keep noVNC as an independent fallback even
