@@ -347,6 +347,32 @@ test("mobile menu pushes the page away and keeps the control fixed top-right", a
   await expect(sidebar).not.toHaveClass(/is-open/);
 });
 
+test("the menu control sits in the topbar row with the other controls", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "mobile-only responsive regression");
+  await stubApi(page);
+  await page.goto("/");
+  await expect(page.locator(".mobile-navigation-toggle")).toBeVisible();
+
+  // It was a 46px square hanging below 42-48px circles and past the gutter.
+  const geometry = await page.evaluate(() => {
+    const box = (el: Element) => el.getBoundingClientRect();
+    const controls = [...document.querySelectorAll(".classic-topbar-actions :is(.classic-topbar-button, .classic-help-button, .classic-account-button)")]
+      .filter((el) => (el as HTMLElement).offsetWidth > 0)
+      .map(box);
+    const menu = box(document.querySelector(".mobile-navigation-toggle")!);
+    const page = box(document.querySelector("#overview")!);
+    return { controls: controls.map((r) => ({ w: r.width, h: r.height, cy: r.top + r.height / 2 })), menu: { w: menu.width, h: menu.height, cy: menu.top + menu.height / 2, right: menu.right }, pageRight: page.right };
+  });
+
+  expect(geometry.controls.length).toBeGreaterThanOrEqual(3);
+  for (const control of geometry.controls) {
+    expect(Math.abs(control.h - geometry.menu.h)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(control.w - geometry.menu.w)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(control.cy - geometry.menu.cy)).toBeLessThanOrEqual(0.5);
+  }
+  expect(Math.abs(geometry.menu.right - geometry.pageRight)).toBeLessThanOrEqual(1);
+});
+
 test("every dashboard section stays inside the mobile viewport", async ({ page, isMobile }) => {
   test.skip(!isMobile, "mobile-only responsive regression");
   // Fourteen sections, each opening and closing the drawer. The close animation
