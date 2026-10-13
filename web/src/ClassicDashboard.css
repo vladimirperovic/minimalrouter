@@ -2419,14 +2419,19 @@
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 28px;
+  flex-wrap: wrap;
+  gap: 16px 28px;
 }
 
-.subpage-hero-head > div:first-child { min-width: 0; }
+/* The title column keeps a readable width; actions that do not fit beside it
+   wrap underneath. Without this the Logs page's four buttons squeezed its
+   heading into a 12px column, one word per line. */
+.subpage-hero-head > div:first-child { flex: 1 1 18rem; min-width: 0; }
 .subpage-hero-head > .classic-status-chip,
 .subpage-hero-head > .button,
 .subpage-hero-head > .toolbar,
-.subpage-hero-head > .dns-filter-actions { flex: 0 0 auto; }
+.subpage-hero-head > .dns-filter-actions { flex: 0 1 auto; max-width: 100%; }
+.subpage-hero-head > .toolbar { flex-wrap: wrap; }
 
 .subpage-hero-facts {
   position: relative;

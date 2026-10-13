@@ -13,7 +13,7 @@
 .dashboard-app #adguard .dns-neutral-chip.is-on { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 25%,var(--separator)); }
 .dashboard-app #adguard .dns-overview { background:linear-gradient(115deg,color-mix(in srgb,var(--accent) 5%,var(--surface)),var(--surface) 70%); }
 .dashboard-app #adguard .dns-overview-lead { display:flex; gap:20px; align-items:center; }
-.dashboard-app #adguard .dns-overview-lead > div { flex:1; min-width:0; }
+.dashboard-app #adguard .dns-overview-lead > div { flex:1 1 14rem; min-width:0; }
 .dashboard-app #adguard .dns-overview-lead p:last-child { margin-bottom:0; }
 .dashboard-app #adguard .dns-overview-symbol { width:64px; height:64px; display:grid; place-items:center; flex-shrink:0; border:1px solid color-mix(in srgb,var(--accent) 25%,var(--separator)); border-radius:20px; color:var(--accent); background:color-mix(in srgb,var(--accent) 6%,var(--surface)); }
 .dashboard-app #adguard .dns-overview-symbol.is-healthy { color:var(--dns-positive); border-color:color-mix(in srgb,var(--dns-positive) 25%,var(--separator)); background:color-mix(in srgb,var(--dns-positive) 7%,var(--surface)); }
