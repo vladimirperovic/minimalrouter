@@ -10,6 +10,7 @@ import (
 
 	"github.com/vladimirperovic/minimalrouter/internal/apply"
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/network"
 	"github.com/vladimirperovic/minimalrouter/internal/telemetry"
 )
 
@@ -18,18 +19,18 @@ func TestLANAddressAssessmentCoversWholeSubnetAndKnownConflicts(t *testing.T) {
 	cfg.LAN.IPAddress = "192.168.1.254"
 	cfg.LAN.CIDR = "192.168.1.254/24"
 	snapshot := telemetry.DHCPLeaseSnapshot{DHCPLeaseStatus: telemetry.DHCPLeaseStatus{Available: true, CollectedAt: time.Now()}, Leases: []telemetry.DHCPLease{{IPAddress: "192.168.1.1", MAC: "02:00:00:00:00:01"}}}
-	got := assessLANAddress(cfg, snapshot, "192.168.1.2", "02:00:00:00:00:02", "")
+	got := assessLANAddress(cfg, snapshot, nil, "192.168.1.2", "02:00:00:00:00:02", "")
 	if got.State != "no_known_conflict" || got.SuggestedAddress != "192.168.1.2" {
 		t.Fatalf("gateway above pool: %+v", got)
 	}
 	for _, address := range []string{"192.168.1.0", "192.168.1.255", "192.168.1.254", "192.168.1.150", "192.168.2.2", "192.168.1.1"} {
-		got := assessLANAddress(cfg, snapshot, address, "02:00:00:00:00:02", "")
+		got := assessLANAddress(cfg, snapshot, nil, address, "02:00:00:00:00:02", "")
 		if got.State != "conflict" || len(got.Conflicts) == 0 {
 			t.Fatalf("accepted %s", address)
 		}
 	}
 	snapshot.Available = false
-	if got := assessLANAddress(cfg, snapshot, "192.168.1.3", "", ""); got.State != "unknown" {
+	if got := assessLANAddress(cfg, snapshot, nil, "192.168.1.3", "", ""); got.State != "unknown" {
 		t.Fatal(got)
 	}
 	if pool := poolSummary(cfg, snapshot); pool.Free != nil {
@@ -46,12 +47,12 @@ func TestLANAddressSuggestionSkipsPoolAndDNSAddresses(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.DHCP.RangeStart = "192.168.1.2"
 	cfg.DHCP.RangeEnd = "192.168.1.250"
-	got := assessLANAddress(cfg, telemetry.DHCPLeaseSnapshot{}, "", "", "")
+	got := assessLANAddress(cfg, telemetry.DHCPLeaseSnapshot{}, nil, "", "", "")
 	if got.SuggestedAddress != "192.168.1.251" {
 		t.Fatal(got)
 	}
 	cfg.DHCP.StaticLeases = []config.StaticLease{{ID: "one", MAC: "02:00:00:00:00:01", IPAddress: "192.168.1.251"}}
-	got = assessLANAddress(cfg, telemetry.DHCPLeaseSnapshot{}, "", "", "")
+	got = assessLANAddress(cfg, telemetry.DHCPLeaseSnapshot{}, nil, "", "", "")
 	if got.SuggestedAddress != "192.168.1.252" {
 		t.Fatal(got)
 	}
@@ -68,7 +69,7 @@ func TestLANAddressAssessmentUsesAddressIdentity(t *testing.T) {
 		{"192.168.1.30", "", "conflict"},
 		{"192.168.1.40", "0200.0000.0030", "conflict"},
 	} {
-		got := assessLANAddress(cfg, snapshot, tc.ip, tc.mac, "")
+		got := assessLANAddress(cfg, snapshot, nil, tc.ip, tc.mac, "")
 		if got.State != tc.state {
 			t.Fatalf("ip %q mac %q: got %+v, want %s", tc.ip, tc.mac, got, tc.state)
 		}
@@ -102,5 +103,24 @@ func TestLANHandlersBoundArgumentsAndReportMissingObservation(t *testing.T) {
 	s.handleLANStatus(w, httptest.NewRequest("GET", "/", nil))
 	if !strings.Contains(w.Body.String(), "lease_status") || strings.Contains(w.Body.String(), "password") {
 		t.Fatal(w.Body.String())
+	}
+}
+
+// Live v0.3.0 finding: the operator PC at 192.168.1.50 (static address, no
+// lease) was talking to the router, yet address-check said no_known_conflict.
+func TestLANAddressAssessmentUsesRecentlySeenNeighbors(t *testing.T) {
+	cfg := config.DefaultConfig()
+	snapshot := telemetry.DHCPLeaseSnapshot{DHCPLeaseStatus: telemetry.DHCPLeaseStatus{Available: true, CollectedAt: time.Now()}}
+	neighbors := []network.Neighbor{{IP: "192.168.1.50", MAC: "00:15:5d:0a:0a:01", Interface: "eth1"}}
+	got := assessLANAddress(cfg, snapshot, neighbors, "192.168.1.50", "02:00:00:00:00:99", "")
+	if got.State != "conflict" || !strings.Contains(strings.Join(got.Conflicts, " "), "00:15:5d:0a:0a:01") {
+		t.Fatalf("a host seen on the LAN must be reported: %+v", got)
+	}
+	if same := assessLANAddress(cfg, snapshot, neighbors, "192.168.1.50", "00-15-5D-0A-0A-01", ""); same.State != "no_known_conflict" {
+		t.Fatalf("reserving the address for the device that already uses it is fine: %+v", same)
+	}
+	cfg.DHCP.RangeStart, cfg.DHCP.RangeEnd = "192.168.1.100", "192.168.1.200"
+	if free := assessLANAddress(cfg, snapshot, []network.Neighbor{{IP: "192.168.1.2", MAC: "00:15:5d:0a:0a:02"}}, "", "", ""); free.SuggestedAddress == "192.168.1.2" {
+		t.Fatalf("suggestion must skip an address seen on the LAN: %+v", free)
 	}
 }
