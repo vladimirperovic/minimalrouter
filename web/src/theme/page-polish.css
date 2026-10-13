@@ -258,3 +258,103 @@
     color: var(--text-tertiary);
   }
 }
+
+/* Topbar controls share one height. Desktop mixed 36 px icon pills with a
+   48 px Help and Admin; on a phone Help was 48 px beside 42 px icons, the
+   account icon sat in a second ring, and the menu control was a 46 px square
+   hanging 3 px below the row and past the page gutter. Every control is now
+   the same circle (or pill, where it carries a label) on one centre line, and
+   the menu control closes the row at the page gutter. The toggle lives
+   outside .dashboard-app, so the measurements are root variables. */
+:root {
+  --topbar-control: 40px;
+  --topbar-gutter: 18px;
+}
+@media (max-width: 760px) {
+  :root {
+    --topbar-control: 44px;
+    --topbar-gutter: 14px;
+  }
+}
+@media (max-width: 430px) {
+  :root {
+    --topbar-control: 42px;
+    --topbar-gutter: 16px;
+  }
+}
+
+:root:root .dashboard-app .classic-topbar-actions :is(.classic-topbar-button, .classic-help-button, .classic-account-button) {
+  box-sizing: border-box;
+  height: var(--topbar-control);
+  min-height: 0;
+}
+:root:root .dashboard-app .classic-topbar-actions .classic-topbar-button:not(.appearance-trigger, .classic-help-button) {
+  width: var(--topbar-control);
+  min-width: 0;
+}
+:root:root .dashboard-app .classic-account-button .classic-account-monogram {
+  width: calc(var(--topbar-control) - 8px);
+  height: calc(var(--topbar-control) - 8px);
+}
+
+@media (max-width: 760px) {
+  :root:root .dashboard-app .classic-topbar-actions :is(.classic-topbar-button, .classic-help-button, .classic-account-button) {
+    width: var(--topbar-control);
+    min-width: 0;
+    padding: 0;
+  }
+  /* Icon-only on a phone: the account icon is the button, not a disc in it. */
+  :root:root .dashboard-app .classic-account-button .classic-account-monogram {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
+  }
+  :root:root .dashboard-app .classic-account-button .classic-account-monogram svg {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* The bar runs edge to edge so its hairline reaches under the menu control,
+     and its right padding reserves the control's place in the row. */
+  :root:root .dashboard-app .dashboard-main > .dashboard-topbar.classic-topbar {
+    width: calc(100% + 2 * var(--topbar-gutter)) !important;
+    max-width: none !important;
+    margin-left: calc(-1 * var(--topbar-gutter)) !important;
+    margin-right: calc(-1 * var(--topbar-gutter)) !important;
+    padding-left: max(var(--topbar-gutter), env(safe-area-inset-left)) !important;
+    padding-right: calc(max(var(--topbar-gutter), env(safe-area-inset-right)) + var(--topbar-control) + 8px) !important;
+  }
+  :root:root .dashboard-app .classic-topbar-actions {
+    margin-right: 0;
+    gap: 8px;
+  }
+  /* Help drops its label below 900 px; without it the button is a circle. */
+  :root:root .dashboard-app .classic-topbar-actions .classic-help-button {
+    width: var(--topbar-control);
+    min-width: 0;
+    padding: 0;
+  }
+  :root:root .mobile-navigation-toggle {
+    top: calc(env(safe-area-inset-top, 0px) + (68px - var(--topbar-control)) / 2);
+    right: max(var(--topbar-gutter), env(safe-area-inset-right));
+    width: var(--topbar-control);
+    height: var(--topbar-control);
+    min-width: 0;
+    min-height: 0;
+    border: var(--skin-hairline);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--classic-panel) 55%, transparent);
+    box-shadow: none;
+  }
+  :root:root .mobile-navigation-toggle::before {
+    font-size: 18px;
+    font-weight: 400;
+  }
+  :root:root .mobile-navigation-toggle.is-open::before {
+    font-size: 26px;
+  }
+}
