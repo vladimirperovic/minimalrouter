@@ -119,6 +119,12 @@ stop() {
 EOF
     chmod 0755 "$OVERLAY_DIR/etc/init.d/minimalrouter-installer"
     ln -s /etc/init.d/minimalrouter-installer "$OVERLAY_DIR/etc/runlevels/default/minimalrouter-installer"
+    # An apkovl with its own runlevels stops Alpine's initramfs from adding the
+    # stock live services, so modloop never mounted /lib/modules and "Loading
+    # modules" failed twice on every boot. Mount the ISO's own module image;
+    # nothing is installed or fetched.
+    mkdir -p "$OVERLAY_DIR/etc/runlevels/sysinit"
+    ln -s /etc/init.d/modloop "$OVERLAY_DIR/etc/runlevels/sysinit/modloop"
     printf 'minimalrouter-installer\n' > "$OVERLAY_DIR/etc/hostname"
     printf 'MinimalRouter appliance installer\n' > "$OVERLAY_DIR/etc/issue"
     tar -czf "$BUILD_DIR/minimalrouter.apkovl.tar.gz" -C "$OVERLAY_DIR" .

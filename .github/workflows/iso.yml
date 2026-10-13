@@ -139,6 +139,7 @@ jobs:
           tar -xzf build/iso/minimalrouter.apkovl.tar.gz -C build/iso/apkovl-check
           test -x build/iso/apkovl-check/etc/init.d/minimalrouter-installer
           test -L build/iso/apkovl-check/etc/runlevels/default/minimalrouter-installer
+          test -L build/iso/apkovl-check/etc/runlevels/sysinit/modloop
 
       - name: Boot production ISO and verify flasher starts automatically
         run: |
@@ -178,6 +179,11 @@ jobs:
         run: |
           iso="$(ls build/iso/minimalrouter-*-amd64.iso)"
           sh scripts/ci/iso-validate.sh "$iso" build/iso/validation
+          # The serial-entry install log shows the live OpenRC boot.
+          if grep -F "can't change directory to '/lib/modules'" build/iso/validation/full-install.log; then
+            echo 'ERROR: live environment booted without its module image (modloop)' >&2
+            exit 1
+          fi
 
       - name: Upload tested bootable ISO
         if: always()

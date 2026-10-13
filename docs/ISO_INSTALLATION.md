@@ -110,8 +110,10 @@ chroot
 install.sh / install-core.sh
 ```
 
-If there are multiple/ambiguous target disks, automatic erase is disabled. The
-installer shows candidate paths and requires the exact word:
+If there are multiple/ambiguous target disks, or the hypervisor is not
+QEMU/KVM/Proxmox (for example Hyper-V or VMware, where the single disk appears as
+`/dev/sda  Virtual Disk`), automatic erase is disabled. The installer shows
+candidate paths, asks for the exact path and requires the exact word:
 
 ```text
 ERASE
