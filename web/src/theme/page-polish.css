@@ -204,3 +204,56 @@
     color: var(--text-tertiary);
   }
 }
+
+/* Phone Logs: the audit table scrolled sideways with Event, Actor and Details
+   cut off at the card edge. Narrow containers show one card per event. */
+.dashboard-app .audit-table-scroll {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  /* Logs.css gives the audit table an 850px minimum width for its columns. */
+  :root:root .dashboard-app #logs .audit-table-scroll .audit-events-table,
+  :root:root .dashboard-app .audit-events-table tbody {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+  :root:root .dashboard-app .audit-events-table thead {
+    display: none;
+  }
+  :root:root .dashboard-app .audit-events-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    height: auto;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--separator);
+  }
+  :root:root .dashboard-app .audit-events-table td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  :root:root .dashboard-app .audit-events-table td[colspan] {
+    grid-column: 1 / -1;
+  }
+  :root:root .dashboard-app .audit-events-table td[data-label="Event"] { grid-row: 1; grid-column: 1; }
+  :root:root .dashboard-app .audit-events-table td[data-label="Category"] { grid-row: 1; grid-column: 2; }
+  :root:root .dashboard-app .audit-events-table td[data-label="Time"] {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+  }
+  :root:root .dashboard-app .audit-events-table :is(td[data-label="Actor"], td[data-label="Details"]) {
+    grid-column: 1 / -1;
+    color: var(--text-secondary);
+  }
+  :root:root .dashboard-app .audit-events-table :is(td[data-label="Actor"], td[data-label="Details"])::before {
+    content: attr(data-label) " · ";
+    color: var(--text-tertiary);
+  }
+}
