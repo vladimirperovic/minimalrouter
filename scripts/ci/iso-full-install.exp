@@ -20,6 +20,9 @@ log_user 1
 log_file -noappend $logpath
 match_max 65536
 
+# The LAN port is an emulated Intel e1000 on purpose: only VirtIO NIC drivers
+# ship in the initramfs, so this proves the installed image coldplugs other NIC
+# drivers (mdev + hwdrivers) instead of stopping firstboot with a single port.
 spawn qemu-system-x86_64 \
     -machine pc,accel=tcg \
     -cpu max \
@@ -31,7 +34,7 @@ spawn qemu-system-x86_64 \
     -netdev user,id=wan,restrict=on \
     -device virtio-net-pci,netdev=wan \
     -netdev user,id=lan,restrict=on,net=192.168.1.0/24,host=192.168.1.254,dhcpstart=192.168.1.100,hostfwd=tcp:127.0.0.1:2222-192.168.1.1:22 \
-    -device virtio-net-pci,netdev=lan \
+    -device e1000,netdev=lan \
     -display none \
     -serial stdio
 

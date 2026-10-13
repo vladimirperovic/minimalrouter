@@ -61,6 +61,19 @@ docker run --rm --platform linux/amd64 \
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
 
+    # apk --root --initdb does not create the runlevels that setup-alpine and
+    # setup-disk would. Without mdev + hwdrivers in sysinit, only NIC drivers
+    # the initramfs already loaded (virtio_net) ever appear: Hyper-V, e1000 and
+    # physical Intel/Realtek ports stayed invisible and firstboot stopped with
+    # "at least two usable network interfaces are required". Without the
+    # shutdown set, reboot never remounted the root filesystem read-only.
+    for svc in devfs dmesg mdev hwdrivers; do
+      chroot "$ROOT" rc-update add "$svc" sysinit >/dev/null
+    done
+    for svc in killprocs mount-ro savecache; do
+      chroot "$ROOT" rc-update add "$svc" shutdown >/dev/null
+    done
+
     rm -rf "$ROOT/root/minimalrouter-installer" "$ROOT/var/cache/apk"/*
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
@@ -91,6 +104,13 @@ ISSUE
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }
+for entry in sysinit/devfs sysinit/dmesg sysinit/mdev sysinit/hwdrivers \
+  shutdown/killprocs shutdown/mount-ro shutdown/savecache; do
+  tar -tzf "$OUT" | grep -qx "./etc/runlevels/$entry" || {
+    echo "ERROR: rootfs runlevel $entry is missing; non-VirtIO NICs would not be detected" >&2
+    exit 1
+  }
+done
 
 # This text is part of the appliance UX, not optional documentation. Prove the
 # exact installed rootfs contains the address the user must open after reboot.

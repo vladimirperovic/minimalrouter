@@ -170,6 +170,11 @@ The rootfs builder:
 - installs packages into the target root;
 - runs MinimalRouter's distribution installer in image-build/offline mode;
 - removes build staging files;
+- enables the stock Alpine `sysinit` services (`devfs dmesg mdev hwdrivers`) and
+  `shutdown` services (`killprocs mount-ro savecache`), which `apk --root --initdb`
+  does not create. Without `mdev`/`hwdrivers` only NIC drivers already loaded by
+  the initramfs (VirtIO) appear, and firstboot finds a single port on Hyper-V,
+  e1000 or physical Intel/Realtek hardware;
 - removes `/etc/machine-id` and SSH host keys so clones do not share identity;
 - writes the installed console/MOTD guidance;
 - produces `minimalrouter-rootfs-<version>-amd64.tar.gz`.
@@ -368,7 +373,8 @@ ttyS0 @ 115200
 `scripts/ci/iso-full-install.exp` and the surrounding workflow boot QEMU with:
 
 - one blank 8 GiB VirtIO disk;
-- two VirtIO NICs;
+- a VirtIO WAN NIC and an emulated Intel e1000 LAN NIC, so the gate fails if the
+  installed image stops coldplugging drivers that are not in the initramfs;
 - serial stdio;
 - a host-forward used for a **real** SSH login after install.
 

@@ -38,6 +38,11 @@ Use a QEMU/KVM VM, not LXC:
 - **Disk:** one virtual disk, 8 GiB or larger; VirtIO Block is the exact CI target
 - **NIC 1:** VirtIO, WAN/test bridge
 - **NIC 2:** VirtIO, isolated LAN bridge
+
+The installed appliance loads network drivers for whatever hardware it finds at
+boot (`mdev` + `hwdrivers`), so other NIC models are detected too. CI exercises
+an emulated Intel e1000 LAN port alongside the VirtIO WAN port; physical NICs
+are still outside the automated evidence.
 - **CD/DVD:** attach the MinimalRouter ISO
 - **Console:** keep noVNC available during the pilot
 - **Optional serial:** `serial0` socket for `ttyS0` recovery

@@ -75,6 +75,11 @@ jobs:
           grep -F "UUID=\$ROOT_UUID / ext4" packaging/alpine/build-golden-image.sh
           grep -F 'before networking sshd router-applyd routerd' packaging/alpine/firstboot.initd
           grep -F 'router-setup collect' packaging/alpine/firstboot.sh
+          # Non-VirtIO NICs only appear when the installed image coldplugs
+          # drivers; the E2E LAN port is an e1000 to prove it end to end.
+          grep -F 'rc-update add "$svc" sysinit' packaging/alpine/build-rootfs.sh
+          grep -F -- '-device e1000,netdev=lan' scripts/ci/iso-full-install.exp
+          grep -F -- '-device e1000,netdev=lan' scripts/ci/iso-installed-reboot.exp
           grep -F 'INSTALLED_SSH_OK' scripts/ci/iso-full-install.exp
           grep -F 'CHECK_KERNEL_MODULE_MATCH_OK' scripts/ci/iso-full-install.exp
           grep -F 'INSTALLED_REBOOT_MATRIX_OK' scripts/ci/iso-installed-reboot.exp
