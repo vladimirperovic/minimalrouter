@@ -150,7 +150,10 @@ jobs:
           # remasters only the boot-menu default and exercises the full flasher.
           truncate -s 4G build/iso/test-disk.raw
           set +e
-          timeout 90 qemu-system-x86_64 \
+          # The ISO now waits at a boot: prompt (5 s, at most 30 s if any byte
+          # arrives on the serial line). Give the default boot room to reach
+          # the installer marker and keep the serial input empty.
+          timeout 150 qemu-system-x86_64 \
             -machine pc,accel=tcg \
             -cpu max \
             -smp 1 \
@@ -161,7 +164,7 @@ jobs:
             -display none \
             -serial stdio \
             -no-reboot \
-            >build/iso/qemu-boot.log 2>&1
+            </dev/null >build/iso/qemu-boot.log 2>&1
           rc=$?
           set -e
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then

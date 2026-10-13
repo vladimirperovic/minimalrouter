@@ -267,7 +267,9 @@ MinimalRouter Installer (serial ttyS0 115200)
 VGA/noVNC is the default. On BIOS boot ISOLINUX shows a five-second `boot:`
 prompt on VGA and `ttyS0` (`PROMPT 1`, `TIMEOUT 50`) where the operator can type
 the `minimalrouter-serial` label; before that the default booted immediately and
-the serial entry was unreachable. Serial passes:
+the serial entry was unreachable. Any keystroke cancels `TIMEOUT`, so
+`TOTALTIMEOUT 300` still boots the default after 30 seconds; the first CI run of
+the prompt stalled at `boot:` until that cap existed. Serial passes:
 
 ```text
 minimalrouter.console=ttyS0 console=ttyS0,115200

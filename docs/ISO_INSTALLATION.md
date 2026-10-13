@@ -73,9 +73,12 @@ To install from this serial console instead, type  minimalrouter-serial  and pre
 boot:
 ```
 
-The VGA/noVNC installer is the production default. Type `minimalrouter-serial`
-at that prompt when you want the entire install UI on `ttyS0`. UEFI boot uses
-GRUB, which lists the same two entries as a menu on both consoles.
+The two hint lines appear on VGA only; on `ttyS0` you see `boot:`, and pressing
+Tab lists the two labels. The VGA/noVNC installer is the production default.
+Type `minimalrouter-serial` at that prompt when you want the entire install UI on
+`ttyS0`. Typing stops the five-second countdown; after 30 seconds the default
+starts regardless, so a noisy serial line cannot park the ISO at `boot:`. UEFI
+boot uses GRUB, which lists the same two entries as a menu on both consoles.
 
 After installation, `ttyS0` remains a password-protected recovery login at
 115200 baud. For the first real pilot, keep noVNC as an independent fallback even
