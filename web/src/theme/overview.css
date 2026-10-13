@@ -202,7 +202,28 @@
 :root:root .dashboard-app .overview-service-ribbon > * {
   font-size: var(--text-xs);
   border-radius: var(--radius-pill);
-  min-height: 28px;
+  box-sizing: border-box;
+  height: var(--service-chip-height, 28px);
+  min-height: 0;
+  padding-block: 0;
+}
+
+/* On narrow screens WireGuard's "2 / 2" and DHCP's lease count stretched
+   their chips to 38-40 px. The count is a badge inside a chip of the same
+   height as every other one. */
+:root:root .dashboard-app .overview-service-ribbon > * > b {
+  height: calc(var(--service-chip-height, 28px) - 8px);
+  min-height: 0;
+  padding: 0 7px;
+  border-radius: var(--radius-pill);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The dark palette's badge colours are light; white digits on them read at
+   2.3:1. Panel-dark digits read at about 8:1. */
+:root:root[data-theme="dark"] .dashboard-app .overview-service-ribbon > * > b {
+  color: var(--classic-panel);
 }
 
 /* ── Panels below ───────────────────────────────────────────

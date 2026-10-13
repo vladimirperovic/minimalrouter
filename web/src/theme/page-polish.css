@@ -83,6 +83,7 @@
    Active devices count and "View all devices" share one row instead of two. */
 @media (max-width: 640px) {
   :root:root .dashboard-app .overview-service-ribbon {
+    --service-chip-height: 32px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
