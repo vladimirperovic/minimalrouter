@@ -358,3 +358,31 @@
     font-size: 26px;
   }
 }
+
+/* Hero facts: the narrow rule ruled every cell but the last as if the band
+   were one stacked column. Between 361 and 840 px it is two columns, so the
+   first cell of the last row drew a second hairline on top of the band's own
+   bottom edge. Gateway rules every cell below 680 px in a three-column band,
+   so its whole last row did. Between 841 and 900 px the band is a single row
+   of four again and keeps the desktop dividers. */
+@media (min-width: 361px) and (max-width: 840px) {
+  :root:root .subpage-hero-facts > div:nth-child(odd):nth-last-child(2),
+  :root:root .dashboard-app #gateway.gateway-quality .subpage-hero-facts > div:nth-child(3n+1):nth-last-child(-n+3),
+  :root:root .dashboard-app #gateway.gateway-quality .subpage-hero-facts > div:nth-child(3n+1):nth-last-child(-n+3) ~ div {
+    border-bottom: 0;
+  }
+}
+@media (max-width: 840px) {
+  :root:root .dashboard-app #gateway.gateway-quality .subpage-hero-facts > div:last-child {
+    border-bottom: 0;
+  }
+}
+@media (min-width: 841px) and (max-width: 900px) {
+  :root:root .subpage-hero-facts > div {
+    border-bottom: 0;
+    border-right: var(--skin-hairline);
+  }
+  :root:root .subpage-hero-facts > div:last-child {
+    border-right: 0;
+  }
+}
