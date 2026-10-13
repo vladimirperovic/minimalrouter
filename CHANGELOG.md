@@ -6,6 +6,55 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+Fixes from a live test of the published v0.3.0 ISO on Hyper-V with a PPPoE
+"ISP" VM and a LAN client.
+
+### Upgrade compatibility
+
+- The Golden image and live ISO change (runlevels, boot prompt, modloop), so a
+  new ISO is needed to get them on fresh installs. The router-applyd, routerd
+  and dashboard fixes reach existing appliances through the normal update path.
+
+### Fixed
+
+- With the DNS filter categories enabled (~510k domains), every WAN, upstream
+  DNS or device-profile change — including pausing a profile — was rolled back
+  with "connection refused" because the DNS check ran before dnsmasq had loaded
+  its lists. router-applyd now waits up to 15 seconds for the resolver.
+- Installed appliances only detected VirtIO network cards. Hyper-V, emulated
+  Intel e1000 and physical Intel/Realtek ports were invisible and first boot
+  stopped with "at least two usable network interfaces are required". The image
+  now loads drivers for the hardware it finds (`mdev` + `hwdrivers`) and runs
+  the stock shutdown services, so reboots remount the root filesystem read-only.
+  The ISO end-to-end test uses an e1000 LAN port to keep this proven.
+- The ISO's serial installer entry could not be selected on BIOS boots. A
+  five-second `boot:` prompt now appears on VGA and the serial console (Tab lists
+  the entries); the default still starts on its own, at the latest after 30 s.
+- The live ISO no longer prints `/lib/modules` errors; it mounts its own module
+  image.
+- Gateway Quality records Internet outages while PPPoE stays connected, and each
+  outage shows whether the link or the Internet was down.
+- After the router clock was corrected, older samples and snapshots stamped "in
+  the future" were shown as the newest; history and snapshots now ignore or order
+  them correctly.
+- The address check treats devices the router has recently seen on the LAN as
+  conflicts, even without a DHCP lease.
+- A backup restore preview no longer reports a phantom isolated-segment change.
+- Page headers wrap instead of squeezing the title (Logs showed one word per
+  line).
+- The dashboard no longer requests the configuration before sign-in.
+- Release archives get a build-provenance attestation, so `gh attestation verify`
+  works as documented.
+
+### Changed
+
+- The DNS Filter page leads with **Force all devices through router DNS**, which
+  blocks direct DNS and DNS-over-TLS to other resolvers so categories and device
+  schedules cannot be skipped with a manual DNS server. Device profiles that are
+  saved while schedules are off show an **Activate device schedules** button.
+- Confirmations open in an in-page dialog instead of the browser's native box,
+  which some embedded browsers dismissed automatically.
+
 ## [v0.3.0] — 2026-10-12
 
 ### Upgrade compatibility

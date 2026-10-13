@@ -96,9 +96,10 @@ function ExceptionsEditor({ control }: { control: DNSProtectionControl }) {
   </article>;
 }
 
-export default function NetworkDNSProtection({ control, devices, configRevision }: { control: DNSProtectionControl; devices: DNSDevice[]; configRevision?: number }) {
+export default function NetworkDNSProtection({ control, devices, configRevision, enforcement }: { control: DNSProtectionControl; devices: DNSDevice[]; configRevision?: number; enforcement?: ReactNode }) {
   return <div className="network-dns-protection">
     <DNSOverview control={control}/>
+    {enforcement}
     <OperationNotice control={control}/>
     <CategoryChoices control={control}/>
     <div className="dns-protection-columns"><DNSDomainChecker status={control.status} devices={devices} configRevision={configRevision} disabled={control.busy} refresh={control.refresh}/><ExceptionsEditor control={control}/></div>

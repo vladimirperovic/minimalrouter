@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import type { DNSFilterPolicy } from "../src/api-types";
 import type { DNSOperation } from "../src/lib/dnsProtection";
+import { acceptConfirms } from "./fixtures/confirm";
 
 async function fixture(page: Page) {
   const state = { policy: { revision:7,categories:{},exceptions:[] } as DNSFilterPolicy, operation: undefined as DNSOperation | undefined, failStatus:false, checks:[] as Route[], holdChecks:false, statusReads:0 };
@@ -32,7 +33,7 @@ async function fixture(page: Page) {
     const responses:Record<string,unknown> = {"/api/v1/auth/session":{authenticated:true,csrf_token:"test"},"/api/v1/system":SYSTEM,"/api/v1/health":HEALTH,"/api/v1/gateway/summary":GW_SUMMARY,"/api/v1/gateway/settings":GW_SETTINGS,"/api/v1/snapshots":[],"/api/v1/devices/pauses":{pauses:[]}};
     return json(responses[path] ?? {});
   });
-  page.on("dialog",dialog => void dialog.accept());
+  await acceptConfirms(page);
   return {state,writes};
 }
 

@@ -39,16 +39,20 @@ const (
 	highVolumeAuditRetention = 1000
 )
 
+// Snapshots are ordered by the configuration revision they captured, which only
+// grows, and only then by wall-clock time: after NTP steps a wrong RTC back,
+// created_at puts old snapshots stamped "in the future" ahead of the real
+// newest ones, both in the list and when retention decides what to keep.
 var (
 	pruneAutomaticSnapshotsSQL = fmt.Sprintf(`
 		DELETE FROM snapshots
 		WHERE kind <> '%[1]s' AND id NOT IN (
-			SELECT id FROM snapshots WHERE kind <> '%[1]s' ORDER BY created_at DESC, id DESC LIMIT %[2]d
+			SELECT id FROM snapshots WHERE kind <> '%[1]s' ORDER BY revision DESC, created_at DESC, id DESC LIMIT %[2]d
 		)`, SnapshotKindManual, snapshotRetentionPerKind)
 	pruneManualSnapshotsSQL = fmt.Sprintf(`
 		DELETE FROM snapshots
 		WHERE kind = '%[1]s' AND id NOT IN (
-			SELECT id FROM snapshots WHERE kind = '%[1]s' ORDER BY created_at DESC, id DESC LIMIT %[2]d
+			SELECT id FROM snapshots WHERE kind = '%[1]s' ORDER BY revision DESC, created_at DESC, id DESC LIMIT %[2]d
 		)`, SnapshotKindManual, snapshotRetentionPerKind)
 	pruneAuditSQL = fmt.Sprintf(`
 		DELETE FROM audit_events
@@ -486,7 +490,7 @@ func (s *SQLiteStore) ListSnapshots() ([]Snapshot, error) {
 	defer s.mu.RUnlock()
 
 	rows, err := s.db.Query(
-		"SELECT id, revision, created_at, checksum, kind, label FROM snapshots ORDER BY created_at DESC, id DESC",
+		"SELECT id, revision, created_at, checksum, kind, label FROM snapshots ORDER BY revision DESC, created_at DESC, id DESC",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query snapshots: %w", err)

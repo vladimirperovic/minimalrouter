@@ -167,7 +167,7 @@ func (s *Store) Insights(window time.Duration, ipLimit int) (Insights, error) {
 	if err := s.db.QueryRow(`
 		SELECT COUNT(*), COALESCE(SUM(samples), 0), COALESCE(SUM(up_samples), 0),
 		       COALESCE(SUM(outage_starts), 0), MIN(hour_start), MAX(hour_start)
-		FROM gateway_availability_hourly WHERE hour_start >= ?`, since).
+		FROM gateway_availability_hourly WHERE hour_start >= ? AND hour_start <= ?`, since, notAfter()).
 		Scan(&result.SampledHours, &result.Samples, &result.UpSamples, &result.Outages, &firstHour, &lastHour); err != nil {
 		return Insights{}, fmt.Errorf("read gateway availability: %w", err)
 	}

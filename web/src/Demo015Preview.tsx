@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import type { RouterConfig } from "./api-types";
-import { apiFetch } from "./lib/api";
+import { onConfigurationChange } from "./lib/configuration";
 import { isDemoMode } from "./lib/demoApi";
 
 const DEMO_WAN_ESTIMATE = { download_mbps: 600, upload_mbps: 400, measured_at: Date.now() };
@@ -222,16 +221,10 @@ export default function Demo015Preview() {
     observe();
 
     // Interface names are only in the config, and the Overview never renders
-    // them. Fetch once on mount so the MAC labels can be annotated there rather
-    // than only after the operator has visited Recovery.
-    let cancelled = false;
-    void apiFetch("/api/v1/config")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: RouterConfig | null) => {
-        if (cancelled || !body) return;
-        schedule();
-      })
-      .catch(() => undefined);
+    // them. Re-run the overlay whenever the dashboard loads a configuration.
+    // This component sits outside AuthGate, so fetching the config itself sent
+    // GET /api/v1/config before sign-in: two 401s on every unauthenticated load.
+    const stopWatchingConfiguration = onConfigurationChange(schedule);
 
     const trackPointer = (event: MouseEvent) => {
       const host = (event.target as HTMLElement | null)?.closest<HTMLElement>(".demo-has-tip");
@@ -251,7 +244,7 @@ export default function Demo015Preview() {
     window.addEventListener("hashchange", schedule);
     window.addEventListener("minimalrouter:wan-speed-estimate", schedule);
     return () => {
-      cancelled = true;
+      stopWatchingConfiguration();
       document.removeEventListener("mousemove", trackPointer);
       document.removeEventListener("focusin", anchorOnFocus);
       observer.disconnect();

@@ -35,7 +35,7 @@ export function validRecovery(v: unknown): v is Recovery {
     && (v.next_attempt_at === undefined || date(v.next_attempt_at)) && (v.last_attempt_at === undefined || date(v.last_attempt_at)) && (v.last_result === undefined || typeof v.last_result === "string");
 }
 export type Events = {
-  outages: { started_at: string; ended_at?: string; last_observed_at: string; duration_seconds: number; outcome: string; partial: boolean }[];
+  outages: { started_at: string; ended_at?: string; last_observed_at: string; duration_seconds: number; outcome: string; partial: boolean; cause?: "pppoe_link" | "internet" }[];
   recovery_history_available: boolean;
   recoveries: { id: string; timestamp: string; event_type: string; details: Record<string, string> }[] | null;
 };

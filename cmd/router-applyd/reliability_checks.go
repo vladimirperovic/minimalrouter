@@ -81,15 +81,45 @@ func requiresFunctionalDNSVerification(previous *config.SystemConfig, candidate 
 		previous.System.Domain != candidate.System.Domain
 }
 
+// A restarted dnsmasq answers only after it has parsed its configuration. With
+// the DNS filter categories enabled that is a ~14 MB file of ~510k domains,
+// and on a 2 vCPU VM port 53 refused queries for ~200 ms after the restart
+// returned — long enough for two immediate lookups to fail and roll back every
+// WAN, upstream-DNS and device-profile change. Poll until the deadline instead.
+// The bound stays well inside the 2-minute routerd IPC deadline even when a
+// PPPoE wait and a rollback precede and follow it.
+const (
+	functionalDNSReadiness  = 15 * time.Second
+	functionalDNSRetryEvery = 250 * time.Millisecond
+)
+
 // verifyFunctionalDNS asks the router's own dnsmasq listener to resolve public
 // names. Process liveness alone is insufficient: a running dnsmasq with an
 // unreachable upstream resolver leaves every LAN client effectively offline.
 func verifyFunctionalDNS() error {
+	return verifyFunctionalDNSAt("127.0.0.1:53", functionalDNSReadiness, functionalDNSRetryEvery)
+}
+
+func verifyFunctionalDNSAt(address string, readiness, retryEvery time.Duration) error {
+	deadline := time.Now().Add(readiness)
+	for {
+		err := resolvePublicNames(address)
+		if err == nil {
+			return nil
+		}
+		if time.Now().Add(retryEvery).After(deadline) {
+			return fmt.Errorf("local DNS could not resolve public names within %s: %w", readiness, err)
+		}
+		time.Sleep(retryEvery)
+	}
+}
+
+func resolvePublicNames(address string) error {
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			dialer := net.Dialer{Timeout: 2 * time.Second}
-			return dialer.DialContext(ctx, network, "127.0.0.1:53")
+			return dialer.DialContext(ctx, network, address)
 		},
 	}
 	var lastErr error
@@ -105,7 +135,7 @@ func verifyFunctionalDNS() error {
 	if lastErr == nil {
 		return errors.New("local DNS returned no addresses")
 	}
-	return fmt.Errorf("local DNS could not resolve public names: %w", lastErr)
+	return lastErr
 }
 
 func requiresDDNSVerification(previous *config.SystemConfig, candidate config.SystemConfig) bool {

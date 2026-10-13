@@ -246,6 +246,42 @@ export function presetState(
     ? "Active"
     : "Modified";
 }
+// DNS categories, exceptions and device schedules only see lookups that reach
+// the router's resolver. These presets stop LAN devices from using another
+// resolver over plain DNS or DNS-over-TLS, which a live test showed bypassed
+// every category (e.g. `nslookup bet365.com 8.8.8.8`).
+export const DNS_ENFORCEMENT_PRESET_IDS: readonly string[] = ["dns", "dot"];
+export const dnsEnforcementPresets = () =>
+  PRESETS.filter((preset) => DNS_ENFORCEMENT_PRESET_IDS.includes(preset.id));
+
+export function dnsEnforcementState(
+  rules: FirewallCustomRule[],
+): "Active" | "Off" | "Partial" {
+  const states = dnsEnforcementPresets().map((preset) =>
+    presetState(rules, preset),
+  );
+  if (states.every((state) => state === "Active")) return "Active";
+  if (states.every((state) => state === "Off")) return "Off";
+  return "Partial";
+}
+
+// Turning enforcement off pauses the owned rules, exactly like pausing the
+// presets on the Firewall page, so their ownership and history are kept.
+export function setDNSEnforcement(config: RouterConfig, enforced: boolean) {
+  const presets = dnsEnforcementPresets();
+  if (enforced) {
+    applyPresets(config, presets);
+    return;
+  }
+  const rules = config.firewall.custom_rules || [];
+  const owned = new Set(
+    presets.flatMap((preset) => presetRules(rules, preset).map((r) => r.id)),
+  );
+  config.firewall.custom_rules = rules.map((r) =>
+    owned.has(r.id) ? { ...r, enabled: false } : r,
+  );
+}
+
 export function applyPresets(config: RouterConfig, presets: readonly Preset[]) {
   let rules = config.firewall.custom_rules || [];
   for (const preset of presets) {

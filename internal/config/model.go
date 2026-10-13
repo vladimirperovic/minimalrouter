@@ -319,7 +319,10 @@ type AccountingConfig struct {
 func (c SystemConfig) DeepCopy() SystemConfig {
 	out := c
 	out.TrustedNetworks = slices.Clone(c.TrustedNetworks)
-	out.WireGuard.Peers = make([]WireGuardPeer, len(c.WireGuard.Peers))
+	// Every copied slice keeps its nil-ness: EqualSection compares JSON, and a
+	// nil slice that came back as [] showed up as a phantom "isolated-segment
+	// access policy" change in backup restore previews.
+	out.WireGuard.Peers = cloneEmpty(c.WireGuard.Peers)
 	for i, peer := range c.WireGuard.Peers {
 		out.WireGuard.Peers[i] = peer
 		out.WireGuard.Peers[i].AllowedIPs = slices.Clone(peer.AllowedIPs)
@@ -330,7 +333,7 @@ func (c SystemConfig) DeepCopy() SystemConfig {
 	out.DNS.Records = slices.Clone(c.DNS.Records)
 	out.Firewall.PortForwards = slices.Clone(c.Firewall.PortForwards)
 	out.Firewall.CustomRules = slices.Clone(c.Firewall.CustomRules)
-	out.Firewall.ExtraLANs = make([]ExtraLANConfig, len(c.Firewall.ExtraLANs))
+	out.Firewall.ExtraLANs = cloneEmpty(c.Firewall.ExtraLANs)
 	for i, lan := range c.Firewall.ExtraLANs {
 		out.Firewall.ExtraLANs[i] = lan
 		out.Firewall.ExtraLANs[i].AllowFrom = slices.Clone(lan.AllowFrom)
@@ -344,13 +347,25 @@ func (c SystemConfig) DeepCopy() SystemConfig {
 	return out
 }
 
+// cloneEmpty allocates a same-length slice for element-wise deep copies while
+// preserving nil, which encodes differently from an empty slice.
+func cloneEmpty[T any](in []T) []T {
+	if in == nil {
+		return nil
+	}
+	return make([]T, len(in))
+}
+
 func deepCopyDeviceProfiles(in []DeviceProfile) []DeviceProfile {
-	out := make([]DeviceProfile, len(in))
+	out := cloneEmpty(in)
 	for i, profile := range in {
 		out[i] = profile
 		out[i].IPAddresses = slices.Clone(profile.IPAddresses)
 		out[i].Services = slices.Clone(profile.Services)
-		out[i].Schedule.DayWindows = make(map[string][]AccessWindow, len(profile.Schedule.DayWindows))
+		out[i].Schedule.DayWindows = nil
+		if profile.Schedule.DayWindows != nil {
+			out[i].Schedule.DayWindows = make(map[string][]AccessWindow, len(profile.Schedule.DayWindows))
+		}
 		for day, windows := range profile.Schedule.DayWindows {
 			out[i].Schedule.DayWindows[day] = slices.Clone(windows)
 		}

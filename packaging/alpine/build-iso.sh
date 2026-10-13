@@ -119,18 +119,32 @@ stop() {
 EOF
     chmod 0755 "$OVERLAY_DIR/etc/init.d/minimalrouter-installer"
     ln -s /etc/init.d/minimalrouter-installer "$OVERLAY_DIR/etc/runlevels/default/minimalrouter-installer"
+    # An apkovl with its own runlevels stops Alpine's initramfs from adding the
+    # stock live services, so modloop never mounted /lib/modules and "Loading
+    # modules" failed twice on every boot. Mount the ISO's own module image;
+    # nothing is installed or fetched.
+    mkdir -p "$OVERLAY_DIR/etc/runlevels/sysinit"
+    ln -s /etc/init.d/modloop "$OVERLAY_DIR/etc/runlevels/sysinit/modloop"
     printf 'minimalrouter-installer\n' > "$OVERLAY_DIR/etc/hostname"
     printf 'MinimalRouter appliance installer\n' > "$OVERLAY_DIR/etc/issue"
     tar -czf "$BUILD_DIR/minimalrouter.apkovl.tar.gz" -C "$OVERLAY_DIR" .
 }
 
 build_syslinux_config() {
+    # PROMPT 1 shows a boot: prompt on VGA and ttyS0 for five seconds; without
+    # it the BIOS path booted the default at once and the serial entry could
+    # not be chosen at all, e.g. from a Proxmox serial socket. Any keystroke —
+    # including a stray byte on the serial line — cancels TIMEOUT, so
+    # TOTALTIMEOUT still boots the default after 30 seconds instead of leaving
+    # the installer parked at boot: forever. Tab lists the labels on ttyS0.
     cat > "$BUILD_DIR/syslinux.cfg" <<'EOF'
 SERIAL 0 115200
-CONSOLE 0
-PROMPT 0
-TIMEOUT 20
+PROMPT 1
+TIMEOUT 50
+TOTALTIMEOUT 300
 DEFAULT minimalrouter
+SAY MinimalRouter installer: press Enter or wait 5 seconds for the VGA/noVNC installer.
+SAY To install from this serial console instead, type  minimalrouter-serial  and press Enter.
 
 LABEL minimalrouter
   MENU LABEL MinimalRouter Installer (VGA/noVNC)

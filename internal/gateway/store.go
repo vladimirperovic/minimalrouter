@@ -251,14 +251,14 @@ func (s *Store) AddReconnect(at time.Time) error {
 
 func (s *Store) CountReconnects(since time.Time) (int, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM gateway_events WHERE type = 'reconnect' AND timestamp >= ?`, since.UTC().Unix()).Scan(&count)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM gateway_events WHERE type = 'reconnect' AND timestamp >= ? AND timestamp <= ?`, since.UTC().Unix(), notAfter()).Scan(&count)
 	return count, err
 }
 
 func (s *Store) LatestSample() (Sample, bool, error) {
 	row := s.db.QueryRow(`SELECT timestamp, state, link_connected, local_ip, peer_ip,
 		targets_json, peer_probe_json, latency_ms, jitter_ms, packet_loss_percent, pppoe_uptime_seconds
-		FROM gateway_samples ORDER BY timestamp DESC, id DESC LIMIT 1`)
+		FROM gateway_samples ORDER BY id DESC LIMIT 1`) // insertion order survives a backward clock step
 	var sample Sample
 	var timestamp int64
 	var connected int
@@ -302,8 +302,8 @@ func stateSeverityCase(column string) string {
 // hourlyHistory serves windows longer than the raw retention from the rollup.
 func (s *Store) hourlyHistory(since time.Time, maxPoints int) ([]HistoryPoint, error) {
 	rows, err := s.db.Query(`SELECT hour_start, samples, latency_sum, jitter_sum, loss_sum,
-		worst_state, uptime_max FROM gateway_hourly WHERE hour_start >= ? ORDER BY hour_start ASC`,
-		since.UTC().Truncate(time.Hour).Unix())
+		worst_state, uptime_max FROM gateway_hourly WHERE hour_start >= ? AND hour_start <= ? ORDER BY hour_start ASC`,
+		since.UTC().Truncate(time.Hour).Unix(), notAfter())
 	if err != nil {
 		return nil, err
 	}
@@ -350,7 +350,7 @@ func (s *Store) History(since time.Time, maxPoints int) ([]HistoryPoint, error) 
 	}
 	rows, err := s.db.Query(`SELECT timestamp, state, latency_ms, jitter_ms,
 		packet_loss_percent, pppoe_uptime_seconds FROM gateway_samples
-		WHERE timestamp >= ? ORDER BY timestamp ASC`, since.UTC().Unix())
+		WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC`, since.UTC().Unix(), notAfter())
 	if err != nil {
 		return nil, err
 	}

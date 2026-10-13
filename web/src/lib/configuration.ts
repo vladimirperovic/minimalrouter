@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { PendingTransaction, RouterConfig } from "../api-types";
 import { apiFetch, responseError } from "./api";
+import { confirmAction } from "./confirmAction";
 import { isDemoMode } from "./demoApi";
 
 const REQUIRED_CONFIG_SECTIONS = [
@@ -21,6 +22,8 @@ let generation = 0;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export function useConfiguration() { return useSyncExternalStore(subscribe, () => snapshot); }
+/** Calls listener whenever the canonical configuration changes; returns an unsubscribe. */
+export const onConfigurationChange = subscribe;
 export function clearConfiguration() { generation++; snapshot = null; listeners.forEach(listener => listener()); window.dispatchEvent(new Event("minimalrouter:configuration-cleared")); }
 
 export async function readConfiguration(init: RequestInit = {}): Promise<RouterConfig> {
@@ -94,8 +97,6 @@ async function confirmConfigChange(body: string): Promise<boolean> {
     ? `Automatic rollback: ARMED (${preview.rollback_seconds || 90}s unless confirmed)`
     : "Automatic rollback: not required for this change";
   const message = [
-    "Smart Change Preview",
-    "",
     changes,
     ...(preview.network_changes?.length ? ["", "Network changes", ...preview.network_changes.map(item => `• ${item}`)] : []),
     ...(preview.network_warnings?.length ? ["", "Network review", ...preview.network_warnings.map(item => `• ${item}`)] : []),
@@ -105,8 +106,6 @@ async function confirmConfigChange(body: string): Promise<boolean> {
     `Risk: ${risk}`,
     preview.expected_interruption || "Affected services may restart briefly.",
     rollback,
-    "",
-    "Apply these changes?",
   ].join("\n");
-  return window.confirm(message);
+  return confirmAction(message, { title: "Smart Change Preview", confirmLabel: "Apply changes" });
 }

@@ -5,6 +5,7 @@ import type { DeviceProfile } from "../lib/deviceProfiles";
 import { dnsClockZone, type DNSDevice } from "../lib/dnsProtection";
 import { useDNSProtection } from "../lib/useDNSProtection";
 import NetworkDNSProtection from "./NetworkDNSProtection";
+import DNSEnforcementCard from "./DNSEnforcementCard";
 import DNSProfileDialog from "./DNSProfileDialog";
 import DNSProfileCard from "./DNSProfileCard";
 import DNSDisclosureHeading from "./DNSDisclosureHeading";
@@ -34,6 +35,8 @@ export default function DNSFilterPanel({ apiConnected, leases = [] }: Props) {
   for (const lease of config?.dhcp.static_leases ?? []) deviceMap.set(lease.ip_address,{ip:lease.ip_address,name:lease.hostname,reserved:true});
   const devices = [...deviceMap.values()].sort((a,b) => (a.name || a.ip).localeCompare(b.name || b.ip));
   const canEdit = apiConnected && Boolean(config) && !saving;
+  const categoriesOn = Object.values(control.status?.policy.categories ?? {}).some(Boolean);
+  const rulesInUse = categoriesOn || (enabled && profiles.some(profile => profile.enabled));
   function open(profile?: DeviceProfile) { if (config && canEdit) { setError(""); setEditor({base:structuredClone(config),profile}); } }
 
   async function persist(base: RouterConfig, nextEnabled: boolean, nextProfiles: DeviceProfile[]) {
@@ -72,12 +75,12 @@ export default function DNSFilterPanel({ apiConnected, leases = [] }: Props) {
   const visibleProfiles = profiles.filter(profile => `${profile.name} ${profile.ip_addresses.join(" ")} ${profile.services.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   return <section className="section-block dns-filter" id="adguard">
     <div className="section-heading dns-filter-heading"><div><p className="eyebrow">DNS Filter & device profiles</p><h2>DNS protection & schedules</h2><p className="dns-filter-intro">Manage network filtering, understand a blocked site and set device schedules.</p></div><button className="button primary" disabled={!canEdit || profiles.length >= 64} type="button" onClick={() => open()}>Add device profile</button></div>
-    <NetworkDNSProtection control={control} devices={devices} configRevision={config?.revision}/>
+    <NetworkDNSProtection control={control} devices={devices} configRevision={config?.revision} enforcement={<DNSEnforcementCard config={config} canEdit={canEdit} rulesInUse={rulesInUse}/>}/>
 
     <article className="dns-protection-card dns-profiles-card" aria-label="Device profiles">
       <header><div className="dns-section-lead"><span className="dns-disclosure-icon"><DNSUtilityIcon kind="device"/></span><div><p className="eyebrow">A schedule for each device</p><h3>Device profiles</h3><p>Give each device its own time for the services that matter.</p></div></div><span className="dns-neutral-chip">{profiles.length} / 64 profiles</span></header>
       <div className="dns-profiles-toolbar"><label className="field"><span className="sr-only">Search device profiles</span><span className="dns-tool-input"><DNSUtilityIcon kind="inspect"/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search profiles, addresses or services"/></span></label><span className={`dns-neutral-chip ${enabled ? "is-on" : ""}`}>{enabled ? "Schedules enabled" : "Bundled filter & schedules off"}</span></div>
-      {!enabled && profiles.length > 0 && <p className="dns-message">Your profiles are saved. Enable bundled protection in Advanced DNS below to activate device schedules. Network categories are independent.</p>}
+      {!enabled && profiles.length > 0 && <div className="dns-message dns-schedules-off"><p><strong>Device schedules are not active.</strong> Your profiles are saved but nothing is blocked until schedules (bundled protection) are switched on. Network categories are independent.</p><button className="button primary small" type="button" disabled={!canEdit} onClick={() => void changeProfiles(true,profiles)}>Activate device schedules</button></div>}
       {error && <p className="dns-message is-error" role="alert">{error}</p>}
       <div className="dns-profile-list">{visibleProfiles.map(profile => {
         const planned = control.status?.config_revision === config?.revision ? control.status?.profiles.find(item => item.id === profile.id) : undefined;

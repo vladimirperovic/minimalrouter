@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
+import { acceptConfirms } from "./fixtures/confirm";
 
 // A suggested rule is switched on by ticking it and pressing "Turn on". The
 // generic themed input rule once gave these bare checkboxes a 42px minimum
@@ -37,7 +38,7 @@ for (const design of ["noema", "studio"]) {
 
     await page.addInitScript((value) => localStorage.setItem("minimalrouter:design", value), design);
     const writes = await routerFixture(page);
-    page.on("dialog", (dialog) => void dialog.accept());
+    await acceptConfirms(page);
     await page.goto("/#firewall");
 
     const tick = page.getByRole("checkbox", { name: "Select Block Telnet" });

@@ -1,6 +1,7 @@
 import { networkFixture, type TestLease } from "./fixtures/network";
 import { expect, test, type Page, type Route } from "@playwright/test";
 import type { RouterConfig, StaticLease } from "../src/api-types";
+import { acceptConfirms } from "./fixtures/confirm";
 
 const NOW = new Date("2026-08-18T15:14:00Z");
 const CURRENT_EPOCH = Math.floor(Date.now() / 1000);
@@ -231,7 +232,7 @@ for (const name of [" office-tablet ", ""]) {
     });
     await networkAPI(page, () => config);
     await page.route("**/api/v1/config/preview", (route) => route.fulfill({ json: { changes: ["Reserve device address"], risk: "low", requires_confirmation: false } }));
-    page.on("dialog", (dialog) => dialog.accept());
+    await acceptConfirms(page);
 
     await page.goto("/");
     await openSection(page, isMobile, "LAN & DHCP");

@@ -8,6 +8,7 @@ import {
   GW_SETTINGS,
 } from "./fixtures/router";
 import { networkFixture } from "./fixtures/network";
+import { dismissConfirms } from "./fixtures/confirm";
 
 async function setup(page: Page) {
   const config = structuredClone(CONFIG) as RouterConfig;
@@ -220,7 +221,7 @@ test("one reservation editor preserves cancellation, traps focus and uses the wh
   const state = await setup(page);
   state.config.lan.ip_address = "192.168.1.254";
   state.config.lan.cidr = "192.168.1.254/24";
-  page.on("dialog", (dialog) => dialog.dismiss());
+  await dismissConfirms(page);
   await page.goto("/#network");
   await page
     .getByRole("button", { name: "Add reservation", exact: true })

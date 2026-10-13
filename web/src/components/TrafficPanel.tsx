@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../lib/api";
 import TrafficInsightsPanel from "./TrafficInsightsPanel";
 import type { AccountingSnapshot, RouterConfig } from "../api-types";
+import { confirmAction } from "../lib/confirmAction";
 
 // Per-device traffic is measured by two dynamic nftables sets in the forward
 // chain and folded into calendar-month buckets by routerd. Only byte totals per
@@ -59,8 +60,8 @@ export default function TrafficPanel({ config, busy, applyConfig }: Props) {
     };
   }, [load]);
 
-  const toggle = (enabled: boolean) => {
-    if (!enabled && !window.confirm("Disable traffic accounting? Existing per-device history is deleted.")) return;
+  const toggle = async (enabled: boolean) => {
+    if (!enabled && !await confirmAction("Disable traffic accounting? Existing per-device history is deleted.", { title: "Disable traffic accounting", confirmLabel: "Disable and delete history", danger: true })) return;
     applyConfig((next) => {
       next.accounting = { ...next.accounting, enabled, retention_months: next.accounting?.retention_months || 13 };
     }, enabled ? "Traffic accounting enabled." : "Traffic accounting disabled.");

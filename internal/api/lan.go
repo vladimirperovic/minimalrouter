@@ -183,9 +183,9 @@ type addressAssessment struct {
 	Limitation       string                    `json:"limitation"`
 }
 
-func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnapshot, address, mac, excludeID string) addressAssessment {
+func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnapshot, neighbors []network.Neighbor, address, mac, excludeID string) addressAssessment {
 	address, mac = network.IPv4Identity(address), network.MACIdentity(mac)
-	result := addressAssessment{Revision: cfg.Revision, Address: address, State: "unknown", Conflicts: []string{}, LeaseStatus: snapshot.DHCPLeaseStatus, Limitation: "Only configured and observed DHCP conflicts are checked. No active scan is performed; an unobserved static device may use this address."}
+	result := addressAssessment{Revision: cfg.Revision, Address: address, State: "unknown", Conflicts: []string{}, LeaseStatus: snapshot.DHCPLeaseStatus, Limitation: "Reservations, DHCP leases and devices the router has recently seen on the LAN are checked. No active scan is performed; a quiet static device may still use this address."}
 	first, last, valid := hostRange(cfg.LAN)
 	ip, ipOK := ipv4Number(address)
 	start, _ := ipv4Number(cfg.DHCP.RangeStart)
@@ -210,6 +210,13 @@ func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnaps
 				result.Conflicts = append(result.Conflicts, "Address is currently leased to "+lease.MAC+".")
 			}
 		}
+		// A static device has no lease but answers ARP. The neighbour table can
+		// prove an address is taken; a missing entry never proves it is free.
+		for _, neighbor := range neighbors {
+			if neighbor.IP == address && mac != neighbor.MAC {
+				result.Conflicts = append(result.Conflicts, "Address is in use by "+neighbor.MAC+" (recently seen on the LAN).")
+			}
+		}
 		if len(result.Conflicts) > 0 {
 			result.State = "conflict"
 		} else if snapshot.Available && !snapshot.Truncated && snapshot.RejectedEntries == 0 {
@@ -228,6 +235,11 @@ func assessLANAddress(cfg config.SystemConfig, snapshot telemetry.DHCPLeaseSnaps
 	for _, lease := range snapshot.Leases {
 		n, ok := ipv4Number(lease.IPAddress)
 		if ok {
+			occupied[n] = true
+		}
+	}
+	for _, neighbor := range neighbors {
+		if n, ok := ipv4Number(neighbor.IP); ok {
 			occupied[n] = true
 		}
 	}
@@ -277,5 +289,7 @@ func (s *Server) handleLANAddressCheck(w http.ResponseWriter, r *http.Request) {
 		writeGatewayJSON(w, 400, map[string]string{"error": "Reservation ID is too long"})
 		return
 	}
-	writeGatewayJSON(w, 200, assessLANAddress(s.engine.GetCurrentConfig(), telemetry.CurrentDHCPLeaseSnapshot(), address, mac, id))
+	cfg := s.engine.GetCurrentConfig()
+	neighbors := network.ReadARPTable(network.ARPTablePath, cfg.LAN.Interface)
+	writeGatewayJSON(w, 200, assessLANAddress(cfg, telemetry.CurrentDHCPLeaseSnapshot(), neighbors, address, mac, id))
 }

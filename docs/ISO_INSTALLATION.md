@@ -38,6 +38,11 @@ Use a QEMU/KVM VM, not LXC:
 - **Disk:** one virtual disk, 8 GiB or larger; VirtIO Block is the exact CI target
 - **NIC 1:** VirtIO, WAN/test bridge
 - **NIC 2:** VirtIO, isolated LAN bridge
+
+The installed appliance loads network drivers for whatever hardware it finds at
+boot (`mdev` + `hwdrivers`), so other NIC models are detected too. CI exercises
+an emulated Intel e1000 LAN port alongside the VirtIO WAN port; physical NICs
+are still outside the automated evidence.
 - **CD/DVD:** attach the MinimalRouter ISO
 - **Console:** keep noVNC available during the pilot
 - **Optional serial:** `serial0` socket for `ttyS0` recovery
@@ -59,15 +64,21 @@ qm set <VMID> --serial0 socket
 qm terminal <VMID>
 ```
 
-The ISO has two entries:
+On BIOS/SeaBIOS boot the ISO shows a `boot:` prompt on both the VGA console and
+`ttyS0` for five seconds:
 
 ```text
-MinimalRouter Installer (VGA/noVNC)
-MinimalRouter Installer (serial ttyS0 115200)
+MinimalRouter installer: press Enter or wait 5 seconds for the VGA/noVNC installer.
+To install from this serial console instead, type  minimalrouter-serial  and press Enter.
+boot:
 ```
 
-The VGA/noVNC entry is the production default. Select the serial entry when you
-want the entire install UI on `ttyS0`.
+The two hint lines appear on VGA only; on `ttyS0` you see `boot:`, and pressing
+Tab lists the two labels. The VGA/noVNC installer is the production default.
+Type `minimalrouter-serial` at that prompt when you want the entire install UI on
+`ttyS0`. Typing stops the five-second countdown; after 30 seconds the default
+starts regardless, so a noisy serial line cannot park the ISO at `boot:`. UEFI
+boot uses GRUB, which lists the same two entries as a menu on both consoles.
 
 After installation, `ttyS0` remains a password-protected recovery login at
 115200 baud. For the first real pilot, keep noVNC as an independent fallback even
@@ -102,8 +113,10 @@ chroot
 install.sh / install-core.sh
 ```
 
-If there are multiple/ambiguous target disks, automatic erase is disabled. The
-installer shows candidate paths and requires the exact word:
+If there are multiple/ambiguous target disks, or the hypervisor is not
+QEMU/KVM/Proxmox (for example Hyper-V or VMware, where the single disk appears as
+`/dev/sda  Virtual Disk`), automatic erase is disabled. The installer shows
+candidate paths, asks for the exact path and requires the exact word:
 
 ```text
 ERASE

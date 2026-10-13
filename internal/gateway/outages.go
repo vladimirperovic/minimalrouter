@@ -2,7 +2,10 @@ package gateway
 
 import "time"
 
-// Outage describes observed link-down samples, not an inferred Internet SLA.
+// Outage describes observed samples in which the WAN was unusable, not an
+// inferred Internet SLA: either the PPPoE link was down, or the link stayed up
+// while every probe target was unreachable. The second case is the common
+// "modem up, Internet down" failure and was previously missing from history.
 // Unknown ends mark missing evidence, including retention and collection gaps.
 type Outage struct {
 	StartedAt       time.Time  `json:"started_at"`
@@ -11,11 +14,30 @@ type Outage struct {
 	DurationSeconds int64      `json:"duration_seconds"`
 	Outcome         string     `json:"outcome"`
 	Partial         bool       `json:"partial"`
+	Cause           string     `json:"cause"`
 }
+
+const (
+	// OutageCausePPPoELink marks an episode with at least one link-down sample.
+	OutageCausePPPoELink = "pppoe_link"
+	// OutageCauseInternet marks an episode where the link stayed up but no
+	// probe target answered.
+	OutageCauseInternet = "internet"
+	// futureSampleTolerance ignores samples stamped ahead of the current clock.
+	// A router that booted with a wrong RTC (Hyper-V hands guests local time
+	// as UTC) keeps such rows after NTP steps the clock back, and they would
+	// otherwise sort as the newest evidence for hours.
+	futureSampleTolerance = time.Minute
+)
+
+// notAfter bounds every read of stored evidence to the current clock, see
+// futureSampleTolerance.
+func notAfter() int64 { return time.Now().UTC().Add(futureSampleTolerance).Unix() }
 
 func (m *Monitor) Outages() ([]Outage, error) {
 	now := m.now().UTC()
-	rows, err := m.store.db.Query(`SELECT timestamp, link_connected FROM gateway_samples WHERE timestamp >= ? ORDER BY timestamp, id`, now.Add(-retentionPeriod).Unix())
+	rows, err := m.store.db.Query(`SELECT timestamp, link_connected, state FROM gateway_samples WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp, id`,
+		now.Add(-retentionPeriod).Unix(), now.Add(futureSampleTolerance).Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +60,9 @@ func (m *Monitor) Outages() ([]Outage, error) {
 	}
 	for rows.Next() {
 		var seconds int64
-		var up bool
-		if err := rows.Scan(&seconds, &up); err != nil {
+		var linkUp bool
+		var sampleState string
+		if err := rows.Scan(&seconds, &linkUp, &sampleState); err != nil {
 			return nil, err
 		}
 		at := time.Unix(seconds, 0).UTC()
@@ -47,11 +70,14 @@ func (m *Monitor) Outages() ([]Outage, error) {
 		if gap {
 			finish("unknown", nil)
 		}
-		if up {
+		if linkUp && HealthState(sampleState) != StateOffline {
 			finish("recovered", &at)
 		} else {
 			if current == nil {
-				current = &Outage{StartedAt: at, Partial: previous.IsZero() || gap}
+				current = &Outage{StartedAt: at, Partial: previous.IsZero() || gap, Cause: OutageCauseInternet}
+			}
+			if !linkUp {
+				current.Cause = OutageCausePPPoELink
 			}
 			current.LastObservedAt = at
 		}
@@ -62,7 +88,8 @@ func (m *Monitor) Outages() ([]Outage, error) {
 	}
 	state := "ongoing"
 	summary := m.Summary()
-	if now.Sub(previous) > 2*time.Minute || !summary.Enabled || !summary.Available || summary.Link.Connected {
+	stillDown := !summary.Link.Connected || summary.State == StateOffline
+	if now.Sub(previous) > 2*time.Minute || !summary.Enabled || !summary.Available || !stillDown {
 		state = "unknown"
 	}
 	finish(state, nil)

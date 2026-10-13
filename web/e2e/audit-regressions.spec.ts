@@ -3,6 +3,7 @@ import type { SystemStatus } from "../src/api-types";
 import type { FirmwareStatus, UpdateOperationState } from "../src/lib/updates";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import { networkFixture } from "./fixtures/network";
+import { acceptConfirms, dismissConfirms, onConfirm } from "./fixtures/confirm";
 
 async function router(page: Page, options: { auditFailed?: boolean; logoutFailed?: boolean; firmwareStatus?: FirmwareStatus; wgPreview?: { status?: number; server_key_configured?: boolean }; qos?: NonNullable<SystemStatus["runtime"]>["qos"] } = {}) {
   const config = structuredClone(CONFIG);
@@ -57,7 +58,7 @@ test("password change preserves every character and retains a failed form", asyn
 });
 
 test("Enter saves DHCP, canonical refresh is immediate and unrelated WAN/DHCP drafts survive", async ({ page }) => {
-  const r = await router(page); page.on("dialog", d => d.accept()); await page.goto("/#network");
+  const r = await router(page); await acceptConfirms(page); await page.goto("/#network");
   await page.locator(".net-wan > summary").click();
   await page.locator('[name="pppoe_username"]').fill("unsaved-wan");
   await page.locator('[name="lease_time"]').fill("24h"); await page.locator('[name="lease_time"]').press("Enter");
@@ -209,7 +210,7 @@ for (const outcome of ["failed", "rolling_back", "rolled_back", "recovery_requir
 }
 
 test("cancelling reservation preview retains the input and sends no PUT", async ({ page }) => {
-  const r = await router(page); page.on("dialog", d => d.dismiss()); await page.goto("/#network");
+  const r = await router(page); await dismissConfirms(page); await page.goto("/#network");
   await page.getByRole("button", { name: "Add reservation", exact: true }).click();
   const editor = page.getByRole("dialog");
   await editor.getByLabel("Device name", { exact: true }).fill("test-draft");
@@ -286,13 +287,13 @@ test("WG configured server enables with a redacted key and retains preview cance
   Object.assign(r.config.wireguard, { enabled: false, private_key: "[REDACTED]" });
   await page.goto("/#wireguard");
   await expect(page.getByRole("button", { name: "Set up WireGuard", exact: true })).toHaveCount(0);
-  page.once("dialog", d => d.dismiss());
+  await onConfirm(page, () => false, { once: true });
   await page.getByRole("button", { name: "Enable interface", exact: true }).click();
   await expect.poll(() => r.writes.filter(w => w.path.endsWith("/config/preview")).length).toBe(1);
   await expect(page.getByRole("button", { name: "Enable interface", exact: true })).toBeEnabled();
   expect(r.writes.filter(w => w.path === "/api/v1/config")).toEqual([]);
   expect(r.config.wireguard.enabled).toBe(false);
-  page.once("dialog", d => d.accept());
+  await onConfirm(page, () => true, { once: true });
   await page.getByRole("button", { name: "Enable interface", exact: true }).click();
   await expect(page.getByRole("button", { name: "Disable interface", exact: true })).toBeVisible();
   const applies = r.writes.filter(w => w.path === "/api/v1/config");
@@ -324,7 +325,7 @@ for (const status of [200, 503]) {
 
 test("WG enabled interface can still be disabled when the preview flag is unavailable", async ({ page }) => {
   const r = await router(page, { wgPreview: { status: 503, server_key_configured: undefined } });
-  page.on("dialog", d => d.accept()); await page.goto("/#wireguard");
+  await acceptConfirms(page); await page.goto("/#wireguard");
   await page.getByRole("button", { name: "Disable interface", exact: true }).click();
   await expect.poll(() => r.config.wireguard.enabled).toBe(false);
   await expect(page.getByRole("button", { name: "Check and enable", exact: true })).toBeVisible();
