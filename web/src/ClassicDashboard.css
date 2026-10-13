@@ -2425,8 +2425,10 @@
 
 /* The title column keeps a readable width; actions that do not fit beside it
    wrap underneath. Without this the Logs page's four buttons squeezed its
-   heading into a 12px column, one word per line. */
-.subpage-hero-head > div:first-child { flex: 1 1 18rem; min-width: 0; }
+   heading into a 12px column, one word per line. Use a minimum width, not a
+   flex-basis: narrow layouts turn this row into a column, where an 18rem
+   basis became an 18rem-tall empty block under the Gateway quality title. */
+.subpage-hero-head > div:first-child { flex: 1 1 auto; min-width: min(100%, 18rem); }
 .subpage-hero-head > .classic-status-chip,
 .subpage-hero-head > .button,
 .subpage-hero-head > .toolbar,
