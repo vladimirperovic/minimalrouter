@@ -69,6 +69,30 @@ test("sidebar services distinguish enabled configuration from measured runtime",
   await expect(page.locator("#squid .subpage-hero-facts")).not.toContainText("Running");
 });
 
+test("the narrow-screen menu keeps DNS Activity centred beside its alert count", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "the centred drawer exists only on narrow screens");
+  await fixture(page);
+  await page.goto("/");
+  await page.locator(".mobile-navigation-toggle").click();
+  await expect(page.locator(".dashboard-sidebar")).toHaveClass(/is-open/);
+  await expect(page.locator(".dashboard-navigation .dns-risk-nav-count")).toHaveText("27");
+
+  // The count used to push its label 56 px off the column every other label sits on.
+  const rows = await page.evaluate(() => [...document.querySelectorAll(".dashboard-navigation a")]
+    .filter((link) => (link as HTMLElement).offsetWidth > 0)
+    .map((link) => {
+      const row = link.getBoundingClientRect();
+      const label = link.querySelector("span")!.getBoundingClientRect();
+      const count = link.querySelector(".dns-risk-nav-count")?.getBoundingClientRect();
+      return { name: link.querySelector("span")!.textContent, offset: (label.left + label.right) / 2 - (row.left + row.right) / 2, gap: count ? count.left - label.right : null };
+    }));
+  for (const row of rows) expect(Math.abs(row.offset), `${row.name} is off centre`).toBeLessThanOrEqual(1);
+  const dns = rows.find((row) => row.name === "DNS Activity");
+  expect(dns?.gap).not.toBeNull();
+  expect(dns!.gap!).toBeGreaterThanOrEqual(4);
+  expect(dns!.gap!).toBeLessThanOrEqual(12);
+});
+
 for (const design of ["noema", "studio"]) for (const dark of [false, true]) {
   test(`${design} ${dark ? "dark" : "light"}: network alerts, actions, pagination and retained device options`, async ({ page, browserName }) => {
     // CI traces show successful Linux WebKit clicks taking 3–8 seconds. The

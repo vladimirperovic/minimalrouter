@@ -386,3 +386,29 @@
     border-right: 0;
   }
 }
+
+/* Phone and tablet menu: links are centred, but the DNS Activity alert count
+   kept its desktop margin-left: auto and pushed the label to the left edge,
+   56 px off the column every other label sits on. In the drawer the count
+   follows the label in a three-column row whose outer columns are equal, so
+   the label stays on the centre line whatever the count's width. */
+@media (max-width: 900px) {
+  :root:root .dashboard-app .dashboard-sidebar .dashboard-navigation a:has(> .dns-risk-nav-count) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+  }
+  :root:root .dashboard-app .dashboard-sidebar .dashboard-navigation a:has(> .dns-risk-nav-count)::before {
+    content: "";
+    grid-column: 1;
+  }
+  :root:root .dashboard-app .dashboard-sidebar .dashboard-navigation a:has(> .dns-risk-nav-count) > span {
+    grid-column: 2;
+  }
+  :root:root .dashboard-app .dashboard-sidebar .dashboard-navigation a > .dns-risk-nav-count {
+    grid-column: 3;
+    justify-self: start;
+    margin-left: 0;
+  }
+}
