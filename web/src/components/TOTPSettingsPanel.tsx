@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { apiFetch } from "../lib/api";
+import { confirmAction } from "../lib/confirmAction";
 
 type Props = {
   onError: (message: string) => void;
@@ -87,7 +88,7 @@ export default function TOTPSettingsPanel({ onError }: Props) {
     const form = new FormData(event.currentTarget);
     const currentPassword = String(form.get("disable_current_password") ?? "");
     const code = String(form.get("disable_code") ?? "").trim();
-    if (!window.confirm("Disable two-factor authentication for the administrator account?")) return;
+    if (!await confirmAction("Disable two-factor authentication for the administrator account?", { title: "Disable two-factor authentication", confirmLabel: "Disable", danger: true })) return;
     setBusy(true);
     setNotice("");
     onError("");

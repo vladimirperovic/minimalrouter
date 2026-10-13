@@ -7,6 +7,7 @@ import {
   GW_SETTINGS,
 } from "./fixtures/router";
 import type { RouterConfig } from "../src/api-types";
+import { acceptConfirms } from "./fixtures/confirm";
 
 test("Firewall history tolerates missing details and ignores unrelated events", async ({ page }) => {
   await fixture(page);
@@ -141,7 +142,7 @@ async function fixture(page: Page) {
     };
     return route.fulfill({ json: responses[path] ?? {} });
   });
-  page.on("dialog", (dialog) => void dialog.accept());
+  await acceptConfirms(page);
   return state;
 }
 

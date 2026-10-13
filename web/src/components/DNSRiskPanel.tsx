@@ -4,6 +4,7 @@ import { useDNSRisk, riskCoverage } from "../lib/dnsRisk";
 import { useVisiblePolling } from "../lib/useVisiblePolling";
 import type { DNSRiskException, DNSRiskPage } from "../api-types";
 import "./DNSRiskPanel.css";
+import { confirmAction } from "../lib/confirmAction";
 
 const categories = [["adult", "Adult"], ["phishing", "Phishing"], ["malware", "Malware"], ["fraud", "Fraud"], ["gambling", "Gambling"]];
 const label = (category: string) => categories.find(([key]) => key === category)?.[1] ?? category;
@@ -95,7 +96,7 @@ export default function DNSRiskPanel({ busy }: { busy: boolean }) {
           <p>Last observed IP: <code>{alert.last_address}</code> · Source: Block List Project</p>
           <div className="dns-activity-actions">
             {alert.acknowledged_at > 0 ? <span>Reviewed</span> : <button className="button secondary small" disabled={disabled} onClick={() => void mutate(`${alert.id}/acknowledge`, "POST", "Alert marked as reviewed. A new day can create a new alert.")} type="button">Mark reviewed</button>}
-            {alert.ignored ? <span>Ignored by exception</span> : <button className="button secondary small" disabled={disabled} onClick={() => { if (window.confirm(`Ignore alerts for ${alert.domain} in ${label(alert.category)}? This affects this domain/category only and does not allow or block DNS traffic.`)) void mutate(`${alert.id}/ignore`, "POST", "Exception saved. Manage it below to restore alerts."); }} type="button">Ignore domain/category</button>}
+            {alert.ignored ? <span>Ignored by exception</span> : <button className="button secondary small" disabled={disabled} onClick={() => { void confirmAction(`Ignore alerts for ${alert.domain} in ${label(alert.category)}? This affects this domain/category only and does not allow or block DNS traffic.`, { title: "Ignore alerts", confirmLabel: "Ignore domain/category" }).then(ok => { if (ok) void mutate(`${alert.id}/ignore`, "POST", "Exception saved. Manage it below to restore alerts."); }); }} type="button">Ignore domain/category</button>}
           </div>
         </li>)}
       </ul>

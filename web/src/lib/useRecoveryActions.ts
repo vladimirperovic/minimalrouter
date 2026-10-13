@@ -3,6 +3,7 @@ import type { PendingTransaction, Snapshot } from "../api-types";
 import { apiFetch, responseError } from "./api";
 import { publishAppliedTransaction } from "./configuration";
 import { checkedPreview, downloadRecoveryFile, type RecoveryPreview } from "./recovery";
+import { confirmAction } from "./confirmAction";
 
 export function useRecoveryActions(refresh: () => void, onError: (message: string) => void) {
   const [busy, setBusy] = useState("");
@@ -113,7 +114,7 @@ export function useRecoveryActions(refresh: () => void, onError: (message: strin
 
   async function applyPreview() {
     if (!preview || !preview.assessment.can_apply || (preview.expires_at && Date.parse(preview.expires_at) <= Date.now())) return;
-    if (!window.confirm("Apply the reviewed configuration? Confirm any network change before the rollback deadline. DNS restoration is a separate step.")) return;
+    if (!await confirmAction("Apply the reviewed configuration? Confirm any network change before the rollback deadline. DNS restoration is a separate step.", { title: "Apply reviewed configuration", confirmLabel: "Apply configuration" })) return;
     const chosen = preview;
     setPreview(null); // Import tokens are single-use, including rejected applies.
     await write("apply", async () => {
@@ -136,7 +137,7 @@ export function useRecoveryActions(refresh: () => void, onError: (message: strin
   }
 
   async function deleteSnapshot(snapshot: Snapshot) {
-    if (!window.confirm(`Delete snapshot “${snapshot.label || snapshot.id}”? This restore point cannot be recovered.`)) return;
+    if (!await confirmAction(`Delete snapshot “${snapshot.label || snapshot.id}”? This restore point cannot be recovered.`, { title: "Delete snapshot", confirmLabel: "Delete snapshot", danger: true })) return;
     if (preview?.snapshot_id === snapshot.id) setPreview(null);
     await write("snapshot-delete", async () => {
       const response = await apiFetch(`/api/v1/snapshots/${encodeURIComponent(snapshot.id)}`, { method: "DELETE" });
@@ -150,7 +151,7 @@ export function useRecoveryActions(refresh: () => void, onError: (message: strin
   }
 
   async function dismiss(id: string) {
-    if (!window.confirm("Dismiss the remaining DNS restoration? The current DNS policy will remain in place.")) return;
+    if (!await confirmAction("Dismiss the remaining DNS restoration? The current DNS policy will remain in place.", { title: "Dismiss DNS restoration", confirmLabel: "Dismiss" })) return;
     await write("dismiss", async () => { await post(`/api/v1/recovery/operations/${encodeURIComponent(id)}/dismiss`); });
   }
 

@@ -15,6 +15,7 @@ import {
   reservationHostnameMessage,
   suggestReservationAddress,
 } from "./deviceReservation";
+import { confirmAction } from "../lib/confirmAction";
 
 type Props = {
   config: RouterConfig;
@@ -169,9 +170,10 @@ export default function ReservationDialog({
       // that an unobserved address is free. Configuration validation still runs.
       if (
         assessment.state === "unknown" &&
-        !window.confirm(
+        !(await confirmAction(
           "Current DHCP lease data is unavailable or incomplete. This address has not been verified against all leases. Continue with the configuration preview?",
-        )
+          { title: "Lease data incomplete", confirmLabel: "Continue to preview" },
+        ))
       )
         return;
       const reservation: StaticLease = {

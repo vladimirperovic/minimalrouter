@@ -6,6 +6,7 @@ import type { DNSActivity, DNSRecentLookups } from "../api-types";
 import DNSRiskPanel from "./DNSRiskPanel";
 import { useDNSRisk } from "../lib/dnsRisk";
 import "./DNSActivityPanel.css";
+import { confirmAction } from "../lib/confirmAction";
 
 // DNS activity is opt-in browsing statistics. routerd stores daily lookup
 // counts per address and site. Risk alerts additionally retain matched list
@@ -123,18 +124,18 @@ export default function DNSActivityPanel({ busy }: Props) {
     }
   };
 
-  const toggle = (next: boolean) => {
-    if (!next && !window.confirm("Stop recording DNS activity? All recorded domain history and risk alerts are deleted. Saved exceptions remain.")) return;
+  const toggle = async (next: boolean) => {
+    if (!next && !await confirmAction("Stop recording DNS activity? All recorded domain history and risk alerts are deleted. Saved exceptions remain.", { title: "Stop DNS activity recording", confirmLabel: "Stop and delete history", danger: true })) return;
     void saveSettings({ available: true, enabled: next, retention_days: retention }, next ? "DNS activity recording enabled. The first lookups appear within a minute." : "DNS activity recording disabled; history is being deleted.");
   };
 
-  const setRetention = (days: number) => {
-    if (days < retention && !window.confirm(`Keep only ${days} days? Older domain history is deleted within the hour.`)) return;
+  const setRetention = async (days: number) => {
+    if (days < retention && !await confirmAction(`Keep only ${days} days? Older domain history is deleted within the hour.`, { title: "Shorten retention", confirmLabel: `Keep ${days} days`, danger: true })) return;
     void saveSettings({ available: true, enabled, retention_days: days }, `DNS activity is kept for ${days} days.`);
   };
 
   const clearHistory = async () => {
-    if (!window.confirm("Delete all recorded DNS activity and risk alerts now? Recording continues if enabled; saved exceptions remain.")) return;
+    if (!await confirmAction("Delete all recorded DNS activity and risk alerts now? Recording continues if enabled; saved exceptions remain.", { title: "Delete DNS activity", confirmLabel: "Delete now", danger: true })) return;
     setClearing(true);
     try {
       const response = await apiFetch("/api/v1/dns-activity/clear", { method: "POST" });

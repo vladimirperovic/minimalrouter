@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import type { DNSFilterPolicy } from "../src/api-types";
+import { acceptConfirms } from "./fixtures/confirm";
 
 const profile = { id: "kids", name: "Kids tablet", enabled: true, ip_addresses: ["192.168.1.50"], services: ["youtube"], schedule: { day_windows: { monday: [{ start: "19:30", end: "22:30" }] } } };
 async function fixture(page: Page) {
@@ -30,7 +31,7 @@ async function fixture(page: Page) {
     const responses: Record<string, unknown> = { "/api/v1/auth/session": { authenticated: true, csrf_token: "test" }, "/api/v1/system": SYSTEM, "/api/v1/health": HEALTH, "/api/v1/gateway/summary": GW_SUMMARY, "/api/v1/gateway/settings": GW_SETTINGS, "/api/v1/snapshots": [], "/api/v1/devices/pauses": { pauses: [] } };
     return json(responses[path] ?? {});
   });
-  page.on("dialog", dialog => void dialog.accept());
+  await acceptConfirms(page);
   return { writes, concurrentEdit: () => { config = { ...config, revision: 43, adguard: { ...config.adguard, device_profiles: [...config.adguard.device_profiles, { ...profile, id: "other", name: "Other" }] } }; } };
 }
 

@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { RouterConfig } from "../src/api-types";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import { networkFixture } from "./fixtures/network";
+import { acceptConfirms } from "./fixtures/confirm";
 
 test("a reservation saves the edited device name and cancels discard name changes", async ({ page }) => {
   let config = structuredClone(CONFIG) as RouterConfig;
@@ -27,7 +28,7 @@ test("a reservation saves the edited device name and cancels discard name change
     const network = networkFixture(path, config, [lease]); if (network) body = network;
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
   });
-  page.on("dialog", (dialog) => dialog.accept());
+  await acceptConfirms(page);
   await page.goto("/#network");
   const reserve = page.getByRole("button", { name: "Reserve an IP address for test-air" });
   await reserve.click();

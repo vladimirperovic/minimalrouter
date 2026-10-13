@@ -15,6 +15,7 @@ import TrafficPanel from "./TrafficPanel";
 import DNSActivityPanel from "./DNSActivityPanel";
 import type { ApplianceHealth, GatewaySettings, GatewaySummary, RouterConfig, SystemStatus, WireGuardPeer, WireGuardProvisioningPreview } from "../api-types";
 import "./DNSFilterPanel.css";
+import { confirmAction } from "../lib/confirmAction";
 
 const DNSFilterPanel = lazy(() => import("./DNSFilterPanel"));
 
@@ -378,7 +379,7 @@ export default function DashboardSections({
       else showWireGuardArtifact(wgConfig);
       return;
     }
-    if (!window.confirm(`Generate a new configuration for ${peer.name}? The previous configuration for this peer will stop working.`)) return;
+    if (!await confirmAction(`Generate a new configuration for ${peer.name}? The previous configuration for this peer will stop working.`, { title: "Replace peer configuration", confirmLabel: "Generate new configuration", danger: true })) return;
     setPeerActionID(peer.id);
     setError("");
     try {

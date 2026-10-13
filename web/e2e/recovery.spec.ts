@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import type { RecoveryOperation, RecoveryPreview } from "../src/lib/recovery";
+import { acceptConfirms } from "./fixtures/confirm";
 
 const assessment = { can_apply: true, blockers: [], changes: ["System / management"], risk: "low", requires_confirmation: false, expected_interruption: "No management interruption expected." };
 function preview(): RecoveryPreview { return { source: "backup", import_id: "preview", base_revision: 42, expires_at: new Date(Date.now() + 600000).toISOString(), candidate: structuredClone(CONFIG), assessment, dns_filter: { revision: 1, categories: {}, exceptions: [] } }; }
@@ -26,7 +27,7 @@ async function fixture(page: Page) {
     const responses: Record<string, unknown> = { "/api/v1/auth/session": { authenticated: true, csrf_token: "test" }, "/api/v1/config": state.config, "/api/v1/system": SYSTEM, "/api/v1/health": HEALTH, "/api/v1/gateway/summary": GW_SUMMARY, "/api/v1/gateway/settings": GW_SETTINGS, "/api/v1/devices/pauses": { pauses: [] } };
     return json(responses[path] ?? {});
   });
-  page.on("dialog", dialog => void dialog.accept());
+  await acceptConfirms(page);
   return state;
 }
 

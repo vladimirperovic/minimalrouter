@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
+// The in-page dialog needs a real DOM; these tests only decide its answer.
+vi.mock("./confirmAction", () => ({ confirmAction: vi.fn() }));
+
 beforeEach(() => {
   vi.resetModules();
   vi.stubGlobal("window", { location: { origin: "https://router.test" }, confirm: vi.fn(), dispatchEvent: vi.fn() });
@@ -27,7 +30,8 @@ it("a failed preview cannot be bypassed and surfaces its real error", async () =
 });
 
 it("keeps an accepted pending outcome even if the canonical refresh fails", async () => {
-  vi.mocked(window.confirm).mockReturnValue(true);
+  const { confirmAction } = await import("./confirmAction");
+  vi.mocked(confirmAction).mockResolvedValue(true);
   const fetch = vi.fn()
     .mockResolvedValueOnce(Response.json({ changes: ["LAN"], requires_confirmation: true }))
     .mockResolvedValueOnce(Response.json({ id: "pending-1", state: "AwaitingConfirmation", confirmation_deadline: "2026-09-06T20:00:00Z" }))

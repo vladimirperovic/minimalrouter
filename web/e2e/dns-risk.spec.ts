@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { CONFIG, SYSTEM, HEALTH, GW_SUMMARY, GW_SETTINGS } from "./fixtures/router";
 import type { DNSRiskAlert, DNSRiskException } from "../src/api-types";
+import { acceptConfirms } from "./fixtures/confirm";
 
 async function fixture(page: Page) {
   let enabled = true, unavailable = false, stale = false;
@@ -92,7 +93,7 @@ for (const design of ["noema", "studio"]) for (const dark of [false, true]) {
     await expect(panel).toContainText("No new matching alerts");
     await page.getByLabel("Alert view").selectOption("all");
     await expect(panel.locator(".dns-risk-alerts")).toContainText("Reviewed");
-    page.on("dialog", dialog => dialog.accept());
+    await acceptConfirms(page);
     await panel.getByRole("button", { name: "Ignore domain/category" }).click();
     await expect(panel).toContainText("Ignored by exception");
     await panel.getByText("Category lists & exceptions", { exact: true }).click();
@@ -130,7 +131,7 @@ test("disabling recording hides risk history and leaves exception controls acces
   await fixture(page); await page.goto("/#dns-activity");
   const panel = page.getByRole("article", { name: "DNS risk alerts" });
   await expect(panel.locator(".dns-risk-alerts > li")).toHaveCount(25);
-  page.on("dialog", dialog => dialog.accept());
+  await acceptConfirms(page);
   await page.getByLabel("Record DNS activity", { exact: true }).click();
   await expect(page.getByLabel("Record DNS activity", { exact: true })).not.toBeChecked();
   await expect(panel).toContainText("Recording off");
