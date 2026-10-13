@@ -4,7 +4,7 @@ const demoOnly = process.env.MR_DEMO_E2E === "1";
 
 test.use({ viewport: { width: 390, height: 844 } });
 
-test("GitHub Pages demo uses the pushed mobile menu and horizontal Logs timeline", async ({ page, isMobile }) => {
+test("GitHub Pages demo uses the pushed mobile menu and a vertical Logs timeline", async ({ page, isMobile }) => {
   test.skip(!demoOnly, "GitHub Pages demo build only");
   test.skip(!isMobile, "mobile-only demo regression");
 
@@ -42,8 +42,9 @@ test("GitHub Pages demo uses the pushed mobile menu and horizontal Logs timeline
     flow: getComputedStyle(element).gridAutoFlow,
     overflowX: getComputedStyle(element).overflowX,
   }));
-  expect(timelineStyle.flow).toContain("column");
-  expect(timelineStyle.overflowX).toBe("auto");
+  // Narrow cards read the startup steps top to bottom (responsive-pages.css).
+  expect(timelineStyle.flow).toContain("row");
+  expect(timelineStyle.overflowX).toBe("visible");
 
   const geometry = await page.evaluate(() => ({
     viewport: innerWidth,
