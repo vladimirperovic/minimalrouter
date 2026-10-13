@@ -54,6 +54,11 @@ Fixes from a live test of the published v0.3.0 ISO on Hyper-V with a PPPoE
   saved while schedules are off show an **Activate device schedules** button.
 - Confirmations open in an in-page dialog instead of the browser's native box,
   which some embedded browsers dismissed automatically.
+- Narrow screens: Traffic and DNS Activity show one card per device or site
+  instead of a squeezed table (device names had collapsed to one letter per
+  line on phones), the Logs startup timeline reads top to bottom when it no
+  longer fits side by side, and the Overview gives line speed the full width on
+  phones.
 
 ## [v0.3.0] — 2026-10-12
 
