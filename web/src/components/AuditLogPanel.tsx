@@ -8,15 +8,15 @@ import "./Logs.css";
 
 function AuditTable({ page, loading, error }: { page: AuditPage | null; loading: boolean; error: string }) {
   return <div className="elegant-table-container audit-table-scroll" role="region" aria-label="Audit events" tabIndex={0}>
-    <table className="elegant-device-table">
+    <table className="elegant-device-table audit-events-table">
       <thead><tr><th>Time (local)</th><th>Category</th><th>Event</th><th>Actor</th><th>Details</th></tr></thead>
       <tbody>{!page?.events.length ? <tr><td className="empty-state" colSpan={5}>
         {loading ? "Loading audit events…" : error ? "Audit events unavailable. Retry with Refresh." : "No events match these filters in the retained history."}
       </td></tr> : page.events.map(event => <tr key={event.id}>
-        <td className="elegant-cell-data"><time dateTime={event.timestamp} title={event.timestamp}>{new Date(event.timestamp).toLocaleString()}</time></td>
-        <td><span className="audit-category">{event.category ?? "unclassified"}</span></td>
-        <td><code>{event.event_type}</code></td><td>{event.actor}</td>
-        <td className="audit-details">{auditDetails(event.details)}</td>
+        <td className="elegant-cell-data" data-label="Time"><time dateTime={event.timestamp} title={event.timestamp}>{new Date(event.timestamp).toLocaleString()}</time></td>
+        <td data-label="Category"><span className="audit-category">{event.category ?? "unclassified"}</span></td>
+        <td data-label="Event"><code>{event.event_type}</code></td><td data-label="Actor">{event.actor}</td>
+        <td className="audit-details" data-label="Details">{auditDetails(event.details)}</td>
       </tr>)}</tbody>
     </table>
   </div>;

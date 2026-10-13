@@ -139,6 +139,16 @@ test("a degraded DNS check turns the DNS chip away from green", async ({ page })
   await expect(page.locator(".overview-masthead")).not.toContainText("operating normally");
 });
 
+test("service chips keep one height when WireGuard and DHCP carry a count", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/");
+  const chips = page.locator(".overview-service-ribbon .overview-service-chip:visible");
+  await expect(chips.filter({ hasText: /^WireGuard/ }).locator("b")).toBeVisible();
+  await expect(chips.filter({ hasText: /^DHCP/ }).locator("b")).toBeVisible();
+  const heights = await chips.evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
+  expect(new Set(heights).size, `chip heights ${heights.join(", ")}`).toBe(1);
+});
+
 test("an unreachable health endpoint reports unknown rather than healthy", async ({ page }) => {
   await stubApi(page, { healthStatus: 503 });
   await page.goto("/");

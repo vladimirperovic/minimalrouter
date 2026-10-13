@@ -59,6 +59,17 @@ Fixes from a live test of the published v0.3.0 ISO on Hyper-V with a PPPoE
   line on phones), the Logs startup timeline reads top to bottom when it no
   longer fits side by side, and the Overview gives line speed the full width on
   phones.
+- Page-by-page density pass: side-by-side cards on Security and Gateway Quality
+  end on the same line, LAN device actions stay on one line, and on wide screens
+  Firewall suggestions and WireGuard peers use three columns and QoS settings
+  share one row. On phones the Overview status chips flow at their natural
+  width, LAN facts and Firewall suggestions take less height, and the Security
+  events and Logs audit tables show one card per event. Long hostnames, SSIDs
+  and WireGuard endpoints wrap at dots and dashes instead of overflowing.
+- Header controls line up: Overview status chips keep one height when WireGuard
+  or DHCP show a count, the topbar buttons share one height on every screen, and
+  on phones the menu button is a circle in the same row at the page edge. In the
+  phone menu DNS Activity stays centred with its alert count beside it.
 
 ## [v0.3.0] — 2026-10-12
 

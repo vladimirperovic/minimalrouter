@@ -31,6 +31,7 @@ import "./theme/recovery.css";
 import "./theme/dns-filter.css";
 import "./theme/card-hover.css";
 import "./theme/responsive-pages.css";
+import "./theme/page-polish.css";
 import { initializeAppearance } from "./theme/preferences";
 
 initializeAppearance();

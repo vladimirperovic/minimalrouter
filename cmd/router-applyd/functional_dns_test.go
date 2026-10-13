@@ -11,8 +11,9 @@ import (
 )
 
 // serveFakeDNS answers every A query with 192.0.2.10 and every other type with
-// an empty NOERROR response, until the returned stop function is called.
-func serveFakeDNS(t *testing.T, conn net.PacketConn) (stop func()) {
+// an empty NOERROR response, until the returned stop function is called. Before
+// readyAt it answers REFUSED instead, like a resolver that is still loading.
+func serveFakeDNS(t *testing.T, conn net.PacketConn, readyAt time.Time) (stop func()) {
 	t.Helper()
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -33,71 +34,68 @@ func serveFakeDNS(t *testing.T, conn net.PacketConn) (stop func()) {
 			if err != nil {
 				continue
 			}
-			builder := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: header.ID, Response: true, RecursionAvailable: true})
+			ready := !time.Now().Before(readyAt)
+			reply := dnsmessage.Header{ID: header.ID, Response: true, RecursionAvailable: true}
+			if !ready {
+				reply.RCode = dnsmessage.RCodeRefused
+			}
+			builder := dnsmessage.NewBuilder(nil, reply)
 			builder.EnableCompression()
 			_ = builder.StartQuestions()
 			_ = builder.Question(question)
 			_ = builder.StartAnswers()
-			if question.Type == dnsmessage.TypeA {
+			if ready && question.Type == dnsmessage.TypeA {
 				_ = builder.AResource(dnsmessage.ResourceHeader{Name: question.Name, Class: dnsmessage.ClassINET, TTL: 60},
 					dnsmessage.AResource{A: [4]byte{192, 0, 2, 10}})
 			}
-			reply, err := builder.Finish()
+			message, err := builder.Finish()
 			if err == nil {
-				_, _ = conn.WriteTo(reply, from)
+				_, _ = conn.WriteTo(message, from)
 			}
 		}
 	}()
 	return func() { _ = conn.Close(); wg.Wait() }
 }
 
-func freeUDPAddress(t *testing.T) string {
+func listenFakeDNS(t *testing.T) net.PacketConn {
 	t.Helper()
 	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	address := conn.LocalAddr().String()
-	_ = conn.Close()
-	return address
+	return conn
 }
 
 // Regression for the live v0.3.0 finding: with ~510k DNS-filter domains loaded
 // dnsmasq refused queries for a moment after restart, and two immediate lookups
 // rolled back every WAN/upstream-DNS/device-profile change.
+//
+// The resolver keeps its port from the start and refuses until it is ready.
+// Freeing a port and binding it again later raced other packages' sockets under
+// `go test ./...`: the fake resolver then never started and the test failed.
 func TestFunctionalDNSWaitsForSlowResolverStart(t *testing.T) {
-	address := freeUDPAddress(t)
-	started := make(chan func(), 1)
-	go func() {
-		time.Sleep(700 * time.Millisecond)
-		conn, err := net.ListenPacket("udp", address)
-		if err != nil {
-			started <- nil
-			return
-		}
-		started <- serveFakeDNS(t, conn)
-	}()
-	defer func() {
-		if stop := <-started; stop != nil {
-			stop()
-		}
-	}()
+	conn := listenFakeDNS(t)
+	stop := serveFakeDNS(t, conn, time.Now().Add(700*time.Millisecond))
+	defer stop()
 
 	begin := time.Now()
-	if err := verifyFunctionalDNSAt(address, 5*time.Second, 100*time.Millisecond); err != nil {
-		t.Fatalf("resolver that starts after 700ms must pass verification: %v", err)
+	if err := verifyFunctionalDNSAt(conn.LocalAddr().String(), 5*time.Second, 100*time.Millisecond); err != nil {
+		t.Fatalf("resolver that becomes ready after 700ms must pass verification: %v", err)
 	}
 	if elapsed := time.Since(begin); elapsed < 600*time.Millisecond {
-		t.Fatalf("verification passed before the resolver existed (%s)", elapsed)
+		t.Fatalf("verification passed while the resolver was still refusing (%s)", elapsed)
 	}
 }
 
 func TestFunctionalDNSFailsAfterReadinessDeadline(t *testing.T) {
-	address := freeUDPAddress(t)
+	conn := listenFakeDNS(t)
+	stop := serveFakeDNS(t, conn, time.Now().Add(time.Hour))
+	defer stop()
+
 	begin := time.Now()
-	err := verifyFunctionalDNSAt(address, 600*time.Millisecond, 100*time.Millisecond)
+	err := verifyFunctionalDNSAt(conn.LocalAddr().String(), 600*time.Millisecond, 100*time.Millisecond)
 	if err == nil {
-		t.Fatal("a resolver that never answers must fail verification")
+		t.Fatal("a resolver that keeps refusing must fail verification")
 	}
 	if !strings.Contains(err.Error(), "within 600ms") {
 		t.Fatalf("error should name the readiness bound: %v", err)
@@ -108,11 +106,8 @@ func TestFunctionalDNSFailsAfterReadinessDeadline(t *testing.T) {
 }
 
 func TestFunctionalDNSPassesImmediatelyWhenResolverAnswers(t *testing.T) {
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stop := serveFakeDNS(t, conn)
+	conn := listenFakeDNS(t)
+	stop := serveFakeDNS(t, conn, time.Time{})
 	defer stop()
 	begin := time.Now()
 	if err := verifyFunctionalDNSAt(conn.LocalAddr().String(), 5*time.Second, time.Second); err != nil {
