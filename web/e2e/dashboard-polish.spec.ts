@@ -63,8 +63,12 @@ for(const design of ['noema','studio'])for(const mode of ['light','dark'])for(co
   await expect(page.locator('.tl-item')).toHaveCount(7);
   expect(await page.locator('.tl').evaluate(e=>getComputedStyle(e,'::before').display)).toBe('none');
   expect(await page.evaluate(()=>getComputedStyle(document.body).backgroundColor)).not.toBe('rgb(221, 225, 233)');
-  const geometry=await page.locator('.tl-item').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect(),dot=n.querySelector('.tl-dot')!.getBoundingClientRect(),line=getComputedStyle(n,'::after');return {x:r.x,width:r.width,cy:dot.y+dot.height/2-r.y,lineY:parseFloat(line.top)+parseFloat(line.height)/2,lineX:line.left.endsWith("%")?parseFloat(line.left)*r.width/100:parseFloat(line.left),lineWidth:line.width.endsWith("%")?parseFloat(line.width)*r.width/100:parseFloat(line.width)};}));
-  for(const g of geometry){expect(Math.abs(g.cy-g.lineY)).toBeLessThanOrEqual(1);expect(g.lineX).toBeCloseTo(g.width/2,0);expect(g.lineWidth).toBeCloseTo(g.width,0);}
+  // Wide cards keep the sideways strip (line through the dot horizontally);
+  // narrow cards stack the steps (line through the dot vertically).
+  const sideways=(await page.locator('.tl').evaluate(e=>getComputedStyle(e).gridAutoFlow)).includes('column');
+  const geometry=await page.locator('.tl-item').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect(),dot=n.querySelector('.tl-dot')!.getBoundingClientRect(),line=getComputedStyle(n,'::after');const px=(v:string,base:number)=>v.endsWith('%')?parseFloat(v)*base/100:parseFloat(v);return {x:r.x,y:r.y,width:r.width,cx:dot.x+dot.width/2-r.x,cy:dot.y+dot.height/2-r.y,lineDisplay:line.display,lineY:parseFloat(line.top)+parseFloat(line.height)/2,lineX:px(line.left,r.width),lineWidth:px(line.width,r.width),lineHeight:px(line.height,r.height)};}));
+  if(sideways){for(const g of geometry){expect(Math.abs(g.cy-g.lineY)).toBeLessThanOrEqual(1);expect(g.lineX).toBeCloseTo(g.width/2,0);expect(g.lineWidth).toBeCloseTo(g.width,0);}}
+  else{for(const [i,g] of geometry.entries()){expect(Math.abs(g.x-geometry[0].x)).toBeLessThanOrEqual(1);if(i>0)expect(g.y).toBeGreaterThan(geometry[i-1].y);if(i<geometry.length-1){expect(Math.abs(g.lineX+g.lineWidth/2-g.cx)).toBeLessThanOrEqual(1.5);expect(g.lineHeight).toBeGreaterThan(8);}}}
   for(const [route,selector] of [['logs','.audit-table-scroll']]){
    await page.goto('/#'+route);const scroller=page.locator(selector);await scroller.scrollIntoViewIfNeeded();
    await scroller.evaluate(e=>{e.scrollTop=180;});
