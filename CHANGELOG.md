@@ -6,14 +6,23 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+## [v0.3.1] — 2026-10-13
+
 Fixes from a live test of the published v0.3.0 ISO on Hyper-V with a PPPoE
 "ISP" VM and a LAN client.
 
 ### Upgrade compatibility
 
-- The Golden image and live ISO change (runlevels, boot prompt, modloop), so a
-  new ISO is needed to get them on fresh installs. The router-applyd, routerd
-  and dashboard fixes reach existing appliances through the normal update path.
+- The snapshot-ordering and restore-preview fixes live in the shared
+  configuration store, and the LAN address check reads the ARP table through the
+  shared network package. Both are compiled into `router-recovery` and
+  `router-setup`, which run outside the A/B slot, so v0.3.1 requires the full
+  signed distribution installer once for existing v0.3.0 and earlier
+  appliances; the dashboard updater correctly refuses the transition and its
+  byte-identity check is unchanged. `router-update` itself is unchanged. See
+  `docs/WEB-UPDATE.md`.
+- The Golden image and live ISO change (driver loading, boot prompt, modloop),
+  so new installations use the v0.3.1 ISO.
 
 ### Fixed
 

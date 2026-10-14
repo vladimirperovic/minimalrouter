@@ -6,20 +6,62 @@ owner-Proxmox/ISP evidence are deliberately kept separate.
 
 ## Current release line
 
-**Minimal Router OS v0.3.0 — Beta.**
+**Minimal Router OS v0.3.1 — Beta.**
 
-The build tree (`VERSION`, `web/package.json`) targets v0.3.0: unified LAN &
-DHCP, Firewall and Gateway Quality workspaces, redesigned Logs, Recovery and
-DNS Filter, named snapshots, revision-bound restores and expanded read-only MCP
-tools ([release notes](releases/v0.3.0.md)). v0.2.1 is published; v0.3.0 is not.
-This is not a publication claim. Exact-candidate CI, ISO and signed-release
-gates remain required under [the release process](RELEASE_PROCESS.md).
+The build tree (`VERSION`, `web/package.json`) targets v0.3.1: fixes from a
+live test of the published v0.3.0 ISO, the **Force all devices through router
+DNS** switch and the narrow-screen dashboard layouts
+([release notes](releases/v0.3.1.md)). v0.3.0 is published; v0.3.1 is not. This
+is not a publication claim. Exact-candidate CI, ISO and signed-release gates
+remain required under [the release process](RELEASE_PROCESS.md).
 
-v0.3.0 changes `router-recovery` and `router-setup` and the Go toolchain, so
-existing appliances take it once through the signed full distribution
-installer, not the dashboard updater (see [`WEB-UPDATE.md`](WEB-UPDATE.md)).
+v0.3.1 changes `router-recovery` and `router-setup` (shared configuration store
+and network package), so existing v0.3.0 and earlier appliances take it once
+through the signed full distribution installer, not the dashboard updater (see
+[`WEB-UPDATE.md`](WEB-UPDATE.md)). On 2026-10-13 a Windows workstation ran
+`scripts/ci/bootstrap-compatibility.sh` against the v0.3.0 tag with Go 1.26.9:
+`router-update` is byte-identical for amd64 and arm64, `router-recovery` and
+`router-setup` differ on both, and the drift is acknowledged for 0.3.1.
+Reverting the snapshot-ordering, deep-copy and ARP-reader changes together
+restores byte identity; each one alone changes the bytes.
 
 Evidence for this line, precisely:
+
+- pull requests #167 (live-test fixes), #168 (narrow-screen layouts) and #169
+  (density pass) ran every required workflow, including **Build, flash and
+  boot minimalrouter golden ISO**, whose blank-disk flash now uses an emulated
+  e1000 LAN port. That is CI evidence, not real-lab validation;
+- a Hyper-V lab (Windows 11, Gen 1 BIOS VM, a simulated PPPoE ISP VM and a LAN
+  client VM) was installed fresh from the Golden ISO built for #167. Live
+  checks there: the serial `boot:` prompt and installer, modloop without
+  `/lib/modules` errors, both Hyper-V NICs found with no manual step, firstboot
+  with PPPoE, upstream-DNS, WAN MTU and device-profile changes applied with
+  510,682 DNS-filter domains loaded (each rolled back on v0.3.0), the DNS
+  enforcement switch blocking 8.8.8.8 and DNS-over-TLS for an unprofiled
+  client, the address check reporting a static host seen only through ARP,
+  an Internet-only outage recorded with its cause, the restore preview without
+  a phantom change, the in-page confirmation dialog and persistence across a
+  router reboot. Hyper-V is not a qualified platform and this is not
+  physical-router or real-ISP evidence;
+- the dashboard suites (build, lint, Vitest and the desktop/mobile Chromium
+  Playwright projects) passed locally on Windows for #168 and #169.
+
+No v0.3.1 owner-Proxmox, ISP or physical-hardware evidence has been collected,
+and no full-installer upgrade from v0.3.0 has been run on a real appliance.
+
+## v0.3.0 line (previous release)
+
+**Minimal Router OS v0.3.0 — Beta.**
+
+v0.3.0 unified the LAN & DHCP, Firewall and Gateway Quality workspaces,
+redesigned Logs, Recovery and DNS Filter, and added named snapshots,
+revision-bound restores and expanded read-only MCP tools
+([release notes](releases/v0.3.0.md)). It was published on 2026-10-12. It
+changed `router-recovery` and `router-setup` and the Go toolchain, so v0.2.1
+and earlier appliances took it once through the signed full distribution
+installer.
+
+Evidence for that line, precisely:
 
 - pull requests #163 and #164 ran every required workflow. On the merged `main`
   commit e6751de all required checks passed, including Linux Go race tests, vet
