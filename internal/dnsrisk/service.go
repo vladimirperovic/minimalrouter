@@ -169,7 +169,7 @@ func (s *Service) Run(ctx context.Context) {
 		case b := <-s.queue:
 			if err := s.process(ctx, b); err != nil {
 				s.mu.Lock()
-				s.processError = "DNS risk checks failed; coverage is incomplete"
+				s.processError = processErrorMessage(err)
 				s.mu.Unlock()
 			}
 		case <-tick.C:
@@ -192,6 +192,20 @@ func (s *Service) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// errListsNotLoaded marks lookups that arrived before any category list was
+// downloaded, typically in the first minutes after DNS Activity is enabled.
+var errListsNotLoaded = errors.New("no category lists loaded")
+
+// processErrorMessage tells the operator why a batch went unchecked. Lookups
+// recorded while the lists are still downloading are a normal start-up gap,
+// not a failure, and the generic message hid that during the v0.3.1 live test.
+func processErrorMessage(err error) string {
+	if errors.Is(err, errListsNotLoaded) {
+		return "DNS risk lists are still downloading; lookups seen before they finished loading were not checked"
+	}
+	return "DNS risk checks failed; coverage is incomplete"
 }
 
 func (s *Service) RequestRefresh() bool {
@@ -245,7 +259,7 @@ func (s *Service) process(ctx context.Context, b batch) (resultErr error) {
 		}
 	}
 	if loaded == 0 {
-		return errors.New("no category lists loaded")
+		return errListsNotLoaded
 	}
 	incomplete = loaded != len(s.feeds)
 	// Match full query names before the coarse site aggregation loses subdomains.

@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { previewAndApplyConfig, readConfiguration, useConfiguration } from "../lib/configuration";
+import { untrustedWireGuardNetwork } from "../lib/trustedNetworks";
 
 type Props = {
   onError: (message: string) => void;
@@ -26,6 +27,7 @@ export default function TrustedNetworksPanel({ onError }: Props) {
   const config = useConfiguration();
   const networks = config?.trusted_networks || [];
   const loaded = config !== null;
+  const untrustedTunnel = config ? untrustedWireGuardNetwork(config) : null;
   const [saving, setSaving] = useState(false);
   const [input, setInput] = useState("");
 
@@ -71,6 +73,18 @@ export default function TrustedNetworksPanel({ onError }: Props) {
         Only devices connecting from these networks can access the MinimalRouter administration interface.
         This does not replace the router password — both layers apply.
       </p>
+
+      {untrustedTunnel && (
+        <div className="trusted-networks-notice" role="status">
+          <p>
+            WireGuard is on, but its network <code>{untrustedTunnel}</code> is not trusted. Remote devices can open the
+            dashboard page through the tunnel, yet cannot sign in or manage the router until you trust it.
+          </p>
+          <button className="button secondary" disabled={saving} onClick={() => persist([...networks, untrustedTunnel])} type="button">
+            Trust WireGuard network
+          </button>
+        </div>
+      )}
 
       {!loaded ? (
         <p className="classic-security-empty">Loading…</p>

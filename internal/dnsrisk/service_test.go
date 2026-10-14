@@ -2,6 +2,7 @@ package dnsrisk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -303,5 +304,23 @@ func TestRetentionPaginationAndHardBound(t *testing.T) {
 	page, _ := s.Alerts("all", "", 0, 50)
 	if page.Total != 0 {
 		t.Fatal("old alerts survived retention")
+	}
+}
+
+// Live test v0.3.1 (L4): lookups recorded right after DNS Activity was enabled
+// were dropped while the lists were still downloading, and the summary only
+// said "checks failed". The start-up gap now says what happened.
+func TestLookupsBeforeListsLoadReportDownloadGap(t *testing.T) {
+	s, _, _ := newTestService(t)
+	b := batch{lookups: []Lookup{{Name: "risk.example", Address: "192.0.2.1", Count: 1, At: time.Now().Unix()}}, generation: s.generation.Load()}
+	err := s.process(context.Background(), b)
+	if !errors.Is(err, errListsNotLoaded) {
+		t.Fatalf("process before any list loaded = %v, want errListsNotLoaded", err)
+	}
+	if got := processErrorMessage(err); !strings.Contains(got, "still downloading") {
+		t.Fatalf("message %q does not explain the download gap", got)
+	}
+	if got := processErrorMessage(fmt.Errorf("database is locked")); !strings.Contains(got, "coverage is incomplete") {
+		t.Fatalf("other failures must keep the incomplete-coverage message, got %q", got)
 	}
 }

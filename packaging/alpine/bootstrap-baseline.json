@@ -15,8 +15,8 @@
     "in the same pull request and document the one-time installer step - never relax the",
     "byte-identity check to make a release pass."
   ],
-  "bootstrap_baseline_ref": "v0.3.0",
-  "bootstrap_baseline_version": "0.3.0",
+  "bootstrap_baseline_ref": "v0.3.1",
+  "bootstrap_baseline_version": "0.3.1",
   "bootstrap_commands": [
     "router-update",
     "router-recovery",
@@ -26,8 +26,8 @@
     "amd64",
     "arm64"
   ],
-  "bootstrap_change_acknowledged_version": "0.3.1",
-  "bootstrap_change_reason": "v0.3.1 fixes the shared configuration store after the v0.3.0 live test: snapshot listing and retention order by configuration revision, so a corrected clock cannot make old snapshots look newest or prune the real newest ones, and configuration deep copies keep missing lists distinct from empty ones, so restore previews stop reporting phantom changes. The shared network package also gains the ARP neighbour reader used by the LAN address check. These change router-recovery and router-setup; router-update is unchanged. Existing v0.3.0 and earlier appliances need the full signed distribution installer once.",
+  "bootstrap_change_acknowledged_version": "",
+  "bootstrap_change_reason": "",
   "requires_full_installer_from": "0.3.0",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [

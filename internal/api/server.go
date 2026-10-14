@@ -1028,10 +1028,50 @@ func (s *Server) handleDeleteSnapshot(w http.ResponseWriter, r *http.Request) {
 // mutation paths (PUT /config, snapshot restore, backup and pfSense imports)
 // must route through it.
 func managementContinuityErr(candidate config.SystemConfig, remoteAddr string) error {
+	if err := wireGuardManagementTrustErr(candidate); err != nil {
+		return err
+	}
 	if !candidate.IsTrustedClientAddress(remoteAddr) {
 		return errors.New("this change removes the caller's source address from trusted_networks and would lock out the administrator")
 	}
 	return nil
+}
+
+// wireGuardManagementTrustErr rejects WireGuard-only management whose trust
+// list does not cover the tunnel subnet. The firewall then admits the
+// management port only on the WireGuard interface while the API trusts no
+// WireGuard source, so nobody could use or even confirm the change. Trust
+// stays explicit: the subnet is never added implicitly.
+func wireGuardManagementTrustErr(candidate config.SystemConfig) error {
+	if candidate.System.ManagementAccess != "wireguard_only" {
+		return nil
+	}
+	_, tunnel, err := net.ParseCIDR(candidate.WireGuard.Address)
+	if err != nil {
+		// Configuration validation reports the malformed address itself.
+		return nil
+	}
+	if trustedNetworksCover(candidate.TrustedNetworks, tunnel) {
+		return nil
+	}
+	return fmt.Errorf("WireGuard-only management requires the WireGuard network %s in trusted_networks", tunnel)
+}
+
+// trustedNetworksCover reports whether one trusted network contains all of
+// target.
+func trustedNetworksCover(trusted []string, target *net.IPNet) bool {
+	targetOnes, targetBits := target.Mask.Size()
+	for _, network := range trusted {
+		_, candidate, err := net.ParseCIDR(network)
+		if err != nil {
+			continue
+		}
+		ones, bits := candidate.Mask.Size()
+		if bits == targetBits && ones <= targetOnes && candidate.Contains(target.IP) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleRestoreSnapshot(w http.ResponseWriter, r *http.Request) {
@@ -1217,14 +1257,18 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// change is rejected before it can be applied. Loopback callers always
 	// pass (loopback is unconditionally trusted).
 	if err := managementContinuityErr(newCfg, r.RemoteAddr); err != nil {
-		log.Printf("[API] PUT %s - Rejected trusted_networks change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
+		log.Printf("[API] PUT %s - Rejected management access change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
 		s.appendAudit("config.lockout_prevented", auditActor(r.RemoteAddr), map[string]string{
 			"path": r.URL.Path,
 		})
+		message := "This change would remove your own source address from trusted_networks and lock you out"
+		if wgErr := wireGuardManagementTrustErr(newCfg); wgErr != nil {
+			message = wgErr.Error()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": "This change would remove your own source address from trusted_networks and lock you out",
+			"error": message,
 		})
 		return
 	}

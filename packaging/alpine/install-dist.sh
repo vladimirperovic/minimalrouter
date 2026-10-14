@@ -254,6 +254,10 @@ if [ -f firmware-signing.pub ]; then
     if [ ! -f /etc/minimalrouter/firmware-signing.pub ]; then
         install -m 0644 -o root -g root firmware-signing.pub /etc/minimalrouter/firmware-signing.pub
     fi
+    # The Golden image writes the installed version here; a signed full install
+    # must replace it, or support bundles and the firstboot banner keep naming
+    # the release this one replaced. Preflight has verified VERSION's manifest.
+    install -m 0644 -o root -g root VERSION /etc/minimalrouter/VERSION
 else
     echo "NOTE: unsigned development archive; existing firmware key/version floor are preserved. Signed staging requires a known installed floor."
 fi

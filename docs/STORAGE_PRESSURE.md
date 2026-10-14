@@ -8,7 +8,7 @@ The filesystem containing the canonical router data directory is classified as:
 
 - **Normal**: below 80% used.
 - **Warning**: 80% to below 90% used. Durable configuration changes remain available, while operators should free space.
-- **Critical**: 90% used or higher. New management mutations that require durable state are rejected with HTTP 507 rather than reporting success that cannot be persisted.
+- **Critical**: 90% used or higher. New management mutations that require durable state are rejected with HTTP 507 rather than reporting success that cannot be persisted. Signing in, signing out, encrypted backup export and previews stay available so an operator can open the dashboard, see the pressure and export a backup. On a completely full disk sign-in still fails, because neither the login rate-limit counter nor the session can be stored; the dashboard then reports too many sign-in attempts, and SSH or the console is the way to free space.
 - **Unknown**: storage telemetry is unavailable. Development/non-Linux builds do not invent a pressure state.
 
 Critical pressure does not deliberately restart PPPoE, flush nftables, stop DHCP/DNS, or otherwise mutate the active forwarding plane.

@@ -6,6 +6,36 @@ compatibility may still change between releases.
 
 ## [Unreleased]
 
+Fixes from a live test of the published v0.3.1 ISO and of the full-installer
+upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
+
+### Upgrade compatibility
+
+- `router-update`, `router-recovery` and `router-setup` are byte-identical to
+  v0.3.1 on AMD64 and ARM64, and the installed integration files are
+  unchanged, so v0.3.1 appliances take this release as an ordinary signed
+  dashboard update. v0.3.0 and earlier still need the full signed installer
+  once. The bootstrap baseline moves to v0.3.1.
+
+### Fixed
+
+- Signing in to the dashboard was refused while the disk was 90 % full or
+  more, so nobody could open the page that reports the full disk. Sign-in now
+  stays available; only a completely full disk, where no session can be
+  stored, still refuses it.
+- WireGuard clients could open the dashboard page but every request was
+  refused, because the default trusted networks only cover the LAN. The
+  Security page now says so while WireGuard is on and offers **Trust WireGuard
+  network**, and WireGuard-only management is refused unless the tunnel network
+  is trusted (it would otherwise lock everyone out until the change rolled back).
+- Confirmation dialogs opened in the top-left corner instead of the centre.
+- After the full signed installer, `/etc/minimalrouter/VERSION` still named the
+  release it replaced, so support bundles and the console banner reported the
+  old version.
+- DNS Activity alerts said "checks failed" for lookups seen while the category
+  lists were still downloading after the feature was switched on; the message
+  now says the lists are still downloading.
+
 ## [v0.3.1] — 2026-10-13
 
 Fixes from a live test of the published v0.3.0 ISO on Hyper-V with a PPPoE
