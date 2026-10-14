@@ -148,7 +148,9 @@ The management plane uses:
   TCP peer address, never forwarded headers, and is a first gate before
   authentication, never a replacement for it. An empty list denies everything
   except localhost, and applying a change that would remove the caller's own
-  source network is rejected to prevent operator lockout.
+  source network is rejected to prevent operator lockout. WireGuard clients are
+  trusted only when the tunnel network is listed explicitly; WireGuard-only
+  management is refused unless it is, because nobody could sign in afterwards.
 
 Authentication errors should not reveal whether a password, session, or TOTP
 component was specifically correct.
@@ -220,7 +222,9 @@ normal application error.
 - The canonical data filesystem is Warning at 80% used and Critical at 90% used.
 - At Critical pressure, management operations that require durable state return
   HTTP 507 before mutation instead of applying runtime changes that cannot be
-  safely recorded.
+  safely recorded. Sign-in, sign-out, backup export and previews stay available
+  so the operator can see the pressure; on a completely full disk the login
+  rate-limit counter cannot be stored and sign-in is refused.
 - Recovery mutations are not exempt: recovery must not claim success unless its
   durable evidence can be stored.
 - Existing forwarding, nftables, PPPoE, DHCP/DNS, and WireGuard runtime are not
@@ -336,7 +340,8 @@ The current project does not claim complete protection against:
 - LAN Layer-2 attacks such as rogue DHCP or ARP spoofing;
 - unsupported IPv6 traffic, VLAN topologies, multi-WAN, or high availability;
 - supply-chain compromise outside the project's verified build inputs;
-- weak administrator operational practices;
+- weak administrator operational practices, including a short recovery/SSH root
+  password: firstboot warns about one but does not yet enforce a minimum;
 - undiscovered implementation defects.
 
 Disk encryption, Secure Boot enforcement, owner-qualified recovery media,

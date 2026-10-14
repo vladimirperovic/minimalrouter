@@ -44,9 +44,11 @@ Before creating the tag:
 6. Reconfirm all seven required workflows are green on the exact candidate.
 7. Record the exact `main` SHA that will be tagged.
 
-Historical release notes and dated evidence reports may retain older version
-references when those references are part of the historical record. They must be
-clearly identified as historical rather than presented as current v0.3.1 state.
+`docs/releases/` holds only the current release's notes: when preparing a new
+release, replace the previous file; earlier notes stay on GitHub Releases, in
+`CHANGELOG.md` and in the git history. Historical statements elsewhere may keep
+older version numbers when they are clearly identified as history rather than
+presented as current v0.3.1 state.
 
 ## 2. Create the SSH-signed annotated tag
 
@@ -172,7 +174,7 @@ trust details.
 v0.3.1 remains a controlled Beta even after the signed release workflow passes.
 Before treating it as a normal replacement router, keep the known-good router and
 local console available and execute the remaining owner-Proxmox gates in
-`CURRENT_VALIDATION.md`/`ROADMAP.md`, including repeated real PPPoE/reboot
+`CURRENT_VALIDATION.md`/`PROJECT.md`, including repeated real PPPoE/reboot
 recovery, WireGuard/DDNS recovery, backup restore, destructive storage/power
 faults, external scans and longer soak testing.
 

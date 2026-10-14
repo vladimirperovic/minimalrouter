@@ -13,8 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="docs/ISO_INSTALLATION.md">Golden ISO install</a> ·
-  <a href="docs/PROXMOX.md">Proxmox</a> ·
+  <a href="docs/INSTALLATION.md">Installation</a> ·
   <a href="docs/GOLDEN-IMAGE.md">Golden image design</a> ·
   <a href="docs/CURRENT_VALIDATION.md">Validation</a> ·
   <a href="https://vladimirperovic.github.io/minimalrouter/">Live dashboard demo</a> ·
@@ -105,8 +104,8 @@ SSH:       root@192.168.1.1
 Serial:    ttyS0 @ 115200
 ```
 
-Full instructions: [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) and
-[`docs/PROXMOX.md`](docs/PROXMOX.md).
+Full instructions, including the Proxmox VM profile:
+[`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
 > The installer ISO contains BIOS and UEFI boot metadata, but the v0.3.1
 > **installed Golden target** that is fully exercised end-to-end is the
@@ -127,7 +126,7 @@ Paste something like this:
 
 ```text
 Clone https://github.com/vladimirperovic/minimalrouter and read
-docs/INSTALLATION.md and docs/PROXMOX.md.
+docs/INSTALLATION.md.
 
 1. Build the x86-64 distribution archive from source with `make dist-amd64`.
 2. Walk me through creating the Proxmox VM: SeaBIOS, 1+ vCPU, 1+ GiB RAM, one
@@ -228,9 +227,8 @@ login and verifies the installed appliance.
 ## Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
-- [`docs/ISO_INSTALLATION.md`](docs/ISO_INSTALLATION.md) — preferred v0.3.1 ISO install
+- [`docs/INSTALLATION.md`](docs/INSTALLATION.md) — Golden ISO install, Proxmox VM profile, archive install, restoring settings
 - [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — exact ISO architecture and rebuild rules
-- [`docs/PROXMOX.md`](docs/PROXMOX.md) — VM baseline and pilot procedure
 - [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md) — what is actually proven
 - [`docs/RELEASE_SECURITY.md`](docs/RELEASE_SECURITY.md) — signed release and verification model
 - [`docs/RECOVERY.md`](docs/RECOVERY.md) — recovery and rollback

@@ -4,7 +4,7 @@
 # missing) and the four lab VMs. NEVER touches vmbr0/vmbr1/nic0/nic1 or any
 # existing VM other than the lab IDs below.
 #
-# VM ID plan (documented in docs/TEST-LAB.md):
+# VM ID plan (see scripts/lab/):
 #   150 ISP-LAB      Debian 13, upstream on vmbr0 + ISP side on vmbr-lab-wan
 #   151 MR-TEST      MinimalRouter Alpine (clone base from VM111, pristine wipe)
 #   152 LAN-CLIENT   Debian 13, DHCP client on vmbr-lab-lan only
