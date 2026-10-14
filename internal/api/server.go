@@ -1257,7 +1257,9 @@ func (s *Server) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// change is rejected before it can be applied. Loopback callers always
 	// pass (loopback is unconditionally trusted).
 	if err := managementContinuityErr(newCfg, r.RemoteAddr); err != nil {
-		log.Printf("[API] PUT %s - Rejected management access change that would lock out %s\n", r.URL.Path, r.RemoteAddr)
+		// The route is fixed; logging the request path would let a caller
+		// inject arbitrary text into the log.
+		log.Printf("[API] PUT /api/v1/config - Rejected management access change that would lock out %s\n", r.RemoteAddr)
 		s.appendAudit("config.lockout_prevented", auditActor(r.RemoteAddr), map[string]string{
 			"path": r.URL.Path,
 		})
