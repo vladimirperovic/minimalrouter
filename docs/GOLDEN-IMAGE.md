@@ -113,8 +113,6 @@ scripts/ci/iso-full-install.exp
 User-facing guides:
 
 ```text
-docs/ISO_INSTALLATION.md
-docs/PROXMOX.md
 docs/INSTALLATION.md
 ```
 

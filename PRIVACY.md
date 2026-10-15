@@ -101,7 +101,7 @@ treated as proof that activity was safe.
 
 ## Network DNS blocking
 
-The separate v0.2.0 DNS Filter categories are off by default. Enabling a category
+The DNS Filter categories are off by default. Enabling a category
 downloads its fixed public HaGeZi list through jsDelivr over HTTPS. The provider
 sees the download connection; query names and client addresses are not uploaded.
 Local category indexes retain public domains. The domain checker reads these

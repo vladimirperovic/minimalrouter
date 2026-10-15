@@ -25,7 +25,7 @@ No contribution is too small when it makes the project safer or easier to use.
 
 ## Project status and governance
 
-The project is currently **Beta (v0.2.1)**. Compatibility may still change,
+The project is currently **Beta (v0.3.1)**. Compatibility may still change,
 some features are intentionally unavailable, and no release should be treated as
 an unattended production firewall unless its release notes explicitly say so.
 
@@ -33,13 +33,12 @@ Please do not present Minimal Router OS as a complete pfSense or OpenWrt
 replacement. The current goal is a focused, understandable home-router appliance
 with safe defaults, recoverable changes, and a small resource footprint.
 
-Project decisions and maintainer authority are documented in
-[GOVERNANCE.md](GOVERNANCE.md). Active ownership is listed in
-[MAINTAINERS.md](MAINTAINERS.md).
+Project decisions, maintainer authority and active ownership are documented in
+[GOVERNANCE.md](GOVERNANCE.md).
 
 ## Before changing code
 
-1. Read `README.md`, `ARCHITECTURE.md`, `SECURITY.md`, and the relevant ADRs.
+1. Read `README.md`, `ARCHITECTURE.md`, `SECURITY.md`, and the relevant decisions in `docs/DECISIONS.md`.
 2. Search existing issues and pull requests.
 3. For a larger feature, open an issue before investing substantial time.
 4. For a change to a trust boundary, persistence model, update strategy,

@@ -30,4 +30,4 @@ refuses to proceed unless the targets are the documented isolated lab VMs.
 pfSense VM 106 and `vmbr0` are read-only production invariants, never fault
 targets.
 
-See `COVERAGE.md` for the current risk estimate and the highest-value gaps.
+Prefer scenarios that close a known gap in an observable failure contract.

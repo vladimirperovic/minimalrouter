@@ -135,7 +135,7 @@ systemctl enable lab-net >/dev/null 2>&1
 echo "== fault injection tool =="
 cat > /usr/local/sbin/lab-fault <<'FAULTEOF'
 #!/bin/sh
-# Lab fault-injection CLI (ISP-LAB side). See docs/TEST-LAB.md.
+# Lab fault-injection CLI (ISP-LAB side). See scripts/lab/.
 IFACE=$(cat /etc/lab-iface 2>/dev/null || echo ens18)
 tc_nic="$IFACE"; tc_ppp="ppp0"
 qdisc() {  # qdisc <iface> <on|off> <args...>
