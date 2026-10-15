@@ -412,3 +412,24 @@
     margin-left: 0;
   }
 }
+
+/* Trusted networks: WireGuard is on but its tunnel subnet is not trusted, so
+   remote devices see the page but every API call is refused. */
+:root:root .dashboard-app .trusted-networks-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--classic-orange) 35%, var(--separator));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--classic-orange) 5%, var(--surface));
+  font-size: 13px;
+  line-height: 1.55;
+}
+:root:root .dashboard-app .trusted-networks-notice p {
+  flex: 1 1 18rem;
+  margin: 0;
+}

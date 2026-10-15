@@ -59,3 +59,20 @@ func TestInstallersProvideClientOnlyClockSynchronization(t *testing.T) {
 		}
 	}
 }
+
+// Live test v0.3.1 (L3): after a signed full install from v0.3.0 to v0.3.1 the
+// appliance still named 0.3.0 in /etc/minimalrouter/VERSION, which the support
+// bundle and the firstboot banner report. Only signed archives may replace it.
+func TestFullInstallerRecordsTheSignedVersion(t *testing.T) {
+	installer := readApplianceFile(t, "packaging", "alpine", "install-dist.sh")
+	record := "install -m 0644 -o root -g root VERSION /etc/minimalrouter/VERSION"
+	at := strings.Index(installer, record)
+	if at < 0 {
+		t.Fatal("install-dist.sh does not record the installed version in /etc/minimalrouter/VERSION")
+	}
+	signed := strings.Index(installer, "if [ -f firmware-signing.pub ]; then")
+	unsigned := strings.Index(installer, "NOTE: unsigned development archive")
+	if signed < 0 || unsigned < 0 || at < signed || at > unsigned {
+		t.Fatal("the installed version must be recorded only for signed archives")
+	}
+}

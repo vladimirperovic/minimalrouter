@@ -544,3 +544,35 @@ func TestManagementContinuityErr(t *testing.T) {
 		t.Fatal("a restored/imported default trust boundary on a different LAN must be rejected")
 	}
 }
+
+// Live test v0.3.1 (M3): with management limited to WireGuard, the firewall
+// admits the dashboard only on wg0, so a trust list without the tunnel subnet
+// leaves nobody able to sign in or even confirm the change.
+func TestWireGuardOnlyManagementRequiresTrustedTunnel(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WireGuard.Address = "10.8.0.1/24"
+	cfg.TrustedNetworks = []string{"192.168.1.0/24"}
+	cfg.System.ManagementAccess = "lan_and_wireguard"
+	if err := managementContinuityErr(cfg, "192.168.1.5:8443"); err != nil {
+		t.Fatalf("LAN management must not depend on the tunnel subnet: %v", err)
+	}
+
+	cfg.System.ManagementAccess = "wireguard_only"
+	err := managementContinuityErr(cfg, "192.168.1.5:8443")
+	if err == nil || !strings.Contains(err.Error(), "10.8.0.0/24") {
+		t.Fatalf("WireGuard-only management without a trusted tunnel must be rejected, got %v", err)
+	}
+
+	for _, trusted := range [][]string{{"192.168.1.0/24", "10.8.0.0/24"}, {"192.168.1.0/24", "10.8.0.0/16"}} {
+		cfg.TrustedNetworks = trusted
+		if err := managementContinuityErr(cfg, "10.8.0.2:51000"); err != nil {
+			t.Fatalf("trusted %v must admit WireGuard-only management: %v", trusted, err)
+		}
+	}
+
+	// A narrower network covers only part of the tunnel and is not enough.
+	cfg.TrustedNetworks = []string{"192.168.1.0/24", "10.8.0.2/32"}
+	if err := managementContinuityErr(cfg, "10.8.0.2:51000"); err == nil {
+		t.Fatal("a single-host entry must not count as trusting the tunnel subnet")
+	}
+}

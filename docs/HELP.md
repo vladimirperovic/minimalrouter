@@ -85,6 +85,8 @@ QoS controls bufferbloat: the large latency increase that can happen while a con
 
 WireGuard provides encrypted remote access to the router and selected local networks. Each remote device gets its own peer. Generated client private material is shown once; save the configuration or QR code when it is created. Disable or delete a peer when a device is lost or no longer trusted.
 
+To manage the router through the tunnel, its network (10.8.0.0/24 by default) must also be in **Trusted networks** on the Security page; until then a peer can open the dashboard page but cannot sign in. The Security page offers **Trust WireGuard network** while the tunnel is on and untrusted. WireGuard-only management is refused unless the tunnel network is trusted, because no device could sign in afterwards.
+
 ## Outbound WireGuard client
 
 The outbound client tunnel connects this router to another site. The policy is intentionally asymmetric: the local router can initiate traffic toward the remote site, while the remote side is not given a generic path to initiate new connections into the home LAN.

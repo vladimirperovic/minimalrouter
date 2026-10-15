@@ -87,8 +87,21 @@ byte-identity check in `cmd/router-update`.
 
 ## Current checkout and installation boundary
 
-`bootstrap_baseline_ref` is v0.3.0, the bytes published appliances run since
-2026-10-12. v0.3.1 changes `router-recovery` and `router-setup` on AMD64 and
+`bootstrap_baseline_ref` is v0.3.1, the bytes published appliances run since
+2026-10-14. The fixes from the v0.3.1 live test on this checkout change only
+`routerd`, the dashboard and the full installer script; `scripts/ci/bootstrap-compatibility.sh` reports all six bootstrap
+binaries (`router-update`, `router-recovery`, `router-setup` on AMD64 and ARM64)
+byte-identical to v0.3.1, and the installed integration files (firstboot,
+init scripts, sysctl, module list, logrotate, `slot-exec`, `compatibility.json`,
+the PPP QoS hook) are unchanged since v0.3.1. A v0.3.1 appliance can therefore
+take this build as an ordinary signed dashboard update. v0.3.0 and earlier
+appliances still need the full signed distribution installer once, to reach
+v0.3.1 or this build. Fixes that would change those files (a minimum length
+for the firstboot recovery password, audit ordering in the shared store, init
+script orphan cleanup) are deliberately deferred to a release that needs the
+full installer anyway.
+
+v0.3.1 changed `router-recovery` and `router-setup` on AMD64 and
 ARM64 again, for fixes found in the v0.3.0 live test: the shared configuration
 store lists and prunes snapshots by configuration revision (a corrected clock
 could otherwise make old snapshots look newest and prune the real newest ones),
@@ -101,7 +114,7 @@ appliances, and `bootstrap-baseline.json` acknowledges the change for version
 0.3.1. As with v0.3.0, the dashboard A/B updater refuses the transition, the
 Golden ISO refuses an occupied disk, and a replacement appliance may be
 installed on a blank disk from the v0.3.1 Golden ISO and restored from an
-encrypted backup. After v0.3.1 is published, the baseline moves to v0.3.1.
+encrypted backup.
 
 v0.3.0 changed the same two binaries for a larger reason: the shared
 configuration store began migrating named snapshots and durable recovery/backup

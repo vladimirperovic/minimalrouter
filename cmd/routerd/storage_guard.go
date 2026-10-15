@@ -36,7 +36,12 @@ func mutationNeedsDurableWrite(method, path string) bool {
 
 	// These POST endpoints do not commit appliance state. Keep them available so
 	// operators can export/inspect state and end a browser session under pressure.
-	if path == "/api/v1/auth/logout" ||
+	// Sign-in is exempt as well: without it nobody can open the dashboard that
+	// reports the storage pressure. Its only durable write is a small bounded
+	// session row, and the login handler refuses the session if that write
+	// fails, so it never reports a sign-in that was not persisted.
+	if path == "/api/v1/auth/login" ||
+		path == "/api/v1/auth/logout" ||
 		path == "/api/v1/backup/export" ||
 		path == "/api/v1/firmware/verify" ||
 		path == "/api/v1/auth/totp/enroll" ||

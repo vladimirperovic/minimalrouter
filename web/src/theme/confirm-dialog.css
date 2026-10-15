@@ -1,6 +1,10 @@
 /* In-page confirmation dialog (lib/confirmAction.ts). Uses the shared theme
    tokens so it follows light, dark and the alternative looks. */
 dialog.mr-confirm {
+  /* Tailwind preflight sets margin: 0 on every element, which removes the
+     browser's centring of modal dialogs (margin: auto) and pins the dialog to
+     the top-left corner. */
+  margin: auto;
   width: min(560px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   padding: var(--card-padding, 24px);
