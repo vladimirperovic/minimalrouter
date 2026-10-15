@@ -79,6 +79,29 @@ func TestPolicyRejectsInjectionAndPublicSuffixes(t *testing.T) {
 	}
 }
 
+// Every published source must be selectable together; a fixed category count
+// once rejected the policy as soon as a fifth source existed.
+func TestPolicyAcceptsEverySourceIncludingBypass(t *testing.T) {
+	p := DefaultPolicy()
+	var bypass Source
+	for _, source := range Sources() {
+		p.Categories[source.ID] = true
+		if source.ID == "bypass" {
+			bypass = source
+		}
+	}
+	if err := p.Validate(); err != nil || len(p.Categories) < 5 {
+		t.Fatalf("all %d sources rejected: %v", len(p.Categories), err)
+	}
+	if bypass.URL() != "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/doh-vpn-proxy-bypass-onlydomains.txt" {
+		t.Fatalf("bypass source URL: %q", bypass.URL())
+	}
+	p.Categories["unknown"] = true
+	if p.Validate() == nil {
+		t.Fatal("unknown category accepted beside every source")
+	}
+}
+
 func TestCatalogRejectsInvalidAndMatchesParents(t *testing.T) {
 	source := Sources()[0]
 	path := filepath.Join(t.TempDir(), "catalog.db")

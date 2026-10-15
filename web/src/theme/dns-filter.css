@@ -38,6 +38,7 @@
 .dashboard-app #adguard .dns-overview-metrics .dns-overview-date { font-size:var(--text-base); min-height:36px; display:flex; align-items:center; }
 .dashboard-app #adguard .dns-overview-metrics > div > span { font-size:var(--text-2xs); line-height:1.5; color:var(--text-tertiary); overflow-wrap:anywhere; }
 .dashboard-app #adguard .dns-category-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.dashboard-app #adguard :is(.dns-category-list,.dns-list-grid) > :last-child:nth-child(odd) { grid-column:1 / -1; }
 .dashboard-app #adguard .dns-category-choice { display:flex; align-items:center; gap:16px; padding:20px; border:1px solid var(--separator); border-radius:var(--radius); background:var(--surface); cursor:pointer; transition:background 160ms,border-color 160ms; }
 .dashboard-app #adguard .dns-category-choice.is-selected { border-color:color-mix(in srgb,var(--accent) 40%,var(--separator)); background:color-mix(in srgb,var(--accent) 4%,var(--surface)); }
 .dashboard-app #adguard .dns-category-choice:hover { border-color:var(--accent); }

@@ -41,14 +41,14 @@ export default function DNSEnforcementCard({ config, canEdit, rulesInUse }: Prop
           <p className="eyebrow">Make the rules binding</p>
           <h3>{title}</h3>
           <p>Categories, exceptions and device schedules only apply to lookups that go through this router. {enforced
-            ? "Direct DNS and DNS-over-TLS to other resolvers are blocked for the whole network."
+            ? "Direct DNS, DNS-over-TLS and DNS-over-QUIC to other resolvers are blocked for the whole network."
             : "A device set to another DNS server, such as 8.8.8.8, bypasses them."}</p>
         </div>
       </div>
       <span className={`dns-neutral-chip ${enforced ? "is-on" : ""}`}>{chip}</span>
     </header>
     <div className="dns-enforcement-action">
-      <p>Blocks TCP/UDP 53 and DNS-over-TLS (TCP 853) toward the Internet; router DNS keeps working. Encrypted DNS over HTTPS and VPNs are not covered. The same rules appear as presets on the Firewall page.</p>
+      <p>Blocks TCP/UDP 53 and DNS-over-TLS/QUIC (TCP/UDP 853) toward the Internet; router DNS keeps working. Encrypted DNS over HTTPS and VPNs are not covered. The same rules appear as presets on the Firewall page.</p>
       <button className={`button ${enforced ? "secondary" : "primary"}`} type="button" disabled={!canEdit || busy || state === null} onClick={() => void change(!enforced)}>
         {busy ? "Applying…" : enforced ? "Stop forcing router DNS" : "Force all devices through router DNS"}
       </button>

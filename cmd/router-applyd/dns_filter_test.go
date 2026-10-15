@@ -135,6 +135,31 @@ func TestDNSFilterRejectsInjectionPreservesOldAndRecoversInterruptedActivation(t
 	}
 }
 
+func TestDNSFilterAcceptsEverySourceAndBoundsManifest(t *testing.T) {
+	filterTestHooks(t)
+	request := filterRequest(0)
+	for _, source := range dnsfilter.Sources() {
+		request.Policy.Categories[source.ID] = true
+		request.Sources[source.ID] = strings.Repeat("b", 64)
+	}
+	state, err := applyDNSFilter(request, strings.NewReader("ads.example.com\nmask.icloud.com\n"))
+	if err != nil || !state.Healthy || len(state.Sources) != len(dnsfilter.Sources()) {
+		t.Fatalf("all sources: %+v %v", state, err)
+	}
+	conf, _ := os.ReadFile(filterPath)
+	if !bytes.Contains(conf, []byte("address=/mask.icloud.com/\n")) {
+		t.Fatalf("bypass domain not blocked:\n%s", conf)
+	}
+	extra := filterRequest(state.Policy.Revision)
+	for id := range request.Sources {
+		extra.Policy.Categories[id], extra.Sources[id] = true, strings.Repeat("c", 64)
+	}
+	extra.Sources["unlisted"] = strings.Repeat("d", 64)
+	if _, err = applyDNSFilter(extra, strings.NewReader("ads.example.com\n")); err == nil {
+		t.Fatal("manifest larger than the source catalog accepted")
+	}
+}
+
 func TestDNSFilterExceptionAndGuard(t *testing.T) {
 	filterTestHooks(t)
 	request := filterRequest(0)

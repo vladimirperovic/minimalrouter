@@ -186,10 +186,11 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "dot",
-    title: "Block DNS-over-TLS",
+    title: "Block DNS-over-TLS and DNS-over-QUIC",
     detail:
-      "Block standard DNS-over-TLS on TCP 853 toward the Internet. DoH, DNS-over-QUIC and VPNs are separate.",
+      "Block DNS-over-TLS (TCP 853) and DNS-over-QUIC (UDP 853) toward the Internet. DoH and VPNs are separate.",
     protocol: "tcp",
+    protocols: ["tcp", "udp"],
     port: 853,
     direction: "forward",
     group: "DNS & transport",
@@ -248,8 +249,10 @@ export function presetState(
 }
 // DNS categories, exceptions and device schedules only see lookups that reach
 // the router's resolver. These presets stop LAN devices from using another
-// resolver over plain DNS or DNS-over-TLS, which a live test showed bypassed
-// every category (e.g. `nslookup bet365.com 8.8.8.8`).
+// resolver over plain DNS, DNS-over-TLS or DNS-over-QUIC, which a live test
+// showed bypassed every category (e.g. `nslookup bet365.com 8.8.8.8`). Older
+// releases created only the TCP 853 rule; that reads as Partial until the
+// operator applies enforcement again, which adds the UDP rule.
 export const DNS_ENFORCEMENT_PRESET_IDS: readonly string[] = ["dns", "dot"];
 export const dnsEnforcementPresets = () =>
   PRESETS.filter((preset) => DNS_ENFORCEMENT_PRESET_IDS.includes(preset.id));

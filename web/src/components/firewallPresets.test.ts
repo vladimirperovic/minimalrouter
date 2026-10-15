@@ -7,7 +7,7 @@ const withRules = (rules: RouterConfig["firewall"]["custom_rules"] = []) =>
   ({ firewall: { custom_rules: rules } }) as unknown as RouterConfig;
 
 describe("router DNS enforcement", () => {
-  it("starts off and becomes active with deny rules for udp/tcp 53 and tcp 853", () => {
+  it("starts off and becomes active with deny rules for udp/tcp 53 and udp/tcp 853", () => {
     const config = withRules();
     expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Off");
     setDNSEnforcement(config, true);
@@ -16,7 +16,21 @@ describe("router DNS enforcement", () => {
       .filter((rule) => rule.enabled && rule.action === "deny" && rule.scope === "wan")
       .map((rule) => `${rule.protocol}/${rule.dst_port}`)
       .sort();
-    expect(ports).toEqual(["tcp/53", "tcp/853", "udp/53"]);
+    expect(ports).toEqual(["tcp/53", "tcp/853", "udp/53", "udp/853"]);
+  });
+
+  it("treats a TCP-only DNS-over-TLS rule from older releases as partial and completes it", () => {
+    const legacy = (id: string, protocol: string, port: number, preset: string) =>
+      ({ id, preset_id: preset, name: "Legacy (preset)", action: "deny", direction: "forward", protocol, src_ip: "", dst_port: port, scope: "wan", enabled: true });
+    const config = withRules([
+      legacy("preset-dns-udp", "udp", 53, "dns"),
+      legacy("preset-dns-tcp", "tcp", 53, "dns"),
+      legacy("preset-dot-tcp", "tcp", 853, "dot"),
+    ] as RouterConfig["firewall"]["custom_rules"]);
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Partial");
+    setDNSEnforcement(config, true);
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Active");
+    expect(config.firewall.custom_rules.filter((rule) => rule.preset_id === "dot").map((rule) => rule.id).sort()).toEqual(["preset-dot-tcp", "preset-dot-udp"]);
   });
 
   it("pauses its own rules when switched off and leaves other rules alone", () => {

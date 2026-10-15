@@ -5,6 +5,7 @@ export const dnsCategories = [
   { id: "ads", label: "Ads & trackers", detail: "Less tracking, fewer distractions", source: "HaGeZi Light", icon: "eye" },
   { id: "adult", label: "Adult content", detail: "Domains hosting adult content", source: "HaGeZi NSFW", icon: "lock" },
   { id: "gambling", label: "Gambling", detail: "Betting and gambling domains", source: "HaGeZi Gambling Mini", icon: "dice" },
+  { id: "bypass", label: "Encrypted DNS, VPN & proxy bypass", detail: "Encrypted DNS, Private Relay, VPN apps, Tor and proxies", source: "HaGeZi DoH/VPN/TOR/Proxy Bypass", icon: "detour" },
 ] as const;
 export type DNSOperation = { id: string; kind: string; state: string; phase: string; actor?: string; base_revision: number; target_revision: number; applied_revision?: number; started_at: string; updated_at: string; finished_at?: string; error?: string };
 export type DNSProfileStatus = { id: string; name: string; state: "paused" | "filter_off" | "allowed" | "blocked"; allowed_now: boolean | null; next_change_at: string | null; next_state?: string; ip_addresses: string[]; services: string[]; missing_reservations: string[]; basis: string; enforcement_verified: boolean };
