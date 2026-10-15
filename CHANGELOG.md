@@ -4,6 +4,35 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
+## [v0.3.3] — 2026-10-15
+
+Closes a gap in the encrypted-DNS bypass DNS filter category after an iPhone on a
+production v0.3.2 appliance still opened a blocked domain in Safari Private
+Browsing.
+
+### Upgrade compatibility
+
+- `router-update`, `router-recovery` and `router-setup` are byte-identical to
+  v0.3.1 on AMD64 and ARM64, and the installed integration files are
+  unchanged, so v0.3.1 and v0.3.2 appliances take this release as an ordinary
+  signed dashboard update. v0.3.0 and earlier still need the full signed
+  installer once. The bootstrap baseline stays v0.3.1.
+
+### Fixed
+
+- The **Encrypted DNS, VPN & proxy bypass** category now also blocks
+  `mask.apple-dns.net`, and always blocks `mask.icloud.com` and
+  `mask-h2.icloud.com` even if the upstream list drops them. Both documented
+  names are CNAMEs to `mask.apple-dns.net` with a TTL of about 5.5 hours, and
+  the upstream list does not include it. On a v0.3.2 appliance with the category
+  on, iPhones and a Mac that had cached the CNAME kept resolving the target
+  through the router, so Safari Private Browsing still reached Apple's relay
+  and a blocked adult domain still opened. The category also blocks
+  `mask-canary.icloud.com` and its alias `mask-canary.v.aaplimg.com`, and
+  Firefox's canary domain `use-application-dns.net`, which turns off Firefox's
+  default-on DNS-over-HTTPS. The names are added when a list is downloaded, so
+  after updating use **Refresh lists** or wait for the next automatic refresh.
+
 ## [v0.3.2] — 2026-10-15
 
 Fixes from a live test of the published v0.3.1 ISO and of the full-installer

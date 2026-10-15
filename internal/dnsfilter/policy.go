@@ -21,17 +21,42 @@ const (
 	MaxMetadataBytes = 128 << 10
 )
 
-type Source struct{ ID, Label, File string }
+type Source struct {
+	ID, Label, File string
+	// Extra names are added to every downloaded copy of the list, for
+	// endpoints the category depends on that the upstream list misses.
+	Extra []string
+}
+
+// bypassExtra holds names the bypass category depends on but the upstream list
+// misses or may drop. dnsmasq matches only the queried name, never the CNAMEs
+// in an upstream answer, so every alias on the way to a blocked target that a
+// device may query directly has to be listed as well.
+//
+//   - mask.icloud.com and mask-h2.icloud.com are the iCloud Private Relay
+//     ingress names Apple documents; Safari Private Browsing's Oblivious DoH
+//     uses the same relay. Both are CNAMEs (TTL up to about 5.5 hours) to
+//     mask.apple-dns.net (TTL 120 s). Apple devices that cached the CNAME
+//     before the category was on re-resolve only that target.
+//   - mask-canary.icloud.com reaches the same target through
+//     mask-canary.v.aaplimg.com.
+//   - use-application-dns.net is Firefox's canary: a negative answer turns off
+//     Firefox's default-on DNS-over-HTTPS for the network.
+var bypassExtra = []string{
+	"mask.icloud.com", "mask-h2.icloud.com", "mask.apple-dns.net",
+	"mask-canary.icloud.com", "mask-canary.v.aaplimg.com",
+	"use-application-dns.net",
+}
 
 func Sources() []Source {
 	return []Source{
-		{"threats", "Malware, phishing & scams", "tif.mini"},
-		{"ads", "Ads & trackers", "light"},
-		{"adult", "Adult content", "nsfw"},
-		{"gambling", "Gambling", "gambling.mini"},
-		// Encrypted DNS, Apple relay ingress (mask.icloud.com), VPN, Tor and proxy
-		// endpoints, so devices cannot quietly resolve around the other categories.
-		{"bypass", "Encrypted DNS, VPN & proxy bypass", "doh-vpn-proxy-bypass"},
+		{"threats", "Malware, phishing & scams", "tif.mini", nil},
+		{"ads", "Ads & trackers", "light", nil},
+		{"adult", "Adult content", "nsfw", nil},
+		{"gambling", "Gambling", "gambling.mini", nil},
+		// Encrypted DNS, Apple relay ingress, VPN, Tor and proxy endpoints, so
+		// devices cannot quietly resolve around the other categories.
+		{"bypass", "Encrypted DNS, VPN & proxy bypass", "doh-vpn-proxy-bypass", bypassExtra},
 	}
 }
 

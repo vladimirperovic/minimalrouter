@@ -125,6 +125,49 @@ func TestCatalogRejectsInvalidAndMatchesParents(t *testing.T) {
 	}
 }
 
+func TestBypassCatalogAddsAppleRelayTarget(t *testing.T) {
+	var bypass Source
+	for _, source := range Sources() {
+		if source.ID == "bypass" {
+			bypass = source
+		}
+	}
+	path := filepath.Join(t.TempDir(), "bypass.db")
+	if _, err := buildCatalog(context.Background(), path, bypass, strings.NewReader("# empty\n"), nil); err == nil {
+		t.Fatal("extra names made an empty download acceptable")
+	}
+	// The 2026-10-15 upstream list had both documented names but not their
+	// CNAME target, which Apple devices kept resolving from a cached CNAME.
+	meta, err := buildCatalog(context.Background(), path, bypass, strings.NewReader("mask.icloud.com\nmask-h2.icloud.com\ndns.example\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Entries != 3+len(bypass.Extra)-2 {
+		t.Fatalf("entries %d, want the 3 downloaded names plus the extras they did not include", meta.Entries)
+	}
+	for name, want := range map[string]string{
+		"mask.apple-dns.net":        "mask.apple-dns.net",
+		"mask.icloud.com":           "mask.icloud.com",
+		"mask-canary.v.aaplimg.com": "mask-canary.v.aaplimg.com",
+		"use-application-dns.net":   "use-application-dns.net",
+		// iCloud services share apple-dns.net and aaplimg.com and stay open.
+		"gateway.fe2.apple-dns.net": "",
+		"mesu.g.aaplimg.com":        "",
+	} {
+		if match, err := catalogMatch(context.Background(), path, name); err != nil || match != want {
+			t.Fatalf("%s matched %q (%v), want %q", name, match, err, want)
+		}
+	}
+	plain := filepath.Join(t.TempDir(), "plain.db")
+	same, err := buildCatalog(context.Background(), plain, Source{ID: "bypass", File: bypass.File}, strings.NewReader("mask.icloud.com\nmask-h2.icloud.com\ndns.example\n"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Hash == meta.Hash {
+		t.Fatal("catalog hash ignores the extra names")
+	}
+}
+
 func TestFilterOptInRefreshFailureAndRevisionConflict(t *testing.T) {
 	helper := &fakeHelper{state: Applied{Policy: DefaultPolicy(), Sources: map[string]string{}}}
 	s, err := Open(t.TempDir(), helper, nil)

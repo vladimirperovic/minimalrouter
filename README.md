@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.3.2"><img alt="Beta release: v0.3.2" src="https://img.shields.io/badge/beta-v0.3.2-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.3.3"><img alt="Beta release: v0.3.3" src="https://img.shields.io/badge/beta-v0.3.3-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -43,35 +43,35 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **Beta — v0.3.2.** The preferred AMD64/Proxmox installation path is the
+> **Beta — v0.3.3.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
-> then runs a short first-boot router configuration. v0.3.2 fixes what a live
-> test of v0.3.1 found, including dashboard sign-in on a nearly full disk and
-> dashboard access for WireGuard clients. It adds an **Encrypted DNS, VPN & proxy
-> bypass** DNS filter category, after Safari Private Browsing was found resolving
-> blocked names through Apple's Oblivious DoH, and **Force all devices through
-> router DNS** now also blocks DNS-over-QUIC. The bootstrap tools are
-> byte-identical to v0.3.1, so v0.3.1 appliances take v0.3.2 as an ordinary
-> signed dashboard update; v0.3.0 and earlier appliances need the signed full
+> then runs a short first-boot router configuration. v0.3.3 closes a gap in the
+> **Encrypted DNS, VPN & proxy bypass** DNS filter category introduced in v0.3.2:
+> Apple devices that had cached the iCloud Private Relay alias kept reaching the
+> relay through its CNAME target, so Safari Private Browsing could still resolve
+> blocked names through Apple's Oblivious DoH. The category now also blocks that
+> target and Firefox's DoH canary domain. The bootstrap tools are byte-identical
+> to v0.3.1, so v0.3.1 and v0.3.2 appliances take v0.3.3 as an ordinary signed
+> dashboard update; v0.3.0 and earlier appliances need the signed full
 > distribution installer once. This is still a controlled-pilot Beta, not an
 > unattended pfSense/OpenWrt replacement. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## v0.3.2 quick start — Proxmox
+## v0.3.3 quick start — Proxmox
 
-Download these assets from the **v0.3.2 GitHub release**:
+Download these assets from the **v0.3.3 GitHub release**:
 
 ```text
-minimalrouter-0.3.2-amd64.iso
-minimalrouter-0.3.2-amd64.iso.sha256
+minimalrouter-0.3.3-amd64.iso
+minimalrouter-0.3.3-amd64.iso.sha256
 ```
 
 Verify before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.3.2-amd64.iso.sha256
+sha256sum -c minimalrouter-0.3.3-amd64.iso.sha256
 ```
 
 Create a QEMU/KVM VM with the currently proven target profile:
@@ -106,7 +106,7 @@ Serial:    ttyS0 @ 115200
 Full instructions, including the Proxmox VM profile:
 [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
-> The installer ISO contains BIOS and UEFI boot metadata, but the v0.3.2
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.3.3
 > **installed Golden target** that is fully exercised end-to-end is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 

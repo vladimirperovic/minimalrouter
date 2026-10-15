@@ -124,6 +124,22 @@ func buildCatalog(ctx context.Context, path string, source Source, body io.Reade
 	if meta.Entries < 1 || bad*100 > total {
 		return meta, errors.New("empty or invalid domain list")
 	}
+	// Extra names are added only to a download that is already valid.
+	for _, extra := range source.Extra {
+		d, ok := Domain(extra)
+		if !ok {
+			return meta, errors.New("invalid built-in domain")
+		}
+		result, err := insert.ExecContext(ctx, d)
+		if err != nil {
+			return meta, err
+		}
+		n, _ := result.RowsAffected()
+		meta.Entries += int(n)
+	}
+	if meta.Entries > MaxFeedDomains {
+		return meta, errors.New("list exceeds appliance domain limit")
+	}
 	rows, err := tx.QueryContext(ctx, "SELECT domain FROM domains ORDER BY domain")
 	if err != nil {
 		return meta, err

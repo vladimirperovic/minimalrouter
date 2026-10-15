@@ -82,11 +82,53 @@ proxy services, Tor, and `mask.icloud.com`/`mask-h2.icloud.com`. Apple documents
 a negative answer for those two names as the way a network turns iCloud Private
 Relay off. A live test on macOS 27 found that Safari Private Browsing resolves
 page names through Apple's Oblivious DoH even without iCloud+, so those lookups
-never reached the router and a blocked adult domain opened. Whether this
-category makes Safari fall back to router DNS has not yet been verified on a
-real device. The category also blocks commercial VPN apps, Tailscale and similar
+never reached the router and a blocked adult domain opened.
+
+Both Apple names are CNAMEs to `mask.apple-dns.net`. The CNAME has a TTL of
+about 5.5 hours and the target 120 seconds. A device that cached the CNAME
+before the category was switched on keeps re-resolving only the target. The
+HaGeZi list does not include the target, so with v0.3.2 an iPhone and a Mac
+kept reaching the relay through the router after the category was enforced.
+dnsmasq matches only the name a device asks for, never the CNAMEs in the
+upstream answer, so every alias that leads to a blocked endpoint has to be
+listed too. The router therefore adds these names to every downloaded copy of
+this list:
+
+- `mask.icloud.com`, `mask-h2.icloud.com` and their target `mask.apple-dns.net`;
+- `mask-canary.icloud.com` and `mask-canary.v.aaplimg.com`, which lead to the
+  same target;
+- `use-application-dns.net`, Firefox's canary domain. A negative answer turns
+  off Firefox's default-on DNS-over-HTTPS for the network.
+
+They count toward the list's entries and its hash, and they never make an empty
+or invalid download acceptable. Because they are added at download time, an
+appliance updated from v0.3.2 picks them up at the next **Refresh lists** or
+automatic refresh. A relay connection that is already open is not cut; it ends
+when the device reconnects, for example after Wi-Fi or Airplane Mode is toggled.
+Whether Safari then falls back to router DNS has not yet been verified on a real
+device.
+
+A check on 2026-10-15 resolved the CNAME chain of about 2,000 resolver, relay
+and VPN names publicly and asked the router for every hop. Google, Cloudflare
+(including WARP), Quad9, NextDNS, AdGuard, OpenDNS, CleanBrowsing, Control D,
+Mullvad, the Apple DoH names, Tor and the large commercial VPNs were blocked
+along the whole chain. The remaining open hops belonged to small private DoH
+servers whose CNAME targets are general hosting names (for example `pages.dev`),
+which cannot be blocked without blocking unrelated sites. They stay open only
+for a device that cached the alias before the category was switched on.
+
+The category also blocks commercial VPN apps, Tailscale and similar
 services; leave it off if a device needs them. Endpoints missing from the list,
-hard-coded resolver IP addresses and mobile data still bypass it.
+hard-coded resolver IP addresses and mobile data still bypass it. The same
+2026-10-15 check confirmed that DNS-over-HTTPS sent straight to `1.1.1.1`,
+`8.8.8.8`, `9.9.9.9` and `94.140.14.14` on port 443 still answers from the LAN.
+Name blocking cannot stop that; it needs a firewall rule for resolver
+addresses.
+
+On an iPhone or iPad that you control, Screen Time → Content & Privacy
+Restrictions → Web Content → **Limit Adult Websites** is the stronger control:
+it applies on every network, including mobile data, and Safari Private
+Browsing is unavailable while it is on.
 
 Scheduled service sets have a 16,384-address bound and four-hour maximum
 lifetime. Unchanged sets retain validated, unexpired IPv4 destinations through

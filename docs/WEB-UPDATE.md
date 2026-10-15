@@ -88,15 +88,16 @@ byte-identity check in `cmd/router-update`.
 ## Current checkout and installation boundary
 
 `bootstrap_baseline_ref` is v0.3.1, the bytes published appliances run since
-2026-10-14. v0.3.2 changes only `routerd`, `router-applyd`, the dashboard and
-the full installer script: `scripts/ci/bootstrap-compatibility.sh` reports all
-six bootstrap binaries (`router-update`, `router-recovery`, `router-setup` on
-AMD64 and ARM64) byte-identical to v0.3.1, and the installed integration files
-(firstboot, init scripts, sysctl, module list, logrotate, `slot-exec`,
-`compatibility.json`, the PPP QoS hook) are unchanged since v0.3.1. A v0.3.1
-appliance therefore takes v0.3.2 as an ordinary signed dashboard update.
-v0.3.0 and earlier appliances still need the full signed distribution installer
-once, to reach v0.3.1 or v0.3.2. Fixes that would change those files (a minimum
+2026-10-14. v0.3.2 changed only `routerd`, `router-applyd`, the dashboard and
+the full installer script, and v0.3.3 changes only the DNS filter inside
+`routerd`: `scripts/ci/bootstrap-compatibility.sh` reports all six bootstrap
+binaries (`router-update`, `router-recovery`, `router-setup` on AMD64 and ARM64)
+byte-identical to v0.3.1, and the installed integration files (firstboot, init
+scripts, sysctl, module list, logrotate, `slot-exec`, `compatibility.json`, the
+PPP QoS hook) are unchanged since v0.3.1. v0.3.1 and v0.3.2 appliances
+therefore take v0.3.3 as an ordinary signed dashboard update. v0.3.0 and
+earlier appliances still need the full signed distribution installer
+once, to reach v0.3.1 or later. Fixes that would change those files (a minimum
 length for the firstboot recovery password, audit ordering in the shared store,
 init script orphan cleanup) are deliberately deferred to a release that needs
 the full installer anyway.
