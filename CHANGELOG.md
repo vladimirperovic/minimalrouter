@@ -4,7 +4,19 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
-## [Unreleased]
+## [v0.3.3] — 2026-10-15
+
+Closes a gap in the encrypted-DNS bypass DNS filter category after an iPhone on a
+production v0.3.2 appliance still opened a blocked domain in Safari Private
+Browsing.
+
+### Upgrade compatibility
+
+- `router-update`, `router-recovery` and `router-setup` are byte-identical to
+  v0.3.1 on AMD64 and ARM64, and the installed integration files are
+  unchanged, so v0.3.1 and v0.3.2 appliances take this release as an ordinary
+  signed dashboard update. v0.3.0 and earlier still need the full signed
+  installer once. The bootstrap baseline stays v0.3.1.
 
 ### Fixed
 

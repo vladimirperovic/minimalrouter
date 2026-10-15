@@ -5,10 +5,54 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Current release: v0.3.2
+## Current release: v0.3.3
 
-**Minimal Router OS v0.3.2 — Beta**, 2026-10-15
-([release notes](releases/v0.3.2.md)). It fixes the findings of the v0.3.1
+**Minimal Router OS v0.3.3 — Beta**, 2026-10-15
+([release notes](releases/v0.3.3.md)). It closes a gap in the **Encrypted DNS,
+VPN & proxy bypass** DNS filter category: the category now also blocks the
+iCloud Private Relay CNAME target `mask.apple-dns.net`, the `mask-canary`
+alias chain and Firefox's canary domain `use-application-dns.net`.
+
+The bootstrap tools and installed integration files are unchanged since v0.3.1
+(`scripts/ci/bootstrap-compatibility.sh`: `WEB_UPDATE_SUPPORTED=true`). v0.3.1
+and v0.3.2 appliances take v0.3.3 as an ordinary signed dashboard update.
+
+### CI evidence
+
+The release requires every required workflow to pass on the merged changes,
+including the Golden ISO blank-disk flash, reboot and firstboot E2E, followed by
+the signed release workflow. This is CI evidence, not lab validation.
+
+### Owner-appliance finding (2026-10-15, v0.3.2)
+
+The owner's production appliance (Proxmox VM) was updated from v0.3.1 to v0.3.2
+and reported healthy. With the bypass category on and DNS enforcement applied,
+router DNS answered NXDOMAIN for `mask.icloud.com`, `mask-h2.icloud.com`,
+`dns.apple.com` and the blocked adult domain. An iPhone still opened that domain
+in Safari Private Browsing.
+
+- The router's DNS activity showed two phones and a Mac querying
+  `mask.apple-dns.net` directly after enforcement, and no query for
+  `mask.icloud.com`.
+- `mask.icloud.com` is a CNAME (TTL about 20,000 s) to `mask.apple-dns.net`
+  (TTL 120 s), and the upstream list does not contain the target.
+- The Mac's unified log showed mDNSResponder opening its Oblivious DoH
+  connection to `mask.icloud.com:443` from cached, unexpired records.
+
+A follow-up check resolved the CNAME chains of about 2,000 resolver, relay and
+VPN names and asked the router for every hop; see
+[`DNS_FILTER.md`](DNS_FILTER.md). The same check confirmed that DNS-over-HTTPS
+sent straight to `1.1.1.1`, `8.8.8.8`, `9.9.9.9` and `94.140.14.14` still
+answers from the LAN.
+
+Whether Safari Private Browsing falls back to router DNS once the relay is
+unreachable has **not yet been verified** on a device. No v0.3.3 lab, ISP or
+physical-hardware evidence has been collected yet, and no signed A/B dashboard
+update to v0.3.3 has been performed on an appliance yet.
+
+## Previous release: v0.3.2
+
+**Minimal Router OS v0.3.2 — Beta**, published 2026-10-15. It fixes the findings of the v0.3.1
 Hyper-V live test listed below and adds the **Encrypted DNS, VPN & proxy
 bypass** DNS filter category. **Force all devices through router DNS** now also
 blocks DNS-over-QUIC (UDP 853).
@@ -36,10 +80,10 @@ The new category returns NXDOMAIN for `mask.icloud.com`/`mask-h2.icloud.com`.
 Whether that makes Safari fall back to router DNS has **not yet been verified**
 on a device.
 
-No v0.3.2 lab, ISP or physical-hardware evidence has been collected yet, and no
-signed A/B dashboard update to v0.3.2 has been performed on an appliance yet.
+No v0.3.2 lab, ISP or physical-hardware evidence has been collected. The owner's
+v0.3.1 production appliance was updated to v0.3.2 (finding above).
 
-## Previous release: v0.3.1
+## Earlier release: v0.3.1
 
 **Minimal Router OS v0.3.1 — Beta**, published 2026-10-14. It fixed what a live test of v0.3.0
 found, added the **Force all devices through router DNS** switch and the
