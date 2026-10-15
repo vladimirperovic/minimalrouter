@@ -11,11 +11,17 @@ upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
 
 ### Upgrade compatibility
 
-- `router-update`, `router-recovery` and `router-setup` are byte-identical to
-  v0.3.1 on AMD64 and ARM64, and the installed integration files are
-  unchanged, so v0.3.1 appliances take this release as an ordinary signed
-  dashboard update. v0.3.0 and earlier still need the full signed installer
-  once. The bootstrap baseline moves to v0.3.1.
+- The public resolver preset (see Added) extends the firewall rule model in
+  `internal/config` and the nftables renderer in `internal/services`. Both are
+  compiled into `router-recovery` and `router-setup`, which run outside the A/B
+  slot, so `scripts/ci/bootstrap-compatibility.sh v0.3.1` reports those
+  binaries changed on AMD64 and ARM64 (`WEB_UPDATE_SUPPORTED=false`);
+  `router-update` is byte-identical. Existing appliances, v0.3.1 included,
+  therefore need the full signed distribution installer once for this release,
+  and the dashboard updater correctly refuses the transition. The release that
+  ships it must record the change in `packaging/alpine/bootstrap-baseline.json`.
+  The other entries below change only `routerd`, `router-applyd`, the
+  dashboard and the full installer script. The bootstrap baseline is v0.3.1.
 
 ### Added
 
@@ -24,6 +30,28 @@ upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
   iCloud Private Relay ingress, VPN, Tor and proxy services by name, so devices
   cannot quietly resolve around the other categories. It is off by default and
   also blocks commercial VPN apps.
+- **Block public DNS resolvers by address**, offered on the DNS Filter page
+  next to **Force all devices through router DNS** and among the Firewall
+  page's *DNS & transport* presets. Blocking a resolver's name does not stop a
+  device that connects to its address, such as `https://1.1.1.1/dns-query`
+  (DNS over HTTPS by IP literal) or `208.67.222.222` on UDP 5353. A policy
+  check found both allowed while router DNS was enforced. The preset
+  denies LAN → Internet TCP and UDP 443, 853, 5353 and 8853 to 62 published
+  addresses and networks of Cloudflare, Google Public DNS, Quad9, OpenDNS,
+  AdGuard DNS, CleanBrowsing and NextDNS, each sourced from the provider. It covers the
+  forward path only, so the router's own upstream DNS (for example 1.1.1.1:53)
+  keeps working. HTTPS to those addresses is blocked too. Self-hosted
+  resolvers, other providers, shared-CDN DoH endpoints, iCloud Private Relay
+  and Oblivious DoH relays, VPNs and mobile data are still not covered by
+  address; the bypass category above reaches some of them by name. The
+  router forwards IPv4 only, so the preset's IPv6 entries are inert today.
+- Custom firewall rules accept optional `dst_ips` (public IPv4/IPv6 addresses
+  or networks, canonical, non-overlapping, at most 128) and `dst_ports` (up to
+  16 TCP/UDP ports instead of `dst_port`) on forward rules. Validation, the
+  renderer, `explain_firewall_flow`, the change preview and the OpenAPI schema
+  understand them. Existing rules encode and count exactly as before. A release
+  that predates these fields refuses such a rule instead of widening it. The
+  dashboard's rule editor shows these rules but leaves them to their preset.
 
 ### Fixed
 

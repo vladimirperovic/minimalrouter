@@ -86,7 +86,56 @@ never reached the router and a blocked adult domain opened. Whether this
 category makes Safari fall back to router DNS has not yet been verified on a
 real device. The category also blocks commercial VPN apps, Tailscale and similar
 services; leave it off if a device needs them. Endpoints missing from the list,
-hard-coded resolver IP addresses and mobile data still bypass it.
+hard-coded resolver IP addresses and mobile data still bypass it; the preset
+below covers the addresses of well-known resolvers.
+
+Below the enforcement switch the page offers **Block public DNS resolvers**,
+the Firewall preset *Block public DNS resolvers by address*. Blocking a
+resolver's hostname does not stop a device that connects to its address
+directly, for example `https://1.1.1.1/dns-query`. With router DNS enforced,
+`explain_firewall_flow` still reported a LAN client → 1.1.1.1 TCP 443 and →
+208.67.222.222 UDP 5353 as allowed. The preset adds two LAN → Internet deny
+rules, one for TCP and one for UDP. They cover ports 443 (DoH and DoH over
+HTTP/3), 853 (DoT and DNS over QUIC), 5353 (alternate-port plain DNS) and 8853
+(an older DoQ port) to a fixed list of resolver addresses.
+The list lives in `web/src/lib/publicResolvers.json`, which records each
+provider's source:
+
+| Provider | Addresses | Source |
+|---|---|---|
+| Cloudflare | 1.1.1.1, 1.0.0.1, 1.1.1.2, 1.0.0.2, 1.1.1.3, 1.0.0.3 and their six IPv6 addresses | [developers.cloudflare.com](https://developers.cloudflare.com/1.1.1.1/ip-addresses/) |
+| Google Public DNS | 8.8.8.8, 8.8.4.4, 2001:4860:4860::8888, 2001:4860:4860::8844 | [developers.google.com](https://developers.google.com/speed/public-dns/docs/using) |
+| Quad9 | 9.9.9.9, 149.112.112.112, the .10 and .11 service variants, and their IPv6 addresses | [quad9.net](https://quad9.net/service/service-addresses-and-features/) |
+| OpenDNS | 208.67.222.222, 208.67.220.220, FamilyShield 208.67.222.123 and 208.67.220.123, 2620:119:35::35, 2620:119:53::53 | [opendns.com/start](https://www.opendns.com/start/), [Cisco Umbrella](https://www.cisco.com/c/en/us/support/docs/security/umbrella/224762-resolve-unprotected-or-unencrypted.html) |
+| AdGuard DNS | Default, Family and Non-filtering: 94.140.14.14, 94.140.15.15, 94.140.14.15, 94.140.15.16, 94.140.14.140, 94.140.14.141 and their IPv6 addresses | [adguard-dns.io](https://adguard-dns.io/en/public-dns.html) |
+| CleanBrowsing | Security, Adult and Family filters: 185.228.168.9, 185.228.169.9, 185.228.168.10, 185.228.169.11, 185.228.168.168, 185.228.169.168 and their IPv6 addresses | [cleanbrowsing.org](https://cleanbrowsing.org/filters/) |
+| NextDNS | 45.90.28.0/24, 45.90.30.0/24, 2a07:a8c0::/64, 2a07:a8c1::/64 | `anycast.dns.nextdns.io` publishes 45.90.28.0, 45.90.30.0, 2a07:a8c0:: and 2a07:a8c1::. The [help centre](https://help.nextdns.io/t/g9hmvan/what-is-linked-ip) says each profile has its own addresses, so the surrounding networks are listed. |
+
+The rules only match packets that the router forwards from the LAN interface
+toward WAN, before established connections are accepted, so a DoH session that
+was already open is cut too. The router's own upstream lookups (for example
+`1.1.1.1:53` from **DNS servers**) leave through the output chain and are not
+affected. HTTPS to the listed addresses is blocked as well, such as the
+`https://1.1.1.1` help page. A device locked to one of these resolvers, such as
+Android Private DNS set to `dns.google`, loses name resolution instead of
+bypassing the router. The router forwards IPv4 only, so the IPv6 entries take
+effect only if IPv6 forwarding is ever enabled. IPv6 that reaches the Internet
+some other way, such as through an ISP router on the same segment, never
+passes through these rules.
+
+What this preset does not cover: self-hosted or less-known resolvers, DoH
+endpoints on shared CDN addresses (for example `cloudflare-dns.com`, which only
+the bypass category can block, by name), iCloud Private Relay and Oblivious DoH
+relays (also left to the category), VPNs and proxies, and devices on mobile
+data. A future release that changes the list shows the preset as
+*Modified* until it is restored.
+
+The appliance has no copy of the list. The dashboard writes it into
+`dst_ips`/`dst_ports` on two custom rules. These optional rule fields take public
+IPv4/IPv6 addresses or networks in canonical form, without overlaps, at most
+128 per rule, and up to 16 ports. They are accepted on forward rules only.
+A release that predates them refuses such a rule, because its `dst_port` is
+missing; it never renders the rule as a drop for every destination.
 
 Scheduled service sets have a 16,384-address bound and four-hour maximum
 lifetime. Unchanged sets retain validated, unexpired IPv4 destinations through

@@ -60,18 +60,7 @@ export type RouterConfig = {
     wan_ingress_mode: string;
     stateful_firewall: boolean;
     port_forwards: PortForwardRule[];
-    custom_rules: Array<{
-      id: string;
-      name: string;
-      action: string;
-      direction: string;
-      protocol: string;
-      src_ip?: string;
-      dst_port?: number;
-      enabled: boolean;
-      scope?: "wan" | "all";
-      preset_id?: string;
-    }>;
+    custom_rules: FirewallCustomRule[];
   };
   wireguard: {
     enabled: boolean;
@@ -313,6 +302,10 @@ export type FirewallCustomRule = {
   protocol: string;
   src_ip?: string;
   dst_port?: number;
+  // Optional destination addresses/networks and multi-port match. The rule
+  // editor does not author these; presets do.
+  dst_ips?: string[];
+  dst_ports?: number[];
   enabled: boolean;
   scope?: "all" | "wan";
   preset_id?: string;

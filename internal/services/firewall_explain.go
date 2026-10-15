@@ -3,6 +3,8 @@ package services
 import (
 	"fmt"
 	"net"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -221,5 +223,21 @@ func firewallRuleMatches(rule config.FirewallRule, flow FirewallFlow) bool {
 	if rule.SrcIP != "" && rule.SrcIP != flow.SourceIP && !inNetwork(flow.SourceIP, rule.SrcIP) {
 		return false
 	}
-	return rule.Protocol == "any" || (rule.Protocol == flow.Protocol && (rule.Protocol == "icmp" || rule.DstPort == flow.Port))
+	if len(rule.DstIPs) > 0 && !firewallRuleMatchesDestination(rule, flow.DestinationIP) {
+		return false
+	}
+	return rule.Protocol == "any" || (rule.Protocol == flow.Protocol && (rule.Protocol == "icmp" || rule.DstPort == flow.Port || slices.Contains(rule.DstPorts, flow.Port)))
+}
+
+func firewallRuleMatchesDestination(rule config.FirewallRule, destination string) bool {
+	addr, err := netip.ParseAddr(destination)
+	if err != nil {
+		return false
+	}
+	for _, value := range rule.DstIPs {
+		if prefix, ok := config.ParseFirewallDestination(value); ok && prefix.Contains(addr.Unmap()) {
+			return true
+		}
+	}
+	return false
 }

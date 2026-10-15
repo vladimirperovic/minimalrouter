@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
@@ -101,7 +103,15 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 			match = append(match, rule.Protocol)
 		}
 		if rule.Protocol == "tcp" || rule.Protocol == "udp" {
-			match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
+			if len(rule.DstPorts) > 0 {
+				ports := make([]string, len(rule.DstPorts))
+				for i, port := range rule.DstPorts {
+					ports[i] = strconv.Itoa(port)
+				}
+				match = append(match, "dport "+nftSet(ports))
+			} else {
+				match = append(match, fmt.Sprintf("dport %d", rule.DstPort))
+			}
 		}
 		if direction == "forward" && config.FirewallRuleScope(rule) == "wan" {
 			// Custom forward allows are strictly LAN -> WAN egress. They must
@@ -117,8 +127,58 @@ func writeCustomRules(buf *bytes.Buffer, cfg *config.SystemConfig, direction, ac
 			verdict = "accept"
 		}
 		buf.WriteString(fmt.Sprintf("    # Custom LAN %s %s rule: %s\n", direction, action, sanitizeComment(rule.Name)))
-		buf.WriteString(fmt.Sprintf("    %s counter name %s %s\n", strings.Join(match, " "), FirewallRuleCounter(rule), verdict))
+		if len(rule.DstIPs) == 0 {
+			buf.WriteString(fmt.Sprintf("    %s counter name %s %s\n", strings.Join(match, " "), FirewallRuleCounter(rule), verdict))
+			continue
+		}
+		// A destination-scoped rule renders one line per address family; both
+		// share the rule's counter. The destination match follows the source
+		// match so the rest of the line keeps the shape of a port-only rule.
+		// Validation forbids IPv6 destinations with an IPv4 source or ICMP; the
+		// family check here keeps the generator from widening such a rule.
+		ipv4, ipv6 := config.FirewallRuleDestinations(rule)
+		head, tail := match[:1], match[1:]
+		if rule.SrcIP != "" {
+			head, tail = match[:2], match[2:]
+		}
+		for _, family := range []struct {
+			keyword string
+			values  []string
+		}{{"ip daddr", ipv4}, {"ip6 daddr", ipv6}} {
+			if len(family.values) == 0 || (family.keyword == "ip6 daddr" && (rule.SrcIP != "" || rule.Protocol == "icmp")) {
+				continue
+			}
+			line := append(append(slices.Clone(head), family.keyword+" "+nftSet(family.values)), tail...)
+			buf.WriteString(fmt.Sprintf("    %s counter name %s %s\n", strings.Join(line, " "), FirewallRuleCounter(rule), verdict))
+		}
 	}
+}
+
+// nftSet renders one value bare and several as an anonymous set.
+func nftSet(values []string) string {
+	if len(values) == 1 {
+		return values[0]
+	}
+	return "{ " + strings.Join(values, ", ") + " }"
+}
+
+// checkCustomRuleDestinations refuses to render a destination that validation
+// would reject. Destinations are written verbatim into the ruleset, and a rule
+// whose destinations were dropped instead would match every destination.
+func checkCustomRuleDestinations(cfg *config.SystemConfig) error {
+	for _, rule := range cfg.Firewall.CustomRules {
+		for _, value := range rule.DstIPs {
+			if _, ok := config.ParseFirewallDestination(value); !ok {
+				return fmt.Errorf("custom rule %q has an invalid destination", rule.ID)
+			}
+		}
+		for _, port := range rule.DstPorts {
+			if port < 1 || port > 65535 {
+				return fmt.Errorf("custom rule %q has an invalid destination port", rule.ID)
+			}
+		}
+	}
+	return nil
 }
 
 // sanitizeComment strips line breaks and control characters from user text
@@ -408,6 +468,9 @@ func GenerateNftables(cfg *config.SystemConfig) (string, error) {
 	// lockout rule or other explicitly unsupported topology.
 	if err := cfg.ValidateScenarioSafety(); err != nil {
 		return "", fmt.Errorf("scenario safety: %w", err)
+	}
+	if err := checkCustomRuleDestinations(cfg); err != nil {
+		return "", err
 	}
 
 	runtimeCfg := *cfg

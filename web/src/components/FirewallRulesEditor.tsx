@@ -20,6 +20,18 @@ const blankRule = (): FirewallCustomRule => ({
   enabled: true,
 });
 
+// The editor authors one destination port and no destination addresses.
+// Opening a preset's multi-port or address-scoped rule in it would save a
+// different rule, so those stay read-only here.
+const editableRule = (rule: FirewallCustomRule) =>
+  !rule.dst_ips?.length && !rule.dst_ports?.length;
+const ruleDestinationPorts = (rule: FirewallCustomRule) =>
+  rule.dst_ports?.length
+    ? ` / ${rule.dst_ports.join(", ")}`
+    : rule.dst_port
+      ? ` / ${rule.dst_port}`
+      : "";
+
 function RuleIcon({ allow }: { allow: boolean }) {
   return (
     <svg
@@ -92,11 +104,15 @@ function RuleRow({
         </span>
         <div>
           <small>To</small>
-          <strong>{destination}</strong>
+          <strong>
+            {rule.dst_ips?.length
+              ? `${rule.dst_ips.length} listed destinations · ${destination}`
+              : destination}
+          </strong>
         </div>
         <span className="fw-rule-protocol">
           {rule.protocol.toUpperCase()}
-          {rule.dst_port ? ` / ${rule.dst_port}` : ""}
+          {ruleDestinationPorts(rule)}
         </span>
       </div>
       <div className="fw-rule-count">
@@ -114,9 +130,14 @@ function RuleRow({
       </div>
       <div className="fw-row-actions">
         <button
-          disabled={busy}
+          disabled={busy || !editableRule(rule)}
           onClick={() => onEdit(rule)}
           aria-label={`Edit ${rule.name}`}
+          title={
+            editableRule(rule)
+              ? undefined
+              : "Address lists and port sets come from Suggested rules. Pause, remove or restore the preset there."
+          }
         >
           <svg
             viewBox="0 0 20 20"
@@ -178,7 +199,7 @@ export default function FirewallRulesEditor({
         (filter === "paused"
           ? !rule.enabled
           : rule.enabled && rule.action === filter)) &&
-      `${rule.name} ${rule.src_ip} ${rule.protocol} ${rule.dst_port} ${scopeLabel(rule)}`
+      `${rule.name} ${rule.src_ip} ${rule.protocol} ${rule.dst_port} ${(rule.dst_ports || []).join(" ")} ${scopeLabel(rule)}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
