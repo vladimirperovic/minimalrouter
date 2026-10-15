@@ -4,10 +4,12 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
-## [Unreleased]
+## [v0.3.2] — 2026-10-15
 
 Fixes from a live test of the published v0.3.1 ISO and of the full-installer
-upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
+upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client, and a
+DNS filter category for encrypted-DNS bypass after Safari Private Browsing on a
+production appliance resolved a blocked domain around the router.
 
 ### Upgrade compatibility
 
@@ -31,7 +33,6 @@ upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
   but not DNS-over-QUIC on UDP 853, so a device could still reach an outside
   resolver that way. The preset now blocks both. Existing installs show the
   enforcement as partial until it is applied again, which adds the UDP rule.
-
 - Signing in to the dashboard was refused while the disk was 90 % full or
   more, so nobody could open the page that reports the full disk. Sign-in now
   stays available; only a completely full disk, where no session can be
