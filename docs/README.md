@@ -1,8 +1,8 @@
 # Documentation
 
-Minimal Router OS is currently **Beta (v0.3.1)**. The preferred AMD64/Proxmox
+Minimal Router OS is currently **Beta (v0.3.2)**. The preferred AMD64/Proxmox
 first-install path is the Golden Appliance ISO. Release notes for the current
-release are in [`releases/v0.3.1.md`](releases/v0.3.1.md); every earlier release
+release are in [`releases/v0.3.2.md`](releases/v0.3.2.md); every earlier release
 is summarised in [`CHANGELOG.md`](../CHANGELOG.md) and on the GitHub Releases page.
 
 ## Install and operate

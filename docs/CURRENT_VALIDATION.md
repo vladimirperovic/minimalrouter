@@ -5,10 +5,43 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Current release: v0.3.1
+## Current release: v0.3.2
 
-**Minimal Router OS v0.3.1 — Beta**, published 2026-10-14
-([release notes](releases/v0.3.1.md)). It fixed what a live test of v0.3.0
+**Minimal Router OS v0.3.2 — Beta**, 2026-10-15
+([release notes](releases/v0.3.2.md)). It fixes the findings of the v0.3.1
+Hyper-V live test listed below and adds the **Encrypted DNS, VPN & proxy
+bypass** DNS filter category. **Force all devices through router DNS** now also
+blocks DNS-over-QUIC (UDP 853).
+
+The bootstrap tools and installed integration files are unchanged since v0.3.1
+(`scripts/ci/bootstrap-compatibility.sh`: `WEB_UPDATE_SUPPORTED=true`). v0.3.1
+appliances take v0.3.2 as an ordinary signed dashboard update.
+
+### CI evidence
+
+The release requires every required workflow to pass on the merged changes,
+including the Golden ISO blank-disk flash, reboot and firstboot E2E, followed by
+the signed release workflow. This is CI evidence, not lab validation.
+
+### Owner-appliance finding (2026-10-15)
+
+On a production v0.3.1 appliance (Proxmox VM), a domain blocked by the adult
+category opened in Safari Private Browsing on macOS 27, on a Mac without
+iCloud+. The router answered NXDOMAIN and never saw the page's own lookup.
+The Mac's unified log showed WebKit's private-session queries going to an
+mDNSResponder Oblivious DoH service through Apple's relay. Normal-session
+queries used router DNS.
+
+The new category returns NXDOMAIN for `mask.icloud.com`/`mask-h2.icloud.com`.
+Whether that makes Safari fall back to router DNS has **not yet been verified**
+on a device.
+
+No v0.3.2 lab, ISP or physical-hardware evidence has been collected yet, and no
+signed A/B dashboard update to v0.3.2 has been performed on an appliance yet.
+
+## Previous release: v0.3.1
+
+**Minimal Router OS v0.3.1 — Beta**, published 2026-10-14. It fixed what a live test of v0.3.0
 found, added the **Force all devices through router DNS** switch and the
 narrow-screen dashboard layouts.
 
@@ -74,7 +107,7 @@ Function, resilience and security:
   1.07 Gbit/s download; CAKE QoS held 96.5/19.3 Mbit/s at a 100/20 setting;
   24,000 DNS queries in 19 s without a timeout.
 
-Findings from this test that are fixed on `main` and not yet released: sign-in
+Findings from this test that v0.3.2 fixes: sign-in
 refused at ≥90 % disk, WireGuard peers unable to sign in with the default trusted
 networks, an off-centre confirmation dialog, a stale `/etc/minimalrouter/VERSION`
 after the full installer, and a misleading DNS risk message while lists download.
