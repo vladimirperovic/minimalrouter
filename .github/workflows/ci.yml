@@ -92,7 +92,6 @@ jobs:
             CODE_OF_CONDUCT.md \
             CONTRIBUTING.md \
             GOVERNANCE.md \
-            MAINTAINERS.md \
             PRIVACY.md \
             SECURITY.md \
             SUPPORT.md \
@@ -100,7 +99,7 @@ jobs:
             docs/INSTALLATION.md \
             docs/TROUBLESHOOTING.md \
             docs/RECOVERY.md \
-            docs/DEVICE_PROFILES.md \
+            docs/DNS_FILTER.md \
             docs/RELEASE_PROCESS.md \
             docs/RELEASE_SECURITY.md \
             web/public/favicon.svg

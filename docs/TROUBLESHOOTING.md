@@ -161,9 +161,12 @@ df -h
 du -x -h /var/lib/minimalrouter /var/log 2>/dev/null | sort -h | tail
 ```
 
-Bounded log rotation and snapshot retention are implemented, but real full-disk,
-inode-exhaustion and read-only-filesystem behavior remain target-appliance
-validation gates. Take an encrypted backup before manual cleanup.
+From 90 % usage the dashboard refuses configuration changes (HTTP 507) while
+routing, DHCP and DNS keep working; you can still sign in, read the status and
+export an encrypted backup. On a completely full disk sign-in is refused too, so
+use SSH from the LAN or the console to free space. Take an encrypted backup
+before manual cleanup. Real full-disk, inode-exhaustion and read-only-filesystem
+behaviour on the target platform remain validation gates.
 
 ## Reboot or power-loss recovery problem
 

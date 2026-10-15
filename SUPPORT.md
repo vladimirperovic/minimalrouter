@@ -10,8 +10,8 @@ firewall.
 
 ## Before asking for help
 
-1. For a new Proxmox install, read `docs/ISO_INSTALLATION.md`, `docs/PROXMOX.md`
-   and `docs/GOLDEN-IMAGE.md` first.
+1. For a new Proxmox install, read `docs/INSTALLATION.md` and
+   `docs/GOLDEN-IMAGE.md` first.
 2. Read `docs/TROUBLESHOOTING.md` for safe diagnostics.
 3. Search existing issues and pull requests.
 4. Confirm the exact release or commit. Prefer the published v0.3.1 release over

@@ -153,3 +153,124 @@ rollback:
 Record results in a private dated report. A scenario is not considered physically
 qualified until the report includes the exact command, expected result, observed
 result, and recovery action.
+
+## Appliance health
+
+Minimal Router OS exposes one authenticated, read-only appliance-health summary instead of requiring an operator to infer health from unrelated dashboard cards.
+
+### States
+
+The aggregate state is one of:
+
+- **Healthy** — measured core signals are within normal operating bounds.
+- **Warning** — the router is operating, but one or more conditions need attention.
+- **Degraded** — an enabled/configured subsystem is unavailable or a resource is near exhaustion.
+- **Recovery required** — canonical runtime state cannot be trusted until explicit reconciliation succeeds. This has the highest severity.
+- **Unknown** — a signal cannot be measured reliably. Unknown is never silently converted into Healthy.
+
+### Signals
+
+The health endpoint combines read-only evidence from:
+
+- configuration transaction/recovery state;
+- storage pressure and durable-write availability;
+- memory usage;
+- conntrack usage;
+- kernel time synchronization;
+- WAN/PPPoE connection and gateway-quality monitoring;
+- OpenRC state and supervised child processes for `routerd` and `router-applyd`;
+- the protected `router-applyd` Unix socket;
+- configured dnsmasq DNS/DHCP service state;
+- configured PPPoE OpenRC service state;
+- configured WireGuard interface state;
+- signed-update trust and pending update state;
+- age of the latest successful encrypted backup export visible in retained audit metadata.
+
+The health collector never reads PPPoE passwords, WireGuard private keys, Cloudflare tokens, administrator credentials, backup payloads, or other secrets.
+
+### API
+
+`GET /api/v1/health` requires an authenticated session and returns the aggregate state plus individual checks. It uses the same security-header and session middleware as the rest of the management API.
+
+Health collection is observational only. It does not restart services, reconnect PPPoE, apply firewall rules, modify WireGuard, rotate secrets, or automatically remediate failures.
+
+### Dashboard
+
+Overview displays one central health banner (`web/src/components/HealthBanner.tsx`). By default it lists only the checks that need attention; "Show all checks" expands the full list. The banner refreshes independently every 15 seconds so it remains useful while other dashboard sections are open and closed.
+
+Two other surfaces are driven by the same endpoint rather than by configuration:
+
+- the **DNS** status chip reflects the measured `dns_dhcp` check instead of being unconditionally green;
+- the **notification bell** reports the actual number of non-healthy checks, and its label names them.
+
+Storage pressure additionally has its own Overview chip and, at warning and critical levels, an inline banner — so an operator sees the problem before a configuration save starts returning HTTP 507.
+
+When the health endpoint itself cannot be read the banner says so explicitly. Unknown is never rendered as healthy.
+
+### Thresholds
+
+Current resource thresholds are deliberately simple and explicit:
+
+- storage: Warning at 80%, Degraded at 90% (where durable writes are blocked by the storage-pressure layer);
+- memory: Warning at 80%, Degraded at 90%;
+- conntrack: Warning at 75%, Degraded at 90%;
+- encrypted backup age: Warning after 7 days, Degraded after 30 days.
+
+These are management-health thresholds, not automatic remediation triggers.
+
+### Validation boundary
+
+Automated tests cover aggregate severity ordering and deterministic resource/recovery states. Linux service/process facts are also exercised by the existing clean-Alpine and supervision workflows. Real Proxmox, ISP PPPoE, NIC behavior, destructive full-disk/inode exhaustion, read-only filesystem handling, external scans and sustained hardware soak remain production gates before claiming appliance readiness.
+
+## Storage pressure and bounded local state
+
+Minimal Router OS treats local storage as a finite appliance resource. Routing and the already-active kernel/network state must continue even when the management plane is short on disk space.
+
+### Pressure levels
+
+The filesystem containing the canonical router data directory is classified as:
+
+- **Normal**: below 80% used.
+- **Warning**: 80% to below 90% used. Durable configuration changes remain available, while operators should free space.
+- **Critical**: 90% used or higher. New management mutations that require durable state are rejected with HTTP 507 rather than reporting success that cannot be persisted. Signing in, signing out, encrypted backup export and previews stay available so an operator can open the dashboard, see the pressure and export a backup. On a completely full disk sign-in still fails, because neither the login rate-limit counter nor the session can be stored; the dashboard then reports too many sign-in attempts, and SSH or the console is the way to free space.
+- **Unknown**: storage telemetry is unavailable. Development/non-Linux builds do not invent a pressure state.
+
+Critical pressure does not deliberately restart PPPoE, flush nftables, stop DHCP/DNS, or otherwise mutate the active forwarding plane.
+
+### Bounded writers
+
+The appliance keeps bounded local history:
+
+- canonical configuration revisions: latest 100;
+- configuration snapshots: latest 20;
+- audit events: latest 5,000;
+- gateway samples: at most 41,000 and seven days;
+- gateway reconnect events: at most 2,048 and seven days;
+- routerd/router-applyd service logs: 1 MiB per active log with four compressed rotations.
+
+Gateway quality samples and reconnect-history writes are nonessential and are shed during critical pressure. Gateway probing and the live in-memory summary continue.
+
+### SQLite maintenance
+
+`routerd` reapplies the bounded retention rules and issues a passive WAL checkpoint at startup and every 15 minutes. The maintenance path does not run `VACUUM`, does not take the forwarding plane offline, and does not rewrite canonical configuration.
+
+### Recovery behavior
+
+Read-only status, diagnostic/preview operations and encrypted backup export remain available under pressure. Recovery/configuration operations that need durable writes remain blocked until space is freed; recovery must not claim success if its durable evidence cannot be recorded.
+
+### Storage pressure validation plan
+
+Automated and appliance validation for bounded storage must cover these boundaries:
+
+1. Unit-test 80% warning and 90% critical classification.
+2. Verify read-only requests are not blocked by the storage guard.
+3. Verify configuration, snapshot, transaction-confirm, gateway-settings and recovery mutations are classified as durable writes.
+4. Verify sign-in, sign-out, backup export and preview/verification operations remain available.
+5. Fill an Alpine test filesystem past 90%, confirm mutations return HTTP 507, and confirm existing nftables/PPPoE/DHCP/DNS state remains active.
+6. Confirm gateway live probing continues while history row growth stops.
+7. Confirm logrotate keeps the four router service logs within the configured bounded rotation policy.
+8. Confirm retention remains 100 config revisions, 20 snapshots, 5,000 audit events, 41,000 gateway samples, and 2,048 gateway reconnect events.
+9. Confirm passive WAL checkpoint completes without taking routerd offline.
+10. Free storage below 90% and verify durable mutations become available without reboot.
+
+Real full-disk/inode exhaustion and read-only-filesystem tests remain target-appliance gates before production-readiness claims.

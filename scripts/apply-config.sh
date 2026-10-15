@@ -8,7 +8,7 @@
 #
 # The settings file belongs to the operator, not to this repository. It holds
 # PPPoE credentials and WireGuard private keys, so keep it in a private
-# location. See docs/SEEDING.md.
+# location. See docs/INSTALLATION.md (Restoring your own settings).
 #
 # Usage:
 #   MINIMALROUTER_PASSWORD=... scripts/apply-config.sh \
@@ -40,7 +40,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$CONFIG" ]; then
-	echo "A --config file is required. See docs/SEEDING.md." >&2
+	echo "A --config file is required. See docs/INSTALLATION.md (Restoring your own settings)." >&2
 	exit 2
 fi
 if [ ! -r "$CONFIG" ]; then
