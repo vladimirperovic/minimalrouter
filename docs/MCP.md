@@ -156,6 +156,11 @@ remain WAN-only. Router-input denies remain unavailable to prevent lockout.
 The optional `preset_id` records provenance; the dashboard additionally compares
 all match/action/scope fields before showing a preset as active. DNS presets
 cover TCP and UDP 53, without claiming to prevent DoH or VPN bypasses.
+Forward rules may carry `dst_ips` (public IPv4/IPv6 addresses or networks) and
+`dst_ports` (a port set used instead of `dst_port`); `explain_firewall_flow`
+matches both. The *Block public DNS resolvers by address* preset uses them for
+DoH, DoT/DoQ and alternate-port DNS to well-known resolvers; self-hosted
+resolvers and VPNs remain uncovered (see `docs/DNS_FILTER.md`).
 
 Use `get_security_events` with `event_type: "firewall.transaction"` for the most
 recent Firewall outcomes (records begin with this version). Join their

@@ -1,4 +1,5 @@
 import type { FirewallCustomRule, RouterConfig } from "../api-types";
+import publicResolvers from "./publicResolvers.json";
 
 export type FirewallProps = {
   config: RouterConfig;
@@ -105,10 +106,30 @@ export type Preset = {
   caution?: string;
   protocol: "tcp" | "udp";
   protocols?: Array<"tcp" | "udp">;
-  port: number;
+  // A single-port preset writes dst_port; a multi-port preset writes
+  // dst_ports instead, and a destination-scoped preset also writes dst_ips.
+  port?: number;
+  ports?: readonly number[];
+  destinations?: readonly string[];
   direction: "forward";
   group: string;
 };
+
+// Well-known public resolvers that answer DNS-over-HTTPS, DNS-over-TLS/QUIC or
+// alternate-port DNS on their own addresses. Blocking their names in the DNS
+// filter does not stop a device that connects to https://1.1.1.1/dns-query by
+// address. The list, with each provider's source, lives in
+// publicResolvers.json; an internal/services test checks that the appliance
+// accepts and renders it unchanged.
+export const PUBLIC_RESOLVER_PROVIDERS: readonly string[] =
+  publicResolvers.providers.map((provider) => provider.name);
+export const PUBLIC_RESOLVER_ADDRESSES: readonly string[] =
+  publicResolvers.providers.flatMap((provider) => provider.addresses);
+export const PUBLIC_RESOLVER_PORTS: readonly number[] = publicResolvers.ports;
+export const PUBLIC_RESOLVER_PRESET_ID = "public-resolvers";
+
+export const presetPorts = (preset: Preset): readonly number[] =>
+  preset.ports || (preset.port ? [preset.port] : []);
 export const PRESETS: readonly Preset[] = [
   {
     id: "smb",
@@ -207,6 +228,19 @@ export const PRESETS: readonly Preset[] = [
     group: "DNS & transport",
   },
   {
+    id: PUBLIC_RESOLVER_PRESET_ID,
+    title: "Block public DNS resolvers by address",
+    detail: `Block DNS-over-HTTPS, DNS-over-TLS/QUIC and alternate-port DNS (TCP and UDP ${PUBLIC_RESOLVER_PORTS.join(", ")}) to ${PUBLIC_RESOLVER_ADDRESSES.length} published resolver addresses and networks from ${PUBLIC_RESOLVER_PROVIDERS.join(", ")}. Router DNS and the router's own upstream lookups are unaffected. Self-hosted resolvers, other providers and VPNs are not covered.`,
+    caution:
+      "HTTPS to these addresses is blocked too, such as https://1.1.1.1. A device locked to one of these resolvers loses DNS instead of bypassing the router.",
+    protocol: "tcp",
+    protocols: ["tcp", "udp"],
+    ports: PUBLIC_RESOLVER_PORTS,
+    destinations: PUBLIC_RESOLVER_ADDRESSES,
+    direction: "forward",
+    group: "DNS & transport",
+  },
+  {
     id: "plex-relay",
     title: "Block outbound Plex service port",
     detail:
@@ -239,7 +273,8 @@ export function presetState(
           r.action === "deny" &&
           r.direction === "forward" &&
           r.protocol === protocol &&
-          r.dst_port === preset.port &&
+          samePorts(r, preset) &&
+          sameSet(r.dst_ips || [], preset.destinations || []) &&
           !r.src_ip &&
           r.scope === "wan",
       ),
@@ -247,6 +282,12 @@ export function presetState(
     ? "Active"
     : "Modified";
 }
+const sameSet = <T>(a: readonly T[], b: readonly T[]) =>
+  a.length === b.length && b.every((value) => a.includes(value));
+const samePorts = (rule: FirewallCustomRule, preset: Preset) =>
+  preset.ports
+    ? !rule.dst_port && sameSet(rule.dst_ports || [], preset.ports)
+    : rule.dst_port === preset.port && !rule.dst_ports?.length;
 // DNS categories, exceptions and device schedules only see lookups that reach
 // the router's resolver. These presets stop LAN devices from using another
 // resolver over plain DNS, DNS-over-TLS or DNS-over-QUIC, which a live test
@@ -271,8 +312,29 @@ export function dnsEnforcementState(
 // Turning enforcement off pauses the owned rules, exactly like pausing the
 // presets on the Firewall page, so their ownership and history are kept.
 export function setDNSEnforcement(config: RouterConfig, enforced: boolean) {
-  const presets = dnsEnforcementPresets();
-  if (enforced) {
+  setPresetsEnabled(config, dnsEnforcementPresets(), enforced);
+}
+
+// Offered beside DNS enforcement but tracked separately: it closes DoH by IP
+// address and alternate-port DNS to well-known resolvers, which port 53/853
+// rules cannot see, and it has its own cost (HTTPS to those addresses).
+export const publicResolverPreset = () =>
+  PRESETS.find((preset) => preset.id === PUBLIC_RESOLVER_PRESET_ID)!;
+export const publicResolverBlockingState = (rules: FirewallCustomRule[]) =>
+  presetState(rules, publicResolverPreset());
+export function setPublicResolverBlocking(
+  config: RouterConfig,
+  blocked: boolean,
+) {
+  setPresetsEnabled(config, [publicResolverPreset()], blocked);
+}
+
+function setPresetsEnabled(
+  config: RouterConfig,
+  presets: readonly Preset[],
+  enabled: boolean,
+) {
+  if (enabled) {
     applyPresets(config, presets);
     return;
   }
@@ -299,7 +361,10 @@ export function applyPresets(config: RouterConfig, presets: readonly Preset[]) {
         direction: "forward",
         protocol,
         src_ip: "",
-        dst_port: preset.port,
+        ...(preset.ports
+          ? { dst_ports: [...preset.ports] }
+          : { dst_port: preset.port }),
+        ...(preset.destinations && { dst_ips: [...preset.destinations] }),
         scope: "wan",
         enabled: true,
       });

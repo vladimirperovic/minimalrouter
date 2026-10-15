@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RouterConfig } from "../api-types";
 import { PRESETS, ruleNameFor } from "./FirewallPresets";
-import { dnsEnforcementState, setDNSEnforcement } from "../lib/firewall";
+import {
+  dnsEnforcementState,
+  publicResolverBlockingState,
+  setDNSEnforcement,
+  setPublicResolverBlocking,
+} from "../lib/firewall";
 
 const withRules = (rules: RouterConfig["firewall"]["custom_rules"] = []) =>
   ({ firewall: { custom_rules: rules } }) as unknown as RouterConfig;
@@ -50,6 +55,30 @@ describe("router DNS enforcement", () => {
       rule.preset_id === "dot" ? { ...rule, enabled: false } : rule,
     );
     expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Partial");
+  });
+});
+
+describe("public resolver blocking beside DNS enforcement", () => {
+  it("switches its own rules on and off without changing DNS enforcement", () => {
+    const config = withRules();
+    setDNSEnforcement(config, true);
+    setPublicResolverBlocking(config, true);
+    expect(publicResolverBlockingState(config.firewall.custom_rules)).toBe("Active");
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Active");
+    setPublicResolverBlocking(config, false);
+    expect(publicResolverBlockingState(config.firewall.custom_rules)).toBe("Off");
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Active");
+    expect(
+      config.firewall.custom_rules
+        .filter((rule) => rule.preset_id === "public-resolvers")
+        .every((rule) => !rule.enabled),
+    ).toBe(true);
+  });
+
+  it("is not part of the router DNS enforcement state", () => {
+    const config = withRules();
+    setPublicResolverBlocking(config, true);
+    expect(dnsEnforcementState(config.firewall.custom_rules)).toBe("Off");
   });
 });
 

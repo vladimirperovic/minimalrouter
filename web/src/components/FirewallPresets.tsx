@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   PRESETS,
   applyPresets,
+  presetPorts,
   presetRules,
   presetState,
   type FirewallProps,
@@ -96,7 +97,9 @@ export default function FirewallPresets({
                   {(preset.protocols || [preset.protocol])
                     .join(" + ")
                     .toUpperCase()}{" "}
-                  · {preset.port}
+                  · {presetPorts(preset).join(", ")}
+                  {preset.destinations &&
+                    ` · ${preset.destinations.length} destinations`}
                 </code>
                 {state === "Active" ? (
                   <button

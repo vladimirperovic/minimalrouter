@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { CONFIG } from "../../e2e/fixtures/router";
-import type { RouterConfig } from "../api-types";
+import type { FirewallCustomRule, RouterConfig } from "../api-types";
 import {
   applyPresets,
   PRESETS,
+  PUBLIC_RESOLVER_ADDRESSES,
+  PUBLIC_RESOLVER_PORTS,
+  PUBLIC_RESOLVER_PRESET_ID,
   presetState,
   presetRules,
   ruleNameFor,
@@ -114,5 +117,93 @@ describe("Firewall form validation", () => {
     expect(validateRule(rule, cfg)).toBe("");
     cfg.system.management_access = "wireguard_only";
     expect(validateRule(rule, cfg)).toContain("WireGuard-only");
+  });
+});
+describe("Public resolver preset", () => {
+  const preset = () =>
+    PRESETS.find((p) => p.id === PUBLIC_RESOLVER_PRESET_ID)!;
+
+  it("lists canonical, unique resolver addresses and the requested DNS ports", () => {
+    expect(PUBLIC_RESOLVER_PORTS).toEqual([443, 853, 5353, 8853]);
+    expect(new Set(PUBLIC_RESOLVER_ADDRESSES).size).toBe(
+      PUBLIC_RESOLVER_ADDRESSES.length,
+    );
+    // internal/config caps one rule at 128 destinations.
+    expect(PUBLIC_RESOLVER_ADDRESSES.length).toBeLessThanOrEqual(128);
+    for (const address of [
+      "1.1.1.1",
+      "8.8.8.8",
+      "9.9.9.9",
+      "208.67.222.222",
+      "94.140.14.14",
+      "185.228.168.9",
+      "45.90.28.0/24",
+      "2606:4700:4700::1111",
+    ])
+      expect(PUBLIC_RESOLVER_ADDRESSES).toContain(address);
+    expect(preset().group).toBe("DNS & transport");
+    expect(preset().detail).toMatch(/Self-hosted resolvers.*VPNs are not covered/);
+  });
+
+  it("writes TCP and UDP deny rules with destinations and a port set, never a single port", () => {
+    const cfg = makeConfig();
+    applyPresets(cfg, [preset()]);
+    const owned = presetRules(cfg.firewall.custom_rules, preset());
+    expect(owned.map((r) => r.protocol).sort()).toEqual(["tcp", "udp"]);
+    for (const rule of owned) {
+      expect(rule).toMatchObject({
+        action: "deny",
+        direction: "forward",
+        scope: "wan",
+        enabled: true,
+        src_ip: "",
+        dst_ports: [443, 853, 5353, 8853],
+        dst_ips: [...PUBLIC_RESOLVER_ADDRESSES],
+      });
+      expect(rule).not.toHaveProperty("dst_port");
+    }
+    expect(presetState(cfg.firewall.custom_rules, preset())).toBe("Active");
+  });
+
+  it("treats a changed address list or port set as modified, in any order", () => {
+    const cfg = makeConfig();
+    applyPresets(cfg, [preset()]);
+    const saved = structuredClone(cfg.firewall.custom_rules);
+    const tcp = saved.findIndex((r) => r.protocol === "tcp");
+    const variants: Array<Partial<FirewallCustomRule>> = [
+      { dst_ips: saved[tcp].dst_ips!.slice(1) },
+      { dst_ips: [...saved[tcp].dst_ips!, "203.0.113.53"] },
+      { dst_ports: [443, 853] },
+      { dst_port: 443 },
+      { dst_ips: undefined },
+    ];
+    for (const change of variants) {
+      cfg.firewall.custom_rules = saved.map((r, i) =>
+        i === tcp ? { ...r, ...change } : r,
+      );
+      expect(presetState(cfg.firewall.custom_rules, preset())).toBe("Modified");
+    }
+    cfg.firewall.custom_rules = saved.map((r) => ({
+      ...r,
+      dst_ips: [...r.dst_ips!].reverse(),
+      dst_ports: [...r.dst_ports!].reverse(),
+    }));
+    expect(presetState(cfg.firewall.custom_rules, preset())).toBe("Active");
+  });
+
+  it("keeps single-port presets single-port and flags one that gained destinations", () => {
+    const cfg = makeConfig(),
+      dns = PRESETS.find((p) => p.id === "dns")!;
+    applyPresets(cfg, [dns]);
+    expect(
+      cfg.firewall.custom_rules.every(
+        (r) => r.dst_port === 53 && !("dst_ports" in r) && !("dst_ips" in r),
+      ),
+    ).toBe(true);
+    cfg.firewall.custom_rules = cfg.firewall.custom_rules.map((r) => ({
+      ...r,
+      dst_ips: ["8.8.8.8"],
+    }));
+    expect(presetState(cfg.firewall.custom_rules, dns)).toBe("Modified");
   });
 });

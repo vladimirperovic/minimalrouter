@@ -94,7 +94,9 @@ components:
         direction: {type: string, enum: [input, forward], description: Enabled input denies are rejected to prevent management lockout}
         protocol: {type: string, enum: [tcp, udp, icmp, any]}
         src_ip: {type: string, description: Optional IPv4 address or whole subnet within the configured LAN}
-        dst_port: {type: integer, minimum: 0, maximum: 65535, description: Required 1-65535 for TCP/UDP; must be zero for ICMP/any}
+        dst_port: {type: integer, minimum: 0, maximum: 65535, description: Required 1-65535 for TCP/UDP unless dst_ports is set; must be zero for ICMP/any}
+        dst_ports: {type: array, maxItems: 16, items: {type: integer, minimum: 1, maximum: 65535}, description: Optional distinct TCP/UDP destination ports used instead of dst_port; empty for ICMP/any}
+        dst_ips: {type: array, maxItems: 128, items: {type: string}, description: 'Optional forward-rule destinations: public IPv4/IPv6 addresses or networks in canonical form, without overlaps. IPv6 entries cannot be combined with src_ip or ICMP. The router forwards IPv4 only, so IPv6 entries are inert today.'}
         enabled: {type: boolean}
         scope: {type: string, enum: [all, wan], description: Missing scope preserves all-network forward denies. Forward allows are always WAN-only. WAN scope is invalid for input rules.}
         preset_id: {type: string, pattern: '^[a-z][a-z0-9-]{0,31}$', description: Optional preset provenance; does not certify that its semantics still match the preset}

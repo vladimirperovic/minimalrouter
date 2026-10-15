@@ -88,18 +88,22 @@ byte-identity check in `cmd/router-update`.
 ## Current checkout and installation boundary
 
 `bootstrap_baseline_ref` is v0.3.1, the bytes published appliances run since
-2026-10-14. The fixes from the v0.3.1 live test on this checkout change only
-`routerd`, the dashboard and the full installer script; `scripts/ci/bootstrap-compatibility.sh` reports all six bootstrap
-binaries (`router-update`, `router-recovery`, `router-setup` on AMD64 and ARM64)
-byte-identical to v0.3.1, and the installed integration files (firstboot,
-init scripts, sysctl, module list, logrotate, `slot-exec`, `compatibility.json`,
-the PPP QoS hook) are unchanged since v0.3.1. A v0.3.1 appliance can therefore
-take this build as an ordinary signed dashboard update. v0.3.0 and earlier
-appliances still need the full signed distribution installer once, to reach
-v0.3.1 or this build. Fixes that would change those files (a minimum length
-for the firstboot recovery password, audit ordering in the shared store, init
-script orphan cleanup) are deliberately deferred to a release that needs the
-full installer anyway.
+2026-10-14. The fixes from the v0.3.1 live test and the bypass DNS filter
+category on this checkout change only `routerd`, `router-applyd`, the dashboard
+and the full installer script. The public DNS resolver
+firewall preset does not: it adds destination addresses and port sets to the
+custom firewall rule model (`internal/config`) and the nftables renderer
+(`internal/services`). `scripts/ci/bootstrap-compatibility.sh v0.3.1` therefore
+reports `router-recovery` and `router-setup` changed on AMD64 and ARM64, and
+`router-update` byte-identical. This checkout is **not** a dashboard update for
+v0.3.1 appliances. They need the full signed distribution installer once, as
+v0.3.0 and earlier do, and the release that ships it must record the change in
+`packaging/alpine/bootstrap-baseline.json`. The installed integration files
+(firstboot, init scripts, sysctl, module list, logrotate, `slot-exec`,
+`compatibility.json`, the PPP QoS hook) are unchanged since v0.3.1. Fixes
+that were deferred to a release that needs the full installer anyway (a
+minimum length for the firstboot recovery password, audit ordering in the
+shared store, init script orphan cleanup) can ride along.
 
 v0.3.1 changed `router-recovery` and `router-setup` on AMD64 and
 ARM64 again, for fixes found in the v0.3.0 live test: the shared configuration

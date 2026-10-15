@@ -296,7 +296,15 @@ type FirewallRule struct {
 	Protocol  string `json:"protocol"`
 	SrcIP     string `json:"src_ip,omitempty"`
 	DstPort   int    `json:"dst_port,omitempty"`
-	Enabled   bool   `json:"enabled"`
+	// DstIPs and DstPorts narrow a forward rule to destination addresses or
+	// networks and to a set of ports. Both are omitted when empty, so existing
+	// rules and their counter names serialize exactly as before. A TCP/UDP rule
+	// carries DstPort or DstPorts, never both: a release that predates
+	// DstPorts refuses such a rule (dst_port is required) instead of widening
+	// it to every destination on every port.
+	DstIPs   []string `json:"dst_ips,omitempty"`
+	DstPorts []int    `json:"dst_ports,omitempty"`
+	Enabled  bool     `json:"enabled"`
 	// Empty scope preserves existing forward-deny behavior across all routed zones.
 	Scope    string `json:"scope,omitempty"`
 	PresetID string `json:"preset_id,omitempty"`
@@ -333,6 +341,10 @@ func (c SystemConfig) DeepCopy() SystemConfig {
 	out.DNS.Records = slices.Clone(c.DNS.Records)
 	out.Firewall.PortForwards = slices.Clone(c.Firewall.PortForwards)
 	out.Firewall.CustomRules = slices.Clone(c.Firewall.CustomRules)
+	for i, rule := range c.Firewall.CustomRules {
+		out.Firewall.CustomRules[i].DstIPs = slices.Clone(rule.DstIPs)
+		out.Firewall.CustomRules[i].DstPorts = slices.Clone(rule.DstPorts)
+	}
 	out.Firewall.ExtraLANs = cloneEmpty(c.Firewall.ExtraLANs)
 	for i, lan := range c.Firewall.ExtraLANs {
 		out.Firewall.ExtraLANs[i] = lan

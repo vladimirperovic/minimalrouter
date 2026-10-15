@@ -480,15 +480,26 @@ func (c *SystemConfig) Validate() error {
 		}
 		switch rule.Protocol {
 		case "tcp", "udp":
-			if rule.DstPort < 1 || rule.DstPort > 65535 {
+			switch {
+			case len(rule.DstPorts) > 0 && rule.DstPort != 0:
+				appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].dst_ports", i), "cannot be combined with dst_port")
+			case len(rule.DstPorts) > 0:
+				validateFirewallRulePorts(&errs, i, rule.DstPorts)
+			case rule.DstPort < 1 || rule.DstPort > 65535:
 				appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].dst_port", i), "is required for TCP/UDP and must be between 1 and 65535")
 			}
 		case "icmp", "any":
 			if rule.DstPort != 0 {
 				appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].dst_port", i), "must be zero for ICMP/any")
 			}
+			if len(rule.DstPorts) > 0 {
+				appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].dst_ports", i), "must be empty for ICMP/any")
+			}
 		default:
 			appendFieldError(&errs, fmt.Sprintf("firewall.custom_rules[%d].protocol", i), "must be tcp, udp, icmp, or any")
+		}
+		if len(rule.DstIPs) > 0 {
+			validateFirewallRuleDestinations(&errs, i, rule)
 		}
 		if rule.SrcIP != "" {
 			// The dashboard editor offers an address or a CIDR and the

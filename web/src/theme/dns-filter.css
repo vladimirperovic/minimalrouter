@@ -26,6 +26,8 @@
 .dashboard-app #adguard .dns-enforcement-action { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 24px; }
 .dashboard-app #adguard .dns-enforcement-action p { flex:1 1 22rem; margin:0; font-size:var(--text-xs); color:var(--text-tertiary); }
 .dashboard-app #adguard .dns-enforcement-action .button { flex:0 1 auto; max-width:100%; white-space:normal; text-align:center; }
+.dashboard-app #adguard .dns-enforcement-action + .dns-enforcement-action { margin-top:16px; padding-top:16px; border-top:1px solid var(--separator); }
+.dashboard-app #adguard .dns-enforcement-action p strong { color:var(--text-secondary); font-weight:var(--weight-medium); }
 .dashboard-app #adguard .dns-schedules-off { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 20px; border-color:color-mix(in srgb,var(--warning) 45%,var(--separator)); }
 .dashboard-app #adguard .dns-schedules-off p { flex:1 1 20rem; margin:0; }
 .dashboard-app #adguard .dns-overview-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:28px 0 0; padding-top:24px; border-top:1px solid var(--separator); gap:0; }

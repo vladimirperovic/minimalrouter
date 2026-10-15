@@ -93,6 +93,10 @@ jobs:
           go test -c ./cmd/router-applyd -o build/deep-test/dns-filter-tests
           sudo env MINIMALROUTER_DNS_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestDNSFilterLive' -test.v | tee build/deep-test/network/dns-filter.txt
           sudo unshare --net env MINIMALROUTER_NFT_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestServiceDestinationsLive' -test.v | tee build/deep-test/network/dns-service-sets.txt
+          # Destination-scoped custom rules (public resolver preset) must load in
+          # real nft. The test reads the dashboard's list relative to its package.
+          go test -c ./internal/services -o build/deep-test/services-tests
+          (cd internal/services && sudo unshare --net env MINIMALROUTER_NFT_FILTER_LAB=1 ../../build/deep-test/services-tests -test.run '^TestCustomRuleDestinationsLive$' -test.v) | tee build/deep-test/network/custom-rule-destinations.txt
       - name: Validate network laboratory syntax
         run: bash -n scripts/ci-network-namespace-lab.sh
       - name: Run isolated router network laboratory
