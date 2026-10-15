@@ -168,7 +168,7 @@ func applyDNSFilter(request dnsfilter.Request, domains io.Reader) (dnsfilter.App
 	if err := request.Policy.Validate(); err != nil {
 		return dnsfilter.Applied{}, err
 	}
-	if len(request.Sources) > 4 {
+	if len(request.Sources) > len(dnsfilter.Sources()) {
 		return dnsfilter.Applied{}, errors.New("invalid source manifest")
 	}
 	for id, hash := range request.Sources {

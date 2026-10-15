@@ -11,6 +11,7 @@ export function DNSIcon({ kind = "shield" }: { kind?: string }) {
     eye: <><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2.5"/><path d="m4 20 16-16"/></>,
     lock: <><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></>,
     dice: <><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/></>,
+    detour: <><path d="M4 18h5a3 3 0 0 0 3-3V9a3 3 0 0 1 3-3h5"/><path d="m17 3 3 3-3 3"/><path d="m3 4 6 6M9 4l-6 6"/></>,
   };
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[kind] ?? paths.shield}</svg>;
 }
@@ -23,7 +24,7 @@ function DNSOverview({ control }: { control: DNSProtectionControl }) {
   return <article className="dns-protection-card dns-overview" aria-label="Protection overview">
     <div className="dns-overview-lead"><span className={`dns-overview-symbol ${status?.healthy && !statusError ? "is-healthy" : ""}`}><DNSIcon /></span><div><p className="eyebrow">Protection at a glance</p><h3>{label}</h3><p>{statusError ? `Showing the last known policy${observedAt ? ` from ${new Date(observedAt).toLocaleTimeString()}` : " when available"}.` : "Your network rules, resolver and device schedules in one place."}</p></div><button className="button secondary small" type="button" onClick={control.refresh} disabled={control.saving}>Refresh status</button></div>
     <dl className="dns-overview-metrics">
-      <div><dt>Active categories</dt><dd>{active === null ? "—" : <>{active}<small> / 4</small></>}</dd><span>Applied network policy</span></div>
+      <div><dt>Active categories</dt><dd>{active === null ? "—" : <>{active}<small> / {dnsCategories.length}</small></>}</dd><span>Applied network policy</span></div>
       <div><dt>Scheduled devices</dt><dd>{devices ?? "—"}</dd><span>Configured · enforcement unverified</span></div>
       <div><dt>Last successful apply</dt><dd className="dns-overview-date">{status ? dnsTime(status.applied_at) : "—"}</dd><span>{status ? `Policy revision ${status.policy.revision}` : "Waiting for router"}</span></div>
       <div><dt>Router clock</dt><dd className="dns-overview-date">{status?.router_time ? status.router_time.slice(11,19) : "—"}</dd><span>{status?.router_time ? dnsClockZone(status.router_time, status.timezone) : "Timezone unavailable"}</span></div>

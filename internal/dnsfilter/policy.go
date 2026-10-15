@@ -29,6 +29,9 @@ func Sources() []Source {
 		{"ads", "Ads & trackers", "light"},
 		{"adult", "Adult content", "nsfw"},
 		{"gambling", "Gambling", "gambling.mini"},
+		// Encrypted DNS, Apple relay ingress (mask.icloud.com), VPN, Tor and proxy
+		// endpoints, so devices cannot quietly resolve around the other categories.
+		{"bypass", "Encrypted DNS, VPN & proxy bypass", "doh-vpn-proxy-bypass"},
 	}
 }
 
@@ -76,7 +79,7 @@ func Domain(raw string) (string, bool) {
 }
 
 func (p Policy) Validate() error {
-	if len(p.Categories) > 4 || len(p.Exceptions) > 200 {
+	if len(p.Categories) > len(Sources()) || len(p.Exceptions) > 200 {
 		return errors.New("DNS filter policy exceeds safety limits")
 	}
 	for key := range p.Categories {

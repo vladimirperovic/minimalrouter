@@ -17,7 +17,20 @@ upgrade from v0.3.0, on Hyper-V with a PPPoE "ISP" VM and a LAN client.
   dashboard update. v0.3.0 and earlier still need the full signed installer
   once. The bootstrap baseline moves to v0.3.1.
 
+### Added
+
+- DNS Filter has a fifth category, **Encrypted DNS, VPN & proxy bypass**
+  (HaGeZi DoH/VPN/TOR/Proxy Bypass). It blocks known encrypted-DNS resolvers,
+  iCloud Private Relay ingress, VPN, Tor and proxy services by name, so devices
+  cannot quietly resolve around the other categories. It is off by default and
+  also blocks commercial VPN apps.
+
 ### Fixed
+
+- **Force all devices through router DNS** blocked DNS-over-TLS on TCP 853
+  but not DNS-over-QUIC on UDP 853, so a device could still reach an outside
+  resolver that way. The preset now blocks both. Existing installs show the
+  enforcement as partial until it is applied again, which adds the UDP rule.
 
 - Signing in to the dashboard was refused while the disk was 90 % full or
   more, so nobody could open the page that reports the full disk. Sign-in now

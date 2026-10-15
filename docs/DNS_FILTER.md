@@ -3,7 +3,8 @@
 The DNS Filter page has two independent controls:
 
 - **Network protection** uses maintained HaGeZi lists for threats (malware,
-  phishing and scams), ads/trackers, adult content and gambling. Categories are
+  phishing and scams), ads/trackers, adult content, gambling and DNS bypass
+  (encrypted DNS, Apple relay, VPN, Tor and proxy endpoints). Categories are
   initially off, including after an upgrade. Select categories and press
   **Apply protection**. Changing MAC/IP addresses does not affect this policy.
 - **Advanced DNS & bundled protection** contains the existing upstream DNS
@@ -17,9 +18,9 @@ does not activate blocking. A notification exception does not unblock a domain.
 ## Lists and exceptions
 
 The fixed sources are [HaGeZi](https://github.com/hagezi/dns-blocklists): TIF Mini,
-Multi Light, NSFW and Gambling Mini, in domain-only wildcard format. Their data
-is GPL-3.0 licensed by the provider and is downloaded at runtime, not bundled in
-firmware. Compact lists do not cover every malicious or inappropriate site.
+Multi Light, NSFW, Gambling Mini and DoH/VPN/TOR/Proxy Bypass, in domain-only
+wildcard format. Their data is GPL-3.0 licensed by the provider and is
+downloaded at runtime, not bundled in firmware. Compact lists do not cover every malicious or inappropriate site.
 
 Enabled lists refresh daily, with up to an hour of scheduling delay and a
 six-hour retry backoff. Manual refresh is limited to once every five minutes.
@@ -69,9 +70,23 @@ another resolver — even plain DNS such as `8.8.8.8` — skips every category,
 exception and schedule; a live test resolved a blocked gambling domain that way.
 The DNS Filter page therefore leads with **Force all devices through router
 DNS**, which switches on the Firewall presets *Block direct external DNS* (UDP
-and TCP 53) and *Block DNS-over-TLS* (TCP 853) for the whole LAN. Router DNS keeps
-working. DNS-over-HTTPS, VPNs, direct IP connections and mobile data remain
-outside that control.
+and TCP 53) and *Block DNS-over-TLS and DNS-over-QUIC* (TCP and UDP 853) for
+the whole LAN. Rules created by v0.3.1 and earlier cover only TCP 853; the card
+reports them as partly enforced until enforcement is applied again. Router DNS
+keeps working. DNS-over-HTTPS, VPNs, direct IP connections and mobile data
+remain outside that control.
+
+The **Encrypted DNS, VPN & proxy bypass** category closes part of that gap by
+name. It returns NXDOMAIN for known DNS-over-HTTPS/TLS/QUIC resolvers, VPN and
+proxy services, Tor, and `mask.icloud.com`/`mask-h2.icloud.com`. Apple documents
+a negative answer for those two names as the way a network turns iCloud Private
+Relay off. A live test on macOS 27 found that Safari Private Browsing resolves
+page names through Apple's Oblivious DoH even without iCloud+, so those lookups
+never reached the router and a blocked adult domain opened. Whether this
+category makes Safari fall back to router DNS has not yet been verified on a
+real device. The category also blocks commercial VPN apps, Tailscale and similar
+services; leave it off if a device needs them. Endpoints missing from the list,
+hard-coded resolver IP addresses and mobile data still bypass it.
 
 Scheduled service sets have a 16,384-address bound and four-hour maximum
 lifetime. Unchanged sets retain validated, unexpired IPv4 destinations through

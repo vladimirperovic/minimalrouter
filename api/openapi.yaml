@@ -192,6 +192,7 @@ components:
             ads: {type: boolean}
             adult: {type: boolean}
             gambling: {type: boolean}
+            bypass: {type: boolean, description: Encrypted DNS, Apple relay, VPN, Tor and proxy endpoints}
         exceptions:
           type: array
           maxItems: 200
@@ -231,7 +232,7 @@ components:
           items:
             type: object
             properties:
-              category: {type: string, enum: [threats, ads, adult, gambling]}
+              category: {type: string, enum: [threats, ads, adult, gambling, bypass]}
               label: {type: string}
               url: {type: string, format: uri}
               hash: {type: string}
@@ -286,7 +287,7 @@ components:
           items:
             type: object
             properties:
-              category: {type: string, enum: [threats, ads, adult, gambling, bundled]}
+              category: {type: string, enum: [threats, ads, adult, gambling, bypass, bundled]}
               domain: {type: string, description: Matching domain or parent}
               enabled: {type: boolean}
         layers:
@@ -934,7 +935,7 @@ paths:
                     items:
                       type: object
                       properties:
-                        category: {type: string, enum: [threats, ads, adult, gambling, bundled]}
+                        category: {type: string, enum: [threats, ads, adult, gambling, bypass, bundled]}
                         domain: {type: string, description: Matching domain or parent}
                         enabled: {type: boolean}
         '422': {description: Invalid domain or installed index unavailable}
