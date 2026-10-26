@@ -760,12 +760,12 @@ fn sqlite_column_exists(conn: &Connection, table: &str, column: &str) -> rusqlit
 }
 
 #[cfg(unix)]
-pub(crate) fn set_mode(path: &str, mode: u32) -> std::io::Result<()> {
+pub fn set_mode(path: &str, mode: u32) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 }
 
 #[cfg(not(unix))]
-pub(crate) fn set_mode(_path: &str, _mode: u32) -> std::io::Result<()> {
+pub fn set_mode(_path: &str, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }

@@ -24,6 +24,7 @@ pub use store::{
     HIGH_VOLUME_AUDIT_EVENT_TYPES, SNAPSHOT_KIND_AUTOMATIC, SNAPSHOT_KIND_MANUAL,
 };
 pub use validation::{ValidationError, ValidationErrors};
+pub use store::set_mode;
 
 #[allow(unused_imports)]
 pub(crate) use validation::{go_atoi, has_unsafe_control, parse_ipv4, valid_interface_name, valid_wireguard_key};

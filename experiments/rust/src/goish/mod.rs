@@ -2,6 +2,7 @@
 //! router depends on. Keeping these rules in one place makes behavioural
 //! differences between the Go and Rust implementations visible and testable.
 
+pub mod base64;
 pub mod decode;
 pub mod errors;
 pub mod json;

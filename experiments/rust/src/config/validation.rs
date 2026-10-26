@@ -53,8 +53,7 @@ pub(crate) fn networks_overlap(a: &IPNet, b: &IPNet) -> bool {
 }
 
 pub(crate) fn valid_wireguard_key(value: &str) -> bool {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(value).map(|d| d.len() == 32).unwrap_or(false)
+    crate::goish::base64::std_decode(value).is_some_and(|d| d.len() == 32)
 }
 
 /// A field-specific error message.
