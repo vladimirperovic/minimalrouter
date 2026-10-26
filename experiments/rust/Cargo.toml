@@ -1,0 +1,21 @@
+[package]
+name = "minimalrouter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1.0.104"
+argon2 = "0.5"
+base64 = "0.23.1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+getrandom = "0.3"
+hex = "0.4.3"
+libc = "0.2.191"
+regex = "1.13.1"
+roxmltree = "0.21.2"
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.10"
+subtle = "2.6.1"
