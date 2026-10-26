@@ -25,4 +25,5 @@ pub use store::{
 };
 pub use validation::{ValidationError, ValidationErrors};
 
-pub(crate) use validation::{has_unsafe_control, parse_ipv4, valid_interface_name, valid_wireguard_key};
+#[allow(unused_imports)]
+pub(crate) use validation::{go_atoi, has_unsafe_control, parse_ipv4, valid_interface_name, valid_wireguard_key};

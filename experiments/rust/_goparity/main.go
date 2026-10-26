@@ -22,8 +22,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vladimirperovic/minimalrouter/internal/config"
+	"github.com/vladimirperovic/minimalrouter/internal/services"
 )
 
 type validationOutcome struct {
@@ -287,9 +289,156 @@ func evaluate(name string, input []byte, base config.SystemConfig) configCase {
 	return out
 }
 
+type textResult struct {
+	Text  string `json:"text,omitempty"`
+	Error string `json:"error,omitempty"`
+}
+
+func result(text string, err error) textResult {
+	if err != nil {
+		return textResult{Error: err.Error()}
+	}
+	return textResult{Text: text}
+}
+
+type explainResult struct {
+	Verdict string `json:"verdict"`
+	Reason  string `json:"reason"`
+	RuleID  string `json:"rule_id"`
+	Source  string `json:"source_zone"`
+	Dest    string `json:"destination_zone"`
+	Error   string `json:"error,omitempty"`
+}
+
+type profileResult struct {
+	ID         string   `json:"id"`
+	State      string   `json:"state"`
+	AllowedNow *bool    `json:"allowed_now"`
+	NextChange string   `json:"next_change_at"`
+	NextState  string   `json:"next_state"`
+	Missing    []string `json:"missing_reservations"`
+}
+
+type servicesCase struct {
+	Name             string                     `json:"name"`
+	Input            string                     `json:"input"`
+	Nftables         textResult                 `json:"nftables"`
+	Dnsmasq          textResult                 `json:"dnsmasq"`
+	PPPoE            []string                   `json:"pppoe"`
+	Hostapd          textResult                 `json:"hostapd"`
+	QoS              textResult                 `json:"qos"`
+	Squid            textResult                 `json:"squid"`
+	DDNS             textResult                 `json:"ddns"`
+	Tunnel           textResult                 `json:"tunnel"`
+	DoH              textResult                 `json:"doh"`
+	WireGuard        textResult                 `json:"wireguard"`
+	WireGuardRuntime textResult                 `json:"wireguard_runtime"`
+	WGClientRuntime  textResult                 `json:"wg_client_runtime"`
+	AdBlock          textResult                 `json:"adblock"`
+	Counters         []string                   `json:"counters"`
+	Warnings         []string                   `json:"warnings"`
+	FirewallChanges  []string                   `json:"firewall_changes"`
+	NetworkChanges   []string                   `json:"network_changes"`
+	Explain          map[string]explainResult   `json:"explain"`
+	Profiles         map[string][]profileResult `json:"profiles"`
+}
+
+var flowProbes = []services.FirewallFlow{
+	{SourceIP: "192.168.1.30", DestinationIP: "8.8.8.8", Protocol: "tcp", Port: 443},
+	{SourceIP: "192.168.1.30", DestinationIP: "8.8.8.8", Protocol: "udp", Port: 53},
+	{SourceIP: "192.168.1.50", DestinationIP: "8.8.8.8", Protocol: "tcp", Port: 23},
+	{SourceIP: "192.168.1.50", DestinationIP: "192.168.1.1", Protocol: "tcp", Port: 22},
+	{SourceIP: "192.168.1.50", DestinationIP: "192.168.1.1", Protocol: "tcp", Port: 8443},
+	{SourceIP: "192.168.1.50", DestinationIP: "192.168.1.1", Protocol: "udp", Port: 67},
+	{SourceIP: "192.168.1.50", DestinationIP: "192.168.1.1", Protocol: "tcp", Port: 3128},
+	{SourceIP: "10.8.0.2", DestinationIP: "10.8.0.1", Protocol: "tcp", Port: 27015},
+	{SourceIP: "10.8.0.2", DestinationIP: "192.168.1.20", Protocol: "udp", Port: 27015},
+	{SourceIP: "10.8.0.2", DestinationIP: "192.168.60.10", Protocol: "tcp", Port: 8096},
+	{SourceIP: "192.168.1.5", DestinationIP: "192.168.60.10", Protocol: "tcp", Port: 8096},
+	{SourceIP: "192.168.60.10", DestinationIP: "192.168.60.1", Protocol: "icmp", Port: 0},
+	{SourceIP: "192.168.60.10", DestinationIP: "8.8.8.8", Protocol: "tcp", Port: 80},
+	{SourceIP: "10.20.1.1", DestinationIP: "192.168.1.5", Protocol: "tcp", Port: 22},
+	{SourceIP: "192.168.1.5", DestinationIP: "10.20.1.1", Protocol: "tcp", Port: 22},
+	{SourceIP: "203.0.113.5", DestinationIP: "192.168.1.5", Protocol: "tcp", Port: 80},
+	{SourceIP: "192.168.1.5", DestinationIP: "192.168.1.6", Protocol: "icmp", Port: 0},
+	{SourceIP: "192.168.1.5", DestinationIP: "8.8.8.8", Protocol: "icmp", Port: 3},
+	{SourceIP: "1.1.1.1", DestinationIP: "fe80::1", Protocol: "tcp", Port: 1},
+	{SourceIP: "192.168.1.5", DestinationIP: "8.8.8.8", Protocol: "gre", Port: 0},
+}
+
+var profileTimes = []string{"2026-10-26T12:34:00+01:00", "2026-10-31T23:59:30+01:00", "2026-11-01T06:59:00Z", "2026-11-02T20:00:00+01:00"}
+
+const adblockHosts = "0.0.0.0 ads.example.com\n127.0.0.1 Tracker.Example.NET.\n# comment\n0.0.0.0 localhost\n::1 bad_domain\n0.0.0.0 ads.example.com\n"
+
+// profileStatuses records a Go panic as an outcome instead of aborting: the
+// Rust port returns a value for every input.
+func profileStatuses(cfg config.SystemConfig, now time.Time) (statuses []services.ProfileStatus, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			statuses, panicked = nil, true
+		}
+	}()
+	return services.DeviceProfileStatuses(cfg, now), false
+}
+
+func evaluateServices(name string, input []byte, base config.SystemConfig) (servicesCase, bool) {
+	out := servicesCase{Name: name, Input: string(input)}
+	var cfg config.SystemConfig
+	if err := json.Unmarshal(input, &cfg); err != nil {
+		return out, false
+	}
+	out.Nftables = result(services.GenerateNftables(&cfg))
+	out.Dnsmasq = result(services.GenerateDnsmasq(&cfg))
+	bundle, _ := services.GeneratePPPoE(&cfg)
+	out.PPPoE = []string{bundle.PeerConfig, bundle.ChapSecrets, bundle.PapSecrets}
+	out.Hostapd = result(services.GenerateHostapd(&cfg))
+	out.QoS = result(services.GenerateQoS(&cfg))
+	out.Squid = result(services.GenerateSquidConfig(&cfg))
+	out.DDNS = result(services.GenerateDynamicDNS(&cfg))
+	out.Tunnel = result(services.GenerateCloudflareTunnel(&cfg))
+	out.DoH = result(services.GenerateDoHProxy(&cfg))
+	out.WireGuard = result(services.GenerateWireGuard(&cfg.WireGuard))
+	out.WireGuardRuntime = result(services.GenerateWireGuardRuntime(&cfg.WireGuard))
+	out.WGClientRuntime = result(services.GenerateWireGuardClientRuntime(&cfg.WGClient))
+	out.AdBlock = result(services.GenerateAdBlockConf(&cfg, []byte(adblockHosts)))
+	for _, rule := range cfg.Firewall.CustomRules {
+		out.Counters = append(out.Counters, services.FirewallRuleCounter(rule))
+	}
+	out.Warnings = services.FirewallWarnings(cfg)
+	out.FirewallChanges = services.DescribeFirewallChanges(base.Firewall, cfg.Firewall)
+	out.NetworkChanges = services.DescribeNetworkChanges(base, cfg)
+	out.Explain = map[string]explainResult{}
+	for i, flow := range flowProbes {
+		explanation, err := services.ExplainFirewallFlow(cfg, flow)
+		r := explainResult{Verdict: explanation.Verdict, Reason: explanation.Reason, RuleID: explanation.RuleID, Source: explanation.SourceZone, Dest: explanation.DestinationZone}
+		if err != nil {
+			r.Error = err.Error()
+		}
+		out.Explain[strconv.Itoa(i)] = r
+	}
+	out.Profiles = map[string][]profileResult{}
+	for _, at := range profileTimes {
+		now, _ := time.Parse(time.RFC3339, at)
+		statuses, panicked := profileStatuses(cfg, now)
+		if panicked {
+			out.Profiles[at] = []profileResult{{ID: "<go panic>"}}
+			continue
+		}
+		for _, status := range statuses {
+			next := ""
+			if status.NextChangeAt != nil {
+				next = status.NextChangeAt.Format(time.RFC3339)
+			}
+			out.Profiles[at] = append(out.Profiles[at], profileResult{ID: status.ID, State: status.State, AllowedNow: status.AllowedNow, NextChange: next, NextState: status.NextState, Missing: status.MissingReservations})
+		}
+	}
+	return out, true
+}
+
 func main() {
 	outDir := flag.String("out", "experiments/rust/target/parity", "output directory")
 	n := flag.Int("n", 4000, "number of mutated cases")
+	ns := flag.Int("services", 1500, "number of mutated generator cases")
 	seed := flag.Int64("seed", 20261026, "random seed")
 	flag.Parse()
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
@@ -324,4 +473,38 @@ func main() {
 		}
 	}
 	fmt.Fprintf(os.Stderr, "wrote %d config cases to %s\n", *n+len(baseNames), *outDir)
+
+	sfile, err := os.Create(filepath.Join(*outDir, "services_cases.jsonl"))
+	if err != nil {
+		panic(err)
+	}
+	defer sfile.Close()
+	sw := bufio.NewWriter(sfile)
+	defer sw.Flush()
+	senc := json.NewEncoder(sw)
+	senc.SetEscapeHTML(false)
+	written := 0
+	for _, name := range baseNames {
+		data, _ := json.Marshal(bases[name])
+		c, _ := evaluateServices(name, data, bases[name])
+		if err := senc.Encode(c); err != nil {
+			panic(err)
+		}
+		written++
+	}
+	for i := 0; i < *ns; i++ {
+		name := baseNames[m.rng.Intn(len(baseNames))]
+		base := bases[name]
+		data, _ := json.Marshal(base)
+		mutated := m.mutate(data, 1+m.rng.Intn(3))
+		c, ok := evaluateServices(name+"-"+strconv.Itoa(i), mutated, base)
+		if !ok {
+			continue
+		}
+		if err := senc.Encode(c); err != nil {
+			panic(err)
+		}
+		written++
+	}
+	fmt.Fprintf(os.Stderr, "wrote %d services cases to %s\n", written, *outDir)
 }

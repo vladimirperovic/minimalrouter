@@ -10,4 +10,5 @@ pub mod config;
 pub mod kdf;
 pub mod network;
 pub mod runtimebudget;
+pub mod services;
 pub mod storage;
