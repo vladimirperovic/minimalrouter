@@ -515,7 +515,7 @@ mod linux {
                 order.push(key.to_string());
             }
         };
-        let mut lines_of = |field: &str| safe_wg_show(interface, field).unwrap_or_default();
+        let lines_of = |field: &str| safe_wg_show(interface, field).unwrap_or_default();
         let allowed = lines_of("allowed-ips");
         let endpoints = lines_of("endpoints");
         let handshakes = lines_of("latest-handshakes");

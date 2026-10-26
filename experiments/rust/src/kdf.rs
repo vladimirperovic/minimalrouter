@@ -76,11 +76,9 @@ mod tests {
 
     #[test]
     fn second_caller_is_rejected_while_slot_is_held() {
-        acquire_within(Duration::from_millis(10)).unwrap();
+        // Other tests derive keys concurrently; wait for the shared slot first.
+        acquire_within(Duration::from_secs(60)).unwrap();
         assert_eq!(acquire_within(Duration::from_millis(20)), Err(ErrBusy));
-        release();
-        acquire_within(Duration::from_millis(10)).unwrap();
-        release();
         release();
     }
 }

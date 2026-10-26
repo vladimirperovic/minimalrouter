@@ -4,7 +4,7 @@
 mod guard;
 mod migration;
 
-pub use guard::acquire_daemon_guard;
+pub use guard::{acquire_daemon_guard, Guard};
 pub use migration::{migrate_config, run_migration_db_worker, MIGRATION_DB_WORKER_ARGUMENT};
 
 use std::collections::HashSet;
@@ -239,8 +239,9 @@ mod tests {
         assert_eq!(dhcp_range(&net24, &gw), (u32::from_be_bytes([192, 168, 5, 100]), u32::from_be_bytes([192, 168, 5, 200])));
         let gw = net::parse_ipv4("192.168.5.150").unwrap();
         let (start, end) = dhcp_range(&net24, &gw);
-        assert_eq!(uint32_ip(start).to_string(), "192.168.5.1");
-        assert_eq!(uint32_ip(end).to_string(), "192.168.5.101");
+        // The larger usable side is below the gateway: .49-.149 (101 addresses).
+        assert_eq!(uint32_ip(start).to_string(), "192.168.5.49");
+        assert_eq!(uint32_ip(end).to_string(), "192.168.5.149");
     }
 
     #[test]

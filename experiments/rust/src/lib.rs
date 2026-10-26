@@ -6,6 +6,7 @@
 pub mod goish;
 
 pub mod apply;
+pub mod applyd;
 pub mod auth;
 pub mod buildinfo;
 pub mod config;

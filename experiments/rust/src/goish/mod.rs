@@ -6,6 +6,7 @@ pub mod base64;
 pub mod decode;
 pub mod errors;
 pub mod json;
+pub mod log;
 pub mod net;
 pub mod rand;
 pub mod strings;

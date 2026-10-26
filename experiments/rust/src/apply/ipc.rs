@@ -57,7 +57,7 @@ pub mod op {
 
 /// A size-limited RPC payload sent from routerd to router-applyd.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ApplyRequest {
     pub version: i64,
     pub id: String,
