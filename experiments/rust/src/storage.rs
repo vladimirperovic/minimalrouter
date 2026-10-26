@@ -43,6 +43,12 @@ pub struct Status {
     pub durable_writes_allowed: bool,
 }
 
+impl Default for Status {
+    fn default() -> Self {
+        evaluate(0, 0)
+    }
+}
+
 pub fn evaluate(total_bytes: u64, available_bytes: u64) -> Status {
     let mut status = Status {
         available: total_bytes > 0,

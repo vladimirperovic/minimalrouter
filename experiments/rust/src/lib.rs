@@ -5,10 +5,13 @@
 
 pub mod goish;
 
+pub mod apply;
 pub mod buildinfo;
 pub mod config;
+pub mod faultinject;
 pub mod kdf;
 pub mod network;
 pub mod runtimebudget;
 pub mod services;
 pub mod storage;
+pub mod telemetry;
