@@ -194,7 +194,8 @@ jobs:
   dashboard-browsers:
     name: Dashboard browser (${{ matrix.project }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Room for three browser install attempts on a slow package mirror.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -228,15 +229,20 @@ jobs:
       - name: Build production dashboard
         run: pnpm build
       - name: Install test browser
-        # The WebKit download or its apt dependencies occasionally hang until the
-        # job's 25 minute limit cancels it (seen on two runs in a row). Bound each
-        # attempt and retry instead of losing the whole job.
+        # The Azure Ubuntu mirror sometimes serves WebKit's 114 MB of apt packages at a
+        # few tens of KB/s, which used to hold the job until its limit cancelled it.
+        # Bound each attempt, and before retrying stop the apt-get that timeout left
+        # running as root (it keeps the dpkg lock and made every retry fail at once).
         run: |
           for attempt in 1 2 3; do
-            if timeout 420 pnpm exec playwright install --with-deps ${{ matrix.browser }}; then
+            if timeout 480 pnpm exec playwright install --with-deps ${{ matrix.browser }}; then
               exit 0
             fi
             echo "browser install attempt $attempt failed or timed out" >&2
+            sudo pkill -9 -x apt-get || true
+            sudo pkill -9 -x dpkg || true
+            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
+            sudo dpkg --configure -a || true
             sleep 10
           done
           exit 1
