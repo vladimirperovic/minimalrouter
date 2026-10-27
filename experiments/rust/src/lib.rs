@@ -6,9 +6,11 @@
 pub mod goish;
 
 pub mod accounting;
+pub mod api;
 pub mod apply;
 pub mod applyd;
 pub mod auth;
+pub mod auth_persistent;
 pub mod buildinfo;
 pub mod config;
 pub mod dnsactivity;
