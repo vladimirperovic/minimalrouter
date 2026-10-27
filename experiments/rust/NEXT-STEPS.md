@@ -58,8 +58,18 @@ Done:
 - `sys.rs` Linux-only calls (`prctl`, `getresuid`, `getresgid`) are gated on
   `target_os = "linux"`; elsewhere the hardening calls return `Unsupported`.
   `cargo test --workspace` therefore runs natively on macOS: 113 tests pass.
-  The macOS build shows 8 dead-code warnings for code only Linux uses; Windows
-  and musl builds were warning-free before the split and are unchecked since.
+  The macOS build shows 8 dead-code warnings for code only Linux uses.
+- Windows verification on `0b7af8e` (2026-10-27): `cargo test --workspace`
+  passes 105 tests without compiler warnings, `cargo clippy --workspace
+  --all-targets` exits 0 with 110 unique lint warnings, and the regular musl
+  release build passes without compiler warnings. The missing clippy
+  toolchain component was installed; no Windows source fix was needed.
+- Linux verification: all 36 `mr-core` tests pass on Alpine virt 3.22.6 /
+  Linux 6.12.110-0-virt in a temporary diskless Hyper-V VM (no network adapter,
+  2 vCPU, 1 GiB RAM). This includes five `proc`, two Unix-only `sys`, and the
+  firmware stage/activate/rollback test. The initial run passed 35/36 because
+  loopback was down; after bringing `lo` up, all pass. The VM was removed.
+  The full workspace suite and daemon hardening/startup have not run on Linux.
 
 Build times (MacBook Air M1, musl through zigbuild, warm zig cache, one run
 each, expect about ±15%). The first build after installing zig is slower
@@ -84,20 +94,43 @@ Release binary sizes (bytes, `x86_64-unknown-linux-musl`):
 | router-update | 2,205,392 | 2,203,584 | 1,817,816 |
 | minimalrouter-mcp | 2,310,504 | 2,310,504 | 2,310,504 |
 
-To do (the runtime measurements need Linux and the lab, so they are for the
-Windows host):
+Windows musl release verification against "split + regex trim" (bytes;
+source `0b7af8e`, version/commit/build-date metadata injected):
 
-1. On the Windows host: `cargo test --workspace`, `cargo clippy --workspace
-   --all-targets` (macOS cannot see the Windows-only code) and the musl
-   release build, then compare the sizes with the table above.
-2. Run the Linux-only tests (`proc`, `sys`) on Linux; re-measure memory, idle
-   CPU and start-up on the Hyper-V lab with `tools/memlab/` and update
-   `COMPARISON.md`. The event-driven build's idle CPU has not been measured:
-   the report's "about 10× more than Go" describes the polling build. The
-   build-time and size tables in `COMPARISON.md` describe the single-crate
-   layout.
+| Binary | Reference | Windows | Delta |
+|---|---:|---:|---:|
+| routerd | 10,698,016 | 10,698,784 | +768 |
+| router-applyd | 3,584,936 | 3,585,096 | +160 |
+| router-recovery | 4,171,424 | 4,170,528 | -896 |
+| router-setup | 4,141,216 | 4,141,344 | +128 |
+| router-update | 1,817,816 | 1,817,304 | -512 |
+| minimalrouter-mcp | 2,310,504 | 2,310,440 | -64 |
+
+The cause of these sub-0.03% differences was not isolated. Refreshed Windows
+build times (one run, clean / one API comment edit, all eight musl binaries):
+dev 47.0/4.9 s, release 119.8/76.1 s,
+release-fast 62.4/34.2 s; Go 41.2/1.3 s.
+See [COMPARISON.md](COMPARISON.md) for cache methodology and
+[validation-2026-10-27.json](validation-2026-10-27.json) for measured evidence.
+
+To do:
+
+1. Windows build/test verification is complete; review the existing clippy
+   warnings separately if desired. No lint suppression was added.
+2. Re-measure memory, idle CPU and start-up on the Hyper-V lab router with
+   `tools/memlab/` (Go, Rust, Go, Rust, both from the same source commit).
+   **Not measured:** no current lab credential file was supplied, and SSH
+   keys did not authenticate. No binaries were deployed or router state
+   changed. The event-driven build's idle CPU remains unknown; "about 10×
+   more than Go" belongs to the historical polling build. Linux `mr-core`
+   tests are complete, but daemon startup/hardening is not covered by them.
+   The required `memtest.sh restore` and removal of `/opt/memtest` and
+   `/var/tmp/memtest-state.tar` are still pending; previous harness state
+   could not be checked. `COMPARISON.md` now separates current build data
+   from historical runtime data.
 3. The split made `routerd` 4.9% larger (10.57 → 11.09 MB) for a reason not
-   found; after the regex change it is 1.2% above the single-crate build.
+   found; after the regex change and current Windows verification it remains
+   approximately 1.2% above the single-crate reference. Cause not established.
 4. Other trim candidates, not touched: `x509-parser` (two call sites in
    `tlsutil.rs`), `anyhow` (it is the `goish` error type), duplicate crate
    versions pulled in transitively (`base64` 0.22/0.23, `getrandom` 0.2/0.3).

@@ -1,13 +1,16 @@
 # Go vs Rust: Minimal Router port comparison
 
-This records what was measured when the whole Minimal Router code base was
-ported from Go to Rust on the `experiment/rust-compare` branch. The port lives
-in `experiments/rust/`; the Go code is unchanged.
+This records the Rust port and its current layered workspace on
+`experiment/rust-native`. Build sizes, build times and Windows/Linux test
+results were refreshed on 2026-10-27 from source commit `0b7af8e`.
+The Go source is unchanged. Machine-readable build and test evidence is in
+[validation-2026-10-27.json](validation-2026-10-27.json).
 
-Measured on 2026-10-27 on one Windows 11 workstation, cross-compiling for
-`linux/amd64`. Memory was measured on an installed Minimal Router running as a
-Hyper-V virtual machine (see [Memory on the Hyper-V lab](#memory-on-the-hyper-v-lab));
-nothing was run on Proxmox or real hardware.
+The memory, CPU and start-up figures below are **historical measurements of
+the earlier polling runtime** on a Hyper-V lab router. The current
+event-driven runtime has not been re-measured. No new router run or restore
+was possible without the current lab credential file. Nothing was run on
+Proxmox or real hardware.
 
 ## Scope
 
@@ -16,47 +19,94 @@ under `cmd/` (`routerd`, `router-applyd`, `router-recovery`, `router-setup`,
 `router-update`, `firmware-keygen`, `firmware-sign`, `minimalrouter-mcp`).
 The dashboard (`web/`) and packaging are shared and were not touched.
 
-Toolchains: Go 1.26.9 (`CGO_ENABLED=0`, pure-Go SQLite). Rust 1.99.1, GNU host
-toolchain with MinGW for the bundled SQLite C code, `cargo-zigbuild` for the
-static musl target.
+Toolchains: Go 1.26.9 (`CGO_ENABLED=0`, pure-Go SQLite). Rust 1.99.1,
+`x86_64-pc-windows-gnu` host with MinGW for bundled SQLite,
+`cargo-zigbuild` 0.24.0 and Zig 0.17.0 for the static musl target.
+The Windows environment was loaded with `. experiments/rust/tools/env.sh`.
 
 ## Results at a glance
 
-| Measure | Go | Rust | Difference |
-|---|---:|---:|---:|
-| All 8 binaries, stripped, static linux/amd64 | 56.0 MB | 28.6 MB | −49% |
-| `routerd` binary | 14.7 MB | 10.5 MB | −28% |
-| `router-applyd` binary | 9.2 MB | 3.9 MB | −58% |
-| Production code lines (non-blank, non-comment) | 32,933 | 29,815 | −9% |
-| Test functions | 727 | 97 | −87% |
-| Test code lines | 21,502 | 2,198 | −90% |
-| Cold release build, all 8 binaries | 13.4 s | 124 s | 9× slower |
-| Incremental build after a one-line API change | 0.9 s | 5.1 s dev / 96 s release | 6–107× slower |
-| Third-party dependencies | 30 modules | 35 direct, 210 crates total | |
-| `routerd` resident memory, idle (Hyper-V lab) | 24.4 MiB | 16.6 MiB | −32% |
-| `routerd` resident memory after an API load with one login | 59.2 MiB | 21.9 MiB | −63% |
-| `routerd` peak resident memory (VmHWM) | 120.6 MiB | 80.9 MiB | −33% |
-| `router-applyd` resident memory, idle | 15.8 MiB | 12.4 MiB | −22% |
-| `routerd` CPU for the load phase (one login, 3,748 requests) | 1.68 s | 1.01 s | −40% |
-| `routerd` CPU while idle, per minute | 0.005 s | 0.057 s | about 10× more |
+| Current workspace build / test measure | Go | Rust |
+|---|---:|---:|
+| All 8 binaries, stripped, static linux/amd64 | 56.0 MB | 27.7 MB (-50.6%) |
+| `routerd` binary | 14.7 MB | 10.7 MB |
+| Clean release build, all 8 binaries | 41.2 s | 119.8 s |
+| Windows workspace tests | Not re-run | 105 passed |
+| Linux `mr-core` tests, including Unix-only cases | Not re-run | 36 passed |
+| New lab memory, idle CPU and start-up comparison | Not re-measured | Not measured |
+
+Historical polling-runtime memory/CPU figures are kept in their own section
+below; the old "about 10Ã— more idle CPU" result does not describe this build.
 
 ## Binary sizes
 
-Built with `go build -trimpath -ldflags="-s -w"` and with a Rust release
-profile of `strip = "symbols"`, `lto = true`, `codegen-units = 1`.
+All eight outputs were built from `0b7af8e` for Linux AMD64 with version
+`0.3.3`, commit and build-date metadata set consistently for both languages.
+Go used `-trimpath -ldflags="-s -w -buildid= -X â€¦"`; Rust used
+`strip = "symbols"`, `lto = true`, `codegen-units = 1` (`release`).
+All outputs are ELF binaries without a dynamic interpreter.
 
-| Binary | Go (bytes) | Rust (bytes) | Change |
+| Binary | Go (bytes) | Rust workspace (bytes) | Change |
 |---|---:|---:|---:|
-| routerd | 14,708,898 | 10,528,928 | −28% |
-| router-applyd | 9,220,258 | 3,852,864 | −58% |
-| router-recovery | 8,978,594 | 4,357,152 | −51% |
-| router-setup | 8,908,962 | 4,417,952 | −50% |
-| minimalrouter-mcp | 6,299,810 | 2,310,440 | −63% |
-| router-update | 3,068,066 | 2,184,584 | −29% |
-| firmware-sign | 2,592,930 | 537,152 | −79% |
-| firmware-keygen | 2,261,154 | 445,152 | −80% |
+| routerd | 14,708,862 | 10,698,784 | -27.3% |
+| router-applyd | 9,220,222 | 3,585,096 | -61.1% |
+| router-recovery | 8,978,558 | 4,170,528 | -53.6% |
+| router-setup | 8,908,926 | 4,141,344 | -53.5% |
+| minimalrouter-mcp | 6,299,774 | 2,310,440 | -63.3% |
+| router-update | 3,068,030 | 1,817,304 | -40.8% |
+| firmware-sign | 2,592,894 | 536,576 | -79.3% |
+| firmware-keygen | 2,261,118 | 444,672 | -80.3% |
+
+Against the Mac-built "split + regex trim" column in `NEXT-STEPS.md`:
+
+| Binary | Reference (bytes) | Windows cross-build (bytes) | Delta (bytes) |
+|---|---:|---:|---:|
+| routerd | 10,698,016 | 10,698,784 | +768 |
+| router-applyd | 3,584,936 | 3,585,096 | +160 |
+| router-recovery | 4,171,424 | 4,170,528 | -896 |
+| router-setup | 4,141,216 | 4,141,344 | +128 |
+| router-update | 1,817,816 | 1,817,304 | -512 |
+| minimalrouter-mcp | 2,310,504 | 2,310,440 | -64 |
+
+Each difference is below 0.03%. The host/linker/build-metadata contribution
+was not isolated, so these differences are not attributed to a source change.
+The remaining approximately 1.2% increase of `routerd` over the single-crate
+10,574,880-byte reference remains unexplained. No `mr-applyd`
+panic-location strings were found in `routerd`, and no `mr-api` ones in
+`router-applyd`. This check does not establish the complete privilege boundary.
+
+## Build times
+
+One sequential run per cell on the Windows 11 host (Intel i7-14700KF,
+20 cores / 28 logical processors, approximately 96 GiB RAM). Clean means a
+fresh Cargo target directory for Rust, with each profile initially empty,
+and a fresh `GOCACHE` for Go. Downloads and the global Zig cache were warm.
+These are subprocess wall times, not a statistically established average.
+The earlier single-crate timings used a different source/cache state.
+
+| All eight Linux AMD64 binaries | Go, stripped | Rust dev | Rust release | Rust release-fast |
+|---|---:|---:|---:|---:|
+| Clean | 41.2 s | 47.0 s | 119.8 s | 62.4 s |
+| One-line API comment change | 1.3 s | 4.9 s | 76.1 s | 34.2 s |
+
+The comment was appended to `crates/mr-api/src/api/mod.rs` for Rust and
+`internal/api/wireguard.go` for Go, then restored byte-for-byte. This measures
+rebuilding the dependency graph after an API edit without changing runtime
+semantics. Go binaries were reproduced byte-for-byte after restoration;
+Rust release sizes/hashes were saved before any comment edits.
+`release-fast` uses thin LTO, 16 codegen units and incremental compilation.
+All binary-size figures above use the regular `release` profile.
 
 ## Memory on the Hyper-V lab
+
+**Current event-driven build: not measured.** The Go â†’ Rust â†’ Go â†’ Rust
+rerun, including idle CPU, RSS/peak memory and start-up, still requires the
+current root SSH and dashboard credentials. Existing SSH keys did not
+authenticate. No binaries were deployed and no router services or state were
+changed during this validation. `memtest.sh restore` was not executed;
+any old `/opt/memtest` mounts and `/var/tmp/memtest-state.tar` remain unverified.
+
+### Historical polling-runtime measurements
 
 Measured on 2026-10-27 on a lab VM: Hyper-V generation 1,
 2 vCPU, 2 GiB RAM, Alpine with kernel 6.12.112-lts. The router was a real
@@ -67,7 +117,7 @@ not a qualified platform; Proxmox and real hardware were not measured.
 Method:
 
 - Go and Rust were built from the same commit with version 0.3.3: Go with the
-  `Makefile` flags (`-trimpath -ldflags "-s -w -buildid= -X …"`), Rust with the
+  `Makefile` flags (`-trimpath -ldflags "-s -w -buildid= -X â€¦"`), Rust with the
   release profile above for `x86_64-unknown-linux-musl` (musl's allocator).
 - Each build's `routerd` and `router-applyd` were bind-mounted over the active
   slot's binaries and started by the real OpenRC services, so the user,
@@ -80,7 +130,7 @@ Method:
   minute after the load.
 - Two runs per build, alternating Go, Rust, Go, Rust. Both builds served
   exactly the same 3,748 requests per run with identical status codes
-  (3,660 × 200, 88 × 404), so they did the same work.
+  (3,660 Ã— 200, 88 Ã— 404), so they did the same work.
 - Go sets `GOGC=50` and soft memory limits in `main` (128 MiB for `routerd`,
   64 MiB for `router-applyd`). Rust has no equivalent tuning.
 
@@ -92,18 +142,18 @@ throughout, so nothing was shared between the two daemons.
 
 | Sample | Go RSS | Rust RSS | Go heap (anon) | Rust heap (anon) | Go peak | Rust peak |
 |---|---:|---:|---:|---:|---:|---:|
-| Idle, 1 min | 23.4 [22.2–24.6] | 16.5 | 10.7 | 9.3 | 23.4 | 16.6 |
-| Idle, 4 min | 24.4 [23.3–25.5] | 16.6 | 11.7 | 9.3 | 24.4 | 16.7 |
-| Load, half way | 33.4 [30.8–36.1] | 20.7 [20.2–21.2] | 19.8 | 12.4 | 120.6 | 80.9 |
-| Load, end | 58.6 [56.9–60.2] | 21.9 [20.5–23.4] | 44.9 | 13.7 | 120.6 | 80.9 |
-| 1 min after load | 59.2 [58.1–60.3] | 21.9 [20.4–23.4] | 45.5 | 13.7 | 120.6 | 80.9 |
+| Idle, 1 min | 23.4 [22.2â€“24.6] | 16.5 | 10.7 | 9.3 | 23.4 | 16.6 |
+| Idle, 4 min | 24.4 [23.3â€“25.5] | 16.6 | 11.7 | 9.3 | 24.4 | 16.7 |
+| Load, half way | 33.4 [30.8â€“36.1] | 20.7 [20.2â€“21.2] | 19.8 | 12.4 | 120.6 | 80.9 |
+| Load, end | 58.6 [56.9â€“60.2] | 21.9 [20.5â€“23.4] | 44.9 | 13.7 | 120.6 | 80.9 |
+| 1 min after load | 59.2 [58.1â€“60.3] | 21.9 [20.4â€“23.4] | 45.5 | 13.7 | 120.6 | 80.9 |
 
 `router-applyd`:
 
 | Sample | Go RSS | Rust RSS | Go peak | Rust peak |
 |---|---:|---:|---:|---:|
-| Idle, 4 min | 15.8 [14.5–17.1] | 12.4 [11.5–13.3] | 16.0 | 12.8 |
-| Load, end | 16.7 | 12.6 [11.6–13.5] | 17.1 | 12.9 |
+| Idle, 4 min | 15.8 [14.5â€“17.1] | 12.4 [11.5â€“13.3] | 16.0 | 12.8 |
+| Load, end | 16.7 | 12.6 [11.6â€“13.5] | 17.1 | 12.9 |
 
 All figures are MiB. The system's `MemAvailable` agreed: about 40 MiB more
 memory was free during and after the load with the Rust pair.
@@ -124,11 +174,11 @@ What the numbers say:
   much of it comes from the login rather than from serving requests, was not
   measured. For context, the installed (older) Go build on the same VM held
   47.7 MiB after a day of uptime.
-- **`router-applyd`.** Rust uses 3–4 MiB less, again mostly the smaller
+- **`router-applyd`.** Rust uses 3â€“4 MiB less, again mostly the smaller
   binary.
 - **CPU.** Under load Rust `routerd` used 40% less CPU time, including the
   login and its own idle polling. While idle it used about ten times more
-  (5–6 clock ticks of 10 ms per minute against under one for Go), still
+  (5â€“6 clock ticks of 10 ms per minute against under one for Go), still
   under 0.1% of one core. The port polls where Go blocks: the HTTP accept loop wakes every
   50 ms, and stop-aware waits and the DNS risk queue wake every 250 ms
   (`src/httpd/server.rs`, `src/goish/sync.rs`, `src/dnsrisk/mod.rs`). That
@@ -144,6 +194,9 @@ above are about 4% of the minimum.
 
 ## Code size
 
+Historical single-crate snapshot; these line/file counts were not re-counted
+after the workspace split.
+
 | | Go | Rust |
 |---|---:|---:|
 | Files | 208 | 113 |
@@ -158,19 +211,34 @@ HTTP/1.1 server (`src/httpd/`, about 1,100 code lines) because Go's
 `net/http` has no equivalent in the Rust standard library. Without those two
 pieces the Rust code is about 19% smaller than the Go code.
 
-`unsafe` appears in 31 places across 13 files, all thin calls into libc
-(`flock`, `statvfs`, `getifaddrs`, `setsid`, process-group `kill`,
-`geteuid`, `SO_PEERCRED`).
+The current workspace has 34 `unsafe` blocks, all in
+`crates/mr-core/src/sys.rs`, with `unsafe` denied elsewhere and `SAFETY:`
+comments on the blocks. This source count was checked in this validation.
 
 ## Correctness evidence
 
-The port aimed for identical behaviour, so most checks compare Rust output
-with Go output on the same input:
+Current checks on `0b7af8e`:
+
+- `cargo test --workspace` on Windows: 105 tests passed, no compiler warnings.
+- `cargo clippy --workspace --all-targets`: exit 0, 110 unique lint warnings,
+  no errors. The missing clippy toolchain component was installed; no Rust
+  source changes or lint suppression were needed for Windows.
+- The musl release build of all eight binaries passed without compiler warnings.
+- The cross-compiled `mr-core` test harness ran on Alpine virt 3.22.6,
+  Linux 6.12.110-0-virt, in a temporary diskless Hyper-V generation 1 VM with
+  2 vCPU, 1 GiB RAM and no network adapter. All 36 tests passed, including all
+  five `proc` tests, both Unix-only `sys` tests, and firmware slot
+  stage/activate/rollback. The first attempt passed 35/36 with loopback down;
+  bringing `lo` up made the loopback-address test pass. This required no code
+  change. The temporary VM was removed afterward.
+
+The following differential/API checks were recorded for the original port.
+They compare Rust output with Go output on the same input:
 
 | Check | Cases | Result |
 |---|---:|---|
 | Configuration validation and normalisation (mutated configs) | 4,002 | byte-identical to Go |
-| All service generators (nftables, dnsmasq, WireGuard, …) | 1,408 | byte-identical to Go |
+| All service generators (nftables, dnsmasq, WireGuard, â€¦) | 1,408 | byte-identical to Go |
 | Go-signed firmware manifests verified in Rust, signatures reproduced | 500 | identical signatures |
 | Release version precedence | 2,000 | identical |
 | MCP `tools/list`, `initialize`, errors, validation (read-only and admin) | 12 messages | byte-identical |
@@ -184,11 +252,13 @@ generate the cases). Reproduce with `sh experiments/rust/tools/parity.sh`.
 
 What is **not** covered:
 
-- The Rust suite is much smaller than the Go suite (97 versus 727 test
-  functions); most Go unit tests were not ported.
-- The Rust test suite does not run on Linux, because this workstation has no
-  WSL, Docker or Linux host; the A/B slot test was compiled but not run.
-- The Rust `routerd` and `router-applyd` ran only on the Hyper-V lab VM:
+- Most Go unit tests were not ported. The current checks ran 105 tests on
+  Windows and 36 `mr-core` tests on Linux (28 overlap, eight are Unix-only).
+  The Go suite was not re-run for this documentation refresh.
+- The full Rust workspace suite was not run on Linux. The Linux `mr-core`
+  run covers `proc`, `sys` and the A/B slot test; it does not establish
+  Linux hardening/startup behavior for the management/helper daemons.
+- The earlier polling `routerd` and `router-applyd` ran only on the Hyper-V lab VM:
   startup reconcile of the real configuration (PPPoE, WireGuard, dnsmasq,
   nftables came up), and read-only API traffic. Configuration changes,
   confirmation and rollback, updates, recovery and the other commands were
@@ -212,16 +282,20 @@ What is **not** covered:
 
 ## Observations
 
-- **Memory.** Rust's memory use follows its allocations closely: the 64 MiB
+- **Memory (historical polling build).** Rust's memory use followed its
+  allocations closely: the 64 MiB
   Argon2id buffer goes back to the system as soon as the check ends. Go keeps
   freed memory until its runtime returns it, which shows up as a high
   resident size after a login.
 - **Binary size.** Rust binaries are about half the size overall. The gap is
   largest for small tools, where Go's runtime and the pure-Go SQLite library
   dominate.
-- **Build speed.** Go builds and cross-compiles far faster with no extra
-  toolchain. The Rust release profile chosen for size (fat LTO, one codegen
-  unit) makes every release build slow; a development build is 5 s.
+- **Build speed.** Go cross-compiles faster with no extra toolchain. In the
+  refreshed workspace measurements, a one-line API edit took
+  1.3 s in Go, 4.9 s in Rust dev,
+  34.2 s in Rust release-fast, and
+  76.1 s in Rust release. Fat LTO and one codegen
+  unit retain a substantial release rebuild cost.
 - **Toolchain.** Go cross-compiles a static binary out of the box. Rust
   needed MinGW for the C SQLite build and zig for musl linking.
 - **Fidelity work.** A large share of the effort went into matching Go
@@ -235,9 +309,11 @@ What is **not** covered:
 
 ## Recommendation
 
-Keep Go for Minimal Router for now. Rust halves the binary size, and on the lab
-VM its `routerd` used a third less memory at idle, held 37 MiB less after a
-login and peaked 40 MiB lower. With a 1 GiB minimum those savings are real but
+Keep Go for Minimal Router for now. The current Rust workspace roughly halves
+the binary size. In the historical polling-build lab runs, Rust `routerd`
+used a third less memory at idle, held 37 MiB less after a login and peaked
+40 MiB lower; those runtime numbers have not been confirmed for the current
+event-driven build. With a 1 GiB minimum those savings are real but
 not decisive. Go has the complete test suite, the validated appliance
 pipeline, much faster builds and simpler cross-compilation, and switching
 would mean re-proving everything on real hardware.
@@ -255,14 +331,35 @@ From the repository root, in Git Bash:
 ```bash
 . experiments/rust/tools/env.sh
 sh experiments/rust/tools/parity.sh
-cd experiments/rust && cargo test
+cd experiments/rust && cargo test --workspace
+cargo clippy --workspace --all-targets
 cargo zigbuild --release --target x86_64-unknown-linux-musl --bins
 ```
 
-The memory measurement uses `experiments/rust/tools/memlab/`: `memtest.sh`
-runs on the router as root (copy it to `/opt/memtest/` with the two builds in
-`/opt/memtest/go/` and `/opt/memtest/rust/`, then run `memtest.sh backup`
-once), `memdrive.py` drives the runs from a LAN host, and `summarize.py`
-turns the results into the tables above. The raw results of the runs reported
-here are in `results-2026-10-27.jsonl`. After measuring, `memtest.sh restore`
-puts the installed binaries and the original state back.
+For the Unix-only tests on a Windows build host, cross-compile the harness:
+
+```bash
+cargo zigbuild -p mr-core --tests --target x86_64-unknown-linux-musl
+```
+
+Copy the resulting `target/x86_64-unknown-linux-musl/debug/deps/mr_core-*`
+test executable to a Linux machine, enable loopback if the environment does
+not already do so, and run it with `--nocapture`. Linux daemons compiled for
+musl are not executable on the Windows host.
+
+The memory measurement uses `experiments/rust/tools/memlab/`. Both harnesses
+must target only the confirmed lab router. `memtest.sh` runs there as root;
+copy it to `/opt/memtest/` with the same-commit regular-release binaries in
+`/opt/memtest/go/` and `/opt/memtest/rust/`. Preserve an existing state backup;
+run `memtest.sh backup` only if none exists. For this rerun, execute
+`memdrive.py OUT.jsonl go rust go rust` on the lab router, as requested,
+with its Python/paramiko dependencies and a temporary credential file
+provisioned privately. Keep `MR_LAB_CREDS`, credentials and live state
+untracked. `summarize.py` turns the output into tables.
+
+The historical polling raw results remain in
+[results-2026-10-27.jsonl](tools/memlab/results-2026-10-27.jsonl); they must
+not be relabelled as event-driven measurements. After measuring, run
+`sh /opt/memtest/memtest.sh restore` and verify the installed services, then
+remove `/opt/memtest` and `/var/tmp/memtest-state.tar`. That router cleanup
+has not been executed during this validation.
