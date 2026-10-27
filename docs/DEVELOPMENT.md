@@ -16,7 +16,7 @@ Required for normal development:
 Required only for appliance/integration work:
 
 - Docker with privileged-container support, or a disposable Linux VM
-- Alpine Linux 3.22 repositories
+- Alpine Linux repositories for the release pinned in `packaging/alpine/alpine-release`
 - nftables, pppd, dnsmasq, iproute2, WireGuard tools, and the optional services
   being tested
 - an AP-capable radio for real Wi-Fi testing

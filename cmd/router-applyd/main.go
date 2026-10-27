@@ -633,7 +633,7 @@ func rejectUnimplementedFeatures(cfg config.SystemConfig) error {
 	case cfg.Cloudflare.TunnelEnabled:
 		return errors.New("Cloudflare Tunnel is unavailable because WireGuard is the only allowed remote-entry path")
 	case cfg.DHCP.DNSEnabled:
-		return errors.New("DNS-over-HTTPS has no verified Alpine 3.22 runtime adapter")
+		return errors.New("DNS-over-HTTPS has no verified Alpine runtime adapter")
 	case len(cfg.AdGuard.FilterDevices) > 0:
 		return errors.New("per-device DNS filtering is unsupported because dnsmasq address rules are global")
 	default:

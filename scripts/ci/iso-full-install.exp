@@ -4,6 +4,8 @@
 # the runner indefinitely. Most awaited stages use seven minutes; the raw golden
 # disk copy gets ten because hosted-runner TCG throughput varies substantially.
 set timeout 720
+# The installed image must point at the Alpine branch it was built from.
+set alpine_branch [exec sh -c {. packaging/alpine/alpine-release && printf %s "$ALPINE_BRANCH"}]
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
 set logpath [lindex $argv 2]
@@ -213,7 +215,7 @@ set checks {
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
-    {grep -q 'v3.22/main' /etc/apk/repositories && grep -q 'v3.22/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
+    {grep -q '@ALPINE_BRANCH@/main' /etc/apk/repositories && grep -q '@ALPINE_BRANCH@/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
     {nft list ruleset | grep -q 'tcp dport 22 accept' && echo CHECK_NFT_SSH_OK}
     {ss -lnt | grep -q ':22 ' && echo CHECK_SSH_LISTEN_OK}
@@ -222,6 +224,7 @@ set checks {
     {ss -lnt | grep -q ':8443 ' && echo CHECK_DASHBOARD_LISTEN_OK}
 }
 
+set checks [string map [list @ALPINE_BRANCH@ $alpine_branch] $checks]
 foreach command $checks {
     send -- "$command\r"
 }

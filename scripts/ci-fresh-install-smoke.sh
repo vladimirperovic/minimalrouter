@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/../packaging/alpine/alpine-release"
 
 ARTIFACT="${1:-build/minimalrouter-linux-amd64.tar.gz}"
 [ -f "$ARTIFACT" ] || {
@@ -81,7 +82,7 @@ docker run --rm --privileged \
     -v "$BUILD_DIR:/artifacts:ro" \
     -v /lib/modules:/lib/modules:ro \
     -e "ARTIFACT_REL=$ARTIFACT_REL" \
-    alpine:3.22 sh -euxs <<'SMOKE'
+    "alpine:$ALPINE_VERSION" sh -euxs <<'SMOKE'
 apk add --no-cache curl jq iproute2
 
 cd /artifacts/update-smoke

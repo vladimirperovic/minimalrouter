@@ -4,8 +4,7 @@
 # live flasher. No Alpine or MinimalRouter installation runs on the user's VM.
 set -eu
 
-ALPINE_VERSION="${ALPINE_VERSION:-3.22.5}"
-ALPINE_BRANCH="v3.22"
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/alpine-release"
 ALPINE_ARCH="x86_64"
 ALPINE_BASE_URL="https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}"
 ALPINE_ISO_NAME="alpine-extended-${ALPINE_VERSION}-${ALPINE_ARCH}.iso"

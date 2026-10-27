@@ -48,7 +48,7 @@ The installed appliance loads network drivers for whatever hardware it finds at
 boot (`mdev` + `hwdrivers`), so other NIC models are detected too. CI exercises
 an emulated Intel e1000 LAN port alongside the VirtIO WAN port; physical NICs
 are still outside the automated evidence. The Golden image already contains
-Alpine 3.22, `linux-lts`, PPPoE support, MinimalRouter and its runtime
+Alpine 3.24, `linux-lts` 6.18, PPPoE support, MinimalRouter and its runtime
 dependencies; the QEMU Guest Agent is not required.
 
 Do not put the candidate LAN on the same broadcast domain as another active DHCP
@@ -317,7 +317,7 @@ it is no longer the recommended first-time Proxmox path.
 
 Requirements:
 
-- Alpine Linux 3.22;
+- Alpine Linux 3.24 (3.22 for appliances installed earlier);
 - a kernel containing the required PPPoE module (`linux-lts` is the validated x86-64 path);
 - one WAN and one LAN interface;
 - local console access;
