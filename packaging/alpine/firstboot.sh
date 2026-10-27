@@ -130,7 +130,7 @@ main() {
 ART
     version="$(cat /etc/minimalrouter/VERSION 2>/dev/null || printf dev)"
     printf '\nminimalrouter v%s — first boot\n\n' "$version"
-    printf 'The operating system, kernel, packages, Go services and Dashboard are already installed.\n'
+    printf 'The operating system, kernel, packages, services and Dashboard are already installed.\n'
     printf 'This screen only writes your router configuration and recovery password.\n\n'
 
     resize_root_filesystem

@@ -55,6 +55,7 @@ proc wait_and_send {pattern text code} {
 }
 
 proc verify_ssh {password marker} {
+    set last_error ""
     for {set i 0} {$i < 60} {incr i} {
         if {![catch {
             exec sshpass -p $password ssh \
@@ -70,9 +71,29 @@ proc verify_ssh {password marker} {
                 return
             }
         }
+        set last_error $output
         after 1000
     }
     puts stderr "SSH verification failed: $marker"
+    puts stderr "last ssh result: $last_error"
+    # Show why, from both ends: a verbose client run, then the guest's sshd
+    # settings, drop-ins, log, firewall and listeners over the serial console
+    # (echo is off, so the end marker below only appears in real output).
+    catch {
+        exec sshpass -p $password ssh -vvv \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 \
+            -p 2222 \
+            root@127.0.0.1 "echo $marker" 2>@1
+    } verbose
+    puts stderr "---- verbose ssh client ----\n$verbose"
+    send -- "echo SSH_DIAG_BEGIN; sshd -T 2>&1 | grep -Ei '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|authenticationmethods|allowusers|listenaddress|usepam|port)'; ls -la /etc/ssh /etc/ssh/sshd_config.d 2>&1; grep -vE '^#|^$' /etc/ssh/sshd_config 2>&1; grep -i sshd /var/log/messages 2>&1 | tail -n 40; nft list ruleset 2>&1 | grep -n -B2 -A2 'dport 22'; ss -lntp 2>&1; ip -4 addr 2>&1; echo SSH_DIAG_END\r"
+    set timeout 60
+    expect {
+        -re {SSH_DIAG_END} {}
+        timeout { puts stderr "timeout collecting guest SSH diagnostics" }
+    }
     exit 60
 }
 
