@@ -1,9 +1,16 @@
-[package]
-name = "minimalrouter"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# `cargo test` and `cargo build` at the root cover every crate, not only the
+# facade package below.
+default-members = [".", "crates/*"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+# One place for every external version; the crates opt in with `workspace = true`.
+[workspace.dependencies]
 aes-gcm = "0.10"
 anyhow = "1.0.104"
 argon2 = "0.5"
@@ -20,7 +27,9 @@ png = "0.17"
 psl = "2"
 qrcode = { version = "0.14", default-features = false }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
-regex = "1.13.1"
+# Only the Unicode tables the patterns use (\pL \pN, (?i), \s \d \b) and the
+# literal prefilter; without perf-literal redacting a 2 MB blob took 390 ms, not 2 ms.
+regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-gencat", "unicode-perl", "perf-literal"] }
 roxmltree = "0.21.2"
 rusqlite = { version = "0.41.0", features = ["bundled", "fallible_uint"] }
 ed25519-dalek = "2.1"
@@ -32,17 +41,62 @@ serde_json = "1.0.154"
 serde_ignored = "0.1"
 sha1 = "0.10"
 sha2 = "0.10"
+signal-hook = "0.3"
 subtle = "2.6.1"
 time = "0.3"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 x509-parser = "0.16"
 
+mr-core = { path = "crates/mr-core" }
+mr-config = { path = "crates/mr-config" }
+mr-services = { path = "crates/mr-services" }
+mr-api = { path = "crates/mr-api" }
+mr-applyd = { path = "crates/mr-applyd" }
+
+# The facade package: it re-exports the layered crates under the original
+# module paths and owns the eight binaries and the integration tests.
+[package]
+name = "minimalrouter"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mr-core.workspace = true
+mr-config.workspace = true
+mr-services.workspace = true
+mr-api.workspace = true
+mr-applyd.workspace = true
+chrono.workspace = true
+flate2.workspace = true
+hex.workspace = true
+log.workspace = true
+pem.workspace = true
+regex.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+tar.workspace = true
+ureq.workspace = true
+
 [target."cfg(unix)".dependencies]
-signal-hook = "0.3"
+signal-hook.workspace = true
 
 [profile.release]
 # Matches the Go release build (-trimpath -ldflags="-s -w"): no symbols.
 strip = "symbols"
 lto = true
 codegen-units = 1
+
+# For iterating on a build that still has to run on the router:
+#   cargo zigbuild --profile release-fast --target x86_64-unknown-linux-musl --bins
+# Same optimisation level, but thin LTO, parallel code generation and
+# incremental compilation. The size and memory figures in COMPARISON.md come
+# from `release`, not from this profile.
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+incremental = true

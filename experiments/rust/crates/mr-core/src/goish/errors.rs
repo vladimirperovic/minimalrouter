@@ -74,7 +74,7 @@ macro_rules! sentinel {
 /// `fmt.Errorf` that returns an `anyhow::Error`.
 #[macro_export]
 macro_rules! errorf {
-    ($($arg:tt)*) => { ::anyhow::Error::msg(format!($($arg)*)) };
+    ($($arg:tt)*) => { $crate::goish::errors::new(format!($($arg)*)) };
 }
 
 #[cfg(test)]

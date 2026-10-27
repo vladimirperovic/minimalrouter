@@ -1,0 +1,28 @@
+[package]
+name = "mr-config"
+description = "Configuration model and store, authentication, TLS material, startup state and the HTTP server."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mr-core.workspace = true
+aes-gcm.workspace = true
+argon2.workspace = true
+base64.workspace = true
+chrono.workspace = true
+hex.workspace = true
+hmac.workspace = true
+log.workspace = true
+pem.workspace = true
+rcgen.workspace = true
+regex.workspace = true
+roxmltree.workspace = true
+rusqlite.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+time.workspace = true
+x509-parser.workspace = true

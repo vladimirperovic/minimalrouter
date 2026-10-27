@@ -793,40 +793,25 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 name = "minimalrouter"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "base64 0.23.1",
- "bcrypt",
  "chrono",
- "ed25519-dalek",
  "flate2",
- "getrandom 0.3.4",
  "hex",
- "hmac",
- "libc",
  "log",
+ "mr-api",
+ "mr-applyd",
+ "mr-config",
+ "mr-core",
+ "mr-services",
  "pem",
- "png",
- "psl",
- "qrcode",
- "rcgen",
  "regex",
- "roxmltree",
- "rusqlite",
  "rustls",
  "serde",
- "serde_ignored",
  "serde_json",
- "sha1",
  "sha2",
  "signal-hook",
  "subtle",
  "tar",
- "time",
  "ureq",
- "x25519-dalek",
- "x509-parser",
 ]
 
 [[package]]
@@ -847,6 +832,119 @@ checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "mr-api"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "flate2",
+ "hex",
+ "log",
+ "mr-config",
+ "mr-core",
+ "mr-services",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_ignored",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tar",
+ "ureq",
+]
+
+[[package]]
+name = "mr-applyd"
+version = "0.1.0"
+dependencies = [
+ "bcrypt",
+ "hex",
+ "libc",
+ "log",
+ "mr-config",
+ "mr-core",
+ "mr-services",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+]
+
+[[package]]
+name = "mr-config"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.23.1",
+ "chrono",
+ "hex",
+ "hmac",
+ "log",
+ "mr-core",
+ "pem",
+ "rcgen",
+ "regex",
+ "roxmltree",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "subtle",
+ "time",
+ "x509-parser",
+]
+
+[[package]]
+name = "mr-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "chrono",
+ "ed25519-dalek",
+ "getrandom 0.3.4",
+ "hex",
+ "libc",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "signal-hook",
+ "subtle",
+]
+
+[[package]]
+name = "mr-services"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.23.1",
+ "chrono",
+ "hex",
+ "libc",
+ "log",
+ "mr-config",
+ "mr-core",
+ "png",
+ "psl",
+ "qrcode",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+ "x25519-dalek",
 ]
 
 [[package]]
