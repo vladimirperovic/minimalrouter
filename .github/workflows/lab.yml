@@ -68,7 +68,10 @@ jobs:
           if [ -z "$run_id" ]; then
             run_id="$(gh run list --workflow iso.yml --branch "$branch" --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
           fi
-          test -n "$run_id" && [ "$run_id" != null ] || { echo "No successful Appliance ISO run on $branch yet; run that workflow first." >&2; exit 1; }
+          if [ -z "$run_id" ] || [ "$run_id" = null ]; then
+            echo "No successful Appliance ISO run on $branch yet; run that workflow first." >&2
+            exit 1
+          fi
           echo "Using the ISO from Appliance ISO run $run_id"
           gh run download "$run_id" --pattern 'minimalrouter-appliance-iso-*' --dir iso
           find iso -name '*.iso' | tee iso-path.txt
