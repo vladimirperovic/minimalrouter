@@ -157,8 +157,9 @@ jobs:
           RUSTFLAGS: "-D warnings"
         run: |
           cargo check --workspace --all-targets --locked
-          cargo check --workspace --all-targets --locked --target x86_64-unknown-linux-musl
-          cargo check --workspace --all-targets --locked --target aarch64-unknown-linux-musl
+          # The musl targets compile C (ring, SQLite), so cross-build with zig.
+          cargo zigbuild --workspace --all-targets --locked --target x86_64-unknown-linux-musl
+          cargo zigbuild --workspace --all-targets --locked --target aarch64-unknown-linux-musl
       - name: Run the workspace tests, including the Unix-only tests
         working-directory: rust
         run: cargo test --workspace --locked

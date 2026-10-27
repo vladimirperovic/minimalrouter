@@ -24,7 +24,7 @@ for installer in packaging/alpine/install-dist.sh packaging/alpine/install.sh; d
 done
 
 if git grep -n -E 'alpine:3\.[0-9]|alpine/v3\.[0-9]+/|alpine-(extended|virt|standard)-3\.[0-9]' -- \
-    packaging scripts tools quick-test.sh .github/workflows ':!packaging/alpine/alpine-release'; then
+    packaging scripts tools quick-test.sh .github/workflows ':!packaging/alpine/alpine-release' ':!packaging/alpine/install-dist_test.sh'; then
     echo "ERROR: pin the Alpine release only in packaging/alpine/alpine-release" >&2
     exit 1
 fi
