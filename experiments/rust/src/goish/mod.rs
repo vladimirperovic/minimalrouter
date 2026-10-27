@@ -7,6 +7,7 @@ pub mod decode;
 pub mod errors;
 pub mod exec;
 pub mod filepath;
+pub mod flag;
 pub mod json;
 pub mod log;
 pub mod net;

@@ -90,3 +90,68 @@ pub fn run_command(command: &mut Command, timeout: Duration, stdin: Option<Vec<u
     };
     Output { stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default(), status, timed_out, spawn_error: None }
 }
+
+/// A command in its own process group (OpenRC services spawn shell
+/// children): the deadline kills the whole group, and pipes held open by a
+/// descendant are abandoned after `wait_delay`, like Go's Cmd.WaitDelay.
+pub fn run_group(program: &str, args: &[&str], timeout: Duration, wait_delay: Duration) -> Output {
+    let mut command = Command::new(program);
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => return Output { spawn_error: Some(err.to_string()), ..Default::default() },
+    };
+    let pid = child.id();
+    let (tx, rx) = std::sync::mpsc::channel::<(bool, Vec<u8>)>();
+    for (is_err, mut pipe) in [(false, Box::new(child.stdout.take().expect("piped")) as Box<dyn Read + Send>), (true, Box::new(child.stderr.take().expect("piped")))] {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            let _ = tx.send((is_err, buf));
+        });
+    }
+    drop(tx);
+    let kill_group = || {
+        #[cfg(unix)]
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+        #[cfg(not(unix))]
+        let _ = pid;
+    };
+    let started = Instant::now();
+    let (status, timed_out) = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break (Some(status), false),
+            Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                kill_group();
+                let _ = child.kill();
+                let _ = child.wait();
+                break (None, true);
+            }
+        }
+    };
+    let mut output = Output { status, timed_out, ..Default::default() };
+    let deadline = Instant::now() + wait_delay;
+    for _ in 0..2 {
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok((true, data)) => output.stderr = data,
+            Ok((false, data)) => output.stdout = data,
+            Err(_) => {
+                kill_group();
+                if output.spawn_error.is_none() && output.success() {
+                    output.spawn_error = Some("exec: WaitDelay expired before I/O complete".into());
+                }
+                break;
+            }
+        }
+    }
+    output
+}

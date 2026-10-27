@@ -5,7 +5,7 @@
 mod fsutil;
 mod slots;
 
-pub use slots::{SlotManager, SlotState};
+pub use slots::{inspect_local_payload, SlotManager, SlotState};
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use regex::Regex;
