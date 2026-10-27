@@ -9,6 +9,8 @@ mod observability;
 mod recovery;
 mod redaction;
 mod routes;
+mod setup;
+mod wireguard;
 
 pub use routes::*;
 

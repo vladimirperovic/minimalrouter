@@ -26,6 +26,9 @@ impl Server {
         let public: Vec<(&str, Handler)> = vec![
             ("POST /api/v1/auth/login", Server::handle_login),
             ("GET /api/v1/setup/interfaces", Server::handle_discover_setup_interfaces),
+            ("GET /api/v1/setup/status", Server::handle_setup_status),
+            // First-run only; the handler guards itself.
+            ("POST /api/v1/setup/apply", Server::handle_setup_apply),
         ];
         for (pattern, handler) in public {
             self.route(router, pattern, false, handler);
@@ -89,6 +92,12 @@ impl Server {
             ("GET /api/v1/firewall/activity", Server::handle_firewall_activity),
             ("GET /api/v1/accounting/insights", Server::handle_accounting_insights),
             ("GET /api/v1/accounting", Server::handle_get_accounting),
+            ("POST /api/v1/wireguard/peers", Server::handle_provision_wireguard_peer),
+            ("POST /api/v1/wireguard/peers/{id}/configuration", Server::handle_reissue_wireguard_peer_configuration),
+            ("DELETE /api/v1/wireguard/peers/{id}", Server::handle_delete_wireguard_peer),
+            ("GET /api/v1/wireguard/provisioning-preview", Server::handle_wireguard_provisioning_preview),
+            ("POST /api/v1/wireguard/client/keys", Server::handle_wireguard_client_keys),
+            ("POST /api/v1/qos/speedtest", Server::handle_speedtest),
         ];
         for (pattern, handler) in protected {
             self.route(router, pattern, true, handler);
