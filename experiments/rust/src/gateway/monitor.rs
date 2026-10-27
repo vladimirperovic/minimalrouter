@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 
 use super::store::{FUTURE_SAMPLE_TOLERANCE, RETENTION_PERIOD};
@@ -139,7 +139,7 @@ pub struct Monitor {
     collect: Mutex<()>,
     manual: Mutex<Option<Time>>,
     live: Mutex<Live>,
-    wake: (Mutex<bool>, Condvar),
+    wake: crate::goish::sync::Wake,
 }
 
 /// Long probe intervals must not starve recovery of fresh link evidence.
@@ -157,7 +157,7 @@ impl Monitor {
             collect: Mutex::new(()),
             manual: Mutex::new(None),
             live: Mutex::new(Live { latest: Summary { state: STATE_UNKNOWN.into(), ..Default::default() }, last_connected: false, initialized: false, connected_since: None }),
-            wake: (Mutex::new(false), Condvar::new()),
+            wake: crate::goish::sync::Wake::new(),
         })
     }
 
@@ -170,8 +170,7 @@ impl Monitor {
     }
 
     fn signal_wake(&self) {
-        *self.wake.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
-        self.wake.1.notify_all();
+        self.wake.notify();
     }
 
     pub fn run(&self, stop: &AtomicBool) {
@@ -182,9 +181,7 @@ impl Monitor {
                 self.live().latest.available = false;
             }
             let interval = collection_interval(interval, collected.as_ref().ok());
-            let guard = self.wake.0.lock().unwrap_or_else(|e| e.into_inner());
-            let (mut woken, _) = self.wake.1.wait_timeout_while(guard, interval.to_std(), |w| !*w && !stop.load(Ordering::SeqCst)).unwrap_or_else(|e| e.into_inner());
-            *woken = false;
+            self.wake.wait(interval.to_std(), stop);
         }
     }
 

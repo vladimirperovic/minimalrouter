@@ -5,6 +5,7 @@
 
 pub mod goish;
 
+pub mod accounting;
 pub mod apply;
 pub mod applyd;
 pub mod auth;
@@ -12,6 +13,7 @@ pub mod buildinfo;
 pub mod config;
 pub mod dnsactivity;
 pub mod dnsfilter;
+pub mod dnsrisk;
 pub mod faultinject;
 pub mod gateway;
 pub mod health;

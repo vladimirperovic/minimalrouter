@@ -60,6 +60,55 @@ impl Time {
         Time(Utc.timestamp_opt(secs, nanos).single().unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap()).fixed_offset())
     }
 
+    /// Go `time.Date` in UTC, normalizing month and day overflow.
+    pub fn date_utc(year: i64, month: i64, day: i64) -> Time {
+        let naive = normalized_date(year, month, day).and_hms_opt(0, 0, 0).unwrap();
+        Time(Utc.from_utc_datetime(&naive).fixed_offset())
+    }
+
+    /// Go `Time.AddDate`: calendar arithmetic with overflow normalization
+    /// (March 31 minus one month is March 3 in a non-leap year).
+    pub fn add_date(&self, years: i64, months: i64, days: i64) -> Time {
+        use chrono::Datelike;
+        let local = self.0.naive_local();
+        let date = normalized_date(local.year() as i64 + years, local.month() as i64 + months, local.day() as i64 + days);
+        Time(self.0.offset().from_local_datetime(&date.and_time(local.time())).unwrap())
+    }
+
+    /// Go `Time.Truncate`: rounds down relative to the zero time, so minute,
+    /// hour and day multiples align with UTC boundaries.
+    pub fn truncate(&self, d: Duration) -> Time {
+        if d.0 <= 0 {
+            return *self;
+        }
+        const UNIX_TO_ZERO: i128 = 62_135_596_800 * 1_000_000_000;
+        let abs = self.0.timestamp() as i128 * 1_000_000_000 + self.0.timestamp_subsec_nanos() as i128 + UNIX_TO_ZERO;
+        let truncated = abs - abs.rem_euclid(d.0 as i128) - UNIX_TO_ZERO;
+        let secs = truncated.div_euclid(1_000_000_000) as i64;
+        let nanos = truncated.rem_euclid(1_000_000_000) as u32;
+        Time(Utc.timestamp_opt(secs, nanos).unwrap().with_timezone(self.0.offset()))
+    }
+
+    /// strftime formatting in the value's own offset.
+    pub fn format(&self, layout: &str) -> String {
+        self.0.format(layout).to_string()
+    }
+
+    pub fn year(&self) -> i64 {
+        use chrono::Datelike;
+        self.0.year() as i64
+    }
+
+    pub fn month(&self) -> i64 {
+        use chrono::Datelike;
+        self.0.month() as i64
+    }
+
+    pub fn day(&self) -> i64 {
+        use chrono::Datelike;
+        self.0.day() as i64
+    }
+
     pub fn add(&self, d: Duration) -> Time {
         Time(self.0 + chrono::Duration::nanoseconds(d.0))
     }
@@ -506,4 +555,10 @@ mod sqlite_time_tests {
         assert_eq!(whole.go_string(), "2026-10-26 12:34:56 +0000 UTC");
         assert_eq!(Time::parse_sqlite("2026-10-26T12:34:56Z").unwrap(), whole);
     }
+}
+
+fn normalized_date(year: i64, month: i64, day: i64) -> NaiveDate {
+    let total = year * 12 + (month - 1);
+    let first = NaiveDate::from_ymd_opt(total.div_euclid(12) as i32, (total.rem_euclid(12) + 1) as u32, 1).unwrap_or_default();
+    first + chrono::Duration::days(day - 1)
 }
