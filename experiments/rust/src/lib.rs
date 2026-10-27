@@ -18,6 +18,7 @@ pub mod faultinject;
 pub mod firmware;
 pub mod gateway;
 pub mod health;
+pub mod httpd;
 pub mod kdf;
 pub mod network;
 pub mod recoverybackup;
