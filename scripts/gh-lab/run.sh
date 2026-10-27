@@ -46,8 +46,8 @@ log "starting the router VM (accel=$accel)"
 rm -f "$LAB_RUN/router.sock" "$LAB_RUN/router.mon"
 qemu-system-x86_64 -name lab-router -machine "pc,accel=$accel" -cpu "$cpu" -smp 2 -m "${ROUTER_RAM_MB:-1024}" \
     -boot once=d -cdrom "$LAB_DIR/serial-test.iso" -drive "file=$LAB_DIR/router.raw,format=raw,if=virtio" \
-    -netdev tap,id=wan,ifname=tap-wan,script=no,downscript=no -device virtio-net-pci,netdev=wan,mac=52:54:00:aa:00:01 \
-    -netdev tap,id=lan,ifname=tap-lan,script=no,downscript=no -device e1000,netdev=lan,mac=52:54:00:aa:00:02 \
+    -netdev tap,id=wan,ifname=tap-wan,script=no,downscript=no -device virtio-net-pci,netdev=wan,id=nicwan,mac=52:54:00:aa:00:01 \
+    -netdev tap,id=lan,ifname=tap-lan,script=no,downscript=no -device e1000,netdev=lan,id=niclan,mac=52:54:00:aa:00:02 \
     -chardev "socket,id=ser0,path=$LAB_RUN/router.sock,server=on,wait=off,logfile=$LOGS/router-serial.log" -serial chardev:ser0 \
     -monitor "unix:$LAB_RUN/router.mon,server,nowait" \
     -display none -daemonize -pidfile "$LAB_RUN/router.pid"
@@ -62,5 +62,14 @@ wait_for 600 rsh 'test -s /run/minimalrouter/routerd.ready' || { echo 'ERROR: ro
 
 set +e
 bash "$HERE/suite.sh"
-status=$?
-exit "$status"
+suite_status=$?
+if [ "${LAB_CHAOS:-1}" = 1 ] && router_ok=$(rsh true 2>/dev/null); then
+    bash "$HERE/chaos.sh"
+    chaos_status=$?
+else
+    log "skipping the chaos phase (router unreachable or LAB_CHAOS=0)"
+    chaos_status=1
+    [ "${LAB_CHAOS:-1}" = 0 ] && chaos_status=0
+fi
+log "suite exit $suite_status, chaos exit $chaos_status"
+[ "$suite_status" -eq 0 ] && [ "$chaos_status" -eq 0 ]

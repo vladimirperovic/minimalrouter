@@ -44,7 +44,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             qemu-system-x86 qemu-utils xorriso expect socat sshpass \
             pppoe ppp "linux-modules-extra-$(uname -r)" \
-            nftables iproute2 dnsutils isc-dhcp-client iperf3 nmap jq curl netcat-openbsd python3
+            nftables iproute2 dnsutils isc-dhcp-client iperf3 nmap jq curl netcat-openbsd python3 \
+            hping3 udhcpc
 
       - name: Allow KVM when the runner has it
         run: |
