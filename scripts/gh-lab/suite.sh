@@ -47,6 +47,21 @@ t_services_ready() {
     echo "both daemons running, ready marker present, dashboard listening on 8443"
 }
 
+# A user-space crash shows up in the kernel log. CI once caught OpenSSL (and so
+# sshd) segfaulting under emulated AVX2; with KVM and the host CPU this checks
+# the real instruction paths.
+t_no_crashes_in_dmesg() {
+    local bad
+    bad=$(rsh 'dmesg | grep -iE "segfault|general protection|invalid opcode|Oops|BUG:|Call Trace|Out of memory|oom-kill|hung task|EXT4-fs error|I/O error"' || true)
+    [ -z "$bad" ] || { printf '%s\n' "$bad" | head -n 5; return 1; }
+    echo "no segfault, oops, OOM kill or filesystem error in the kernel log"
+}
+
+t_sshd_listening() {
+    rsh 'rc-service sshd status >/dev/null 2>&1 && ss -lnt | grep -q ":22 "' || { rsh 'rc-service sshd status; dmesg | tail -n 15'; return 1; }
+    echo "sshd is running and listening on port 22"
+}
+
 t_version() {
     local want got
     want=$(tr -d '\r\n' < VERSION)
@@ -458,6 +473,8 @@ t_throughput() {
 log "suite start"
 run "services ready" t_services_ready
 run "installed version matches the build" t_version
+run "sshd running" t_sshd_listening
+run "no crashes in the kernel log (after boot)" t_no_crashes_in_dmesg
 run "PPPoE session comes up" t_pppoe_session
 run "default route via PPPoE" t_default_route
 run "provider reachable over PPP" t_ping_provider
@@ -492,6 +509,7 @@ run "throughput through NAT and PPPoE" t_throughput
 run "warm reboot" t_warm_reboot
 run "abrupt reset (power cut)" t_hard_reset
 
+run "no crashes in the kernel log (after the whole suite)" t_no_crashes_in_dmesg
 collect_router_logs final
 fails=$(grep -c '^FAIL' "$RESULTS")
 passes=$(grep -c '^PASS' "$RESULTS")

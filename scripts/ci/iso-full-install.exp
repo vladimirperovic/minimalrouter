@@ -27,7 +27,7 @@ match_max 65536
 # drivers (mdev + hwdrivers) instead of stopping firstboot with a single port.
 spawn qemu-system-x86_64 \
     -machine pc,accel=tcg \
-    -cpu max \
+    -cpu Westmere \
     -smp 1 \
     -m 1536 \
     -boot once=d \

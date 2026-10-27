@@ -34,7 +34,10 @@ truncate -s 8G "$LAB_DIR/router.raw"
 bash "$HERE/topology.sh" up
 
 accel=tcg
-cpu=max
+# Without KVM, TCG's AVX2 emulation made OpenSSL (and with it sshd) segfault in
+# CI, so emulate a CPU without AVX. With KVM the real host CPU is used, which
+# exercises the AVX2 code paths on hardware.
+cpu=Westmere
 if [ -w /dev/kvm ]; then
     accel=kvm
     cpu=host

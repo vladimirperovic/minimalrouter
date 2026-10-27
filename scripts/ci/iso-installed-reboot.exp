@@ -23,7 +23,7 @@ match_max 65536
 # back on cold and warm reboots, not only during firstboot.
 spawn qemu-system-x86_64 \
     -machine pc,accel=tcg \
-    -cpu max \
+    -cpu Westmere \
     -smp 1 \
     -m 1536 \
     -boot c \

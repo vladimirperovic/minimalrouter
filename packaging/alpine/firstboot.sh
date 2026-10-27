@@ -109,6 +109,17 @@ PermitTunnel no
 Subsystem sftp internal-sftp
 SSHD
     chmod 0600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+    # SSH is the last-resort path into a router whose dashboard is down, so a
+    # crashed sshd must come back on its own (Alpine's init script only
+    # starts it). Under supervise-daemon sshd runs in the foreground and
+    # writes no pid file of its own, which would collide with the supervisor's.
+    mkdir -p /etc/conf.d
+    cat > /etc/conf.d/sshd <<'SSHD_SERVICE'
+supervisor=supervise-daemon
+respawn_delay=2
+respawn_max=0
+command_args="-D -o PidFile=none"
+SSHD_SERVICE
 }
 
 main() {
