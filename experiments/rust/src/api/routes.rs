@@ -9,7 +9,11 @@ use crate::httpd::Router;
 
 /// Per-feature state owned by handler files.
 #[derive(Default)]
-pub struct Extensions {}
+pub struct Extensions {
+    pub(crate) firewall: std::sync::Mutex<Option<super::observability::FirewallObservation>>,
+    pub(crate) gateway_recovery: std::sync::Mutex<Option<super::gateway::GatewayRecoveryStatus>>,
+    pub(crate) gateway_recovery_stop: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+}
 
 impl Server {
     fn route(self: &Arc<Self>, router: &mut Router, pattern: &str, authenticated: bool, handler: Handler) {
@@ -19,7 +23,10 @@ impl Server {
 
     /// Attaches every /api/v1 endpoint.
     pub fn register_routes(self: &Arc<Self>, router: &mut Router) {
-        let public: [(&str, Handler); 1] = [("POST /api/v1/auth/login", Server::handle_login)];
+        let public: Vec<(&str, Handler)> = vec![
+            ("POST /api/v1/auth/login", Server::handle_login),
+            ("GET /api/v1/setup/interfaces", Server::handle_discover_setup_interfaces),
+        ];
         for (pattern, handler) in public {
             self.route(router, pattern, false, handler);
         }
@@ -53,16 +60,38 @@ impl Server {
             ("POST /api/v1/backup/import/preview", Server::handle_backup_import_preview),
             ("POST /api/v1/import/backup/{id}/apply", Server::handle_backup_import_apply),
             ("POST /api/v1/firmware/verify", Server::handle_firmware_verify),
+            ("GET /api/v1/system/interfaces", Server::handle_discover_interfaces),
+            ("GET /api/v1/network/lan", Server::handle_lan_status),
+            ("GET /api/v1/network/devices", Server::handle_network_devices),
+            ("GET /api/v1/network/leases", Server::handle_dhcp_leases),
+            ("GET /api/v1/network/address-check", Server::handle_lan_address_check),
+            // Gateway, devices and service recovery.
+            ("GET /api/v1/gateway/summary", Server::handle_get_gateway_summary),
+            ("GET /api/v1/gateway/history", Server::handle_get_gateway_history),
+            ("GET /api/v1/gateway/insights", Server::handle_get_gateway_insights),
+            ("POST /api/v1/gateway/probe", Server::handle_gateway_probe),
+            ("GET /api/v1/gateway/events", Server::handle_gateway_events),
+            ("GET /api/v1/gateway/recovery", Server::handle_gateway_recovery_status),
+            ("GET /api/v1/gateway/settings", Server::handle_get_gateway_settings),
+            ("PUT /api/v1/gateway/settings", Server::handle_put_gateway_settings),
+            ("POST /api/v1/gateway/diagnose", Server::handle_network_diagnose),
+            ("POST /api/v1/system/actions/{action}", Server::handle_service_action),
+            ("GET /api/v1/devices/pauses", Server::handle_get_device_pauses),
+            ("POST /api/v1/devices/pause", Server::handle_pause_device),
+            ("POST /api/v1/devices/resume", Server::handle_resume_device),
+            ("POST /api/v1/config/preview", Server::handle_config_preview),
+            // Health, startup, firewall and accounting.
+            ("GET /api/v1/health", Server::handle_get_health),
+            ("GET /api/v1/startup/boots", Server::handle_startup_boots),
+            ("GET /api/v1/startup/boots/{id}", Server::handle_startup_boot),
+            ("GET /api/v1/firewall/status", Server::handle_firewall_status),
+            ("GET /api/v1/firewall/explain", Server::handle_firewall_explain),
+            ("GET /api/v1/firewall/activity", Server::handle_firewall_activity),
+            ("GET /api/v1/accounting/insights", Server::handle_accounting_insights),
+            ("GET /api/v1/accounting", Server::handle_get_accounting),
         ];
         for (pattern, handler) in protected {
             self.route(router, pattern, true, handler);
         }
-    }
-}
-
-impl Server {
-    /// Placeholder until recovery_diagnostics.rs is ported.
-    pub(crate) fn build_recovery_diagnostics(&self, _cfg: &crate::config::SystemConfig) -> crate::goish::errors::Result<Vec<u8>> {
-        Err(crate::errorf!("not yet ported"))
     }
 }
