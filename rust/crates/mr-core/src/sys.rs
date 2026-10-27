@@ -286,15 +286,16 @@ mod unix {
         // other pointer was produced by getifaddrs and its entries stay valid
         // until freeifaddrs.
         while let Some(entry) = unsafe { cursor.as_ref() } {
-            // SAFETY: ifa_addr is either null or points at a sockaddr whose
-            // family says which concrete type it is; ifa_name is a
-            // NUL-terminated string owned by the list.
-            unsafe {
-                if !entry.ifa_addr.is_null() && i32::from((*entry.ifa_addr).sa_family) == libc::AF_INET {
-                    let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
-                    let name = CStr::from_ptr(entry.ifa_name).to_string_lossy().into_owned();
-                    found.push((name, Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr))));
-                }
+            // SAFETY: ifa_addr is either null (as_ref gives None) or points at a
+            // sockaddr that stays valid until freeifaddrs; its family says
+            // which concrete type it is, so for AF_INET it is a sockaddr_in.
+            // ifa_name is a NUL-terminated string owned by the list.
+            let ipv4 = unsafe { entry.ifa_addr.as_ref() }
+                .filter(|addr| i32::from(addr.sa_family) == libc::AF_INET)
+                .and_then(|_| unsafe { (entry.ifa_addr as *const libc::sockaddr_in).as_ref() });
+            if let (Some(sin), false) = (ipv4, entry.ifa_name.is_null()) {
+                let name = unsafe { CStr::from_ptr(entry.ifa_name) }.to_string_lossy().into_owned();
+                found.push((name, Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr))));
             }
             cursor = entry.ifa_next;
         }

@@ -11,6 +11,9 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+/// How long the output readers get after a command was killed at its deadline.
+const KILL_PIPE_GRACE: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Default)]
 pub struct Output {
     pub stdout: Vec<u8>,
@@ -140,7 +143,11 @@ pub fn execute(command: &mut Command, options: Options) -> Output {
 
     let (status, timed_out) = wait_with_deadline(&mut child, options.timeout, options.process_group);
     let mut output = Output { status, timed_out, ..Default::default() };
-    let deadline = options.wait_delay.map(|delay| Instant::now() + delay);
+    // A killed child can leave a descendant holding the pipes (`sh -c "sleep
+    // 30"` forks); never let that stretch a timeout. Without an explicit
+    // wait_delay, give the readers a short grace period after a kill.
+    let wait_delay = options.wait_delay.or(timed_out.then_some(KILL_PIPE_GRACE));
+    let deadline = wait_delay.map(|delay| Instant::now() + delay);
     for _ in 0..readers {
         let received = match deadline {
             Some(deadline) => io_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok(),
