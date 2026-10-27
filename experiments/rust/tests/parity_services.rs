@@ -107,16 +107,12 @@ fn check(failures: &mut Vec<String>, case: &str, what: &str, got: Result<String>
 
 #[test]
 fn services_match_go() {
-    let Some(path) = parity_config::case_path("services_cases.jsonl") else {
-        eprintln!("skipping: no Go parity cases (run tools/parity.sh)");
-        return;
-    };
     let mut bases: BTreeMap<String, SystemConfig> = BTreeMap::new();
     let mut failures = Vec::new();
     let mut total = 0;
     let mut go_panics = 0;
-    for line in std::io::BufReader::new(std::fs::File::open(path).unwrap()).lines() {
-        let case: Case = serde_json::from_str(&line.unwrap()).unwrap();
+    for line in parity_config::case_lines("services_cases.jsonl") {
+        let case: Case = serde_json::from_str(&line).unwrap();
         total += 1;
         let cfg: SystemConfig = json::unmarshal(case.input.as_bytes()).expect("Go decoded this input");
         if !case.name.contains('-') {

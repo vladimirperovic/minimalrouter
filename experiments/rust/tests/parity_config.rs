@@ -46,27 +46,26 @@ fn normalise(mut errs: Vec<ValidationError>) -> Vec<ValidationError> {
     out
 }
 
-pub fn case_path(name: &str) -> Option<std::path::PathBuf> {
-    let dir = std::env::var("MINIMALROUTER_PARITY_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/parity"));
-    let path = dir.join(name);
-    path.exists().then_some(path)
+/// The lines of a committed fixture, `tests/fixtures/<name>.gz`. The fixtures
+/// were generated once from the last Go implementation (see
+/// `tests/fixtures/README.md`). A missing fixture fails the test: skipping
+/// would let a broken checkout pass silently.
+pub fn case_lines(name: &str) -> Vec<String> {
+    use std::io::Read;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(format!("{name}.gz"));
+    let file = std::fs::File::open(&path).unwrap_or_else(|e| panic!("fixture {} is missing: {e}", path.display()));
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(file).read_to_string(&mut text).unwrap_or_else(|e| panic!("fixture {} is corrupt: {e}", path.display()));
+    text.lines().map(str::to_owned).collect()
 }
 
 #[test]
 fn config_matches_go() {
-    let Some(path) = case_path("config_cases.jsonl") else {
-        eprintln!("skipping: no Go parity cases (run tools/parity.sh)");
-        return;
-    };
-    let file = std::fs::File::open(path).unwrap();
     let bases: BTreeMap<&str, SystemConfig> = BTreeMap::new();
     let mut bases = bases;
     let mut failures = Vec::new();
     let mut total = 0;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.unwrap();
+    for line in case_lines("config_cases.jsonl") {
         let case: Case = serde_json::from_str(&line).unwrap();
         total += 1;
         let parsed: Result<SystemConfig, _> = json::unmarshal(case.input.as_bytes());

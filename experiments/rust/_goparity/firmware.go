@@ -14,11 +14,10 @@ import (
 	"github.com/vladimirperovic/minimalrouter/internal/firmware"
 )
 
-// firmwareCase is one Go-signed manifest. Ed25519 is deterministic, so the
-// Rust port must reproduce the exact signature from the same key, which
-// proves the canonical signed payload is byte-identical.
+// firmwareCase is one Go-signed manifest. The Rust port must verify the Go
+// signature, which proves the canonical signed payload is byte-identical.
+// The signing key is never written out.
 type firmwareCase struct {
-	PrivateKey string `json:"private_key"`
 	PublicKey  string `json:"public_key"`
 	Manifest   string `json:"manifest"`
 	Indented   string `json:"indented"`
@@ -99,7 +98,6 @@ func writeFirmwareCases(outDir string, rng *rand.Rand, count int) {
 		compact, _ := json.Marshal(manifest)
 		indented, _ := json.MarshalIndent(manifest, "", "  ")
 		if err := enc.Encode(firmwareCase{
-			PrivateKey: hex.EncodeToString(private),
 			PublicKey:  hex.EncodeToString(private.Public().(ed25519.PublicKey)),
 			Manifest:   string(compact),
 			Indented:   string(indented),
