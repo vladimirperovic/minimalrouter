@@ -30,19 +30,25 @@ The Windows environment was loaded with `. experiments/rust/tools/env.sh`.
 |---|---:|---:|
 | All 8 binaries, stripped, static linux/amd64 | 56.0 MB | 27.7 MB (-50.6%) |
 | `routerd` binary | 14.7 MB | 10.7 MB |
-| Clean release build, all 8 binaries | 41.2 s | 119.8 s |
+| Production code lines (non-blank, non-comment) | 32,933 | 30,119 |
+| Test functions | 727 | 111 |
+| Test code lines | 21,502 | 2,254 |
+| Clean release build, all 8 binaries | 41.2 s | 119.8 s (62.4 s `release-fast`) |
+| Rebuild after a one-line API change | 1.3 s | 4.9 s dev / 34.2 s `release-fast` / 76.1 s release |
+| Third-party dependencies | 5 direct, 30 modules | 34 direct, 151 crates |
+| `unsafe` code | — | 34 blocks, all in `mr-core/src/sys.rs` |
 | Windows workspace tests | Not re-run | 105 passed |
 | Linux `mr-core` tests, including Unix-only cases | Not re-run | 36 passed |
 | New lab memory, idle CPU and start-up comparison | Not re-measured | Not measured |
 
 Historical polling-runtime memory/CPU figures are kept in their own section
-below; the old "about 10Ã— more idle CPU" result does not describe this build.
+below; the old "about 10× more idle CPU" result does not describe this build.
 
 ## Binary sizes
 
 All eight outputs were built from `0b7af8e` for Linux AMD64 with version
 `0.3.3`, commit and build-date metadata set consistently for both languages.
-Go used `-trimpath -ldflags="-s -w -buildid= -X â€¦"`; Rust used
+Go used `-trimpath -ldflags="-s -w -buildid= -X …"`; Rust used
 `strip = "symbols"`, `lto = true`, `codegen-units = 1` (`release`).
 All outputs are ELF binaries without a dynamic interpreter.
 
@@ -99,7 +105,7 @@ All binary-size figures above use the regular `release` profile.
 
 ## Memory on the Hyper-V lab
 
-**Current event-driven build: not measured.** The Go â†’ Rust â†’ Go â†’ Rust
+**Current event-driven build: not measured.** The Go → Rust → Go → Rust
 rerun, including idle CPU, RSS/peak memory and start-up, still requires the
 current root SSH and dashboard credentials. Existing SSH keys did not
 authenticate. No binaries were deployed and no router services or state were
@@ -117,7 +123,7 @@ not a qualified platform; Proxmox and real hardware were not measured.
 Method:
 
 - Go and Rust were built from the same commit with version 0.3.3: Go with the
-  `Makefile` flags (`-trimpath -ldflags "-s -w -buildid= -X â€¦"`), Rust with the
+  `Makefile` flags (`-trimpath -ldflags "-s -w -buildid= -X …"`), Rust with the
   release profile above for `x86_64-unknown-linux-musl` (musl's allocator).
 - Each build's `routerd` and `router-applyd` were bind-mounted over the active
   slot's binaries and started by the real OpenRC services, so the user,
@@ -130,7 +136,7 @@ Method:
   minute after the load.
 - Two runs per build, alternating Go, Rust, Go, Rust. Both builds served
   exactly the same 3,748 requests per run with identical status codes
-  (3,660 Ã— 200, 88 Ã— 404), so they did the same work.
+  (3,660 × 200, 88 × 404), so they did the same work.
 - Go sets `GOGC=50` and soft memory limits in `main` (128 MiB for `routerd`,
   64 MiB for `router-applyd`). Rust has no equivalent tuning.
 
@@ -142,18 +148,18 @@ throughout, so nothing was shared between the two daemons.
 
 | Sample | Go RSS | Rust RSS | Go heap (anon) | Rust heap (anon) | Go peak | Rust peak |
 |---|---:|---:|---:|---:|---:|---:|
-| Idle, 1 min | 23.4 [22.2â€“24.6] | 16.5 | 10.7 | 9.3 | 23.4 | 16.6 |
-| Idle, 4 min | 24.4 [23.3â€“25.5] | 16.6 | 11.7 | 9.3 | 24.4 | 16.7 |
-| Load, half way | 33.4 [30.8â€“36.1] | 20.7 [20.2â€“21.2] | 19.8 | 12.4 | 120.6 | 80.9 |
-| Load, end | 58.6 [56.9â€“60.2] | 21.9 [20.5â€“23.4] | 44.9 | 13.7 | 120.6 | 80.9 |
-| 1 min after load | 59.2 [58.1â€“60.3] | 21.9 [20.4â€“23.4] | 45.5 | 13.7 | 120.6 | 80.9 |
+| Idle, 1 min | 23.4 [22.2–24.6] | 16.5 | 10.7 | 9.3 | 23.4 | 16.6 |
+| Idle, 4 min | 24.4 [23.3–25.5] | 16.6 | 11.7 | 9.3 | 24.4 | 16.7 |
+| Load, half way | 33.4 [30.8–36.1] | 20.7 [20.2–21.2] | 19.8 | 12.4 | 120.6 | 80.9 |
+| Load, end | 58.6 [56.9–60.2] | 21.9 [20.5–23.4] | 44.9 | 13.7 | 120.6 | 80.9 |
+| 1 min after load | 59.2 [58.1–60.3] | 21.9 [20.4–23.4] | 45.5 | 13.7 | 120.6 | 80.9 |
 
 `router-applyd`:
 
 | Sample | Go RSS | Rust RSS | Go peak | Rust peak |
 |---|---:|---:|---:|---:|
-| Idle, 4 min | 15.8 [14.5â€“17.1] | 12.4 [11.5â€“13.3] | 16.0 | 12.8 |
-| Load, end | 16.7 | 12.6 [11.6â€“13.5] | 17.1 | 12.9 |
+| Idle, 4 min | 15.8 [14.5–17.1] | 12.4 [11.5–13.3] | 16.0 | 12.8 |
+| Load, end | 16.7 | 12.6 [11.6–13.5] | 17.1 | 12.9 |
 
 All figures are MiB. The system's `MemAvailable` agreed: about 40 MiB more
 memory was free during and after the load with the Rust pair.
@@ -174,11 +180,11 @@ What the numbers say:
   much of it comes from the login rather than from serving requests, was not
   measured. For context, the installed (older) Go build on the same VM held
   47.7 MiB after a day of uptime.
-- **`router-applyd`.** Rust uses 3â€“4 MiB less, again mostly the smaller
+- **`router-applyd`.** Rust uses 3–4 MiB less, again mostly the smaller
   binary.
 - **CPU.** Under load Rust `routerd` used 40% less CPU time, including the
   login and its own idle polling. While idle it used about ten times more
-  (5â€“6 clock ticks of 10 ms per minute against under one for Go), still
+  (5–6 clock ticks of 10 ms per minute against under one for Go), still
   under 0.1% of one core. The port polls where Go blocks: the HTTP accept loop wakes every
   50 ms, and stop-aware waits and the DNS risk queue wake every 250 ms
   (`src/httpd/server.rs`, `src/goish/sync.rs`, `src/dnsrisk/mod.rs`). That
@@ -194,22 +200,26 @@ above are about 4% of the minimum.
 
 ## Code size
 
-Historical single-crate snapshot; these line/file counts were not re-counted
-after the workspace split.
+Counted on `45c2e25` (Go source unchanged since the port). Code lines exclude
+blank lines and lines that start with `//`. Rust production code excludes
+`#[cfg(test)]` modules; Rust test code is those modules plus `tests/`.
 
-| | Go | Rust |
+| | Go | Rust workspace |
 |---|---:|---:|
-| Files | 208 | 113 |
-| Lines including blanks and comments | 38,432 | 34,141 |
-| Code lines | 32,933 | 29,815 |
+| Source files (without tests) | 208 | 119 |
+| Lines including blanks and comments | 38,432 | 36,137 |
+| Production code lines | 32,933 | 30,119 |
+| Test files / test functions | 204 / 727 | 6 + in-module / 111 |
+| Test code lines | 21,502 | 2,254 |
 
-The Rust total includes about 1,900 code lines in `src/goish/`, a layer that
-reproduces Go standard-library behaviour the router depends on (IP parsing,
-JSON `null` versus empty lists, case-insensitive JSON keys, time formats,
-`flag` parsing, Go's `CombinedOutput` and `WaitDelay`). It also includes an
-HTTP/1.1 server (`src/httpd/`, about 1,100 code lines) because Go's
+The Rust total includes 1,977 code lines in `goish/`, a layer that reproduces
+Go standard-library behaviour the router depends on (IP parsing, JSON `null`
+versus empty lists, case-insensitive JSON keys, time formats, `flag` parsing).
+It also includes an HTTP/1.1 server (`httpd/`, 1,249 code lines) because Go's
 `net/http` has no equivalent in the Rust standard library. Without those two
-pieces the Rust code is about 19% smaller than the Go code.
+pieces the Rust production code is about 18% smaller than the Go code. Since
+the first snapshot the Rust side grew by about 1,700 lines, mostly the
+event-driven runtime (`shutdown`, `proc`) and the `sys` module.
 
 The current workspace has 34 `unsafe` blocks, all in
 `crates/mr-core/src/sys.rs`, with `unsafe` denied elsewhere and `SAFETY:`
@@ -238,7 +248,7 @@ They compare Rust output with Go output on the same input:
 | Check | Cases | Result |
 |---|---:|---|
 | Configuration validation and normalisation (mutated configs) | 4,002 | byte-identical to Go |
-| All service generators (nftables, dnsmasq, WireGuard, â€¦) | 1,408 | byte-identical to Go |
+| All service generators (nftables, dnsmasq, WireGuard, …) | 1,408 | byte-identical to Go |
 | Go-signed firmware manifests verified in Rust, signatures reproduced | 500 | identical signatures |
 | Release version precedence | 2,000 | identical |
 | MCP `tools/list`, `initialize`, errors, validation (read-only and admin) | 12 messages | byte-identical |
@@ -266,6 +276,19 @@ What is **not** covered:
 - The `Appliance ISO` workflow was not run, and the Rust build is not wired
   into packaging.
 
+## Platform (applies to both builds)
+
+Branch `os/alpine-3.24` (from `main`, commit `e78f0cb`) moves the Golden
+appliance image from Alpine 3.22 with linux-lts 6.12 to Alpine 3.24.3 with
+linux-lts 6.18.58, the newest long-term kernel (checked against kernel.org on
+2026-10-27; 7.x has no long-term release yet). Kernel subsystems a router
+never loads are removed after a dependency check, the initramfs is rebuilt
+from the same module tree, the Alpine release is pinned in one file
+(`packaging/alpine/alpine-release`) and `scripts/alpine-bump.sh` checks and
+performs later moves. The image has not been built yet: the Appliance ISO
+workflow has not run on that branch. The language choice does not depend on
+this change.
+
 ## Known behaviour differences
 
 - JSON type-error messages are worded differently (unknown fields are still
@@ -277,6 +300,9 @@ What is **not** covered:
 - The health DNS probe asks for an A record only (Go asks for A and AAAA);
   the verdict is the same.
 - Combined command output lists stdout before stderr instead of interleaving.
+- The idle runtime blocks in `poll(2)`, `waitid` and condition variables,
+  like Go; the first port polled on timers instead (fixed in `58f9fed`, not
+  yet measured on a router).
 - Operating-system error text differs (for example `File exists (os error
   17)` versus Go's `open PATH: file exists`).
 
