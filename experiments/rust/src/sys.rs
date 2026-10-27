@@ -101,6 +101,7 @@ mod unix {
     }
 
     /// (real, effective, saved) user IDs.
+    #[cfg(target_os = "linux")]
     pub fn user_ids() -> [u32; 3] {
         let (mut r, mut e, mut s) = (0, 0, 0);
         // SAFETY: three valid, exclusively borrowed out pointers.
@@ -108,12 +109,31 @@ mod unix {
         [r, e, s]
     }
 
+    /// (real, effective, saved) user IDs. Only Linux can read the saved ID;
+    /// elsewhere (development hosts) it is reported as the effective one.
+    #[cfg(not(target_os = "linux"))]
+    pub fn user_ids() -> [u32; 3] {
+        // SAFETY: getuid and geteuid have no preconditions and cannot fail.
+        let (r, e) = unsafe { (libc::getuid(), libc::geteuid()) };
+        [r, e, e]
+    }
+
     /// (real, effective, saved) group IDs.
+    #[cfg(target_os = "linux")]
     pub fn group_ids() -> [u32; 3] {
         let (mut r, mut e, mut s) = (0, 0, 0);
         // SAFETY: three valid, exclusively borrowed out pointers.
         unsafe { libc::getresgid(&mut r, &mut e, &mut s) };
         [r, e, s]
+    }
+
+    /// (real, effective, saved) group IDs. Only Linux can read the saved ID;
+    /// elsewhere (development hosts) it is reported as the effective one.
+    #[cfg(not(target_os = "linux"))]
+    pub fn group_ids() -> [u32; 3] {
+        // SAFETY: getgid and getegid have no preconditions and cannot fail.
+        let (r, e) = unsafe { (libc::getgid(), libc::getegid()) };
+        [r, e, e]
     }
 
     pub fn supplementary_group_count() -> io::Result<usize> {
@@ -128,15 +148,30 @@ mod unix {
     }
 
     /// Makes the process non-dumpable (no core files, no ptrace by peers).
+    #[cfg(target_os = "linux")]
     pub fn set_non_dumpable() -> io::Result<()> {
         // SAFETY: prctl with constant integer arguments.
         check(unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) })
     }
 
     /// The process and its children can never gain privileges through exec.
+    #[cfg(target_os = "linux")]
     pub fn set_no_new_privs() -> io::Result<()> {
         // SAFETY: prctl with constant integer arguments.
         check(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) })
+    }
+
+    /// Hardening that only Linux offers fails closed elsewhere instead of
+    /// being skipped silently.
+    #[cfg(not(target_os = "linux"))]
+    pub fn set_non_dumpable() -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "PR_SET_DUMPABLE needs Linux"))
+    }
+
+    /// See [`set_non_dumpable`].
+    #[cfg(not(target_os = "linux"))]
+    pub fn set_no_new_privs() -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "PR_SET_NO_NEW_PRIVS needs Linux"))
     }
 
     #[derive(Clone, Copy, Debug)]
