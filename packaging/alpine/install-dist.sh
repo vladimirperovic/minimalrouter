@@ -52,7 +52,13 @@ done
 # Trust/version/layout checks precede every package and runtime side effect.
 "bin/router-update-${BIN_ARCH}" install-preflight --dir "$SCRIPT_DIR"
 
-ALPINE_VERSION="v3.22"
+# Packages come from the running system's own Alpine release. Moving an
+# appliance to another release is an OS upgrade done by the full Golden
+# installer, never a side effect of installing the router: pointing a 3.22
+# system at 3.24 repositories would mix two releases' packages.
+SUPPORTED_ALPINE_BRANCHES="v3.22 v3.24"
+ALPINE_RELEASE="$(cut -d. -f1,2 /etc/alpine-release 2>/dev/null || true)"
+ALPINE_VERSION="v$ALPINE_RELEASE"
 IMAGE_BUILD="${MINIMALROUTER_IMAGE_BUILD:-0}"
 OFFLINE_MODE=0
 if [ "${1:-}" = "--offline" ]; then
@@ -64,6 +70,16 @@ fi
 
 if [ "${MINIMALROUTER_OFFLINE:-}" = "1" ]; then
     OFFLINE_MODE=1
+fi
+
+if [ "$OFFLINE_MODE" -eq 0 ]; then
+    case " $SUPPORTED_ALPINE_BRANCHES " in
+        *" $ALPINE_VERSION "*) ;;
+        *)
+            echo "ERROR: unsupported Alpine release '${ALPINE_RELEASE:-unknown}'; supported branches: $SUPPORTED_ALPINE_BRANCHES" >&2
+            exit 1
+            ;;
+    esac
 fi
 
 REQUIRED_PACKAGES="nftables ppp ppp-pppoe dnsmasq-dnssec-nftset iproute2 iputils-ping iputils-arping ca-certificates openssh-server wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc chrony chrony-openrc logrotate"
@@ -123,7 +139,7 @@ sync
 # The all-in-one ISO supplies a caller-managed local Alpine repository. Never
 # replace it with CDN URLs in offline mode: setup-disk runs later in the same
 # live environment and must remain installable with zero WAN connectivity.
-if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
+if [ "$OFFLINE_MODE" -eq 0 ] && ! grep -q "/$ALPINE_VERSION/" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi

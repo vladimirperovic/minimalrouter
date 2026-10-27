@@ -1,0 +1,43 @@
+# Kernel modules the Golden image must keep after pruning, besides the
+# runtime list in minimalrouter.modules. Built-in modules also satisfy the
+# check. prune-kernel-modules.sh fails the image build if one is missing.
+
+# Network: virtual NICs and the common physical NICs in mini PCs and servers.
+virtio_net
+hv_netvsc
+vmxnet3
+e1000
+e1000e
+igb
+igc
+ixgbe
+r8169
+
+# Storage and the filesystems the appliance uses.
+virtio_blk
+virtio_scsi
+hv_storvsc
+sd_mod
+ahci
+ata_piix
+nvme
+mmc_block
+sdhci_pci
+usb_storage
+ext4
+vfat
+
+# Console keyboards.
+usbhid
+hid_generic
+
+# Wi-Fi access point stack used with hostapd.
+cfg80211
+mac80211
+
+# nftables runtime used by the generated ruleset.
+nf_tables
+nft_ct
+nft_nat
+nft_masq
+nft_reject_inet

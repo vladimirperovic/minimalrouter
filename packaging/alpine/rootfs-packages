@@ -1,0 +1,11 @@
+# Alpine packages installed into the Golden image root. build-rootfs.sh reads
+# this list; scripts/alpine-bump.sh checks that each package exists in a new
+# release before switching to it.
+alpine-base alpine-conf
+linux-lts linux-firmware-none
+e2fsprogs e2fsprogs-extra
+grub grub-efi syslinux dosfstools util-linux
+nftables ppp ppp-pppoe dnsmasq-dnssec-nftset
+iproute2 iputils-ping iputils-arping ca-certificates openssh-server
+wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc
+chrony chrony-openrc logrotate

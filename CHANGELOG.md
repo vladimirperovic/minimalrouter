@@ -4,6 +4,26 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
+## [Unreleased]
+
+### Changed
+
+- New installations use **Alpine 3.24** with the **linux-lts 6.18** kernel
+  (was Alpine 3.22, linux-lts 6.12). Kernel subsystems a router never loads
+  are removed from the image after a dependency check, and the initramfs is
+  rebuilt from the same module tree.
+- The Alpine release is pinned in one file, `packaging/alpine/alpine-release`;
+  `scripts/alpine-bump.sh` checks and performs moves to newer releases.
+- The installers install packages from the running system's own Alpine
+  release and refuse unsupported releases, instead of rewriting the
+  repositories to a fixed release.
+
+### Upgrade compatibility
+
+- Existing appliances keep Alpine 3.22; dashboard updates and the full
+  installer do not change their release. Not yet validated by the Appliance
+  ISO workflow.
+
 ## [v0.3.3] — 2026-10-15
 
 Closes a gap in the encrypted-DNS bypass DNS filter category after an iPhone on a

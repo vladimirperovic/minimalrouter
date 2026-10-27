@@ -1,12 +1,18 @@
 #!/bin/sh
-# Minimal Router OS — Alpine Linux Installer Script (Pinned to Alpine v3.22 stable)
+# Minimal Router OS — Alpine Linux Installer Script
 set -e
 
-ALPINE_VERSION="v3.22"
+# Packages come from the running release; this script never switches releases.
+SUPPORTED_ALPINE_BRANCHES="v3.22 v3.24"
+ALPINE_VERSION="v$(cut -d. -f1,2 /etc/alpine-release 2>/dev/null || true)"
+case " $SUPPORTED_ALPINE_BRANCHES " in
+    *" $ALPINE_VERSION "*) ;;
+    *) echo "ERROR: unsupported Alpine release ${ALPINE_VERSION#v}; supported branches: $SUPPORTED_ALPINE_BRANCHES" >&2; exit 1 ;;
+esac
 echo "=== Installing Minimal Router OS on Alpine Linux ($ALPINE_VERSION) ==="
 
-# 1. Pin repositories.
-if ! grep -q "$ALPINE_VERSION" /etc/apk/repositories 2>/dev/null; then
+# 1. Pin repositories to the running release.
+if ! grep -q "/$ALPINE_VERSION/" /etc/apk/repositories 2>/dev/null; then
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/main" > /etc/apk/repositories
     echo "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VERSION/community" >> /etc/apk/repositories
 fi

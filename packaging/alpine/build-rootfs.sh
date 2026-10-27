@@ -7,21 +7,23 @@ DIST="build/dist/minimalrouter-linux-amd64"
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required to build the rootfs" >&2; exit 1; }
 rm -f "$OUT"
 repo="$(pwd)"
+. packaging/alpine/alpine-release
+BUILDER_IMAGE="alpine:$ALPINE_VERSION"
 
 # Trust starts with the pulled official builder keyring. Repository metadata
 # and any key upgrades must verify under those keys; never recover a key
 # mismatch by accepting an unauthenticated replacement trust root.
-docker pull --platform linux/amd64 alpine:3.22 >/dev/null
+docker pull --platform linux/amd64 "$BUILDER_IMAGE" >/dev/null
 
-docker run --rm --platform linux/amd64 \
-  -v "$repo:/work" -w /work alpine:3.22 /bin/sh -ec '
+docker run --rm --platform linux/amd64 -e "ALPINE_BRANCH=$ALPINE_BRANCH" \
+  -v "$repo:/work" -w /work "$BUILDER_IMAGE" /bin/sh -ec '
     apk update
     apk add --no-cache --upgrade alpine-keys
     ROOT=/tmp/rootfs
     rm -rf "$ROOT"; mkdir -p "$ROOT/etc/apk/keys"
     printf "%s\n" \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /tmp/repos
+      "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/main" \
+      "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/community" > /tmp/repos
 
     # apk --root verifies repositories using the target roots keyring, not the
     # apk clients own /etc/apk/keys. Seed the signature-verified official
@@ -29,11 +31,7 @@ docker run --rm --platform linux/amd64 \
     cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
 
     apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
-      --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs e2fsprogs-extra \
-      grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq-dnssec-nftset \
-      iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
-      wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
-      chrony chrony-openrc logrotate
+      --no-cache add $(sed -e "s/#.*//" /work/packaging/alpine/rootfs-packages)
     cp /tmp/repos "$ROOT/etc/apk/repositories"
 
     # First boot verifies the prebuilt ext4 filesystem with resize2fs before any
@@ -60,6 +58,17 @@ docker run --rm --platform linux/amd64 \
 
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
+
+    # Remove kernel subsystems a headless router never loads, proving first
+    # that no kept or required module depends on them, then rebuild the
+    # initramfs from that same tree so kernel, initramfs and /lib/modules stay
+    # one validated set. kmod is a builder tool only, not a target package.
+    apk add --no-cache kmod >/dev/null
+    sh /work/packaging/alpine/prune-kernel-modules.sh "$ROOT" \
+      /work/packaging/alpine/minimalrouter.modules \
+      /work/packaging/alpine/kernel-modules.required
+    KERNEL_RELEASE="$(basename "$(find "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 -type d)")"
+    chroot "$ROOT" mkinitfs -o /boot/initramfs-lts "$KERNEL_RELEASE"
 
     # apk --root --initdb does not create the runlevels that setup-alpine and
     # setup-disk would. Without mdev + hwdrivers in sysinit, only NIC drivers

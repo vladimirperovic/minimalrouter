@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/../../packaging/alpine/alpine-release"
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 repository_dir="$(CDPATH= cd -- "${script_dir}/../.." && pwd)"
-version="${1:-3.22.5}"
+version="${1:-$ALPINE_VERSION}"
 cache_dir="${2:-/private/tmp/minimalrouter-alpine-${version}}"
 runner="${cache_dir}/minimalrouter-alpine-vm"
 
