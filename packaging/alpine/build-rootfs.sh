@@ -30,8 +30,24 @@ docker run --rm --platform linux/amd64 -e "ALPINE_BRANCH=$ALPINE_BRANCH" \
     # Alpine keys before the very first target-root package transaction.
     cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
 
-    apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
-      --no-cache add $(sed -e "s/#.*//" /work/packaging/alpine/rootfs-packages)
+    PACKAGES="$(sed -e "s/#.*//" /work/packaging/alpine/rootfs-packages)"
+    if ! apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
+        --no-cache add $PACKAGES > /tmp/apk-add.log 2>&1; then
+      cat /tmp/apk-add.log
+      # apk 3 (Alpine 3.24) reports a failing package trigger as an error. The
+      # grub and syslinux triggers only try to detect a boot device in this
+      # build root, which has none (no /dev or /proc); the Golden image installs
+      # its bootloader later, in build-golden-image.sh. Tolerate exactly those
+      # two, fail on any other error, and prove every package is installed.
+      unexpected="$(grep "^ERROR:" /tmp/apk-add.log | grep -vE "exec/(grub|syslinux)-[^ ]*[.]trigger" || true)"
+      [ -z "$unexpected" ] || { echo "ERROR: unexpected apk errors:" >&2; echo "$unexpected" >&2; exit 1; }
+      for package in $PACKAGES; do
+        apk --root "$ROOT" info -e "$package" > /dev/null || { echo "ERROR: package $package was not installed" >&2; exit 1; }
+      done
+      echo "NOTE: tolerated only the grub/syslinux boot-device trigger errors above"
+    else
+      cat /tmp/apk-add.log
+    fi
     cp /tmp/repos "$ROOT/etc/apk/repositories"
 
     # First boot verifies the prebuilt ext4 filesystem with resize2fs before any

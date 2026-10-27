@@ -114,7 +114,8 @@ jobs:
           cargo metadata --manifest-path rust/Cargo.toml --locked --format-version 1 >build/deep-test/security/cargo-metadata.json
       - name: Keep unsafe code in one module
         run: |
-          unexpected="$(grep -rlE 'unsafe (\{|fn|impl)' rust/crates rust/src --include='*.rs' | grep -v 'rust/crates/mr-core/src/sys.rs' || true)"
+          # Lines that only mention the word inside a string literal are not code.
+          unexpected="$(grep -rnE 'unsafe[[:space:]]*(\{|fn |impl )' rust/crates rust/src --include='*.rs' | grep -v 'rust/crates/mr-core/src/sys.rs' | grep -vE '"[^"]*unsafe' || true)"
           if [ -n "$unexpected" ]; then
             echo "unsafe code outside sys.rs:" >&2
             echo "$unexpected" >&2
