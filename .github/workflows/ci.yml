@@ -228,7 +228,18 @@ jobs:
       - name: Build production dashboard
         run: pnpm build
       - name: Install test browser
-        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+        # The WebKit download or its apt dependencies occasionally hang until the
+        # job's 25 minute limit cancels it (seen on two runs in a row). Bound each
+        # attempt and retry instead of losing the whole job.
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 420 pnpm exec playwright install --with-deps ${{ matrix.browser }}; then
+              exit 0
+            fi
+            echo "browser install attempt $attempt failed or timed out" >&2
+            sleep 10
+          done
+          exit 1
       - name: Run browser E2E tests
         run: pnpm test:e2e --project=${{ matrix.project }} --workers=2
       - name: Upload browser failure traces
