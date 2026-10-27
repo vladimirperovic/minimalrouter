@@ -2,7 +2,7 @@
   "comment": [
     "router-update/recovery are installed to /usr/libexec/minimalrouter/bootstrap;",
     "router-setup is installed to /usr/sbin and verifies firstboot admission.",
-    "outside the A/B slot. cmd/router-update/runtime_layout.go requires a candidate release to",
+    "outside the A/B slot. rust/src/bin/router-update.rs requires a candidate release to",
     "carry byte-identical copies of them before it will activate an A/B slot, because a binary",
     "that survives rollback cannot itself be rolled back by moving a symlink.",
     "",

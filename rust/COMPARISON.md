@@ -1,9 +1,10 @@
 # Go vs Rust: Minimal Router port comparison
 
-This records the Rust port and its current layered workspace on
-`experiment/rust-native`. Build sizes, build times and Windows/Linux test
-results were refreshed on 2026-10-27 from source commit `0b7af8e`.
-The Go source is unchanged. Machine-readable build and test evidence is in
+**Historical record.** This compared the Go implementation (v0.3.3) with the
+Rust port before v0.4.0 replaced Go with Rust; the Go sources are only in git
+history now (tag `v0.3.3`). Build sizes, build times and Windows/Linux test
+results were refreshed on 2026-10-27 from source commit `0b7af8e` of the layered
+workspace. Machine-readable build and test evidence is in
 [validation-2026-10-27.json](validation-2026-10-27.json).
 
 The memory, CPU and start-up figures below are **historical measurements of
@@ -257,8 +258,10 @@ They compare Rust output with Go output on the same input:
 | MCP bridge binary against the Rust API over TLS | 1 scenario | passes |
 | All 91 API routes registered with the same method and path | 91 | identical lists |
 
-The differential harness is `_goparity/main.go` (640 lines of Go that
-generate the cases). Reproduce with `sh rust/tools/parity.sh`.
+The cases came from a differential harness (`_goparity/main.go`, 640 lines of
+Go). Since v0.4.0 removed Go, its last outputs are frozen as the gzip fixtures
+in `rust/tests/fixtures` (see their README) and `cargo test` checks them; the
+harness itself lives in git history.
 
 What is **not** covered:
 
@@ -356,7 +359,6 @@ From the repository root, in Git Bash:
 
 ```bash
 . rust/tools/env.sh
-sh rust/tools/parity.sh
 cd rust && cargo test --workspace
 cargo clippy --workspace --all-targets
 cargo zigbuild --release --target x86_64-unknown-linux-musl --bins

@@ -4,7 +4,7 @@
 #
 # router-update/recovery run from /usr/libexec/minimalrouter/bootstrap;
 # router-setup is the installed firstboot verifier under /usr/sbin. All run
-# outside the A/B slot. cmd/router-update/runtime_layout.go refuses activation
+# outside the A/B slot. rust/src/bin/router-update.rs refuses activation
 # unless the candidate's copy of each is byte-identical to the installed one,
 # because a binary that survives rollback cannot itself be rolled back by moving
 # a symlink. So "is this release web-updatable?" is exactly "are the bootstrap
@@ -12,7 +12,7 @@
 #
 # Both sides are built here with the same toolchain and the same deterministic
 # flags, so the answer reflects the bootstrap source only — not the commit hash
-# Go would otherwise stamp into every build.
+# would otherwise be stamped into every build.
 #
 # Usage: sh scripts/ci/bootstrap-compatibility.sh [baseline-ref]
 #   baseline-ref defaults to bootstrap_baseline_ref in
@@ -121,5 +121,5 @@ echo "This change is NOT recorded. Update $BASELINE_FILE in this pull request:"
 echo "  bootstrap_change_acknowledged_version -> $CURRENT_VERSION"
 echo "  bootstrap_change_reason               -> why bootstrap code had to change"
 echo "and document the one-time full-installer step for existing appliances."
-echo "Do not relax the byte-identity check in cmd/router-update to make this pass."
+echo "Do not relax the byte-identity check in router-update to make this pass."
 exit 1

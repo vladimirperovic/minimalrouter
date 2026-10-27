@@ -1,8 +1,7 @@
-//! Differential tests against the Go implementation.
+//! Tests against the last Go implementation (v0.3.3).
 //!
-//! Cases are produced by `go run ./rust/_goparity` (see
-//! `tools/parity.sh`). The test is skipped when the case file is absent so a
-//! plain `cargo test` still works without a Go toolchain.
+//! The cases are frozen fixtures in `tests/fixtures` (see its README); no Go
+//! toolchain is involved. A missing fixture fails the test.
 
 use std::collections::BTreeMap;
 

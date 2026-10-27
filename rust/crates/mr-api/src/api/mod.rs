@@ -1,4 +1,4 @@
-//! The REST API of Minimal Router OS (Go `internal/api`): authentication,
+//! The REST API of Minimal Router OS (ported from the Go implementation of v0.3.3): authentication,
 //! the trusted-network boundary, CSRF/Origin checks, configuration
 //! transactions, recovery and every dashboard endpoint.
 

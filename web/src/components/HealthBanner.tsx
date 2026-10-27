@@ -26,7 +26,7 @@ const STATE_CLASS: Record<ApplianceHealthState, string> = {
   unknown: "is-unknown",
 };
 
-// Severity order matches internal/health: unknown is never folded into healthy.
+// Severity order matches the health checks in rust/crates/mr-api/src/health.rs: unknown is never folded into healthy.
 const STATE_RANK: Record<ApplianceHealthState, number> = {
   recovery_required: 4,
   degraded: 3,

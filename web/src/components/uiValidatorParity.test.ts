@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { insidePool, suggestReservationAddress } from "./deviceReservation";
 
-// These mirror the appliance's own rules in internal/config/validation.go. A
+// These mirror the appliance's own rules in rust/crates/mr-config/src/config/validation.rs. A
 // control that offers a value the appliance refuses is a dead end for the
 // operator: the save fails and the error lands in a banner at the top of the
 // page, far from the field that caused it.
