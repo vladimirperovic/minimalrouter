@@ -13,8 +13,9 @@ record() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS"; log "$1  $2  $3";
 # run NAME FUNCTION : the function's last line of output is the reason.
 run() {
     local name=$1 out rc
-    # LAB_ONLY=REGEX runs just the matching tests (plus the kernel-log crash scans).
-    if [ -n "${LAB_ONLY:-}" ] && ! printf "%s" "$name" | grep -Eiq "$LAB_ONLY|no crashes"; then
+    # LAB_ONLY=REGEX runs just the matching tests, plus the kernel-log crash scans and
+    # the LAN DHCP test, which gives the client namespace its address.
+    if [ -n "${LAB_ONLY:-}" ] && ! printf "%s" "$name" | grep -Eiq "$LAB_ONLY|no crashes|LAN DHCP lease"; then
         return 0
     fi
     shift
@@ -455,6 +456,30 @@ t_memory_and_cpu() {
     cat "$LOGS/memory-summary.txt"
 }
 
+# smaps_detail LABEL : where routerd's resident memory sits (heap, anonymous
+# mappings by size, thread stacks), to tell allocator growth from a leak.
+smaps_detail() {
+    rsh sh -s "$1" <<'EOS'
+label=$1
+p=$(pgrep -f "slots/.*/bin/routerd-amd64" | head -n 1)
+[ -n "$p" ] || exit 0
+echo "== $label pid=$p"
+awk '/^[0-9a-f]+-[0-9a-f]+ /{name=$6; if (name=="") name="[anon]"; range=$1}
+     $1=="Rss:"{tot[name]+=$2; n[name]++; one[range" "name]=$2}
+     END{for (k in tot) printf "total %-24s %8d kB in %d maps\n", k, tot[k], n[k];
+         for (k in one) if (one[k] >= 2048) printf "map   %-48s %8d kB\n", k, one[k]}' "/proc/$p/smaps" | sort -k3 -n -r | head -n 14
+EOS
+}
+
+# response_sizes : bytes of every read endpoint's answer, to see which one grows.
+response_sizes() {
+    local path
+    for path in snapshots audit/events dns-activity/recent dns-activity/alerts accounting accounting/insights gateway/history gateway/events firewall/activity network/devices network/leases startup/boots; do
+        printf '%s=%s ' "$path" "$(api call GET "$path" 2>/dev/null | wc -c)"
+    done
+    echo
+}
+
 t_soak() {
     local pid_d pid_a end half i rss_start rss_mid rss_end code line seconds
     seconds=${LAB_SOAK_SECONDS:-300}
@@ -463,6 +488,8 @@ t_soak() {
     rss_start=$(field "$(sample_memory soak_start | grep ' routerd ')" rss)
     api login >/dev/null || return 1
     : > "$LOGS/soak-trend.txt"
+    : > "$LOGS/soak-detail.txt"
+    { echo "== response sizes at the start"; response_sizes; smaps_detail soak_start; } >> "$LOGS/soak-detail.txt"
     end=$((SECONDS + seconds))
     half=$((SECONDS + seconds / 2))
     rss_mid=
@@ -474,11 +501,13 @@ t_soak() {
         i=$((i + 1))
         line=$(sample_memory "soak_$i" | grep ' routerd ')
         printf '%s %s\n' "$i" "$line" >> "$LOGS/soak-trend.txt"
+        if [ "$((i % 3))" -eq 0 ]; then smaps_detail "round_$i" >> "$LOGS/soak-detail.txt"; fi
         if [ -z "$rss_mid" ] && [ "$SECONDS" -ge "$half" ]; then
             rss_mid=$(field "$line" rss)
         fi
     done
     rss_end=$(field "$(sample_memory soak_end | grep ' routerd ')" rss)
+    { echo "== response sizes at the end"; response_sizes; smaps_detail soak_end; } >> "$LOGS/soak-detail.txt"
     [ -n "$rss_mid" ] || rss_mid=$rss_start
     [ "$(router_pid routerd)" = "$pid_d" ] || { echo "routerd restarted during the soak"; return 1; }
     [ "$(router_pid router-applyd)" = "$pid_a" ] || { echo "router-applyd restarted during the soak"; return 1; }
