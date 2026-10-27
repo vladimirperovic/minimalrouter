@@ -8,13 +8,14 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::ser::{CompactFormatter, Formatter, PrettyFormatter};
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::ops::{Deref, DerefMut};
 
 /// A Go slice: `null` (nil) and `[]` (empty) are distinct encodings.
 ///
 /// Appending to a nil list makes it non-nil, exactly as `append` does in Go.
-#[derive(Clone, Debug, Eq, Hash)]
+#[derive(Clone, Debug, Eq)]
 pub struct List<T> {
     items: Vec<T>,
     nil: bool,
@@ -52,6 +53,15 @@ impl<T> Default for List<T> {
 impl<T: PartialEq> PartialEq for List<T> {
     fn eq(&self, other: &Self) -> bool {
         self.is_nil() == other.is_nil() && self.items == other.items
+    }
+}
+
+/// Hashes what `PartialEq` compares: a list that was nil but has been pushed
+/// to still carries the `nil` flag, yet equals a list built from a `Vec`.
+impl<T: Hash> Hash for List<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.is_nil().hash(state);
+        self.items.hash(state);
     }
 }
 
@@ -285,6 +295,18 @@ mod tests {
         b: List<i32>,
         s: String,
         f: f64,
+    }
+
+    #[test]
+    fn equal_lists_hash_alike() {
+        use std::hash::{BuildHasher, RandomState};
+        let state = RandomState::new();
+        let mut pushed: List<i32> = List::nil();
+        pushed.push(1);
+        let built = List::from(vec![1]);
+        assert_eq!(pushed, built);
+        assert_eq!(state.hash_one(&pushed), state.hash_one(&built));
+        assert_ne!(List::<i32>::nil(), List::empty());
     }
 
     #[test]
