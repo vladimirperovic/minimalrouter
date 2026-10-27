@@ -98,6 +98,26 @@ impl Server {
             ("GET /api/v1/wireguard/provisioning-preview", Server::handle_wireguard_provisioning_preview),
             ("POST /api/v1/wireguard/client/keys", Server::handle_wireguard_client_keys),
             ("POST /api/v1/qos/speedtest", Server::handle_speedtest),
+            // DNS activity, risk alerts and filtering.
+            ("GET /api/v1/dns-activity", Server::handle_dns_activity),
+            ("GET /api/v1/dns-activity/settings", Server::handle_get_dns_activity_settings),
+            ("PUT /api/v1/dns-activity/settings", Server::handle_put_dns_activity_settings),
+            ("GET /api/v1/dns-activity/recent", Server::handle_dns_activity_recent),
+            ("POST /api/v1/dns-activity/clear", Server::handle_dns_activity_clear),
+            ("GET /api/v1/dns-activity/alerts/summary", Server::handle_dns_risk_summary),
+            ("GET /api/v1/dns-activity/alerts", Server::handle_dns_risk_alerts),
+            ("POST /api/v1/dns-activity/alerts/{id}/acknowledge", Server::handle_dns_risk_acknowledge),
+            ("POST /api/v1/dns-activity/alerts/{id}/ignore", Server::handle_dns_risk_ignore),
+            ("GET /api/v1/dns-activity/alerts/exceptions", Server::handle_dns_risk_exceptions),
+            ("DELETE /api/v1/dns-activity/alerts/exceptions/{id}", Server::handle_dns_risk_remove_exception),
+            ("POST /api/v1/dns-activity/alerts/refresh", Server::handle_dns_risk_refresh),
+            ("GET /api/v1/dns-filter", Server::handle_dns_filter_status),
+            ("PUT /api/v1/dns-filter", Server::handle_dns_filter_save),
+            ("POST /api/v1/dns-filter/refresh", Server::handle_dns_filter_refresh),
+            ("POST /api/v1/dns-filter/check", Server::handle_dns_filter_check),
+            ("GET /api/v1/dns-filter/check", Server::handle_dns_filter_check),
+            ("GET /api/v1/dns-filter/profiles", Server::handle_dns_filter_profiles),
+            ("GET /api/v1/dns-filter/operations", Server::handle_dns_filter_operations),
         ];
         for (pattern, handler) in protected {
             self.route(router, pattern, true, handler);

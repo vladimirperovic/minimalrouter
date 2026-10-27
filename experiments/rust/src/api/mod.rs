@@ -3,6 +3,7 @@
 //! transactions, recovery and every dashboard endpoint.
 
 mod audit;
+mod dns;
 mod gateway;
 mod lan;
 mod observability;
