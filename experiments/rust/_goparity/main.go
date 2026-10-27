@@ -440,6 +440,7 @@ func main() {
 	n := flag.Int("n", 4000, "number of mutated cases")
 	ns := flag.Int("services", 1500, "number of mutated generator cases")
 	seed := flag.Int64("seed", 20261026, "random seed")
+	nf := flag.Int("firmware", 500, "number of signed manifest cases")
 	flag.Parse()
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
 		panic(err)
@@ -507,4 +508,5 @@ func main() {
 		written++
 	}
 	fmt.Fprintf(os.Stderr, "wrote %d services cases to %s\n", written, *outDir)
+	writeFirmwareCases(*outDir, m.rng, *nf)
 }
