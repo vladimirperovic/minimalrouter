@@ -30,7 +30,7 @@ dns-activity dns-activity/alerts dns-activity/alerts/summary dns-activity/recent
 dns-filter dns-filter/operations dns-filter/profiles firewall/activity firewall/status
 firmware/local-status firmware/status gateway/events gateway/history gateway/insights gateway/recovery
 gateway/settings gateway/summary health network/devices network/lan network/leases recovery/status
-setup/interfaces setup/status snapshots startup/boots system system/diagnostics system/interfaces
+setup/status snapshots startup/boots system system/diagnostics system/interfaces
 transactions/pending wireguard/provisioning-preview""".split()
 
 

@@ -25,7 +25,7 @@ run() {
 }
 http_code() { api call "$@" | head -n 1 | awk '{print $2}'; }
 config_json() { api call GET config | tail -n +2; }
-firewall_fingerprint() { rsh 'nft list ruleset | sha256sum | cut -c1-16'; }
+firewall_fingerprint() { rsh "nft -s list ruleset | sed '/elements = {/,/}/d' | sha256sum | cut -c1-16"; }
 state_digest() { echo "revision=$(config_json | jq -r .revision) hostname=$(config_json | jq -r .system.hostname)"; }
 
 ppp_up() { rsh 'ip -4 -o addr show ppp0 | grep -q "10\.250\.0\."'; }
@@ -70,7 +70,7 @@ c_wan_link_flaps() {
     wait_for 300 ppp_up || { rsh 'ip -o addr; ps w | grep -E "pppd|pppoe"'; echo "PPPoE did not come back after 6 link flaps"; return 1; }
     [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules changed during link flaps"; return 1; }
     router_healthy || return 1
-    wait_for 60 client curl -s --max-time 5 "http://$ISP_PPP_IP:8080/marker.txt" || { echo "LAN traffic did not recover"; return 1; }
+    wait_for 60 client curl -s --max-time 5 "http://$INET_IP:8080/marker.txt" || { echo "LAN traffic did not recover"; return 1; }
     no_crashes || return 1
     echo "6 WAN link flaps: PPPoE re-established, firewall identical, LAN traffic flows"
 }
@@ -85,7 +85,7 @@ c_lan_link_flaps() {
     done
     wait_for 120 rsh true || { echo "SSH did not come back after LAN link flaps"; return 1; }
     router_healthy || return 1
-    wait_for 60 client curl -s --max-time 5 "http://$ISP_PPP_IP:8080/marker.txt" || { echo "client lost its path through the router"; return 1; }
+    wait_for 60 client curl -s --max-time 5 "http://$INET_IP:8080/marker.txt" || { echo "client lost its path through the router"; return 1; }
     echo "5 LAN link flaps survived; management and routing intact"
 }
 
@@ -111,7 +111,7 @@ c_frozen_routerd() {
     rsh "kill -STOP $pid"
     sleep 25
     # Frozen, the management plane cannot answer, but routing must carry on.
-    client curl -s --max-time 10 "http://$ISP_PPP_IP:8080/marker.txt" | grep -q LAB_ISP_MARKER || { rsh "kill -CONT $pid"; echo "routing stopped while routerd was frozen"; return 1; }
+    client curl -s --max-time 10 "http://$INET_IP:8080/marker.txt" | grep -q LAB_ISP_MARKER || { rsh "kill -CONT $pid"; echo "routing stopped while routerd was frozen"; return 1; }
     rsh "kill -CONT $pid"
     wait_for 60 router_healthy || { echo "routerd did not recover after SIGCONT"; return 1; }
     echo "routerd frozen 25 s: routing unaffected, management plane recovered"

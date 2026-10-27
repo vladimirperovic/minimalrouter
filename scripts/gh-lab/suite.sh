@@ -111,7 +111,7 @@ t_lan_dns_answers() {
 
 t_lan_nat_to_provider() {
     local body src
-    body=$(client curl -s --max-time 10 "http://$ISP_PPP_IP:8080/marker.txt")
+    body=$(client curl -s --max-time 10 "http://$INET_IP:8080/marker.txt")
     [ "$body" = LAB_ISP_MARKER ] || { echo "client could not fetch through the router: '$body'"; return 1; }
     src=$(grep 'marker.txt' "$LOGS/isp-http.log" | tail -n 1 | awk '{print $1}')
     [ "$src" = "$ROUTER_PPP_IP" ] || { echo "provider saw source $src, expected NAT to $ROUTER_PPP_IP"; return 1; }
@@ -203,6 +203,13 @@ t_api_reads() {
     echo "$(wc -l < "$LAB_RUN/reads.txt") read endpoints all answer 200"
 }
 
+t_setup_is_closed() {
+    local code
+    code=$(curl_code -H "Origin: $ROUTER_URL" "$ROUTER_URL/api/v1/setup/interfaces")
+    [ "$code" = 404 ] || { echo "first-run interface discovery gave $code after setup, expected 404"; return 1; }
+    echo "first-run setup endpoints are closed once an administrator exists"
+}
+
 t_http_hygiene() {
     local cookie csrf code
     cookie=$(jq -r .cookie "$LAB_RUN/session.json")
@@ -214,7 +221,9 @@ t_http_hygiene() {
     code=$(curl_code -H 'Host: evil.example' -H "Cookie: $cookie" "$ROUTER_URL/api/v1/health")
     case "$code" in 4*) ;; *) echo "foreign Host header gave $code, expected 4xx"; return 1 ;; esac
     code=$(curl_code -X DELETE -H "Origin: $ROUTER_URL" -H "Cookie: $cookie" -H "X-CSRF-Token: $csrf" "$ROUTER_URL/api/v1/health")
-    [ "$code" = 405 ] || { echo "DELETE on a read-only route gave $code, expected 405"; return 1; }
+    # The catch-all dashboard handler may answer 404 for a method no route owns;
+    # the torture lab (scenario 104) accepts either. A 2xx or 5xx would be wrong.
+    case "$code" in 404|405) ;; *) echo "DELETE on a read-only route gave $code, expected 404 or 405"; return 1 ;; esac
     code=$(curl_code -X POST -H "Origin: $ROUTER_URL" -H 'Content-Type: application/json' -d '{bad json' "$ROUTER_URL/api/v1/auth/login")
     case "$code" in 400|401|422) ;; *) echo "malformed JSON gave $code"; return 1 ;; esac
     code=$(head -c 6000000 /dev/zero | tr '\0' 'a' | curl_code -X POST -H "Origin: $ROUTER_URL" -H 'Content-Type: application/json' --data-binary @- "$ROUTER_URL/api/v1/auth/login")
@@ -267,8 +276,10 @@ t_safe_config_change() {
     after=$(config_json | jq -r .revision)
     [ "$(config_json | jq -r .system.hostname)" = lab-router ] || { echo "hostname not applied"; return 1; }
     [ "$after" -gt "$before" ] || { echo "revision did not increase ($before -> $after)"; return 1; }
-    [ "$(rsh hostname | tr -d '\r\n')" = lab-router ] || { echo "the running system did not take the hostname"; return 1; }
-    echo "hostname change applied: revision $before -> $after, running system updated"
+    # The hostname feeds the router's own DNS name, not the kernel hostname (the
+    # Go release behaved the same), so check what the LAN actually sees.
+    wait_for 30 client dig +short +time=3 "@$ROUTER_LAN_IP" "lab-router.$(config_json | jq -r .system.domain)" || { echo "the router's DNS does not resolve the new hostname"; return 1; }
+    echo "hostname change applied: revision $before -> $after, router DNS resolves the new name"
 }
 
 t_confirm_flow() {
@@ -303,7 +314,9 @@ t_rollback_unconfirmed() {
 
 # ---------------------------------------------------------------- resilience
 
-firewall_fingerprint() { rsh 'nft list ruleset | sha256sum | cut -c1-16'; }
+# Rules only: counters, timeouts and the contents of dynamic sets (DNS filter,
+# accounting) change with traffic and are not part of the rule set.
+firewall_fingerprint() { rsh "nft -s list ruleset | sed '/elements = {/,/}/d' | sha256sum | cut -c1-16"; }
 
 t_kill_routerd() {
     local old new fw
@@ -336,7 +349,7 @@ t_pppoe_flap() {
     isp pkill -x pppd || { echo "no provider pppd to kill"; return 1; }
     wait_for 60 rsh '! ip -4 -o addr show ppp0 2>/dev/null | grep -q "10\.250\.0\."' || echo "(link did not drop visibly)"
     wait_for 240 rsh 'ip -4 -o addr show ppp0 | grep -q "10\.250\.0\."' || { rsh 'tail -n 60 /var/log/messages'; echo "PPPoE did not redial"; return 1; }
-    wait_for 60 client curl -s --max-time 5 "http://$ISP_PPP_IP:8080/marker.txt" || { echo "LAN traffic did not recover after the redial"; return 1; }
+    wait_for 60 client curl -s --max-time 5 "http://$INET_IP:8080/marker.txt" || { echo "LAN traffic did not recover after the redial"; return 1; }
     echo "PPPoE redialled after the provider dropped the session; LAN traffic flows again"
 }
 
@@ -463,7 +476,7 @@ t_throughput() {
     isp bash -c "nohup iperf3 -s -1 >'$LOGS/iperf-server.log' 2>&1 &"
     sleep 2
     local mbit
-    mbit=$(client iperf3 -c "$ISP_PPP_IP" -t 10 -J 2>/dev/null | jq '.end.sum_received.bits_per_second / 1e6 | floor')
+    mbit=$(client iperf3 -c "$INET_IP" -t 10 -J 2>/dev/null | jq '.end.sum_received.bits_per_second / 1e6 | floor')
     [ -n "$mbit" ] && [ "$mbit" != null ] || { echo "iperf3 gave no result"; return 1; }
     echo "LAN client to provider through NAT and PPPoE: ${mbit} Mbit/s (software-emulated NICs, informational)"
 }
@@ -490,6 +503,7 @@ run "WAN cannot reach the LAN" t_wan_cannot_reach_lan
 run "WAN: spoofed LAN source refused" t_wan_spoofed_lan_source
 run "API authentication basics" t_auth_basics
 run "every read endpoint answers 200" t_api_reads
+run "first-run setup is closed after setup" t_setup_is_closed
 run "HTTP hygiene: CSRF, Origin, Host, method, size" t_http_hygiene
 run "security headers" t_security_headers
 run "TLS policy" t_tls_policy

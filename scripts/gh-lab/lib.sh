@@ -24,6 +24,10 @@ ROUTER_LAN_IP=192.168.1.1
 HOST_LAN_IP=192.168.1.50
 ROUTER_PPP_IP=10.250.0.50
 ISP_PPP_IP=10.250.0.1
+# A public-style address on the provider side. The router drops forwarded replies from
+# private sources (10/8 and friends) on its WAN links, so traffic from a LAN client
+# can only be tested against a non-private "internet" address, never 10.250.0.1.
+INET_IP=11.255.0.2
 DASH_PASS='MinimalRouterLab-2026!'
 ROOT_PASS='MRlabRecovery-2026!'
 PPPOE_USER=mrlab

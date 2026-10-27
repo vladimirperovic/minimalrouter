@@ -50,6 +50,7 @@ up() {
     isp ip link set isp-dn up
     isp ip route add default via 172.31.0.1
     isp sysctl -qw net.ipv4.ip_forward=1
+    isp ip addr add "$INET_IP/32" dev lo
     sudo nft -f - <<'EOF'
 table ip lab {
   chain post {
