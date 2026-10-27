@@ -45,17 +45,26 @@ sh "$SOURCE/prune-kernel-modules.sh" "$WORK/ok" "$WORK/required" > "$WORK/ok.log
 grep -q "$RELEASE" "$WORK/depmod.called"
 grep -q 'removed 2 files' "$WORK/ok.log"
 
-# A kept module that depends on a pruned one stops the build before any change.
-make_tree bad
-echo "kernel/drivers/net/ppp/pppox.ko.gz: kernel/sound/core/snd.ko.gz" >> "$WORK/bad/lib/modules/$RELEASE/modules.dep"
-rm -f "$WORK/depmod.called"
-if sh "$SOURCE/prune-kernel-modules.sh" "$WORK/bad" "$WORK/required" 2> "$WORK/bad.log"; then
-    echo "FAIL: a dependency on a pruned module was accepted" >&2
+# A module that needs a removed one could never load, so it is removed too.
+make_tree dependent
+: > "$WORK/dependent/lib/modules/$RELEASE/kernel/drivers/net/ppp/pppox.ko.gz"
+echo "kernel/drivers/net/ppp/pppox.ko.gz: kernel/sound/core/snd.ko.gz" >> "$WORK/dependent/lib/modules/$RELEASE/modules.dep"
+sh "$SOURCE/prune-kernel-modules.sh" "$WORK/dependent" "$WORK/required" > "$WORK/dependent.log"
+[ ! -e "$WORK/dependent/lib/modules/$RELEASE/kernel/drivers/net/ppp/pppox.ko.gz" ]
+[ -e "$WORK/dependent/lib/modules/$RELEASE/kernel/drivers/net/ppp/pppoe.ko.gz" ]
+grep -q 'Removing kernel/drivers/net/ppp/pppox.ko.gz: it depends on a removed module' "$WORK/dependent.log"
+grep -q 'removed 3 files' "$WORK/dependent.log"
+
+# ...but never when the appliance requires it.
+make_tree required-dependent
+: > "$WORK/required-dependent/lib/modules/$RELEASE/kernel/drivers/net/ppp/pppox.ko.gz"
+echo "kernel/drivers/net/ppp/pppox.ko.gz: kernel/sound/core/snd.ko.gz" >> "$WORK/required-dependent/lib/modules/$RELEASE/modules.dep"
+printf 'pppox\n' > "$WORK/required-pppox"
+if sh "$SOURCE/prune-kernel-modules.sh" "$WORK/required-dependent" "$WORK/required" "$WORK/required-pppox" 2> "$WORK/required-dependent.log"; then
+    echo "FAIL: a required module that depends on a removed one was dropped silently" >&2
     exit 1
 fi
-grep -q 'kept module kernel/drivers/net/ppp/pppox.ko.gz depends on pruned kernel/sound/core/snd.ko.gz' "$WORK/bad.log"
-[ -e "$WORK/bad/lib/modules/$RELEASE/kernel/sound/core/snd.ko.gz" ]
-[ ! -e "$WORK/depmod.called" ]
+grep -q 'required kernel module pppox is unavailable after pruning' "$WORK/required-dependent.log"
 
 # A required module that pruning would remove fails the build.
 make_tree gone

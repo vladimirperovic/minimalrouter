@@ -4,9 +4,10 @@
 # Usage: prune-kernel-modules.sh ROOT REQUIRED_LIST...
 #
 # Runs in the CI image builder after the kernel package is installed (it needs
-# kmod's depmod and modprobe there). It refuses to remove a module that a kept
-# module depends on, rebuilds the module index, and fails unless every module
-# named in the REQUIRED_LIST files still resolves with all its dependencies.
+# kmod's depmod and modprobe there). Modules that depend on a removed one are
+# removed too, the module index is rebuilt, and the build fails unless every
+# module named in the REQUIRED_LIST files still resolves with all its
+# dependencies.
 # The caller then rebuilds the initramfs from the same tree, so kernel,
 # initramfs and /lib/modules stay one validated set (docs/GOLDEN-IMAGE.md).
 set -eu
@@ -71,8 +72,14 @@ for path in $PRUNE; do
     (cd "$MODDIR" && find "$path" -type f -name '*.ko*')
 done | sort -u > "$removal"
 
-# A kept module that needs a pruned one would fail to load at runtime.
-if ! awk -v removal="$removal" '
+# A module that needs a removed one could never load, so it goes too (for
+# example NVMe over RDMA once InfiniBand is gone). modules.dep lists every
+# module's full dependency chain, so one pass finds them all. The
+# required-module check below still fails the build if this would take away
+# anything the appliance needs.
+dependents=$(mktemp)
+trap 'rm -f "$removal" "$dependents"' EXIT HUP INT TERM
+awk -v removal="$removal" '
     BEGIN { while ((getline line < removal) > 0) gone[line] = 1 }
     {
         target = $1
@@ -80,19 +87,21 @@ if ! awk -v removal="$removal" '
         if (target in gone) next
         for (i = 2; i <= NF; i++) {
             if ($i in gone) {
-                print "ERROR: kept module " target " depends on pruned " $i > "/dev/stderr"
-                bad = 1
+                print target
+                next
             }
         }
     }
-    END { exit bad }
-' "$MODDIR/modules.dep"; then
-    exit 1
-fi
+' "$MODDIR/modules.dep" | sort -u > "$dependents"
 
 for path in $PRUNE; do
     rm -rf "${MODDIR:?}/$path"
 done
+while IFS= read -r module; do
+    echo "Removing $module: it depends on a removed module"
+    rm -f "${MODDIR:?}/$module"
+done < "$dependents"
+cat "$dependents" >> "$removal"
 depmod -b "$ROOT" "$RELEASE"
 
 missing=0
