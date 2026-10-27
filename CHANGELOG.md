@@ -4,14 +4,31 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
-## [Unreleased]
+## [Unreleased] — v0.4.0 candidate
+
+Candidate under test. Nothing below has passed the Appliance ISO workflow, a
+lab router or a Proxmox pilot yet; this entry will be rewritten with the
+evidence collected before a release is tagged.
 
 ### Changed
 
+- **The runtime is written in Rust.** `routerd`, `router-applyd`,
+  `router-recovery`, `router-update`, `router-setup`, `firmware-sign`,
+  `firmware-keygen` and `minimalrouter-mcp` are built from the workspace under
+  `rust/` as static musl binaries for AMD64 and ARM64. The Go implementation is
+  removed (it remains in git history; v0.3.3 is its last release). Behaviour
+  is held to Go v0.3.3 by frozen fixtures: 502 configurations, 1,401 generated
+  service files, 500 signed firmware manifests and 2,000 version comparisons.
+  Measured on a lab router with the first port, `routerd` used about a third
+  less memory at idle and returned the 64 MiB password-hashing buffer at once;
+  the event-driven build has not been re-measured.
+- All `unsafe` code is confined to one audited module, and the build rejects it
+  anywhere else.
 - New installations use **Alpine 3.24** with the **linux-lts 6.18** kernel
   (was Alpine 3.22, linux-lts 6.12). Kernel subsystems a router never loads
-  are removed from the image after a dependency check, and the initramfs is
-  rebuilt from the same module tree.
+  are removed from the image after a dependency check (about 38% of the module
+  tree on the 6.18.58 package), and the initramfs is rebuilt from the same
+  module tree.
 - The Alpine release is pinned in one file, `packaging/alpine/alpine-release`;
   `scripts/alpine-bump.sh` checks and performs moves to newer releases.
 - The installers install packages from the running system's own Alpine
@@ -20,9 +37,19 @@ compatibility may still change between releases.
 
 ### Upgrade compatibility
 
-- Existing appliances keep Alpine 3.22; dashboard updates and the full
-  installer do not change their release. Not yet validated by the Appliance
-  ISO workflow.
+- **Every appliance running v0.3.3 or earlier needs the full signed
+  installer once.** The bootstrap programs (`router-update`, `router-recovery`,
+  `router-setup`) are different programs, so the dashboard updater refuses the
+  transition by design. Releases after v0.4.0 are compared against it.
+- Existing appliances keep Alpine 3.22; neither the dashboard update nor the
+  full installer changes their release.
+
+### Not carried over from the Go test suite
+
+The Go race detector, the two fuzzers, coverage measurement, the live
+DNS-filter and privilege-drop tests and the API benchmarks were not ported.
+The Rust suite has 111 test functions against 727 in Go; most Go unit tests
+were not ported.
 
 ## [v0.3.3] — 2026-10-15
 
