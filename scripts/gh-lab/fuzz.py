@@ -66,7 +66,11 @@ def request(method, path, body=None, cookie=None, csrf=None, raw=None):
 
 
 def login():
-    status, headers, body = request("POST", "/api/v1/auth/login", {"password": PASSWORD})
+    for _ in range(8):
+        status, headers, body = request("POST", "/api/v1/auth/login", {"password": PASSWORD})
+        if status != 429:
+            break
+        time.sleep(15)
     if status != 200:
         raise SystemExit(f"login failed: HTTP {status}")
     cookie = dict((k.lower(), v) for k, v in headers)["set-cookie"].split(";", 1)[0]
@@ -156,11 +160,25 @@ def main():
     def put(cfg):
         return request("PUT", "/api/v1/config", cfg, cookie, csrf)
 
+    def confirm_pending():
+        status, _, body = request("GET", "/api/v1/transactions/pending", cookie=cookie)
+        if status == 200:
+            try:
+                tx = json.loads(body)
+            except ValueError:
+                return
+            if isinstance(tx, dict) and tx.get("id"):
+                request("POST", f"/api/v1/transactions/{tx['id']}/confirm", {}, cookie, csrf)
+
     def restore():
-        status, _, _ = put(original)
+        # A change accepted by a hostile request on another endpoint can leave a
+        # provisional transaction open, which blocks the next configuration write.
+        confirm_pending()
+        status, _, body = put(original)
         if status == 202:
             pending = json.loads(request("GET", "/api/v1/transactions/pending", cookie=cookie)[2])
             request("POST", f"/api/v1/transactions/{pending['id']}/confirm", {}, cookie, csrf)
+        return status, body
 
     # Phase 1: hostile configurations.
     for i in range(iterations):
@@ -197,14 +215,25 @@ def main():
             note(f"{method} {path} seed={seed}", status)
 
     # Whatever was accepted along the way, the configuration must be the original.
-    restore()
-    status, _, body = request("GET", "/api/v1/config", cookie=cookie)
+    status, restore_body = restore()
+    _, _, body = request("GET", "/api/v1/config", cookie=cookie)
     now = json.loads(body)
     for key in ("revision", "updated_at"):
         original.pop(key, None)
         now.pop(key, None)
     if now != original:
-        bad.append("the configuration differs from the original after the fuzz run")
+        bad.append(f"the configuration differs from the original after the fuzz run (final restore: HTTP {status})")
+        if status not in (200, 202):
+            bad.append(f"final restore answered {restore_body[:160]!r}")
+        before = dict(walk(original))
+        current = dict(walk(now))
+        shown = 0
+        for path in sorted(set(before) | set(current)):
+            if before.get(path) != current.get(path) and not isinstance(before.get(path, current.get(path)), (dict, list)):
+                bad.append(f"  at {'/'.join(map(str, path))}: {str(before.get(path, '<absent>'))[:60]} -> {str(current.get(path, '<absent>'))[:60]}")
+                shown += 1
+                if shown == 6:
+                    break
     if request("GET", "/api/v1/health", cookie=cookie)[0] != 200:
         bad.append("health is not 200 at the end")
 

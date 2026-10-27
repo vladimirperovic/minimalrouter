@@ -53,9 +53,15 @@ def connect():
 
 def login(password=None):
     password = password or os.environ["DASH_PASS"]
-    conn = connect()
-    status, headers, body = request(conn, "POST", "/api/v1/auth/login", {"password": password})
-    conn.close()
+    # The router allows 5 logins per minute per source, successful ones included;
+    # a test that signs in often waits out the window instead of failing.
+    for _ in range(8):
+        conn = connect()
+        status, headers, body = request(conn, "POST", "/api/v1/auth/login", {"password": password})
+        conn.close()
+        if status != 429:
+            break
+        time.sleep(15)
     if status != 200:
         raise SystemExit(f"login failed: HTTP {status} {body[:200]!r}")
     cookie = dict((k.lower(), v) for k, v in headers)["set-cookie"].split(";", 1)[0]
