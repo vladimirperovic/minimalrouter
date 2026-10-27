@@ -6,7 +6,7 @@ use crate::goish::json::List;
 use crate::goish::net;
 
 /// A redacted hardware-oriented view suitable for the setup UI.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InterfaceInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]

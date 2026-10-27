@@ -1082,7 +1082,7 @@ pub(crate) fn wireguard_server_network(c: &SystemConfig) -> Option<IPNet> {
 }
 
 /// `strconv.Atoi`: optional sign followed by decimal digits only.
-pub(crate) fn go_atoi(text: &str) -> Option<i64> {
+pub fn go_atoi(text: &str) -> Option<i64> {
     let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
