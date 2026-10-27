@@ -42,9 +42,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             qemu-system-x86 qemu-utils xorriso expect socat sshpass \
-            pppoe ppp "linux-modules-extra-$(uname -r)" \
+            pppoe ppp \
             nftables iproute2 dnsutils isc-dhcp-client iperf3 nmap jq curl netcat-openbsd python3 \
             hping3 udhcpc
+          # The PPP modules may be in the extra-modules package of the runner's kernel,
+          # which does not exist for every kernel build (7.0.0-azure had none); the lab
+          # fails clearly in topology.sh if pppoe cannot be loaded either way.
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" || echo "no extra-modules package for $(uname -r)"
+          uname -r
+          sudo modprobe -n -v pppoe pppox ppp_generic || true
 
       - name: Allow KVM when the runner has it
         run: |
