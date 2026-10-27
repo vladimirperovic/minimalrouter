@@ -1,39 +1,34 @@
-.PHONY: help all build build-mcp build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
+.PHONY: help all build build-mcp firmware-sign-tool build-linux build-linux-amd64 build-linux-arm64 web-build fmt fmt-check vet test check clean run-routerd run-applyd iso dist dist-arm64 dist-amd64 signed-dist-amd64 signed-dist-arm64
 
-GO_BUILD_FLAGS := -trimpath
+CARGO ?= cargo
+RUST_MANIFEST := rust/Cargo.toml
 # router-update/recovery and the installed router-setup firstboot verifier
-# run outside the A/B slot, and every A/B
-# activation requires the candidate's copy to be byte-identical to the
-# installed one (cmd/router-update/runtime_layout.go). Go stamps the commit
-# hash and derived module version into every binary by default, so two
-# releases built from otherwise identical bootstrap source still differ —
-# which made web updates between published releases impossible for a reason
-# that has nothing to do with compatibility. Traceability for these binaries is
-# carried by the signed release manifest, not by an embedded commit.
-GO_BOOTSTRAP_BUILD_FLAGS := $(GO_BUILD_FLAGS) -buildvcs=false
+# run outside the A/B slot, and every A/B activation requires the candidate's
+# copy to be byte-identical to the installed one (router-update's runtime
+# layout check). scripts/build-rust.sh therefore builds them without version,
+# commit or date; traceability for these binaries is carried by the signed
+# release manifest, not by an embedded commit.
 BUILD_VERSION ?= $(shell cat VERSION 2>/dev/null || echo dev)
 BUILD_COMMIT ?= unknown
 BUILD_DATE ?= unknown
 RELEASE_VERSION ?=
 RELEASE_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
 FIRMWARE_SIGNING_KEY ?=
-GO_LDFLAGS := -s -w -buildid= \
-	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Version=$(BUILD_VERSION) \
-	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Commit=$(BUILD_COMMIT) \
-	-X github.com/vladimirperovic/minimalrouter/internal/buildinfo.BuildDate=$(BUILD_DATE)
+export BUILD_VERSION BUILD_COMMIT BUILD_DATE
+FIRMWARE_SIGN := rust/target/release/firmware-sign
 
 help:
 	@printf '%s\n' \
 		'Minimal Router OS development targets:' \
-		'  make build               Build routerd and router-applyd for the host' \
+		'  make build               Build the router binaries for the host' \
 		'  make build-mcp           Build the optional local MCP bridge' \
 		'  make build-linux-amd64   Cross-build router binaries for Linux x86-64' \
 		'  make build-linux-arm64   Cross-build router binaries for Linux ARM64' \
 		'  make web-build           Build the React dashboard' \
-		'  make fmt                 Format Go source files' \
-		'  make fmt-check           Fail when Go source is not formatted' \
-		'  make vet                 Run go vet' \
-		'  make test                Run Go tests with the race detector' \
+		'  make fmt                 Format Rust source files' \
+		'  make fmt-check           Fail when Rust source is not formatted' \
+		'  make vet                 Run clippy' \
+		'  make test                Run the Rust workspace tests' \
 		'  make check               Run format, tests, vet, and dashboard build' \
 		'  make dist-amd64          Build the self-contained x86-64 archive' \
 		'  make dist-arm64          Build the self-contained ARM64 archive' \
@@ -47,62 +42,56 @@ all: build
 
 build:
 	mkdir -p bin
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd ./cmd/routerd
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd ./cmd/router-applyd
-	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery ./cmd/router-recovery
-	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update ./cmd/router-update
-	go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup ./cmd/router-setup
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-sign ./cmd/firmware-sign
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/firmware-keygen ./cmd/firmware-keygen
+	MINIMALROUTER_VERSION='$(BUILD_VERSION)' MINIMALROUTER_COMMIT='$(BUILD_COMMIT)' MINIMALROUTER_BUILD_DATE='$(BUILD_DATE)' \
+		$(CARGO) build --release --locked --manifest-path $(RUST_MANIFEST) \
+		--bin routerd --bin router-applyd --bin router-recovery --bin router-update --bin router-setup \
+		--bin firmware-sign --bin firmware-keygen
+	for bin in routerd router-applyd router-recovery router-update router-setup firmware-sign firmware-keygen; do \
+		cp rust/target/release/$$bin bin/$$bin; \
+	done
 
 build-mcp:
 	mkdir -p bin
-	go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/minimalrouter-mcp ./cmd/minimalrouter-mcp
+	$(CARGO) build --release --locked --manifest-path $(RUST_MANIFEST) --bin minimalrouter-mcp
+	cp rust/target/release/minimalrouter-mcp bin/minimalrouter-mcp
 
-build-linux:
+# Static musl binaries; see scripts/build-rust.sh for the toolchain.
+build-linux: build-linux-amd64
+
+build-linux-amd64:
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-amd64 ./cmd/routerd
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-amd64 ./cmd/router-applyd
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-amd64 ./cmd/router-recovery
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-amd64 ./cmd/router-update
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-amd64 ./cmd/router-setup
-
-build-linux-amd64: build-linux
+	sh scripts/build-rust.sh amd64 all bin
 
 build-linux-arm64:
 	mkdir -p bin
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/routerd-linux-arm64 ./cmd/routerd
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-applyd-linux-arm64 ./cmd/router-applyd
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-recovery-linux-arm64 ./cmd/router-recovery
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-update-linux-arm64 ./cmd/router-update
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build $(GO_BOOTSTRAP_BUILD_FLAGS) -ldflags="$(GO_LDFLAGS)" -o bin/router-setup-linux-arm64 ./cmd/router-setup
+	sh scripts/build-rust.sh arm64 all bin
+
+# The release signer is built for the build host, not for the appliance.
+firmware-sign-tool:
+	$(CARGO) build --release --locked --manifest-path $(RUST_MANIFEST) --bin firmware-sign
 
 web-build:
 	pnpm --dir web build
 
 fmt:
-	gofmt -w $$(find cmd internal -name '*.go' -type f)
+	$(CARGO) fmt --manifest-path $(RUST_MANIFEST) --all
 
 fmt-check:
-	@test -z "$$(gofmt -l cmd internal)" || { \
-		echo 'Go files require gofmt:' >&2; \
-		gofmt -l cmd internal >&2; \
-		exit 1; \
-	}
+	$(CARGO) fmt --manifest-path $(RUST_MANIFEST) --all --check
 
 vet:
-	go vet ./...
+	$(CARGO) clippy --manifest-path $(RUST_MANIFEST) --workspace --all-targets --locked
 
 test:
-	go test -race ./...
+	$(CARGO) test --manifest-path $(RUST_MANIFEST) --workspace --locked
 
 check: fmt-check test vet web-build
 
 run-routerd:
-	go run ./cmd/routerd
+	$(CARGO) run --manifest-path $(RUST_MANIFEST) --bin routerd
 
 run-applyd:
-	go run ./cmd/router-applyd
+	$(CARGO) run --manifest-path $(RUST_MANIFEST) --bin router-applyd
 
 iso: web-build
 	sh packaging/alpine/build-iso.sh
@@ -114,7 +103,7 @@ dist-arm64: build-linux-arm64 web-build
 dist-amd64: build-linux-amd64 web-build
 	@sh scripts/package-dist.sh amd64 "$(BUILD_VERSION)"
 
-signed-dist-amd64:
+signed-dist-amd64: firmware-sign-tool
 	@test -n "$(RELEASE_VERSION)" || { echo 'ERROR: RELEASE_VERSION is required (for example 0.1.3)' >&2; exit 1; }
 	@test -n "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: FIRMWARE_SIGNING_KEY is required' >&2; exit 1; }
 	@test -f "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: firmware signing key file does not exist' >&2; exit 1; }
@@ -123,7 +112,7 @@ signed-dist-amd64:
 		commit='$(RELEASE_COMMIT)'; \
 		build_date="$$(git show -s --format=%cI "$$commit")"; \
 		$(MAKE) BUILD_VERSION="$$version" BUILD_COMMIT="$$commit" BUILD_DATE="$$build_date" dist-amd64; \
-		go run ./cmd/firmware-sign \
+		$(FIRMWARE_SIGN) \
 			--dir build/dist/minimalrouter-linux-amd64 \
 			--key "$(FIRMWARE_SIGNING_KEY)" \
 			--version "$$version" \
@@ -136,7 +125,7 @@ signed-dist-amd64:
 		echo "=== Signed distribution ready ==="; \
 		ls -lh build/minimalrouter-linux-amd64.tar.gz build/minimalrouter-linux-amd64.manifest.json build/minimalrouter-linux-amd64.tar.gz.sha256
 
-signed-dist-arm64:
+signed-dist-arm64: firmware-sign-tool
 	@test -n "$(RELEASE_VERSION)" || { echo 'ERROR: RELEASE_VERSION is required (for example 0.1.3)' >&2; exit 1; }
 	@test -n "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: FIRMWARE_SIGNING_KEY is required' >&2; exit 1; }
 	@test -f "$(FIRMWARE_SIGNING_KEY)" || { echo 'ERROR: firmware signing key file does not exist' >&2; exit 1; }
@@ -145,7 +134,7 @@ signed-dist-arm64:
 		commit='$(RELEASE_COMMIT)'; \
 		build_date="$$(git show -s --format=%cI "$$commit")"; \
 		$(MAKE) BUILD_VERSION="$$version" BUILD_COMMIT="$$commit" BUILD_DATE="$$build_date" dist-arm64; \
-		go run ./cmd/firmware-sign \
+		$(FIRMWARE_SIGN) \
 			--dir build/dist/minimalrouter-linux-arm64 \
 			--key "$(FIRMWARE_SIGNING_KEY)" \
 			--version "$$version" \

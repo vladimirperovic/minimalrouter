@@ -19,7 +19,12 @@ mkdir -p "$SMOKE_ROOT"
 PRIVATE_KEY="$SMOKE_ROOT/release.key"
 PUBLIC_KEY="$SMOKE_ROOT/release.pub"
 
-go run ./cmd/firmware-keygen --private-key "$PRIVATE_KEY" --public-key "$PUBLIC_KEY"
+# The release tools are built for the CI host from the Rust workspace.
+cargo build --release --locked --manifest-path rust/Cargo.toml --bin firmware-keygen --bin firmware-sign
+FIRMWARE_KEYGEN="$PWD/rust/target/release/firmware-keygen"
+FIRMWARE_SIGN="$PWD/rust/target/release/firmware-sign"
+
+"$FIRMWARE_KEYGEN" --private-key "$PRIVATE_KEY" --public-key "$PUBLIC_KEY"
 
 prepare_release() {
     version="$1"
@@ -46,7 +51,7 @@ BROKEN_RECOVERY
         "$destination/bin/router-update-amd64" \
         "$destination/bin/router-recovery-amd64"
 
-    go run ./cmd/firmware-sign \
+    "$FIRMWARE_SIGN" \
         --dir "$destination" \
         --key "$PRIVATE_KEY" \
         --version "$version" \
@@ -60,7 +65,7 @@ BROKEN_RECOVERY
 INSTALL_DIR="$SMOKE_ROOT/install/minimalrouter-linux-amd64"
 mkdir -p "$(dirname "$INSTALL_DIR")"
 cp -R build/dist/minimalrouter-linux-amd64 "$INSTALL_DIR"
-go run ./cmd/firmware-sign \
+"$FIRMWARE_SIGN" \
     --dir "$INSTALL_DIR" \
     --key "$PRIVATE_KEY" \
     --version "9.9.7" \

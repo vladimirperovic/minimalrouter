@@ -32,7 +32,7 @@
 
 ## A home router you can actually change
 
-Minimal Router is a focused Alpine Linux router appliance with a small Go control
+Minimal Router is a focused Alpine Linux router appliance with a small Rust control
 plane and React dashboard. It drives standard Linux networking components directly:
 `nftables`, `pppd`, `dnsmasq`, WireGuard and `inadyn`.
 
@@ -136,7 +136,7 @@ docs/INSTALLATION.md.
 5. Verify the result using the checks in docs/INSTALLATION.md.
 ```
 
-Building needs Go 1.26.9+ and Node 22.13+ with pnpm; the VM needs Alpine 3.24 with
+Building needs Rust 1.99.1 (with zig and cargo-zigbuild for the static musl targets) and Node 22.13+ with pnpm; the VM needs Alpine 3.24 with
 a kernel that has the PPPoE module. `make dist-amd64` writes
 `build/minimalrouter-linux-amd64.tar.gz`, the same archive layout the release
 publishes, including its `install.sh`.
@@ -190,8 +190,8 @@ Before changing privileged networking or installer code, point the agent at:
 - [`DESIGN.md`](DESIGN.md)
 - [`SECURITY.md`](SECURITY.md)
 - [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) — mandatory before changing ISO/installer code
-- `internal/config/validation.go`
-- `internal/services/nftables.go`
+- `rust/crates/mr-config/src/config/validation.rs`
+- `rust/crates/mr-services/src/services/nftables.rs`
 
 The Golden ISO rule is intentionally strict: **the user VM is a flasher target,
 not an Alpine build host**. Do not reintroduce live `apk`, `setup-disk`, `mkinitfs`,
@@ -200,11 +200,11 @@ single environment work.
 
 ## Development
 
-Requirements: Go from `go.mod`, Node.js 22 and pnpm.
+Requirements: Rust 1.99.1 (`rustup`), Node.js 22 and pnpm.
 
 ```sh
-go test -race ./...
-go vet ./...
+make test
+make vet
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web test

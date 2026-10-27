@@ -2,14 +2,14 @@
 
 ## Live changes require a valid rollback baseline
 
-[`ValidateLiveCandidate`](../internal/config/validation_policy.go) requires the
+[`validate_live_candidate`](../rust/crates/mr-config/src/config/policy.rs) requires the
 complete candidate **and the existing rollback configuration** to pass structural
 and scenario-safety validation. Preview, apply, and the privileged helper share
 this policy. A valid replacement alone cannot make rollback to an invalid legacy
 configuration safe. First-run setup, without a previous configuration, remains a
 separate case. Delta validation does not waive faults in unchanged fields.
 
-[`MigrateLegacyFields`](../internal/config/legacy_migration.go) supplies only the
+[`migrate_legacy_fields`](../rust/crates/mr-config/src/config/policy.rs) supplies only the
 documented deterministic default: a missing enabled ExtraLAN `router_address`
 becomes the first usable IPv4 address of its subnet. It leaves unusable subnets
 for validation and does not guess secrets or disable security controls. Other
@@ -102,7 +102,7 @@ recovery option if coordinated state cannot be repaired. See
 
 ## TOTP replay protection is process-local
 
-[`TOTPReplayKey`](../internal/auth/totp.go) hashes the same canonical secret/code
+[`totp_replay_key`](../rust/crates/mr-config/src/auth.rs) hashes the same canonical secret/code
 inputs used by validation, so accepted whitespace and secret-encoding aliases
 cannot produce distinct replay entries. The API consumes entries under a mutex
 and retains them for two minutes in each server's memory.

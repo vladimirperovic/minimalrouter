@@ -1,0 +1,43 @@
+name: Set up Rust
+description: >-
+  Pinned Rust toolchain with the musl targets, zig and cargo-zigbuild used by
+  scripts/build-rust.sh, plus a dependency cache keyed on rust/Cargo.lock.
+
+inputs:
+  cache:
+    description: Restore and save the Cargo registry and build cache
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned Rust toolchain and musl targets
+      shell: bash
+      run: |
+        set -euo pipefail
+        rustup toolchain install 1.99.1 --profile minimal --component clippy,rustfmt \
+          --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
+        rustup default 1.99.1
+        rustc --version
+        cargo --version
+
+    - name: Install musl-gcc, zig and cargo-zigbuild
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+        python3 -m pip install --user --no-input ziglang==0.17.0 cargo-zigbuild==0.24.0
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Cache Cargo dependencies and build output
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          rust/target
+        key: rust-${{ runner.os }}-1.99.1-${{ github.job }}-${{ hashFiles('rust/Cargo.lock') }}
+        restore-keys: |
+          rust-${{ runner.os }}-1.99.1-${{ github.job }}-

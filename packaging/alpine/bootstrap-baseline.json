@@ -26,9 +26,9 @@
     "amd64",
     "arm64"
   ],
-  "bootstrap_change_acknowledged_version": "",
-  "bootstrap_change_reason": "",
-  "requires_full_installer_from": "0.3.0",
+  "bootstrap_change_acknowledged_version": "0.4.0",
+  "bootstrap_change_reason": "v0.4.0 replaces the Go runtime with a Rust implementation, so router-update, router-recovery and router-setup are different programs from the v0.3.x Go builds. Every earlier appliance needs the full signed installer once; v0.4.1 and later are compared against v0.4.0.",
+  "requires_full_installer_from": "0.3.3",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [
     "Releases up to and including v0.1.6 were built without -buildvcs=false, so Go stamped the",

@@ -385,8 +385,8 @@ Offline tests cover matching boundaries, changing IP addresses, filtering,
 pagination, acknowledgement, exceptions, restart, retention, queue invalidation,
 failed refreshes, ETags, storage pressure and authenticated API access. Browser
 tests exercise both designs and light/dark modes on desktop and mobile layouts.
-`MINIMALROUTER_LIVE_FEED_TEST=1 go test ./internal/dnsrisk -run TestLiveCategorySources -v`
-is an optional public-source compatibility check; ordinary tests stay offline.
+The former optional live public-source check (`TestLiveCategorySources`) existed
+only in the Go implementation and has not been ported; ordinary tests stay offline.
 
 These checks do not establish list completeness or real-appliance performance.
 Actual DNS capture, resource behavior and coverage require an appliance pilot.

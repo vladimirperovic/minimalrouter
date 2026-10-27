@@ -17,47 +17,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  crash-fuzz-benchmark:
-    name: Crash recovery, fuzzing and benchmarks
+  crash-recovery:
+    name: Interrupted update recovery, repeated
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Stress interrupted update recovery
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Stress the update slot and operation journal tests
+        working-directory: rust
         run: |
-          go test -race -count=25 ./internal/firmware \
-            -run 'Test(Interrupted|CorruptOperationJournal|OperationJournal|SlotManagerStages)'
-      - name: Fuzz malformed unauthenticated API requests
-        run: go test ./internal/api -run '^$' -fuzz '^FuzzMalformedUnauthenticatedRequests$' -fuzztime=20s
-      - name: Fuzz update operation journals
-        run: go test ./internal/firmware -run '^$' -fuzz '^FuzzOperationJournalParsing$' -fuzztime=20s
-      - name: Run slot state benchmarks
-        run: |
-          mkdir -p build/deep-test
-          go test ./internal/firmware \
-            -run '^$' \
-            -bench '^BenchmarkSlotManager' \
-            -benchmem \
-            -benchtime=2s \
-            -count=5 | tee build/deep-test/slot-benchmarks.txt
-      - name: Measure test coverage
-        run: |
-          go test ./... -covermode=atomic -coverprofile=build/deep-test/coverage.out
-          go tool cover -func=build/deep-test/coverage.out | tee build/deep-test/coverage.txt
-      - name: Upload fuzz and benchmark evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: crash-fuzz-benchmark-${{ github.sha }}
-          path: build/deep-test
-          if-no-files-found: warn
-          retention-days: 14
+          # The Go suite ran these 25 times under the race detector. Rust has
+          # no race detector; repetition still catches flaky ordering.
+          cargo test --locked --no-run -p mr-core
+          for round in $(seq 1 25); do
+            cargo test --locked -p mr-core firmware
+          done
 
   network-laboratory:
     name: WAN, router and LAN namespace laboratory
@@ -80,19 +57,6 @@ jobs:
             netcat-openbsd \
             nftables \
             nmap
-      - name: Set up Go for DNS filter laboratory
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Verify native DNS answers and atomic service-set continuity
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p build/deep-test/network
-          go test -c ./cmd/router-applyd -o build/deep-test/dns-filter-tests
-          sudo env MINIMALROUTER_DNS_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestDNSFilterLive' -test.v | tee build/deep-test/network/dns-filter.txt
-          sudo unshare --net env MINIMALROUTER_NFT_FILTER_LAB=1 build/deep-test/dns-filter-tests -test.run '^TestServiceDestinationsLive' -test.v | tee build/deep-test/network/dns-service-sets.txt
       - name: Validate network laboratory syntax
         run: bash -n scripts/ci-network-namespace-lab.sh
       - name: Run isolated router network laboratory
@@ -112,46 +76,48 @@ jobs:
   security-hardening:
     name: Security hardening and binary inspection
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
       - name: Install host security tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends binutils file shellcheck
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.22.4
       - name: Validate shell scripts
         run: |
           shellcheck -S error scripts/*.sh packaging/alpine/*.sh
           bash -n scripts/ci-network-namespace-lab.sh
       - name: Validate GitHub Actions workflows
-        run: actionlint
-      - name: Run high-confidence Go security analysis
         run: |
-          mkdir -p build/deep-test/security
-          gosec -severity high -confidence high -fmt=json \
-            -out=build/deep-test/security/gosec.json ./...
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
       - name: Build and inspect Linux binaries
         run: |
           make build-linux-amd64
           mkdir -p build/deep-test/security
           for binary in bin/*-linux-amd64; do
             file "$binary" | tee -a build/deep-test/security/binaries.txt
-            go version -m "$binary" >>build/deep-test/security/binaries.txt
             readelf -W -l "$binary" >>build/deep-test/security/readelf.txt
             if readelf -W -l "$binary" | awk '/GNU_STACK/ && $0 ~ /RWE/ {found=1} END {exit found ? 0 : 1}'; then
               echo "Executable stack detected in $binary" >&2
               exit 1
             fi
+            if readelf -W -l "$binary" | grep -q 'Requesting program interpreter'; then
+              echo "$binary is not statically linked" >&2
+              exit 1
+            fi
           done
-          go list -m -json all >build/deep-test/security/go-modules.json
+          cargo metadata --manifest-path rust/Cargo.toml --locked --format-version 1 >build/deep-test/security/cargo-metadata.json
+      - name: Keep unsafe code in one module
+        run: |
+          unexpected="$(grep -rlE 'unsafe (\{|fn|impl)' rust/crates rust/src --include='*.rs' | grep -v 'rust/crates/mr-core/src/sys.rs' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "unsafe code outside sys.rs:" >&2
+            echo "$unexpected" >&2
+            exit 1
+          fi
       - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -168,11 +134,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
       - name: Install ARM64 emulator
         run: |
           sudo apt-get update

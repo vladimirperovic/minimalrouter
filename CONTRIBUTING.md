@@ -7,7 +7,7 @@ is not maintained by a large networking company, and contributors do not need to
 be expert kernel or firewall developers.
 
 Beginners, homelab users, network administrators, security reviewers, designers,
-technical writers, translators, testers, and experienced Go or React developers
+technical writers, translators, testers, and experienced Rust or React developers
 are welcome.
 
 Useful contributions include:
@@ -56,8 +56,9 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the complete local workflow.
 The standard checks are:
 
 ```sh
-go test -race ./...
-go vet ./...
+make fmt-check
+make test
+make vet
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
 pnpm --dir web build

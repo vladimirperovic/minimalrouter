@@ -62,7 +62,7 @@ router service readiness and Dashboard listener from the installed disk.
 ## Before merging
 
 - Review the full diff for secrets, private topology, generated artifacts, and accidental Home-only edits.
-- Run the relevant Go, dashboard and packaging checks when available.
+- Run the relevant Rust (`make test`, `make vet`, `make fmt-check`), dashboard and packaging checks when available.
 - If installer/release behavior changed, require the full `Appliance ISO` E2E check.
 - In `minimalrouterhome`, verify shared-core parity with the intended public commit before merging.
 - Keep documentation claims aligned with the evidence actually collected.

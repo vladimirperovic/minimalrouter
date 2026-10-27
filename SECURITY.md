@@ -311,9 +311,12 @@ become router administrator authority by default.
 
 The public repository uses:
 
-- pinned Go modules and a committed `go.sum`;
+- a committed `Cargo.lock` with every build run with `--locked`, and a
+  RustSec advisory scan (`cargo audit`) in CI;
+- all `unsafe` code confined to one audited module and rejected elsewhere by
+  the compiler and by a CI check;
 - a locked frontend dependency graph;
-- CI for tests, race detection, linting, production builds, repository hygiene,
+- CI for tests, warning-free builds, linting, production builds, repository hygiene,
   clean Alpine installation and Golden ISO E2E installation;
 - CodeQL analysis;
 - Dependabot update pull requests;
@@ -360,7 +363,7 @@ Before a private development tree is published as a new public repository:
 - verify that no runtime state, internal handoff material, private remote URL, or
   real network inventory is present;
 - pass a current-tree and full-history secret scan;
-- pass repository-hygiene checks, Go race tests, vet, dashboard lint/build,
+- pass repository-hygiene checks, Rust tests, clippy, dashboard lint/build,
   CodeQL, and a clean Alpine installation test on the exact release commit;
 - review the rendered README, license, support policy, contribution guide,
   security policy, and comparison claims;

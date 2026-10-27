@@ -1,6 +1,6 @@
 # Development guide
 
-Minimal Router OS is a **Beta (v0.3.3)** Go and React project. The production
+Minimal Router OS is a **Beta (v0.3.3)** Rust and React project. The production
 appliance runs on Alpine Linux; ordinary unit and frontend work can be done on
 macOS or Linux without altering the developer's network.
 
@@ -9,7 +9,9 @@ macOS or Linux without altering the developer's network.
 Required for normal development:
 
 - Git
-- the Go toolchain declared in `go.mod`
+- Rust 1.99.1 with `rustfmt` and `clippy` (`rustup`); for the static Linux
+  binaries also zig and cargo-zigbuild (`pip install ziglang cargo-zigbuild`,
+  see `scripts/build-rust.sh`)
 - Node.js 22
 - pnpm 11
 
@@ -31,8 +33,9 @@ just to run unit tests.
 git clone https://github.com/vladimirperovic/minimalrouter.git
 cd minimalrouter
 
-go test -race ./...
-go vet ./...
+make fmt-check
+make test
+make vet
 
 pnpm --dir web install --frozen-lockfile
 pnpm --dir web lint
@@ -99,8 +102,9 @@ enforced.
 
 ## Privileged-code rules
 
-Changes under `cmd/router-applyd`, `internal/apply`, networking generators, or
-Alpine packaging require extra review.
+Changes under `rust/crates/mr-applyd`, the apply engine, `rust/crates/mr-core/src/sys.rs`
+(the only module allowed to use `unsafe`), networking generators, or Alpine
+packaging require extra review.
 
 - Never execute user-controlled text through a shell.
 - Use fixed executable paths and separate argument arrays.
@@ -189,7 +193,7 @@ Future replacements should preserve the same privacy and authenticity rules.
 
 ## Dependency updates
 
-Go modules, frontend packages, and GitHub Actions are monitored with Dependabot.
+Cargo crates, frontend packages, and GitHub Actions are monitored with Dependabot.
 Dependency pull requests are reviewed and tested; they are not merged
 unattended.
 

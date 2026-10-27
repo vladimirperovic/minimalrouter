@@ -221,8 +221,8 @@ public-IP propagation still need a real-provider rerun.
 
 ## Automated validation outside the ISO path
 
-Repository workflows cover `go test -race`, `go vet`, vulnerability and secret
-scans, CodeQL, frontend lint/unit/build/Playwright, clean Alpine install and
+Repository workflows cover the Rust format, warning-free build, workspace tests,
+clippy, dependency-advisory and secret scans, CodeQL, frontend lint/unit/build/Playwright, clean Alpine install and
 update/rollback, transaction crash/recovery, ARM64 QEMU smoke tests, an isolated
 WAN-router-LAN network lab, storage pressure, appliance health, service
 supervision and control-plane benchmarks. They do not replace real ISP, NIC,

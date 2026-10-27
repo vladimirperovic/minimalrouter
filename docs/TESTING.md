@@ -13,13 +13,21 @@ Current results: [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md).
 
 ## Local test commands
 
-### Go
+### Rust
 
 ```sh
-go test -race ./...
-go vet ./...
-govulncheck ./...
+make fmt-check
+make test
+make vet
+cargo audit --deny warnings   # from rust/
 ```
+
+The Rust workspace replaced the Go implementation in v0.4.0. Its behaviour is
+held to the last Go release by frozen fixtures (`rust/tests/fixtures`): 502
+mutated configurations, 1,401 generated service files, 500 signed firmware
+manifests and 2,000 version comparisons, all taken from Go v0.3.3. The Go unit
+suite (727 tests) and its race detector, fuzzers and live DNS-filter tests were
+not carried over; see `CURRENT_VALIDATION.md` for what is and is not covered.
 
 ### Dashboard
 
@@ -42,7 +50,7 @@ sh packaging/alpine/install-dist_test.sh
 
 Repository workflows currently cover:
 
-- Go race/vet/vulnerability checks;
+- Rust format, warning-free build, tests, clippy and dependency advisory checks;
 - frontend lint, unit, build and Playwright E2E;
 - clean Alpine packaging and first-run smoke tests;
 - update activation/rollback and interrupted-update recovery;
@@ -112,7 +120,7 @@ rollback. Recommended order:
 
 ## Performance evidence
 
-Packet forwarding stays in the Linux kernel, so Go API benchmarks are only
+Packet forwarding stays in the Linux kernel, so API measurements are only
 control-plane measurements. Target-host performance reports should record the
 exact commit, Proxmox/guest versions, CPU/RAM/disk/NIC setup, test duration,
 traffic direction, packet size, raw result and limitations.

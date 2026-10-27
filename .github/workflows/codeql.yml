@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         language:
-          - go
+          - rust
           - javascript-typescript
 
     steps:
@@ -40,13 +40,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
-
-      - name: Set up Go
-        if: matrix.language == 'go'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+          build-mode: ${{ matrix.language == 'rust' && 'none' || 'autobuild' }}
 
       - name: Set up pnpm
         if: matrix.language == 'javascript-typescript'
@@ -67,6 +61,7 @@ jobs:
         run: pnpm --dir web install --frozen-lockfile
 
       - name: Build analyzed language
+        if: matrix.language != 'rust'
         uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
 
       - name: Perform CodeQL analysis
