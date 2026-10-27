@@ -194,8 +194,15 @@ jobs:
   dashboard-browsers:
     name: Dashboard browser (${{ matrix.project }})
     runs-on: ubuntu-latest
-    # Room for three browser install attempts on a slow package mirror.
-    timeout-minutes: 45
+    timeout-minutes: 30
+    # Playwright's own image carries the browsers and every system library they
+    # need. Installing them with apt on the runner depends on the Azure Ubuntu
+    # mirror, which sometimes serves WebKit's 117 MB at a few tens of KB/s and
+    # failed this job through three bounded retries. The image tag must match
+    # the @playwright/test version in web/package.json (1.62.0).
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+      options: --ipc=host --init
     strategy:
       fail-fast: false
       matrix:
@@ -228,24 +235,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build production dashboard
         run: pnpm build
-      - name: Install test browser
-        # The Azure Ubuntu mirror sometimes serves WebKit's 114 MB of apt packages at a
-        # few tens of KB/s, which used to hold the job until its limit cancelled it.
-        # Bound each attempt, and before retrying stop the apt-get that timeout left
-        # running as root (it keeps the dpkg lock and made every retry fail at once).
-        run: |
-          for attempt in 1 2 3; do
-            if timeout 480 pnpm exec playwright install --with-deps ${{ matrix.browser }}; then
-              exit 0
-            fi
-            echo "browser install attempt $attempt failed or timed out" >&2
-            sudo pkill -9 -x apt-get || true
-            sudo pkill -9 -x dpkg || true
-            sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/lib/apt/lists/lock
-            sudo dpkg --configure -a || true
-            sleep 10
-          done
-          exit 1
+      - name: Check the test browser
+        # A no-op while the image matches @playwright/test; after a version bump
+        # that outran the image tag it downloads the matching browser from
+        # Playwright's CDN (no apt) instead of failing on a missing executable.
+        run: pnpm exec playwright install ${{ matrix.browser }}
       - name: Run browser E2E tests
         run: pnpm test:e2e --project=${{ matrix.project }} --workers=2
       - name: Upload browser failure traces
@@ -264,6 +258,11 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Same image as the browser matrix above: the demo E2E step needs both
+    # browsers and must not depend on the runner's apt mirror either.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+      options: --ipc=host --init
     defaults:
       run:
         working-directory: web
@@ -295,8 +294,8 @@ jobs:
         run: pnpm test
       - name: Type-check and build dashboard
         run: pnpm build
-      - name: Install demo test browsers
-        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Check the demo test browsers
+        run: pnpm exec playwright install chromium webkit
       - name: Build GitHub Pages demo dashboard
         run: pnpm build
         env:
