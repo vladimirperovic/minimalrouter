@@ -1,0 +1,262 @@
+{
+  "date": "2026-10-27",
+  "source_commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1",
+  "branch": "experiment/rust-native",
+  "host": {
+    "os": "Windows 11",
+    "cpu": "Intel Core i7-14700KF",
+    "physical_cores": 20,
+    "logical_processors": 28,
+    "ram_bytes": 102925369344
+  },
+  "toolchains": {
+    "rustc": "1.99.1 (58cf8f9c3 2026-10-13)",
+    "rust_host": "x86_64-pc-windows-gnu",
+    "cargo": "1.99.1 (5f94df478 2026-08-27)",
+    "cargo_zigbuild": "0.24.0",
+    "zig": "0.17.0",
+    "go": "1.26.9"
+  },
+  "build_metadata": {
+    "version": "0.3.3",
+    "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1",
+    "build_date": "2026-10-27T10:25:48+01:00"
+  },
+  "build_protocol": {
+    "runs": 1,
+    "timing": "Python time.perf_counter wall time around the build subprocess; sequential builds",
+    "cache": "Fresh Cargo target directory (each profile initially empty), fresh Go GOCACHE; module downloads and global Zig cache already warm",
+    "rust_target": "x86_64-unknown-linux-musl",
+    "rust_commands": {
+      "dev": "cargo zigbuild --target x86_64-unknown-linux-musl --bins",
+      "release": "cargo zigbuild --release --target x86_64-unknown-linux-musl --bins",
+      "release-fast": "cargo zigbuild --profile release-fast --target x86_64-unknown-linux-musl --bins"
+    },
+    "go_command": "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags=\"-s -w -buildid= -X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Version=0.3.3 -X github.com/vladimirperovic/minimalrouter/internal/buildinfo.Commit=<source_commit> -X github.com/vladimirperovic/minimalrouter/internal/buildinfo.BuildDate=<build_date>\" -o <ignored-output-directory>/ ./cmd/{routerd,router-applyd,router-recovery,router-setup,router-update,minimalrouter-mcp,firmware-sign,firmware-keygen}",
+    "incremental": "Append one API comment line (Rust: crates/mr-api/src/api/mod.rs; Go: internal/api/wireguard.go), rebuild all eight binaries, restore original bytes in finally. Source semantics unchanged.",
+    "release_artifacts": "Rust sizes/hashes saved before any comment edits; Go reproduced byte-for-byte after restoring its comment."
+  },
+  "builds": [
+    {
+      "name": "rust-release-clean",
+      "seconds": 119.793,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "rust-dev-clean",
+      "seconds": 47.018,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "rust-dev-api-change",
+      "seconds": 4.941,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "rust-release-api-change",
+      "seconds": 76.116,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "rust-release-fast-clean",
+      "seconds": 62.392,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "rust-release-fast-api-change",
+      "seconds": 34.21,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "go-release-clean",
+      "seconds": 41.151,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    },
+    {
+      "name": "go-release-api-change",
+      "seconds": 1.344,
+      "exit_code": 0,
+      "commit": "0b7af8e87b141c4fb9e0abae1473a8269df6fea1"
+    }
+  ],
+  "release_binaries": {
+    "go": [
+      {
+        "binary": "routerd",
+        "bytes": 14708862,
+        "sha256": "a1be737c36a08a891cc90e352dca8fe1cb4002258fdf5c7ec4955d105d7e447c"
+      },
+      {
+        "binary": "router-applyd",
+        "bytes": 9220222,
+        "sha256": "470d671ab9ae01d24f2e3e1cdab9e3f150a18196a1ded0ebb0c07a7b6dc7895e"
+      },
+      {
+        "binary": "router-recovery",
+        "bytes": 8978558,
+        "sha256": "7428c4ebdebf94af76a1e5641cf54c37db947999f6ade45db2d818fb52b5bd51"
+      },
+      {
+        "binary": "router-setup",
+        "bytes": 8908926,
+        "sha256": "8f0bb6dec4ff83ce30186c7237a616344ada57915de700952b26710b9b6fde14"
+      },
+      {
+        "binary": "router-update",
+        "bytes": 3068030,
+        "sha256": "ce1a02fb44d59d8e585508a8136bebaa688a7776e80b5d71264b6b66c0cf58b3"
+      },
+      {
+        "binary": "minimalrouter-mcp",
+        "bytes": 6299774,
+        "sha256": "e885453d30c2e9fae33d820ece7851fa578dc77a4dd0c42b2abd546f8843dd50"
+      },
+      {
+        "binary": "firmware-sign",
+        "bytes": 2592894,
+        "sha256": "b360a256f55cb32cdf9767b09b824c5b5730e23ec7b113183f9da8d310eda14e"
+      },
+      {
+        "binary": "firmware-keygen",
+        "bytes": 2261118,
+        "sha256": "59e57149400d125913672ce81ffd934bca67260b8283813cce2c383abd8ddf59"
+      }
+    ],
+    "rust": [
+      {
+        "binary": "routerd",
+        "bytes": 10698784,
+        "sha256": "ce815c9b2da0c0cc9566924bbfb32a7c5abe3f9d99e23787d8a59525fc1ec866"
+      },
+      {
+        "binary": "router-applyd",
+        "bytes": 3585096,
+        "sha256": "0665a4f9e977f313d9ac208a9487c5fa08b6916b8ce043679c1ea816b8b9ccc7"
+      },
+      {
+        "binary": "router-recovery",
+        "bytes": 4170528,
+        "sha256": "f752a26ceabab6d7a5c439b81897ad12fcb93a9be5b65b0fb9bc48a2f9b89308"
+      },
+      {
+        "binary": "router-setup",
+        "bytes": 4141344,
+        "sha256": "1d997e51b5e210908ef696559ac7b6f8e9ea8d312feb1124abe9577eecfe5ddc"
+      },
+      {
+        "binary": "router-update",
+        "bytes": 1817304,
+        "sha256": "115874fc590844181826215b596a7df2d3bfeb0d85fa4809f2e274a2b5e2d5fc"
+      },
+      {
+        "binary": "minimalrouter-mcp",
+        "bytes": 2310440,
+        "sha256": "7963a840b44c328e5e65f5a23d516525c4c19a6f53c2276f50114a72aa587c4f"
+      },
+      {
+        "binary": "firmware-sign",
+        "bytes": 536576,
+        "sha256": "f6725f5aeb1a4ca9f2c8e0e3cc30be5277486a1d293b4dd511e8289e68b0e764"
+      },
+      {
+        "binary": "firmware-keygen",
+        "bytes": 444672,
+        "sha256": "7b2ac1828a14a082b5efba2ea14ed94e5ba8c63a481a7364244b75572631edb2"
+      }
+    ]
+  },
+  "next_steps_split_regex_trim_delta_bytes": {
+    "routerd": 768,
+    "router-applyd": 160,
+    "router-recovery": -896,
+    "router-setup": 128,
+    "router-update": -512,
+    "minimalrouter-mcp": -64
+  },
+  "checks": {
+    "windows_cargo_test_workspace": {
+      "passed": 105,
+      "failed": 0,
+      "ignored": 0,
+      "compiler_warnings": 0
+    },
+    "windows_cargo_clippy_workspace_all_targets": {
+      "exit_code": 0,
+      "unique_warnings": 110,
+      "errors": 0,
+      "note": "Clippy component installed for the existing stable GNU toolchain; no source changes or lint suppression."
+    },
+    "musl_release": {
+      "exit_code": 0,
+      "compiler_warnings": 0
+    },
+    "static_elf": "All eight Go and all eight Rust binaries have no PT_INTERP program header.",
+    "privilege_layer_panic_paths": {
+      "routerd_contains_mr_applyd": false,
+      "router_applyd_contains_mr_api": false
+    }
+  },
+  "linux_tests": {
+    "environment": "Temporary diskless Hyper-V generation 1 VM, 2 vCPU, 1 GiB RAM, no network adapter; Alpine virt 3.22.6, Linux 6.12.110-0-virt; VM removed afterward. Existing router VM unchanged.",
+    "command_build": "cargo zigbuild -p mr-core --tests --target x86_64-unknown-linux-musl",
+    "command_run": "/tmp/mr-core-tests --nocapture",
+    "loopback": "Initial run: 35 passed, interface_addresses_include_loopback failed with loopback down. Repeated after ip link set lo up: all 36 passed.",
+    "passed": 36,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 0.3,
+    "cases": [
+      "buildinfo::tests::display_version_normalises_prefix",
+      "firmware::tests::appliance_payload_requires_one_complete_architecture",
+      "firmware::tests::release_version_precedence",
+      "firmware::tests::signature_round_trip_and_tamper_detection",
+      "goish::base64::tests::accepts_what_go_accepts",
+      "goish::errors::tests::wrapped_sentinels_remain_detectable",
+      "goish::filepath::tests::matches_go_clean",
+      "goish::flag::tests::parses_like_go",
+      "goish::json::tests::equal_lists_hash_alike",
+      "goish::json::tests::floats_match_go",
+      "goish::json::tests::nil_and_empty_lists_encode_like_go",
+      "goish::net::tests::contains_and_broadcast",
+      "goish::net::tests::mac_and_hostport",
+      "goish::net::tests::parse_cidr_matches_go",
+      "goish::net::tests::parse_ip_matches_go",
+      "goish::time::sqlite_time_tests::go_string_round_trips_through_sqlite_parser",
+      "goish::time::tests::clock_layout_matches_go",
+      "goish::time::tests::durations_match_go",
+      "firmware::slots::tests::stage_activate_and_rollback",
+      "goish::time::tests::time_json_matches_go",
+      "proc::tests::captures_output_and_status",
+      "kdf::tests::second_caller_is_rejected_while_slot_is_held",
+      "proc::tests::output_limit_truncates_and_still_drains",
+      "proc::tests::stdin_is_delivered",
+      "proc::tests::kills_at_the_deadline",
+      "proc::tests::wait_delay_abandons_pipes_held_by_a_descendant",
+      "shutdown::tests::in_flight_drains",
+      "shutdown::tests::sleep_runs_to_its_deadline_without_a_trigger",
+      "shutdown::tests::trigger_wakes_a_long_sleep_at_once",
+      "shutdown::tests::wakers_run_once_and_late_registrations_run_immediately",
+      "storage::tests::levels_follow_thresholds",
+      "storage::tests::status_json_matches_go",
+      "sys::tests::interface_addresses_include_loopback",
+      "sys::tests::wait_readable_reports_the_ready_descriptor",
+      "sys::tests::zeroize_clears_the_buffer",
+      "shutdown::tests::wake_keeps_one_notification_and_returns_on_shutdown"
+    ],
+    "scope": "mr-core tests ran on Linux, including five proc tests, two Unix-only sys tests, and the firmware slot stage/activate/rollback test. Full workspace and Linux hardening/startup behavior were not run on Linux."
+  },
+  "event_driven_runtime_remeasurement": {
+    "status": "not_measured",
+    "reason": "No current root_recovery/dashboard_admin credential file supplied; existing SSH keys do not authenticate. WSL not installed.",
+    "lab_restore": "Not executed; this validation did not deploy binaries, run memtest/memdrive, or change router services/state. Any previous memtest bind mounts and backup remain unverified.",
+    "proxmox": "not_measured",
+    "physical_hardware": "not_measured"
+  }
+}
