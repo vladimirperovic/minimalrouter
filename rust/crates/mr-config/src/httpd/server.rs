@@ -679,6 +679,11 @@ mod tests {
             "unexpected 413 response ({} bytes)",
             too_large.len()
         );
+        // An oversized announced body with Expect: 100-continue is refused without
+        // ever inviting it (found by the GitHub lab's hostile-HTTP test).
+        let expect = exchange("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\nContent-Length: 104857600\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n");
+        assert!(expect.starts_with("HTTP/1.1 413"), "oversized Expect request was not refused with 413 ({} bytes)", expect.len());
+        assert!(!expect.contains("100 Continue"), "the server invited an oversized body");
         assert!(exchange("GET /nope HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").starts_with("HTTP/1.1 404"));
         stop.trigger();
         server.join().unwrap();

@@ -181,6 +181,13 @@ impl Read for Body<'_> {
             return Ok(0);
         }
         if let Some(limit) = self.limit {
+            if self.continue_pending && self.chunked.is_none() && self.remaining > limit {
+                // The client announced (Expect: 100-continue) more than this handler
+                // accepts: refuse now instead of inviting the body with 100 Continue.
+                self.continue_pending = false;
+                self.exceeded = true;
+                return Err(io::Error::other(BODY_TOO_LARGE));
+            }
             if self.consumed >= limit {
                 // One extra byte proves the body is larger than allowed.
                 let mut probe = [0u8; 1];

@@ -6,14 +6,13 @@ name: Lab
 # PPPoE loss, reboots, power cut, memory and CPU under load, a soak).
 #
 # It takes the ISO that the Appliance ISO workflow already built and tested, so
-# it runs after that workflow has passed once on the branch. Pushes that touch
-# only scripts/gh-lab re-run it without rebuilding the ISO.
+# it runs after that workflow has passed once on the branch. Start it with
+# `gh workflow run lab.yml --ref BRANCH`; it never rebuilds the ISO.
 
 on:
-  pull_request:
-    paths:
-      - "scripts/gh-lab/**"
-      - ".github/workflows/lab.yml"
+  # Started by hand (gh workflow run lab.yml --ref BRANCH), not on every push: a
+  # pull_request path filter matches the whole PR, so every push would restart
+  # a run that takes about 1.5 hours.
   workflow_dispatch:
     inputs:
       iso_run_id:
@@ -27,7 +26,7 @@ permissions:
 
 concurrency:
   group: lab-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   lab:

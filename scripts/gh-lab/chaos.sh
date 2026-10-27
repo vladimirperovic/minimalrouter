@@ -30,7 +30,9 @@ state_digest() { echo "revision=$(config_json | jq -r .revision) hostname=$(conf
 
 ppp_up() { rsh 'ip -4 -o addr show ppp0 | grep -q "10\.250\.0\."'; }
 router_healthy() {
-    rsh 'test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ":8443 " && ss -lnt | grep -q ":22 "' && api login >/dev/null && [ "$(http_code GET health)" = 200 ]
+    # Reuses the saved session (labapi signs in again only when it is invalid):
+    # the login rate limit is five a minute, and the chaos run restarts a lot.
+    rsh 'test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ":8443 " && ss -lnt | grep -q ":22 "' && [ "$(http_code GET health)" = 200 ]
 }
 no_crashes() {
     local bad
@@ -43,7 +45,6 @@ daemon_memory_mib() { rsh "awk '\$1==\"VmRSS:\"{print int(\$2/1024)}' /proc/\$(p
 
 c_api_fuzz() {
     local seed=${CHAOS_SEED:-$(date +%s)}
-    api login >/dev/null || return 1
     python3 "$HERE/fuzz.py" 500 "$seed" 2>&1 | tee "$LOGS/fuzz.txt" | tail -n 12
     [ "${PIPESTATUS[0]}" -eq 0 ] || return 1
     router_healthy || { echo "router unhealthy after the fuzz run"; return 1; }
