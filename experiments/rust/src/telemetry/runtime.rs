@@ -297,29 +297,7 @@ mod linux {
         if flags & 0x1 == 0 {
             return None;
         }
-        // SAFETY: getifaddrs allocates a list we free with freeifaddrs.
-        unsafe {
-            let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
-            if libc::getifaddrs(&mut addrs) != 0 {
-                return None;
-            }
-            let mut cursor = addrs;
-            let mut found = None;
-            while !cursor.is_null() {
-                let entry = &*cursor;
-                if !entry.ifa_addr.is_null()
-                    && (*entry.ifa_addr).sa_family as i32 == libc::AF_INET
-                    && std::ffi::CStr::from_ptr(entry.ifa_name).to_bytes() == b"ppp0"
-                {
-                    let sin = &*(entry.ifa_addr as *const libc::sockaddr_in);
-                    found = Some(std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr)).to_string());
-                    break;
-                }
-                cursor = entry.ifa_next;
-            }
-            libc::freeifaddrs(addrs);
-            found
-        }
+        crate::sys::interface_ipv4_addresses().ok()?.into_iter().find(|(name, _)| name == "ppp0").map(|(_, ip)| ip.to_string())
     }
 
     pub fn runtime_snapshot(wan_interface: &str, lan_interface: &str, data_dir: &str) -> RuntimeStatus {
@@ -330,10 +308,7 @@ mod linux {
             cpu_count: std::thread::available_parallelism().map(|n| n.get() as i64).unwrap_or(1),
             ..Default::default()
         };
-        // SAFETY: adjtimex with modes=0 only reads the kernel clock state.
-        let mut timex: libc::timex = unsafe { std::mem::zeroed() };
-        let state = unsafe { libc::adjtimex(&mut timex) };
-        status.time_synchronized = state >= 0 && state != libc::TIME_ERROR;
+        status.time_synchronized = crate::sys::clock_synchronized();
         if let Ok(data) = std::fs::read_to_string("/proc/uptime") {
             if let Some(first) = data.split_whitespace().next() {
                 status.uptime_seconds = first.parse::<f64>().unwrap_or(0.0) as i64;
@@ -559,8 +534,7 @@ mod linux {
     /// Sums the resident memory of every userspace process (thread-group
     /// leaders only) from /proc/<pid>/stat field 24.
     fn read_process_memory_bytes() -> u64 {
-        // SAFETY: sysconf has no preconditions.
-        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as u64;
+        let page_size = crate::sys::page_size();
         let Ok(entries) = std::fs::read_dir("/proc") else { return 0 };
         let mut total = 0u64;
         for entry in entries.flatten() {

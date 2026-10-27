@@ -2,6 +2,8 @@
 //! REST API over TLS, owns canonical configuration, and reaches privileged
 //! operations only through router-applyd's allowlisted socket.
 
+#![forbid(unsafe_code)]
+
 use std::collections::HashSet;
 use std::net::TcpListener;
 use std::path::Path;

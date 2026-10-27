@@ -2,6 +2,8 @@
 //! operator, `apply` commits the reviewed configuration (only after a real
 //! PPPoE session when credentials were given), `verify` proves provisioning.
 
+#![forbid(unsafe_code)]
+
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::Path;
 use std::sync::Arc;
@@ -372,29 +374,11 @@ fn collect(args: &[String]) -> Result<()> {
 /// The first `ppp*` interface with a non-loopback IPv4 address.
 #[cfg(unix)]
 fn ppp_ipv4() -> Option<(String, String)> {
-    unsafe {
-        let mut addrs: *mut libc::ifaddrs = std::ptr::null_mut();
-        if libc::getifaddrs(&mut addrs) != 0 {
-            return None;
-        }
-        let mut cursor = addrs;
-        let mut found = None;
-        while !cursor.is_null() {
-            let entry = &*cursor;
-            if !entry.ifa_addr.is_null() && (*entry.ifa_addr).sa_family as i32 == libc::AF_INET {
-                let name = std::ffi::CStr::from_ptr(entry.ifa_name).to_string_lossy().into_owned();
-                let addr = &*(entry.ifa_addr as *const libc::sockaddr_in);
-                let ip = std::net::Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr));
-                if name.to_lowercase().starts_with("ppp") && !ip.is_loopback() {
-                    found = Some((name, ip.to_string()));
-                    break;
-                }
-            }
-            cursor = entry.ifa_next;
-        }
-        libc::freeifaddrs(addrs);
-        found
-    }
+    minimalrouter::sys::interface_ipv4_addresses()
+        .ok()?
+        .into_iter()
+        .find(|(name, ip)| name.to_lowercase().starts_with("ppp") && !ip.is_loopback())
+        .map(|(name, ip)| (name, ip.to_string()))
 }
 
 #[cfg(not(unix))]

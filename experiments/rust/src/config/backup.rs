@@ -143,12 +143,7 @@ pub fn decrypt_config_backup(data: &[u8], passphrase: &str) -> Result<SystemConf
     Ok(payload.config)
 }
 
-fn zeroize(buf: &mut [u8]) {
-    for b in buf.iter_mut() {
-        // SAFETY: volatile write to a valid, exclusively borrowed byte.
-        unsafe { std::ptr::write_volatile(b, 0) };
-    }
-}
+use crate::sys::zeroize;
 
 /// Authenticated encryption for snapshots with a raw 32-byte key.
 pub struct BackupEncryption {

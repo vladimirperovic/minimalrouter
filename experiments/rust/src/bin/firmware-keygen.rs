@@ -1,6 +1,8 @@
 //! firmware-keygen: creates the release-signing Ed25519 key pair. The raw
 //! private key never overwrites an existing file.
 
+#![forbid(unsafe_code)]
+
 use std::io::Write;
 use std::path::Path;
 

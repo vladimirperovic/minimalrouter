@@ -10,7 +10,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use super::catalog::{catalog_match, catalog_path, download_catalog, emit_catalog, read_catalog, Catalog};
-use super::policy::{default_policy, domain, sources, Applied, Policy, Request, Response, Source, MAX_DOMAINS, MAX_METADATA_BYTES, SOCKET_PATH};
+use super::policy::{default_policy, domain, sources, Applied, Policy, Request, Source, MAX_DOMAINS, MAX_METADATA_BYTES, SOCKET_PATH};
+#[cfg(unix)]
+use super::policy::Response;
 use crate::errorf;
 use crate::goish::errors::Result;
 use crate::goish::json;

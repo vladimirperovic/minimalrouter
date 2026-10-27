@@ -200,7 +200,7 @@ impl FlagSet {
 pub fn geteuid() -> i64 {
     #[cfg(unix)]
     {
-        unsafe { libc::geteuid() as i64 }
+        crate::sys::effective_uid() as i64
     }
     #[cfg(not(unix))]
     {

@@ -3,6 +3,8 @@
 //! Module layout mirrors the Go `internal/` packages one to one so the two
 //! implementations can be compared package by package.
 
+#![deny(unsafe_code)]
+
 pub mod goish;
 
 pub mod accounting;

@@ -3,6 +3,8 @@
 //! slot, rolls back automatically on a failed start, and gates the full
 //! installer's trust and layout decisions.
 
+#![forbid(unsafe_code)]
+
 use std::io::Write;
 use std::path::Path;
 use std::time::Duration as StdDuration;

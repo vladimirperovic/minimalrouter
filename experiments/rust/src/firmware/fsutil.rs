@@ -165,36 +165,22 @@ pub(crate) fn symlink(_target: &str, _link: &str) -> Result<()> {
     Err(errorf!("slot pointers require a Unix filesystem"))
 }
 
-/// Exclusive advisory lock serializing slot mutations across routerd,
-/// router-update and router-recovery.
-#[cfg(unix)]
+/// Exclusive advisory lock (`flock(2)` on Linux, so it interoperates with
+/// the Go tools) serializing slot mutations across routerd, router-update and
+/// router-recovery.
 pub(crate) fn lock_exclusive(file: &File) -> Result<()> {
-    use std::os::unix::io::AsRawFd;
     loop {
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } == 0 {
-            return Ok(());
-        }
-        let err = std::io::Error::last_os_error();
-        if err.kind() != std::io::ErrorKind::Interrupted {
-            return Err(err.into());
+        match file.lock() {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err.into()),
         }
     }
 }
 
-/// Developer hosts build only; no cross-process serialization is claimed.
-#[cfg(not(unix))]
-pub(crate) fn lock_exclusive(_file: &File) -> Result<()> {
-    Ok(())
-}
-
-#[cfg(unix)]
 pub(crate) fn unlock(file: &File) {
-    use std::os::unix::io::AsRawFd;
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+    let _ = file.unlock();
 }
-
-#[cfg(not(unix))]
-pub(crate) fn unlock(_file: &File) {}
 
 /// Copies one regular source file to a new destination with its permission
 /// bits limited to 0755, fsyncing the result.

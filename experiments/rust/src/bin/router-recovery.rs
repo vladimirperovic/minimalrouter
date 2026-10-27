@@ -2,6 +2,8 @@
 //! edits canonical state directly (interfaces, credentials, snapshots,
 //! factory reset, offline migration) and builds a sanitized support bundle.
 
+#![forbid(unsafe_code)]
+
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;

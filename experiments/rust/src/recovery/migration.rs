@@ -3,6 +3,7 @@
 //! forward. SQLite is only ever opened by an unprivileged worker process.
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "linux")]
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 
@@ -120,6 +121,7 @@ fn harden_migration_db_worker() -> Result<()> {
     Err(errorf!("migration database worker requires Linux"))
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct MigrationBackup {
@@ -128,6 +130,7 @@ struct MigrationBackup {
     bytes: Vec<u8>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct MigrationJournal {
@@ -140,6 +143,7 @@ struct MigrationJournal {
     helper: BTreeMap<String, MigrationBackup>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct MigrationMarker {
@@ -150,8 +154,7 @@ struct MigrationMarker {
 /// Runs the migration; returns the attempt directory on success.
 #[cfg(target_os = "linux")]
 pub fn migrate_config(data_dir: &str, file: &str) -> Result<String> {
-    // SAFETY: geteuid has no preconditions.
-    if unsafe { libc::geteuid() } != 0 {
+    if crate::sys::effective_uid() != 0 {
         return Err(errorf!("configuration migration requires root on the Linux appliance"));
     }
     linux::migrate(data_dir, file)
@@ -197,57 +200,22 @@ mod linux {
     }
 
     pub(super) fn restrict_migration_db_worker(uid: u32, gid: u32) -> Result<()> {
-        let (mut r, mut e, mut s) = (0, 0, 0);
-        let (mut gr, mut ge, mut gs) = (0, 0, 0);
-        // SAFETY: out pointers are valid.
-        unsafe {
-            libc::getresuid(&mut r, &mut e, &mut s);
-            libc::getresgid(&mut gr, &mut ge, &mut gs);
-        }
-        if uid == 0 || gid == 0 || [r, e, s] != [uid; 3] || [gr, ge, gs] != [gid; 3] {
+        use crate::sys::{self, Limit};
+        if uid == 0 || gid == 0 || sys::user_ids() != [uid; 3] || sys::group_ids() != [gid; 3] {
             return Err(errorf!("migration database worker must have permanently dropped all user/group IDs"));
         }
-        // SAFETY: a zero-length query returns the group count.
-        if unsafe { libc::getgroups(0, std::ptr::null_mut()) } != 0 {
+        if sys::supplementary_group_count()? != 0 {
             return Err(errorf!("migration database worker must have no supplementary groups"));
         }
         // Refuse unexpected inherited capabilities.
-        #[repr(C)]
-        struct CapHeader {
-            version: u32,
-            pid: i32,
-        }
-        #[repr(C)]
-        #[derive(Default, Clone, Copy, PartialEq)]
-        struct CapData {
-            effective: u32,
-            permitted: u32,
-            inheritable: u32,
-        }
-        let mut header = CapHeader { version: 0x2008_0522, pid: 0 };
-        let mut caps = [CapData::default(); 2];
-        // SAFETY: header and data buffers match the kernel ABI for version 3.
-        if unsafe { libc::syscall(libc::SYS_capget, &mut header, caps.as_mut_ptr()) } != 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        if caps != [CapData::default(); 2] {
+        if !sys::has_no_capabilities()? {
             return Err(errorf!("migration database worker inherited capabilities"));
         }
-        // SAFETY: plain prctl/setrlimit/umask calls with constant arguments.
-        unsafe {
-            if libc::syscall(libc::SYS_capset, &mut header, caps.as_ptr()) != 0
-                || libc::prctl(libc::PR_CAP_AMBIENT, libc::PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) != 0
-                || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
-                || libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0
-            {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            let zero = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-            if libc::setrlimit(libc::RLIMIT_CORE, &zero) != 0 {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            libc::umask(0o077);
-        }
+        sys::drop_all_capabilities()?;
+        sys::set_no_new_privs()?;
+        sys::set_non_dumpable()?;
+        sys::set_limit(Limit::CoreFileSize, 0)?;
+        sys::set_umask(0o077);
         Ok(())
     }
 
@@ -278,15 +246,7 @@ mod linux {
                 .stderr(Stdio::null())
                 .uid(uid)
                 .gid(gid);
-            // SAFETY: setgroups is async-signal-safe and runs before exec.
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setgroups(0, std::ptr::null()) != 0 {
-                        return Err(std::io::Error::last_os_error());
-                    }
-                    Ok(())
-                });
-            }
+            crate::sys::clear_groups_on_exec(&mut command);
             let mut child = command.spawn()?;
             let mut worker = Worker { input: child.stdin.take(), output: child.stdout.take(), child, closed: false };
             if let Err(err) = worker.call(&WorkerRequest { operation: "open".into(), directory: dir.into(), ..Default::default() }) {
@@ -301,14 +261,13 @@ mod linux {
                 return Err(errorf!("migration database worker is closed"));
             };
             // A blocked worker cannot leave the root coordinator waiting forever.
-            let pid = self.child.id() as i32;
+            let pid = self.child.id();
             let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let flag = done.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_secs(30));
                 if !flag.load(std::sync::atomic::Ordering::SeqCst) {
-                    // SAFETY: killing our own child by PID.
-                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                    crate::sys::kill_child(pid);
                 }
             });
             let result = write_worker_frame(input, request)

@@ -97,20 +97,13 @@ pub fn allow_nonessential_write(path: &str) -> bool {
 
 #[cfg(target_os = "linux")]
 pub fn inspect(path: &str) -> Status {
-    use std::ffi::CString;
     if path.is_empty() {
         return evaluate(0, 0);
     }
-    let Ok(c_path) = CString::new(path) else {
-        return evaluate(0, 0);
-    };
-    let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
-    // SAFETY: c_path is a valid NUL-terminated string and stat is a valid out pointer.
-    if unsafe { libc::statfs(c_path.as_ptr(), &mut stat) } != 0 {
-        return evaluate(0, 0);
+    match crate::sys::filesystem_space(path) {
+        Ok(space) => evaluate(space.total, space.available),
+        Err(_) => evaluate(0, 0),
     }
-    let block_size = stat.f_bsize as u64;
-    evaluate(stat.f_blocks as u64 * block_size, stat.f_bavail as u64 * block_size)
 }
 
 #[cfg(not(target_os = "linux"))]

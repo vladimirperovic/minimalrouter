@@ -62,8 +62,7 @@ fn owned_by_root_or_self_and_private(path: &Path, meta: &std::fs::Metadata) -> R
     if meta.mode() & 0o022 != 0 {
         return Err(format!("{} is writable by group or others", path.display()));
     }
-    // SAFETY: geteuid has no preconditions.
-    let euid = unsafe { libc::geteuid() };
+    let euid = crate::sys::effective_uid();
     if meta.uid() != 0 && meta.uid() != euid {
         return Err(format!("{} is owned by uid {}", path.display(), meta.uid()));
     }

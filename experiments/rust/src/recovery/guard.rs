@@ -1,9 +1,12 @@
 //! The offline lock shared by both daemons and the migration fence check.
 
+#[cfg(unix)]
 use crate::errorf;
 use crate::goish::errors::Result;
 
+#[cfg(target_os = "linux")]
 pub(crate) const OFFLINE_LOCK_PATH: &str = "/run/minimalrouter-offline.lock";
+#[cfg(target_os = "linux")]
 pub(crate) const MIGRATION_DIRECTORY: &str = "/var/lib/minimalrouter-migration";
 
 /// A held offline lock; the lock is released when this is dropped.
@@ -49,24 +52,10 @@ pub(crate) fn check_migration_fence(dir: &str, uid: u32) -> Result<()> {
 #[cfg(unix)]
 pub(crate) fn acquire_offline_lock(path: &str, exclusive: bool, uid: u32) -> Result<std::fs::File> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    use std::os::unix::io::AsRawFd;
     let parent = std::path::Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into());
     secure_directory(&parent, uid, false).map_err(|e| errorf!("{}", e))?;
-    use std::os::unix::io::FromRawFd;
-    // SAFETY: geteuid has no preconditions.
-    let euid = unsafe { libc::geteuid() };
-    let c_path = std::ffi::CString::new(path).map_err(|e| errorf!("{}", e))?;
-    let mut flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW;
-    if euid == uid {
-        flags |= libc::O_CREAT;
-    }
-    // SAFETY: c_path is NUL-terminated; the returned descriptor is owned below.
-    let fd = unsafe { libc::open(c_path.as_ptr(), flags, 0o644 as libc::c_uint) };
-    if fd < 0 {
-        return Err(errorf!("open offline guard: open {}: {}", path, std::io::Error::last_os_error()));
-    }
-    // SAFETY: fd is a freshly opened descriptor we exclusively own.
-    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let euid = crate::sys::effective_uid();
+    let file = crate::sys::open_nofollow(path, euid == uid, 0o644).map_err(|e| errorf!("open offline guard: open {}: {}", path, e))?;
     let meta = file.metadata().map_err(|e| errorf!("{}", e))?;
     if meta.uid() != uid || !meta.file_type().is_file() || meta.mode() & 0o022 != 0 || meta.nlink() != 1 {
         return Err(errorf!("offline guard must be an exclusively owned, non-writable regular file"));
@@ -74,10 +63,8 @@ pub(crate) fn acquire_offline_lock(path: &str, exclusive: bool, uid: u32) -> Res
     if euid == uid {
         file.set_permissions(std::fs::Permissions::from_mode(0o644)).map_err(|e| errorf!("{}", e))?;
     }
-    let op = if exclusive { libc::LOCK_EX } else { libc::LOCK_SH };
-    // SAFETY: the descriptor is valid for the lifetime of `file`.
-    if unsafe { libc::flock(file.as_raw_fd(), op | libc::LOCK_NB) } != 0 {
-        let err = std::io::Error::last_os_error();
+    let locked = if exclusive { file.try_lock() } else { file.try_lock_shared() };
+    if let Err(err) = locked {
         return Err(errorf!("offline guard busy; stop both routerd and router-applyd before migration: {}", err));
     }
     Ok(file)

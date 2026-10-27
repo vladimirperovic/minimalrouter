@@ -164,30 +164,15 @@ pub(crate) fn chown(_path: &str, _uid: u32, _gid: u32) -> std::io::Result<()> {
 /// root but cannot gain privilege through exec or dump its memory.
 #[cfg(target_os = "linux")]
 pub(crate) fn harden_process() -> Result<()> {
-    // SAFETY: constant-argument process attribute calls.
-    unsafe {
-        libc::umask(0o077);
-        if libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0 {
-            return Err(errorf!("disable core dumps: {}", std::io::Error::last_os_error()));
-        }
-        if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
-            return Err(errorf!("enable no_new_privs: {}", std::io::Error::last_os_error()));
-        }
-        for (resource, limit) in [(libc::RLIMIT_CORE, 0u64), (libc::RLIMIT_NOFILE, 1024), (libc::RLIMIT_NPROC, 128)] {
-            let rl = libc::rlimit { rlim_cur: limit as libc::rlim_t, rlim_max: limit as libc::rlim_t };
-            if libc::setrlimit(resource, &rl) != 0 {
-                return Err(errorf!("set resource limit {}: {}", resource, std::io::Error::last_os_error()));
-            }
-        }
+    use crate::sys::{self, Limit};
+    sys::set_umask(0o077);
+    sys::set_non_dumpable().map_err(|e| errorf!("disable core dumps: {}", e))?;
+    sys::set_no_new_privs().map_err(|e| errorf!("enable no_new_privs: {}", e))?;
+    for (limit, value) in [(Limit::CoreFileSize, 0), (Limit::OpenFiles, 1024), (Limit::Processes, 128)] {
+        sys::set_limit(limit, value).map_err(|e| errorf!("set resource limit {:?}: {}", limit, e))?;
     }
     // Child processes use only project-selected absolute binaries.
-    // SAFETY: called during single-threaded startup before any thread spawns.
-    unsafe {
-        std::env::set_var("PATH", "/usr/sbin:/usr/bin:/sbin:/bin");
-        for var in ["LD_PRELOAD", "LD_LIBRARY_PATH", "ENV", "BASH_ENV"] {
-            std::env::remove_var(var);
-        }
-    }
+    sys::sanitize_environment("/usr/sbin:/usr/bin:/sbin:/bin");
     Ok(())
 }
 
@@ -199,14 +184,7 @@ pub(crate) fn harden_process() -> Result<()> {
 /// Only root and the routerd account may talk to the helper sockets.
 #[cfg(target_os = "linux")]
 pub(crate) fn validate_peer(stream: &std::os::unix::net::UnixStream) -> Result<()> {
-    use std::os::unix::io::AsRawFd;
-    let mut cred = libc::ucred { pid: 0, uid: 0, gid: 0 };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: cred/len are valid out pointers for SO_PEERCRED.
-    let rc = unsafe { libc::getsockopt(stream.as_raw_fd(), libc::SOL_SOCKET, libc::SO_PEERCRED, &mut cred as *mut _ as *mut libc::c_void, &mut len) };
-    if rc != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
+    let cred = crate::sys::peer_credentials(stream)?;
     let (routerd_uid, _) = lookup_user("routerd")?;
     if cred.uid != 0 && cred.uid != routerd_uid {
         return Err(errorf!("unexpected peer uid {}", cred.uid));

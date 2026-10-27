@@ -353,12 +353,7 @@ fn update_helper_installed() -> bool {
 /// Space a normal process may still use on the update filesystem.
 #[cfg(unix)]
 fn available_update_bytes() -> Result<u64> {
-    let path = std::ffi::CString::new(UPDATE_ROOT)?;
-    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+    Ok(crate::sys::filesystem_space(UPDATE_ROOT)?.available)
 }
 
 #[cfg(not(unix))]
@@ -403,13 +398,7 @@ fn activate_pending_update_detached() -> Result<()> {
     let mut command = std::process::Command::new("/usr/bin/doas");
     command.args([UPDATE_PRIVILEGE_HELPER, "activate"]).stdin(std::process::Stdio::null()).stdout(log_file.try_clone()?).stderr(log_file);
     #[cfg(unix)]
-    unsafe {
-        use std::os::unix::process::CommandExt;
-        command.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
-    }
+    crate::sys::new_session_on_exec(&mut command);
     command.spawn()?;
     Ok(())
 }

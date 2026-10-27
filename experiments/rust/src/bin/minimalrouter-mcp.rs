@@ -3,6 +3,8 @@
 //! read-only; mutation tools exist only in explicit local admin mode and
 //! still pass router validation, CSRF protection, snapshots and rollback.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::io::{BufReader, Read, Write};
 use std::sync::{Arc, Mutex};

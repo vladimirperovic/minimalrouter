@@ -1,6 +1,8 @@
 //! firmware-sign: hashes every file of a release directory and writes the
 //! Ed25519-signed manifest the appliance verifies against its pinned key.
 
+#![forbid(unsafe_code)]
+
 use std::path::Path;
 
 use minimalrouter::firmware::{self, PRIVATE_KEY_SIZE, PUBLIC_KEY_SIZE};
