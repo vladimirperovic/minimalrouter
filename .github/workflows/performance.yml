@@ -32,7 +32,7 @@ jobs:
           start="$(date +%s)"
           make build-linux-amd64 build-linux-arm64
           echo "build_seconds=$(( $(date +%s) - start ))" | tee build/performance/build-time.txt
-          ls -l bin/*-linux-* | tee build/performance/sizes.txt
+          stat -c '%s %n' bin/*-linux-* | tee build/performance/sizes.txt
           {
             echo '### Release binary sizes (bytes)'
             echo

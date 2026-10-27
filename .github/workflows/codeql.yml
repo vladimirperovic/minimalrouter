@@ -40,7 +40,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
-          build-mode: ${{ matrix.language == 'rust' && 'none' || 'autobuild' }}
+          build-mode: ${{ matrix.language == 'rust' && 'none' || '' }}
 
       - name: Set up pnpm
         if: matrix.language == 'javascript-typescript'

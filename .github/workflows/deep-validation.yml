@@ -32,8 +32,10 @@ jobs:
           # The Go suite ran these 25 times under the race detector. Rust has
           # no race detector; repetition still catches flaky ordering.
           cargo test --locked --no-run -p mr-core
-          for round in $(seq 1 25); do
+          rounds=0
+          while [ "$rounds" -lt 25 ]; do
             cargo test --locked -p mr-core firmware
+            rounds=$((rounds + 1))
           done
 
   network-laboratory:
