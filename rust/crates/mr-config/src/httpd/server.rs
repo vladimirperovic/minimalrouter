@@ -662,15 +662,23 @@ mod tests {
             out
         };
         let get = exchange("GET /api/v1/items/a%2Fb?q=x+y HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
-        assert!(get.starts_with("HTTP/1.1 200 OK"), "{get}");
-        assert!(get.ends_with("{\"id\":\"a/b\",\"q\":\"x y\"}\n"), "{get}");
+        assert!(get.starts_with("HTTP/1.1 200 OK"), "unexpected GET status line ({} bytes)", get.len());
+        assert!(get.ends_with("{\"id\":\"a/b\",\"q\":\"x y\"}\n"), "unexpected GET body ({} bytes)", get.len());
         let wrong_method = exchange("DELETE /api/v1/items/1 HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
-        assert!(wrong_method.starts_with("HTTP/1.1 405") && wrong_method.contains("Allow: GET, HEAD"), "{wrong_method}");
+        assert!(
+            wrong_method.starts_with("HTTP/1.1 405") && wrong_method.contains("Allow: GET, HEAD"),
+            "unexpected 405 response ({} bytes)",
+            wrong_method.len()
+        );
         let chunked =
             exchange("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n");
-        assert!(chunked.ends_with("\r\n\r\nabcde"), "{chunked}");
+        assert!(chunked.ends_with("\r\n\r\nabcde"), "unexpected chunked echo ({} bytes)", chunked.len());
         let too_large = exchange("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\nContent-Length: 12\r\nConnection: close\r\n\r\n0123456789ab");
-        assert!(too_large.starts_with("HTTP/1.1 413") && too_large.contains(crate::httpd::BODY_TOO_LARGE), "{too_large}");
+        assert!(
+            too_large.starts_with("HTTP/1.1 413") && too_large.contains(crate::httpd::BODY_TOO_LARGE),
+            "unexpected 413 response ({} bytes)",
+            too_large.len()
+        );
         assert!(exchange("GET /nope HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").starts_with("HTTP/1.1 404"));
         stop.trigger();
         server.join().unwrap();

@@ -282,10 +282,10 @@ mod unix {
         check(unsafe { libc::getifaddrs(&mut head) })?;
         let mut found = Vec::new();
         let mut cursor = head;
-        while !cursor.is_null() {
-            // SAFETY: `cursor` points into the list getifaddrs returned and
-            // is non-null; entries stay valid until freeifaddrs.
-            let entry = unsafe { &*cursor };
+        // SAFETY: `as_ref` returns None for the null that ends the list; every
+        // other pointer was produced by getifaddrs and its entries stay valid
+        // until freeifaddrs.
+        while let Some(entry) = unsafe { cursor.as_ref() } {
             // SAFETY: ifa_addr is either null or points at a sockaddr whose
             // family says which concrete type it is; ifa_name is a
             // NUL-terminated string owned by the list.
