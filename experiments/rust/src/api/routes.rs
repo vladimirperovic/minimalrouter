@@ -13,6 +13,9 @@ pub struct Extensions {
     pub(crate) firewall: std::sync::Mutex<Option<super::observability::FirewallObservation>>,
     pub(crate) gateway_recovery: std::sync::Mutex<Option<super::gateway::GatewayRecoveryStatus>>,
     pub(crate) gateway_recovery_stop: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    pub(crate) updates: super::update::UpdateServiceSlot,
+    /// Lets handlers start work that outlives the request.
+    pub(crate) self_ref: std::sync::OnceLock<std::sync::Weak<Server>>,
 }
 
 impl Server {
@@ -23,6 +26,7 @@ impl Server {
 
     /// Attaches every /api/v1 endpoint.
     pub fn register_routes(self: &Arc<Self>, router: &mut Router) {
+        let _ = self.ext.self_ref.set(Arc::downgrade(self));
         let public: Vec<(&str, Handler)> = vec![
             ("POST /api/v1/auth/login", Server::handle_login),
             ("GET /api/v1/setup/interfaces", Server::handle_discover_setup_interfaces),
@@ -118,6 +122,13 @@ impl Server {
             ("GET /api/v1/dns-filter/check", Server::handle_dns_filter_check),
             ("GET /api/v1/dns-filter/profiles", Server::handle_dns_filter_profiles),
             ("GET /api/v1/dns-filter/operations", Server::handle_dns_filter_operations),
+            // Signed firmware updates.
+            ("GET /api/v1/firmware/status", Server::handle_firmware_status),
+            ("POST /api/v1/firmware/check", Server::handle_firmware_check),
+            ("POST /api/v1/firmware/channel", Server::handle_firmware_channel),
+            ("POST /api/v1/firmware/update", Server::handle_firmware_update),
+            ("POST /api/v1/firmware/upload", Server::handle_firmware_upload),
+            ("GET /api/v1/firmware/local-status", Server::handle_firmware_local_status),
         ];
         for (pattern, handler) in protected {
             self.route(router, pattern, true, handler);

@@ -11,7 +11,10 @@ mod recovery;
 mod redaction;
 mod routes;
 mod setup;
+mod update;
 mod wireguard;
+
+pub use update::{UpdateOperation, UpdateState};
 
 pub use routes::*;
 
