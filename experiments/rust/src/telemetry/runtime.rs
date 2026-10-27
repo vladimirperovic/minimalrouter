@@ -406,34 +406,10 @@ mod linux {
 
     /// Runs a command with a deadline and an output cap; None on any failure.
     pub(crate) fn run_bounded(program: &str, args: &[&str], timeout: Duration, max_output: usize) -> Option<Vec<u8>> {
-        use std::io::Read;
-        let mut child = Command::new(program)
-            .args(args)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .ok()?;
-        let mut stdout = child.stdout.take()?;
-        let reader = std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = (&mut stdout).take(max_output as u64 + 1).read_to_end(&mut buf);
-            buf
-        });
-        let started = Instant::now();
-        loop {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let out = reader.join().ok()?;
-                    return (status.success() && out.len() <= max_output).then_some(out);
-                }
-                Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(10)),
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return None;
-                }
-            }
-        }
+        let mut command = Command::new(program);
+        command.args(args);
+        let output = crate::proc::execute(&mut command, crate::proc::Options { output_limit: Some(max_output as u64), ..crate::proc::Options::timeout(timeout) });
+        (output.success() && !output.truncated).then_some(output.stdout)
     }
 
     fn inspect_ddns() -> DDNSStatus {

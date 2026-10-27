@@ -90,7 +90,7 @@ pub struct DNSCollector {
     source: Arc<dyn DNSSource>,
     settings: Box<dyn Fn() -> DNSSettings + Send + Sync>,
     allow_write: Box<dyn Fn() -> bool + Send + Sync>,
-    wake: crate::goish::sync::Wake,
+    wake: crate::shutdown::Wake,
     inner: Mutex<Inner>,
     write: Mutex<()>,
     on_lookups: Mutex<Option<LookupObserver>>,
@@ -104,7 +104,7 @@ impl DNSCollector {
             source,
             settings,
             allow_write: allow_write.unwrap_or_else(|| Box::new(|| true)),
-            wake: crate::goish::sync::Wake::new(),
+            wake: crate::shutdown::Wake::new(),
             inner: Mutex::new(Inner::default()),
             write: Mutex::new(()),
             on_lookups: Mutex::new(None),
@@ -153,7 +153,7 @@ impl DNSCollector {
         self.wake.notify();
     }
 
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown) {
         let mut rounds = 0u64;
         loop {
             let settings = (self.settings)();
@@ -167,7 +167,7 @@ impl DNSCollector {
                 // Tell the helper every round, so query logging is switched
                 // off even if a previous attempt or routerd itself failed.
                 if let Err(err) = self.source.drain(Instant::now() + DNS_DRAIN_TIMEOUT, false) {
-                    if !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    if !stop.is_triggered() {
                         log::info!("[DNS] could not disable query logging: {}", err);
                     }
                 }
@@ -175,7 +175,7 @@ impl DNSCollector {
                 rounds = 0;
             }
             self.wake.wait(DNS_COLLECT_INTERVAL, stop);
-            if stop.load(std::sync::atomic::Ordering::SeqCst) {
+            if stop.is_triggered() {
                 let settings = (self.settings)();
                 if settings.enabled {
                     self.flush(Time::now(), &settings);
@@ -185,14 +185,14 @@ impl DNSCollector {
         }
     }
 
-    fn collect(&self, stop: &AtomicBool, now: Time) {
+    fn collect(&self, stop: &crate::shutdown::Shutdown, now: Time) {
         let generation = self.inner().generation;
         for _ in 0..DNS_MAX_DRAIN_PAGES {
             let drain = match self.source.drain(Instant::now() + DNS_DRAIN_TIMEOUT, true) {
                 Ok(drain) => drain,
                 Err(err) => {
                     self.collection_error("DNS collection failed; activity may be missing");
-                    if !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    if !stop.is_triggered() {
                         log::info!("[DNS] could not collect DNS activity: {}", err);
                     }
                     return;

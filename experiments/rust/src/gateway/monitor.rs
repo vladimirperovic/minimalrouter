@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 
@@ -63,37 +62,8 @@ impl Prober for CommandProber {
 
 /// Combined output, success flag and whether the deadline killed the child.
 fn run_with_timeout(program: &str, args: &[&str], timeout: StdDuration) -> (String, bool, bool) {
-    use std::io::Read;
-    let Ok(mut child) = std::process::Command::new(program).args(args).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn() else {
-        return (String::new(), false, false);
-    };
-    let mut stdout = child.stdout.take().expect("piped");
-    let mut stderr = child.stderr.take().expect("piped");
-    let out = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        let _ = stdout.read_to_end(&mut b);
-        b
-    });
-    let err = std::thread::spawn(move || {
-        let mut b = Vec::new();
-        let _ = stderr.read_to_end(&mut b);
-        b
-    });
-    let started = std::time::Instant::now();
-    let (success, timed_out) = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break (status.success(), false),
-            Ok(None) if started.elapsed() < timeout => std::thread::sleep(StdDuration::from_millis(10)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break (false, true);
-            }
-        }
-    };
-    let mut bytes = out.join().unwrap_or_default();
-    bytes.extend(err.join().unwrap_or_default());
-    (String::from_utf8_lossy(&bytes).into_owned(), success, timed_out)
+    let output = crate::proc::run(program, args, timeout);
+    (String::from_utf8_lossy(&output.combined()).into_owned(), output.success(), output.timed_out)
 }
 
 pub struct SysfsLinkReader {
@@ -139,7 +109,7 @@ pub struct Monitor {
     collect: Mutex<()>,
     manual: Mutex<Option<Time>>,
     live: Mutex<Live>,
-    wake: crate::goish::sync::Wake,
+    wake: crate::shutdown::Wake,
 }
 
 /// Long probe intervals must not starve recovery of fresh link evidence.
@@ -157,7 +127,7 @@ impl Monitor {
             collect: Mutex::new(()),
             manual: Mutex::new(None),
             live: Mutex::new(Live { latest: Summary { state: STATE_UNKNOWN.into(), ..Default::default() }, last_connected: false, initialized: false, connected_since: None }),
-            wake: crate::goish::sync::Wake::new(),
+            wake: crate::shutdown::Wake::new(),
         })
     }
 
@@ -173,8 +143,8 @@ impl Monitor {
         self.wake.notify();
     }
 
-    pub fn run(&self, stop: &AtomicBool) {
-        while !stop.load(Ordering::SeqCst) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown) {
+        while !stop.is_triggered() {
             let interval = self.store.settings().map(|s| s.interval()).unwrap_or(Duration::secs(30));
             let collected = self.collect();
             if collected.is_err() {

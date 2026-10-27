@@ -20,7 +20,6 @@ pub use store::*;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -174,7 +173,7 @@ impl Reader for CommandReader {
             return Err(ErrUnsupportedSet.into());
         }
         let timeout = deadline.saturating_duration_since(Instant::now()).min(COMMAND_TIMEOUT);
-        let output = crate::goish::exec::run("doas", &["/usr/sbin/nft", "-j", "list", "set", "inet", "minimalrouter", name], timeout);
+        let output = crate::proc::run("doas", &["/usr/sbin/nft", "-j", "list", "set", "inet", "minimalrouter", name], timeout);
         if let Some(err) = output.error() {
             return Err(errorf!("{}", err));
         }
@@ -207,9 +206,9 @@ impl Collector {
         Collector { store, reader, settings, interval: StdDuration::from_secs(5 * 60) }
     }
 
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown) {
         self.collect_once();
-        while crate::goish::sync::sleep(self.interval, stop) {
+        while stop.sleep(self.interval) {
             self.collect_once();
         }
     }

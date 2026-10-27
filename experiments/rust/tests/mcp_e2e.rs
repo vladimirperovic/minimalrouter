@@ -4,7 +4,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use minimalrouter::shutdown::Shutdown;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -56,7 +56,7 @@ fn mcp_bridge_reads_through_the_tls_api() {
     let tls = Arc::new(CertResolver::from_pem(&cert, &key).unwrap()).server_config().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Shutdown::new();
     let stop_server = stop.clone();
     let serving = std::thread::spawn(move || httpd::serve(listener, Some(tls), handler, httpd::ServerOptions { shutdown_drain: Duration::from_millis(200), ..Default::default() }, &stop_server).unwrap());
 
@@ -97,7 +97,7 @@ fn mcp_bridge_reads_through_the_tls_api() {
     let login = audit.events.iter().find(|e| e.event_type == "auth.login_succeeded").expect("bridge logged in");
     assert_eq!(login.details.get("mode").map(String::as_str), Some("read_only"), "the bridge starts with a read-only session");
 
-    stop.store(true, Ordering::SeqCst);
+    stop.trigger();
     serving.join().unwrap();
     drop(server);
     drop(store);

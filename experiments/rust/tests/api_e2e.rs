@@ -4,7 +4,7 @@
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use minimalrouter::shutdown::Shutdown;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -65,7 +65,7 @@ fn setup_login_and_csrf_over_http() {
     let handler: httpd::Handler = Arc::new(move |r: &mut Request<'_>| router.dispatch(r));
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Shutdown::new();
     let stop_server = stop.clone();
     let serving = std::thread::spawn(move || httpd::serve(listener, None, handler, httpd::ServerOptions { shutdown_drain: Duration::from_millis(200), ..Default::default() }, &stop_server).unwrap());
 
@@ -130,7 +130,7 @@ fn setup_login_and_csrf_over_http() {
         assert!(kinds.contains(&expected), "missing audit event {expected}: {kinds:?}");
     }
 
-    stop.store(true, Ordering::SeqCst);
+    stop.trigger();
     serving.join().unwrap();
     drop(server);
     drop(store);

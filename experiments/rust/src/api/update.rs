@@ -378,14 +378,14 @@ fn format_optional_time(value: Time) -> String {
     if value.is_zero() { String::new() } else { value.utc().rfc3339() }
 }
 
-fn bounded_output(output: &crate::goish::exec::Output) -> String {
+fn bounded_output(output: &crate::proc::Output) -> String {
     let mut combined = output.combined();
     combined.truncate(32 << 10);
     String::from_utf8_lossy(&combined).trim().to_string()
 }
 
 fn run_update_stage() -> std::result::Result<String, (String, String)> {
-    let output = crate::goish::exec::run("/usr/bin/doas", &[UPDATE_PRIVILEGE_HELPER, "stage"], FIRMWARE_STAGE_TIMEOUT);
+    let output = crate::proc::run("/usr/bin/doas", &[UPDATE_PRIVILEGE_HELPER, "stage"], FIRMWARE_STAGE_TIMEOUT);
     let text = bounded_output(&output);
     if output.timed_out {
         return Err((text, "signed update staging timed out".into()));

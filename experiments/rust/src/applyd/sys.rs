@@ -2,7 +2,7 @@
 
 use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use crate::errorf;
@@ -44,48 +44,20 @@ pub(crate) fn run_command_output(timeout: Duration, binary: &str, args: &[&str])
     if std::fs::metadata(binary).is_err() {
         return Err(errorf!("required binary unavailable: {}", base_name(binary)));
     }
-    let mut child = Command::new(binary)
-        .args(args)
-        .env_clear()
-        .env("PATH", "/sbin:/usr/sbin:/bin:/usr/bin")
-        .env("LANG", "C")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| errorf!("{} failed: {}", base_name(binary), e))?;
-    // Combined output, collected without blocking the child on a full pipe.
-    let mut stdout = child.stdout.take().expect("piped");
-    let mut stderr = child.stderr.take().expect("piped");
-    let out_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stdout.read_to_end(&mut buf);
-        buf
-    });
-    let err_reader = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = stderr.read_to_end(&mut buf);
-        buf
-    });
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < timeout => std::thread::sleep(Duration::from_millis(5)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(errorf!("{} timed out after {}", base_name(binary), crate::goish::time::Duration::from_std(timeout)));
-            }
-        }
-    };
-    let mut output = out_reader.join().unwrap_or_default();
-    output.extend(err_reader.join().unwrap_or_default());
-    if !status.success() {
-        return Err(errorf!("{} failed: {}", base_name(binary), sanitize_output(&output)));
+    let mut command = Command::new(binary);
+    command.args(args).env_clear().env("PATH", "/sbin:/usr/sbin:/bin:/usr/bin").env("LANG", "C").env("LC_ALL", "C");
+    let output = crate::proc::run_command(&mut command, timeout, None);
+    if let Some(err) = output.spawn_error {
+        return Err(errorf!("{} failed: {}", base_name(binary), err));
     }
-    Ok(String::from_utf8_lossy(&output).into_owned())
+    if output.timed_out {
+        return Err(errorf!("{} timed out after {}", base_name(binary), crate::goish::time::Duration::from_std(timeout)));
+    }
+    let combined = output.combined();
+    if !output.success() {
+        return Err(errorf!("{} failed: {}", base_name(binary), sanitize_output(&combined)));
+    }
+    Ok(String::from_utf8_lossy(&combined).into_owned())
 }
 
 pub(crate) fn run_fixed(binary: &str, args: &[&str]) -> Result<()> {

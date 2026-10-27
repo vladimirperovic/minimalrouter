@@ -5,7 +5,6 @@
 use std::collections::HashSet;
 use std::net::TcpListener;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
@@ -20,6 +19,7 @@ use minimalrouter::config::{self, SQLiteStore, SystemConfig};
 use minimalrouter::goish::errors::{is, Result};
 use minimalrouter::goish::{net, time::Time};
 use minimalrouter::httpd::{self, Request, Response, ResponseBody, Router};
+use minimalrouter::shutdown::Shutdown;
 use minimalrouter::{dnsactivity, dnsfilter, dnsrisk, firmware, gateway, release, storage, tlsutil};
 
 const FIRMWARE_KEY_PATH: &str = "/etc/minimalrouter/firmware-signing.pub";
@@ -34,20 +34,20 @@ fn fatal(message: String) -> ! {
     std::process::exit(1);
 }
 
-/// Threads that stop with the process-wide flag and are joined on shutdown.
+/// Threads that end with the process-wide shutdown and are joined on exit.
 struct Workers {
-    stop: Arc<AtomicBool>,
+    stop: Shutdown,
     handles: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Workers {
-    fn spawn(&mut self, run: impl FnOnce(Arc<AtomicBool>) + Send + 'static) {
+    fn spawn(&mut self, run: impl FnOnce(Shutdown) + Send + 'static) {
         let stop = self.stop.clone();
         self.handles.push(std::thread::spawn(move || run(stop)));
     }
 
     fn join(self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.stop.trigger();
         for handle in self.handles {
             let _ = handle.join();
         }
@@ -178,7 +178,7 @@ fn configure_accounting(server: &Arc<Server>, engine: &Arc<Engine>, data_dir: &s
                     server.publish_firewall_observation(Some(counters));
                 }
             }
-            if !minimalrouter::goish::sync::sleep(StdDuration::from_secs(60), &stop) {
+            if !stop.sleep(StdDuration::from_secs(60)) {
                 return;
             }
         }
@@ -482,12 +482,12 @@ fn main() {
     log::info!("Initializing configuration store at {}", abs_dir);
     let store = Arc::new(SQLiteStore::new_file_store(&abs_dir).unwrap_or_else(|e| fatal(format!("Failed to initialize store: {}", e))));
 
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Shutdown::new();
+    // OpenRC sends SIGTERM and waits 10s: shut down cleanly so SQLite closes
+    // instead of relying on crash recovery every reboot.
     #[cfg(unix)]
-    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
-        // OpenRC sends SIGTERM and waits 10s: shut down cleanly so SQLite
-        // closes instead of relying on crash recovery every reboot.
-        let _ = signal_hook::flag::register(signal, stop.clone());
+    if let Err(err) = stop.trigger_on_signals(&[signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT]) {
+        fatal(format!("Failed to install shutdown signal handler: {}", err));
     }
     let mut workers = Workers { stop: stop.clone(), handles: Vec::new() };
     // Bound/prune once at startup, then hourly as a passive safety net.
@@ -499,7 +499,7 @@ fn main() {
     };
     maintain();
     workers.spawn(move |stop| {
-        while minimalrouter::goish::sync::sleep(StdDuration::from_secs(3600), &stop) {
+        while stop.sleep(StdDuration::from_secs(3600)) {
             maintain();
         }
     });

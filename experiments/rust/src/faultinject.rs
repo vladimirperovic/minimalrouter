@@ -4,7 +4,7 @@
 
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const HOOK_DIR_ENV: &str = "MINIMALROUTER_FAULT_HOOK_DIR";
 
@@ -34,26 +34,11 @@ pub fn run(phase: &str) {
         return;
     }
     log::info!("faultinject: hook {:?} armed: {}", phase, command);
-    let Ok(mut child) = Command::new("/bin/sh").arg("-c").arg(command).spawn() else {
+    let output = crate::proc::execute(Command::new("/bin/sh").arg("-c").arg(command), crate::proc::Options { capture: false, ..crate::proc::Options::timeout(HOOK_TIMEOUT) });
+    if output.spawn_error.is_some() {
         log::warn!("faultinject: hook {:?} failed to start (continuing)", phase);
-        return;
-    };
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    log::warn!("faultinject: hook {:?} failed (continuing): {}", phase, status);
-                }
-                return;
-            }
-            Ok(None) if started.elapsed() < HOOK_TIMEOUT => std::thread::sleep(Duration::from_millis(20)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
-        }
+    } else if let Some(status) = output.status.filter(|s| !s.success()) {
+        log::warn!("faultinject: hook {:?} failed (continuing): {}", phase, status);
     }
 }
 

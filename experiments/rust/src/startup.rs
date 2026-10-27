@@ -2,7 +2,6 @@
 //! for the first ten minutes after a Linux boot.
 
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
 
@@ -184,7 +183,7 @@ impl Recorder {
 
     /// Captures until every expected milestone is ready, the window ends, or
     /// `stop` is set.
-    pub fn run(&self, stop: &AtomicBool, pppoe_enabled: bool, wg_interface: &str, wg_enabled: bool) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown, pppoe_enabled: bool, wg_interface: &str, wg_enabled: bool) {
         {
             let mut st = self.lock();
             if st.boot.completed {
@@ -214,8 +213,7 @@ impl Recorder {
             return;
         }
         loop {
-            std::thread::sleep(StdDuration::from_secs(1));
-            if stop.load(Ordering::SeqCst) {
+            if !stop.sleep(StdDuration::from_secs(1)) {
                 self.complete("interrupted");
                 return;
             }

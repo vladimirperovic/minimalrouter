@@ -262,7 +262,7 @@ impl Server {
 
     /// Called after TLS initialization and listener binding: registering
     /// routes alone is not evidence of management readiness.
-    pub fn start_startup_capture(&self, stop: Arc<std::sync::atomic::AtomicBool>) {
+    pub fn start_startup_capture(&self, stop: crate::shutdown::Shutdown) {
         let cfg = self.engine.get_current_config();
         let recorder = match crate::startup::Recorder::new(&appliance_data_dir()) {
             Ok(recorder) => recorder,

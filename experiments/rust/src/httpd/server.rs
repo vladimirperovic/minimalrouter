@@ -3,7 +3,6 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -11,6 +10,7 @@ use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 
 use super::{canonical_key, status_text, unescape, Body, Handler, Headers, Request, Response, ResponseBody};
+use crate::shutdown::{InFlight, Shutdown};
 
 /// Where a request body is read from; tests use an in-memory cursor.
 pub trait BodySource: Read {
@@ -167,33 +167,19 @@ impl Default for ServerOptions {
     }
 }
 
-/// Serves until `stop` is set, then waits up to `shutdown_drain` for
+/// Serves until `shutdown` starts, then waits up to `shutdown_drain` for
 /// in-flight connections, like `http.Server.Shutdown`.
-pub fn serve(listener: TcpListener, tls: Option<Arc<rustls::ServerConfig>>, handler: Handler, options: ServerOptions, stop: &AtomicBool) -> io::Result<()> {
-    listener.set_nonblocking(true)?;
-    let active = Arc::new(AtomicUsize::new(0));
-    while !stop.load(Ordering::SeqCst) {
-        let (stream, peer) = match listener.accept() {
-            Ok(accepted) => accepted,
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(50));
-                continue;
-            }
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-            Err(err) => {
-                log::info!("http: Accept error: {}; retrying", err);
-                std::thread::sleep(Duration::from_millis(50));
-                continue;
-            }
-        };
-        if active.load(Ordering::SeqCst) >= options.max_connections {
+pub fn serve(listener: TcpListener, tls: Option<Arc<rustls::ServerConfig>>, handler: Handler, options: ServerOptions, shutdown: &Shutdown) -> io::Result<()> {
+    let acceptor = Acceptor::new(listener, shutdown)?;
+    let active = Arc::new(InFlight::default());
+    while let Some((stream, peer)) = acceptor.next(shutdown)? {
+        if active.len() >= options.max_connections {
             drop(stream);
             continue;
         }
-        let _ = stream.set_nonblocking(false);
         let _ = stream.set_nodelay(true);
-        active.fetch_add(1, Ordering::SeqCst);
-        let (active, handler, options, tls) = (active.clone(), handler.clone(), options.clone(), tls.clone());
+        let in_flight = active.enter();
+        let (handler, options, tls) = (handler.clone(), options.clone(), tls.clone());
         std::thread::spawn(move || {
             let local = stream.local_addr().map(|a| a.to_string()).unwrap_or_default();
             let remote = peer.to_string();
@@ -204,14 +190,74 @@ pub fn serve(listener: TcpListener, tls: Option<Arc<rustls::ServerConfig>>, hand
             if let Some(boxed) = boxed {
                 serve_connection(boxed, &remote, &local, &handler, &options);
             }
-            active.fetch_sub(1, Ordering::SeqCst);
+            drop(in_flight);
         });
     }
-    let deadline = Instant::now() + options.shutdown_drain;
-    while active.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    active.wait_idle(options.shutdown_drain);
     Ok(())
+}
+
+/// Accepts connections until shutdown. Between connections the thread sleeps
+/// in `poll(2)` on the listener and a pipe that the shutdown writes to, so an
+/// idle server never wakes up.
+struct Acceptor {
+    listener: TcpListener,
+    #[cfg(unix)]
+    wake: io::PipeReader,
+}
+
+impl Acceptor {
+    fn new(listener: TcpListener, shutdown: &Shutdown) -> io::Result<Acceptor> {
+        listener.set_nonblocking(true)?;
+        #[cfg(unix)]
+        {
+            let (wake, writer) = io::pipe()?;
+            shutdown.on_trigger(move || {
+                let _ = (&writer).write_all(&[1]);
+            });
+            Ok(Acceptor { listener, wake })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = shutdown;
+            Ok(Acceptor { listener })
+        }
+    }
+
+    fn next(&self, shutdown: &Shutdown) -> io::Result<Option<(TcpStream, std::net::SocketAddr)>> {
+        loop {
+            if shutdown.is_triggered() {
+                return Ok(None);
+            }
+            match self.listener.accept() {
+                Ok((stream, peer)) => {
+                    // Accepted sockets inherit non-blocking mode on some systems.
+                    stream.set_nonblocking(false)?;
+                    return Ok(Some((stream, peer)));
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => self.wait(shutdown)?,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) => {
+                    // Usually descriptor exhaustion; back off instead of spinning.
+                    log::info!("http: Accept error: {}; retrying", err);
+                    shutdown.sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    fn wait(&self, _: &Shutdown) -> io::Result<()> {
+        use std::os::fd::AsFd;
+        crate::sys::wait_readable(&[self.listener.as_fd(), self.wake.as_fd()]).map(drop)
+    }
+
+    /// Development hosts without `poll(2)` look again shortly.
+    #[cfg(not(unix))]
+    fn wait(&self, shutdown: &Shutdown) -> io::Result<()> {
+        shutdown.sleep(Duration::from_millis(50));
+        Ok(())
+    }
 }
 
 enum HeadError {
@@ -598,7 +644,7 @@ mod tests {
         });
         let router = Arc::new(router);
         let handler: Handler = Arc::new(move |r: &mut Request<'_>| router.dispatch(r));
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = Shutdown::new();
         let stop_server = stop.clone();
         let server = std::thread::spawn(move || serve(listener, None, handler, ServerOptions { shutdown_drain: Duration::from_millis(200), ..Default::default() }, &stop_server).unwrap());
 
@@ -619,7 +665,7 @@ mod tests {
         let too_large = exchange("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\nContent-Length: 12\r\nConnection: close\r\n\r\n0123456789ab");
         assert!(too_large.starts_with("HTTP/1.1 413") && too_large.contains(crate::httpd::BODY_TOO_LARGE), "{too_large}");
         assert!(exchange("GET /nope HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").starts_with("HTTP/1.1 404"));
-        stop.store(true, Ordering::SeqCst);
+        stop.trigger();
         server.join().unwrap();
     }
 }

@@ -161,7 +161,7 @@ fn discover_pppoe(iface: &str) -> (bool, String) {
     if !look_path("pppoe-discovery") {
         return (false, "pppoe-discovery unavailable".into());
     }
-    let output = minimalrouter::goish::exec::run("pppoe-discovery", &["-I", iface], StdDuration::from_secs(5));
+    let output = minimalrouter::proc::run("pppoe-discovery", &["-I", iface], StdDuration::from_secs(5));
     let text = String::from_utf8_lossy(&output.combined()).into_owned();
     let lower = text.to_lowercase();
     if !(lower.contains("access-concentrator") || lower.contains("ac-ethernet-address") || lower.contains("pado")) {

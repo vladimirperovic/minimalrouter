@@ -130,7 +130,7 @@ fn verify_runtime_layout_compatibility(update_root: &str, version: &str, system_
 /// for a failed activation.
 fn service_command(args: &[&str]) -> Result<()> {
     let timeout = if args.len() == 2 && (args[1] == "stop" || args[1] == "status") { StdDuration::from_secs(30) } else { runtimebudget::SERVICE_COMMAND.to_std() };
-    let output = minimalrouter::goish::exec::run_group("/sbin/rc-service", args, timeout, StdDuration::from_secs(2));
+    let output = minimalrouter::proc::run_group("/sbin/rc-service", args, timeout, StdDuration::from_secs(2));
     if output.timed_out {
         return Err(errorf!("rc-service {} timed out after {}", args.join(" "), minimalrouter::goish::time::Duration::from_std(timeout)));
     }

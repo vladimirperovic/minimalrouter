@@ -1,6 +1,5 @@
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::io::{BufRead, BufReader, Read};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use super::*;
@@ -127,7 +126,7 @@ pub(super) fn open_feed(path: &str) -> Result<Connection> {
 
 /// Builds a new disk index while the previous one stays available. A
 /// partial, HTML or empty response is rejected.
-pub(super) fn build_feed(stop: &AtomicBool, path: &str, body: impl Read, allow_write: &dyn Fn() -> bool) -> Result<i64> {
+pub(super) fn build_feed(stop: &crate::shutdown::Shutdown, path: &str, body: impl Read, allow_write: &dyn Fn() -> bool) -> Result<i64> {
     match std::fs::remove_file(path) {
         Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
         _ => {}
@@ -167,7 +166,7 @@ pub(super) fn build_feed(stop: &AtomicBool, path: &str, body: impl Read, allow_w
                     continue;
                 }
                 total += 1;
-                if total % 4096 == 0 && (!allow_write() || stop.load(Ordering::SeqCst)) {
+                if total % 4096 == 0 && (!allow_write() || stop.is_triggered()) {
                     return Err(errorf!("category update paused by storage pressure"));
                 }
                 if text.contains(['<', '>', '\0']) {
@@ -200,7 +199,7 @@ pub(super) fn build_feed(stop: &AtomicBool, path: &str, body: impl Read, allow_w
 }
 
 impl Service {
-    fn refresh_feed(&self, stop: &AtomicBool, index: usize, now: Time) -> Result<()> {
+    fn refresh_feed(&self, stop: &crate::shutdown::Shutdown, index: usize, now: Time) -> Result<()> {
         let (source, slot, etag, loaded, entries) = {
             let feeds = self.feeds();
             let f = &feeds[index];
@@ -286,10 +285,10 @@ impl Service {
         published
     }
 
-    pub(super) fn update_feeds(&self, stop: &AtomicBool, force: bool) {
+    pub(super) fn update_feeds(&self, stop: &crate::shutdown::Shutdown, force: bool) {
         for i in 0..SOURCES.len() {
             let enabled = matches!((self.settings)(), Ok((true, _)));
-            if !enabled || stop.load(Ordering::SeqCst) {
+            if !enabled || stop.is_triggered() {
                 return;
             }
             let now = Time::now();

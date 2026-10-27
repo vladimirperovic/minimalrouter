@@ -12,7 +12,7 @@ use crate::httpd::Router;
 pub struct Extensions {
     pub(crate) firewall: std::sync::Mutex<Option<super::observability::FirewallObservation>>,
     pub(crate) gateway_recovery: std::sync::Mutex<Option<super::gateway::GatewayRecoveryStatus>>,
-    pub(crate) gateway_recovery_stop: std::sync::Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    pub(crate) gateway_recovery_stop: std::sync::Mutex<Option<crate::shutdown::Shutdown>>,
     pub(crate) updates: super::update::UpdateServiceSlot,
     /// Lets handlers start work that outlives the request.
     pub(crate) self_ref: std::sync::OnceLock<std::sync::Weak<Server>>,

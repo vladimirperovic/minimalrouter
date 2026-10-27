@@ -12,7 +12,7 @@ use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration as StdDuration, Instant};
@@ -31,6 +31,8 @@ pub struct Lookup {
     pub at: i64,
 }
 
+/// An empty batch only wakes the queue loop for shutdown.
+#[derive(Default)]
 struct Batch {
     lookups: Vec<Lookup>,
     generation: u64,
@@ -79,7 +81,7 @@ pub struct Service {
     history: Mutex<()>,
     queue: SyncSender<Batch>,
     queue_rx: Mutex<Receiver<Batch>>,
-    refresh: crate::goish::sync::Wake,
+    refresh: crate::shutdown::Wake,
     generation: AtomicU64,
     dropped: AtomicU64,
     state: Mutex<RunState>,
@@ -161,7 +163,7 @@ impl Service {
             history: Mutex::new(()),
             queue,
             queue_rx: Mutex::new(queue_rx),
-            refresh: crate::goish::sync::Wake::new(),
+            refresh: crate::shutdown::Wake::new(),
             generation: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             state: Mutex::new(RunState::default()),
@@ -205,13 +207,18 @@ impl Service {
         }
     }
 
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown) {
+        let wake_queue = self.queue.clone();
+        stop.on_trigger(move || {
+            // A full queue needs no wake-up: the loop checks after each batch.
+            let _ = wake_queue.try_send(Batch::default());
+        });
         std::thread::scope(|scope| {
             scope.spawn(|| {
                 self.update_feeds(stop, false);
-                while !stop.load(Ordering::SeqCst) {
+                while !stop.is_triggered() {
                     let forced = self.refresh.wait(StdDuration::from_secs(60), stop);
-                    if stop.load(Ordering::SeqCst) {
+                    if stop.is_triggered() {
                         return;
                     }
                     self.update_feeds(stop, forced);
@@ -219,9 +226,9 @@ impl Service {
             });
             let queue = self.queue_rx.lock().unwrap_or_else(|e| e.into_inner());
             let mut next_tick = Instant::now() + StdDuration::from_secs(60);
-            while !stop.load(Ordering::SeqCst) {
-                let wait = next_tick.saturating_duration_since(Instant::now()).min(StdDuration::from_millis(250));
-                match queue.recv_timeout(wait) {
+            while !stop.is_triggered() {
+                match queue.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
+                    Ok(batch) if batch.lookups.is_empty() => {}
                     Ok(batch) => {
                         if let Err(err) = self.process(stop, batch) {
                             self.run_state().process_error = process_error_message(&err);
@@ -258,7 +265,7 @@ impl Service {
         true
     }
 
-    fn process(&self, stop: &AtomicBool, batch: Batch) -> Result<()> {
+    fn process(&self, stop: &crate::shutdown::Shutdown, batch: Batch) -> Result<()> {
         let _history = self.history.lock().unwrap_or_else(|e| e.into_inner());
         // Failed batches stay visible after a later success clears the error.
         let mut incomplete = false;
@@ -271,7 +278,7 @@ impl Service {
         result
     }
 
-    fn process_locked(&self, _stop: &AtomicBool, batch: &Batch, incomplete: &mut bool) -> Result<()> {
+    fn process_locked(&self, _stop: &crate::shutdown::Shutdown, batch: &Batch, incomplete: &mut bool) -> Result<()> {
         if batch.generation != self.generation.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -433,7 +440,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let service = Service::open(dir.to_str().unwrap(), Box::new(|| Ok((true, 30))), None).unwrap();
         let path = feed_path(&service.dir, "malware", 1);
-        let count = feeds::build_feed(&AtomicBool::new(false), &path, "# list\nbad.example.com\nworse.example.net\n".as_bytes(), &|| true).unwrap();
+        let count = feeds::build_feed(&crate::shutdown::Shutdown::new(), &path, "# list\nbad.example.com\nworse.example.net\n".as_bytes(), &|| true).unwrap();
         assert_eq!(count, 2);
         {
             let mut feeds = service.feeds_mut();
@@ -441,7 +448,7 @@ mod tests {
             feed.db = Some(Mutex::new(open_feed(&path).unwrap()));
             feed.slot = 1;
         }
-        let stop = AtomicBool::new(false);
+        let stop = crate::shutdown::Shutdown::new();
         let batch = Batch { lookups: vec![Lookup { name: "cdn.bad.example.com".into(), address: "192.168.1.9".into(), count: 2, at: Time::now().unix() }], generation: 0 };
         service.process(&stop, batch).unwrap();
         let page = service.alerts("new", "", 0, 50).unwrap();

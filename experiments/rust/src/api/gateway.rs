@@ -2,7 +2,6 @@
 //! the conservative PPPoE auto-recovery observer.
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration as StdDuration;
 
 use super::*;
@@ -234,11 +233,11 @@ impl Server {
 
     fn configure_gateway_auto_recovery(self: &Arc<Self>, monitor: Option<Arc<Monitor>>) {
         if let Some(stop) = self.ext.gateway_recovery_stop.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            stop.store(true, Ordering::SeqCst);
+            stop.trigger();
         }
         *self.ext.gateway_recovery.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let Some(monitor) = monitor else { return };
-        let stop = Arc::new(AtomicBool::new(false));
+        let stop = crate::shutdown::Shutdown::new();
         *self.ext.gateway_recovery_stop.lock().unwrap_or_else(|e| e.into_inner()) = Some(stop.clone());
         let server = Arc::downgrade(self);
         std::thread::spawn(move || run_gateway_auto_recovery(server, monitor, stop));
@@ -342,9 +341,9 @@ impl Server {
 /// Deliberately conservative: never reacts to loss, DNS failures or remote
 /// hosts; restarts PPPoE only after the link itself stayed down for three
 /// minutes, then waits ten minutes before another attempt.
-fn run_gateway_auto_recovery(server: std::sync::Weak<Server>, monitor: Arc<Monitor>, stop: Arc<AtomicBool>) {
+fn run_gateway_auto_recovery(server: std::sync::Weak<Server>, monitor: Arc<Monitor>, stop: crate::shutdown::Shutdown) {
     let (mut down, mut last, mut last_result): (Option<Time>, Option<Time>, String) = (None, None, String::new());
-    while crate::goish::sync::sleep(AUTO_RECOVERY_POLL_INTERVAL, &stop) {
+    while stop.sleep(AUTO_RECOVERY_POLL_INTERVAL) {
         let Some(server) = server.upgrade() else { return };
         let cfg = server.engine.get_current_config();
         let summary = monitor.summary();

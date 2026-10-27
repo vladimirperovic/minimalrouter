@@ -5,7 +5,6 @@
 pub mod base64;
 pub mod decode;
 pub mod errors;
-pub mod exec;
 pub mod filepath;
 pub mod flag;
 pub mod json;
@@ -13,5 +12,4 @@ pub mod log;
 pub mod net;
 pub mod rand;
 pub mod strings;
-pub mod sync;
 pub mod time;

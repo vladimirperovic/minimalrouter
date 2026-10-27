@@ -1,4 +1,3 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, MutexGuard};
 
 use super::*;
@@ -177,9 +176,9 @@ impl Checker {
     }
 
     /// Periodic checks until `stop` is set.
-    pub fn run(&self, stop: &AtomicBool) {
+    pub fn run(&self, stop: &crate::shutdown::Shutdown) {
         let mut delay = self.initial_delay;
-        while crate::goish::sync::sleep(delay.to_std(), stop) {
+        while stop.sleep(delay.to_std()) {
             let start = {
                 let mut state = self.state();
                 let blocked = self.now().before(&state.backoff_until);
