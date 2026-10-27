@@ -1,0 +1,97 @@
+#!/usr/bin/expect -f
+# Drives the installer ISO flasher and the first boot of the lab router over its
+# serial console (a UNIX socket QEMU exposes), including PPPoE credentials.
+#
+# usage: install-router.exp SERIAL_SOCKET LOG
+# Credentials come from the environment (see scripts/gh-lab/lib.sh).
+
+set sock [lindex $argv 0]
+set logpath [lindex $argv 1]
+if {$sock eq "" || $logpath eq ""} {
+    puts stderr "usage: install-router.exp SERIAL_SOCKET LOG"
+    exit 2
+}
+set dash $env(DASH_PASS)
+set root $env(ROOT_PASS)
+set pppoe_user $env(PPPOE_USER)
+set pppoe_pass $env(PPPOE_PASS)
+
+# Hosted runners without KVM emulate in software; give each stage room, while a
+# missing prompt still ends the run well inside the workflow timeout.
+set timeout 900
+log_user 1
+log_file -noappend $logpath
+match_max 65536
+
+for {set i 0} {$i < 60} {incr i} {
+    if {[file exists $sock]} { break }
+    after 500
+}
+spawn socat - UNIX-CONNECT:$sock
+
+proc fail {code message} {
+    puts stderr "LAB_INSTALL_FAILED: $message"
+    exit $code
+}
+
+proc wait_and_send {pattern text code} {
+    expect {
+        -re $pattern { send -- $text }
+        timeout { fail $code "timeout waiting for: $pattern" }
+        eof { fail [expr {$code + 1}] "console closed while waiting for: $pattern" }
+    }
+}
+
+expect {
+    -re {Golden image verified} {}
+    timeout { fail 10 "timeout waiting for golden image verification" }
+    eof { fail 11 "console closed before golden image verification" }
+}
+expect {
+    -re {Using the only attached installation disk automatically: /dev/vda} {}
+    timeout { fail 12 "timeout waiting for the automatic disk choice" }
+    eof { fail 13 "console closed before the automatic disk choice" }
+}
+expect {
+    -re {Golden image copied successfully} {}
+    -re {A recovery shell will open on this console} { fail 14 "the flasher reported an error" }
+    timeout { fail 15 "timeout waiting for the image copy" }
+    eof { fail 16 "console closed during the image copy" }
+}
+expect {
+    -re {Rebooting into the prebuilt appliance now} {}
+    timeout { fail 17 "timeout waiting for the reboot" }
+    eof { fail 18 "console closed before the reboot" }
+}
+
+expect {
+    -re {minimalrouter v[0-9]+\.[0-9]+\.[0-9]+[^\n]*first boot} {}
+    timeout { fail 20 "timeout waiting for first boot" }
+    eof { fail 21 "console closed before first boot" }
+}
+# PPPoE discovery sees the provider's concentrator on the WAN port, so the roles
+# need an explicit yes rather than Enter.
+wait_and_send {Use these WAN/LAN roles} "y\r" 22
+wait_and_send {PPPoE username.*skip} "$pppoe_user\r" 24
+wait_and_send {PPPoE password} "$pppoe_pass\r" 25
+wait_and_send {administrator password.*12 characters} "$dash\r" 26
+wait_and_send {Confirm dashboard password} "$dash\r" 28
+wait_and_send {Install and apply this configuration} "\r" 30
+expect {
+    -re {New.*password:} { send -- "$root\r" }
+    timeout { fail 32 "timeout waiting for the recovery password prompt" }
+    eof { fail 33 "console closed before the recovery password prompt" }
+}
+expect {
+    -re {Retype.*password:} { send -- "$root\r" }
+    timeout { fail 34 "timeout waiting for the recovery password confirmation" }
+    eof { fail 35 "console closed before the recovery password confirmation" }
+}
+expect {
+    -re {First boot configuration completed} {}
+    -re {A recovery shell is opening on this console} { fail 36 "first boot reported an error" }
+    timeout { fail 37 "timeout waiting for first boot to finish" }
+    eof { fail 38 "console closed before first boot finished" }
+}
+puts "\nLAB_INSTALL_DONE"
+exit 0
