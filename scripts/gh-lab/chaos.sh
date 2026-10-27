@@ -12,6 +12,10 @@ RESULTS="$LOGS/chaos-results.tsv"
 record() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS"; log "$1  $2  $3"; }
 run() {
     local name=$1 out rc
+    # LAB_ONLY=REGEX runs just the matching tests (plus the kernel-log crash scans).
+    if [ -n "${LAB_ONLY:-}" ] && ! printf "%s" "$name" | grep -Eiq "$LAB_ONLY|no crashes"; then
+        return 0
+    fi
     shift
     out=$("$@" 2>&1)
     rc=$?

@@ -217,7 +217,11 @@ impl PersistentRateLimiter {
         let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         let now = Time::now();
         if let Some((attempts, first_seen)) = cache.get_mut(ip) {
-            if now.sub(first_seen) > self.window {
+            // A window that starts after "now" means the wall clock was stepped back
+            // since it opened (the value came from the database, without a monotonic
+            // reading); counting it as still open would lock the source out for the
+            // size of the step.
+            if now.sub(first_seen) > self.window || now.before(first_seen) {
                 *attempts = 1;
                 *first_seen = now;
                 return self.store.set_rate_limit_bucket(ip, 1, now).is_ok();
@@ -234,7 +238,7 @@ impl PersistentRateLimiter {
                 cache.insert(ip.to_string(), (1, now));
                 self.store.set_rate_limit_bucket(ip, 1, now).is_ok()
             }
-            Ok((_, window_start)) if now.sub(&window_start) > self.window => {
+            Ok((_, window_start)) if now.sub(&window_start) > self.window || now.before(&window_start) => {
                 cache.insert(ip.to_string(), (1, now));
                 self.store.set_rate_limit_bucket(ip, 1, now).is_ok()
             }

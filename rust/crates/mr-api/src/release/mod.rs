@@ -175,7 +175,7 @@ fn parse_http_time(raw: &str) -> Option<Time> {
     use chrono::{NaiveDateTime, TimeZone, Utc};
     for layout in ["%a, %d %b %Y %H:%M:%S GMT", "%A, %d-%b-%y %H:%M:%S GMT", "%a %b %e %H:%M:%S %Y"] {
         if let Ok(naive) = NaiveDateTime::parse_from_str(raw, layout) {
-            return Some(Time(Utc.from_utc_datetime(&naive).fixed_offset()));
+            return Some(Time::from_wall(Utc.from_utc_datetime(&naive).fixed_offset()));
         }
     }
     None

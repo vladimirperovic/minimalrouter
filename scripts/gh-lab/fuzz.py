@@ -157,8 +157,17 @@ def main():
         if status >= 500 or status == 0:
             bad.append(f"{label} -> HTTP {status}")
 
+    def with_current_revision(cfg):
+        # A write must carry the revision it was based on or the server answers
+        # 422 "stale revision"; without this only the first accepted change counts.
+        status, _, body = request("GET", "/api/v1/config", cookie=cookie)
+        fresh = dict(cfg)
+        if status == 200:
+            fresh["revision"] = json.loads(body).get("revision", fresh.get("revision"))
+        return fresh
+
     def put(cfg):
-        return request("PUT", "/api/v1/config", cfg, cookie, csrf)
+        return request("PUT", "/api/v1/config", with_current_revision(cfg), cookie, csrf)
 
     def confirm_pending():
         status, _, body = request("GET", "/api/v1/transactions/pending", cookie=cookie)

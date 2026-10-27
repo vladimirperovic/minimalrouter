@@ -19,6 +19,14 @@ on:
         description: "Appliance ISO run to take the ISO from (default: latest successful run on this branch)"
         required: false
         default: ""
+      only:
+        description: "Run only the tests whose name matches this regular expression, e.g. 'soak|memory' (default: everything)"
+        required: false
+        default: ""
+      soak_seconds:
+        description: "Length of the soak test in seconds (default 300)"
+        required: false
+        default: "300"
 
 permissions:
   contents: read
@@ -84,6 +92,10 @@ jobs:
           test "$(wc -l < iso-path.txt)" -eq 1
 
       - name: Run the lab
+        env:
+          # Inputs reach the scripts as environment variables, never in the shell text.
+          LAB_ONLY: ${{ inputs.only }}
+          LAB_SOAK_SECONDS: ${{ inputs.soak_seconds }}
         run: bash scripts/gh-lab/run.sh "$(cat iso-path.txt)"
 
       - name: Upload logs, results and measurements

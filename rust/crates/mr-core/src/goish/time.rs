@@ -4,11 +4,53 @@
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, SecondsFormat, TimeZone, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
-use std::time::Duration as StdDuration;
+use std::time::{Duration as StdDuration, Instant};
 
 /// A Go `time.Time` value. The zero value is `0001-01-01T00:00:00Z`.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Time(pub DateTime<FixedOffset>);
+///
+/// Like Go, a value from [`Time::now`] also carries a monotonic clock reading,
+/// and `sub`, `before` and `after` use it when both sides have one. Rate limit
+/// windows, session timeouts and confirmation deadlines therefore do not move
+/// when the wall clock is stepped (NTP, a wrong RTC, an operator). Any other
+/// way of making a `Time` (parsing, `from_unix`, `utc`, `truncate`) drops the
+/// reading, and equality, ordering and hashing look at the wall clock only.
+#[derive(Clone, Copy)]
+pub struct Time(pub DateTime<FixedOffset>, Option<Instant>);
+
+impl PartialEq for Time {
+    fn eq(&self, other: &Time) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Time {}
+
+impl PartialOrd for Time {
+    fn partial_cmp(&self, other: &Time) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Time {
+    fn cmp(&self, other: &Time) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl std::hash::Hash for Time {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+/// `a - b` for two monotonic readings, signed like a Go duration.
+fn mono_delta(a: Instant, b: Instant) -> Duration {
+    if a >= b { Duration::from_std(a - b) } else { Duration(-Duration::from_std(b - a).0) }
+}
+
+fn mono_shift(reading: Instant, ns: i64) -> Option<Instant> {
+    if ns >= 0 { reading.checked_add(StdDuration::from_nanos(ns as u64)) } else { reading.checked_sub(StdDuration::from_nanos(ns.unsigned_abs())) }
+}
 
 impl fmt::Debug for Time {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -23,17 +65,22 @@ fn zero_instant() -> DateTime<FixedOffset> {
 
 impl Default for Time {
     fn default() -> Self {
-        Time(zero_instant())
+        Time::from_wall(zero_instant())
     }
 }
 
 impl Time {
+    /// A value without a monotonic reading.
+    pub fn from_wall(wall: DateTime<FixedOffset>) -> Time {
+        Time(wall, None)
+    }
+
     pub fn now() -> Time {
-        Time(Local::now().fixed_offset())
+        Time(Local::now().fixed_offset(), Some(Instant::now()))
     }
 
     pub fn now_utc() -> Time {
-        Time(Utc::now().fixed_offset())
+        Time::from_wall(Utc::now().fixed_offset())
     }
 
     pub fn zero() -> Time {
@@ -45,7 +92,7 @@ impl Time {
     }
 
     pub fn utc(&self) -> Time {
-        Time(self.0.with_timezone(&Utc).fixed_offset())
+        Time::from_wall(self.0.with_timezone(&Utc).fixed_offset())
     }
 
     pub fn unix(&self) -> i64 {
@@ -57,13 +104,13 @@ impl Time {
     }
 
     pub fn from_unix(secs: i64, nanos: u32) -> Time {
-        Time(Utc.timestamp_opt(secs, nanos).single().unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap()).fixed_offset())
+        Time::from_wall(Utc.timestamp_opt(secs, nanos).single().unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap()).fixed_offset())
     }
 
     /// Go `time.Date` in UTC, normalizing month and day overflow.
     pub fn date_utc(year: i64, month: i64, day: i64) -> Time {
         let naive = normalized_date(year, month, day).and_hms_opt(0, 0, 0).unwrap();
-        Time(Utc.from_utc_datetime(&naive).fixed_offset())
+        Time::from_wall(Utc.from_utc_datetime(&naive).fixed_offset())
     }
 
     /// Go `Time.AddDate`: calendar arithmetic with overflow normalization
@@ -72,21 +119,21 @@ impl Time {
         use chrono::Datelike;
         let local = self.0.naive_local();
         let date = normalized_date(local.year() as i64 + years, local.month() as i64 + months, local.day() as i64 + days);
-        Time(self.0.offset().from_local_datetime(&date.and_time(local.time())).unwrap())
+        Time::from_wall(self.0.offset().from_local_datetime(&date.and_time(local.time())).unwrap())
     }
 
     /// Go `Time.Truncate`: rounds down relative to the zero time, so minute,
     /// hour and day multiples align with UTC boundaries.
     pub fn truncate(&self, d: Duration) -> Time {
         if d.0 <= 0 {
-            return *self;
+            return Time::from_wall(self.0);
         }
         const UNIX_TO_ZERO: i128 = 62_135_596_800 * 1_000_000_000;
         let abs = self.0.timestamp() as i128 * 1_000_000_000 + self.0.timestamp_subsec_nanos() as i128 + UNIX_TO_ZERO;
         let truncated = abs - abs.rem_euclid(d.0 as i128) - UNIX_TO_ZERO;
         let secs = truncated.div_euclid(1_000_000_000) as i64;
         let nanos = truncated.rem_euclid(1_000_000_000) as u32;
-        Time(Utc.timestamp_opt(secs, nanos).unwrap().with_timezone(self.0.offset()))
+        Time::from_wall(Utc.timestamp_opt(secs, nanos).unwrap().with_timezone(self.0.offset()))
     }
 
     /// strftime formatting in the value's own offset.
@@ -110,20 +157,29 @@ impl Time {
     }
 
     pub fn add(&self, d: Duration) -> Time {
-        Time(self.0 + chrono::Duration::nanoseconds(d.0))
+        Time(self.0 + chrono::Duration::nanoseconds(d.0), self.1.and_then(|reading| mono_shift(reading, d.0)))
     }
 
     pub fn sub(&self, other: &Time) -> Duration {
+        if let (Some(a), Some(b)) = (self.1, other.1) {
+            return mono_delta(a, b);
+        }
         let delta = self.0.signed_duration_since(other.0);
         Duration(delta.num_nanoseconds().unwrap_or(if delta > chrono::Duration::zero() { i64::MAX } else { i64::MIN }))
     }
 
     pub fn before(&self, other: &Time) -> bool {
-        self.0 < other.0
+        match (self.1, other.1) {
+            (Some(a), Some(b)) => a < b,
+            _ => self.0 < other.0,
+        }
     }
 
     pub fn after(&self, other: &Time) -> bool {
-        self.0 > other.0
+        match (self.1, other.1) {
+            (Some(a), Some(b)) => a > b,
+            _ => self.0 > other.0,
+        }
     }
 
     /// Go `time.RFC3339Nano` formatting.
@@ -138,7 +194,7 @@ impl Time {
     }
 
     pub fn parse_rfc3339(value: &str) -> Option<Time> {
-        DateTime::parse_from_rfc3339(value).ok().map(Time)
+        DateTime::parse_from_rfc3339(value).ok().map(Time::from_wall)
     }
 }
 
@@ -515,25 +571,77 @@ impl Time {
         if parts.len() == 4 {
             let candidate = format!("{} {} {}", parts[0], parts[1], parts[2]);
             if let Ok(t) = DateTime::parse_from_str(&candidate, "%Y-%m-%d %H:%M:%S%.f %z") {
-                return Some(Time(t));
+                return Some(Time::from_wall(t));
             }
         }
         let trimmed = value.strip_suffix('Z').unwrap_or(value);
         for layout in ["%Y-%m-%d %H:%M:%S%.f%:z", "%Y-%m-%dT%H:%M:%S%.f%:z"] {
             if let Ok(t) = DateTime::parse_from_str(trimmed, layout) {
-                return Some(Time(t));
+                return Some(Time::from_wall(t));
             }
         }
         for layout in ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M"] {
             if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(trimmed, layout) {
-                return Some(Time(Utc.from_utc_datetime(&naive).fixed_offset()));
+                return Some(Time::from_wall(Utc.from_utc_datetime(&naive).fixed_offset()));
             }
         }
         if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
-            return Some(Time(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?).fixed_offset()));
+            return Some(Time::from_wall(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?).fixed_offset()));
         }
         // RFC3339 strings written explicitly by the store.
         Time::parse_rfc3339(value)
+    }
+}
+
+#[cfg(test)]
+mod monotonic_time_tests {
+    use super::*;
+
+    /// The lab found a login lockout that outlived a clock step: a window
+    /// opened while the wall clock was two hours ahead stayed "in the future"
+    /// after the clock was put back. Intervals between two `Time::now()`
+    /// values must follow the monotonic clock, as in Go.
+    #[test]
+    fn intervals_ignore_a_wall_clock_step() {
+        let opened = Time::now();
+        let mut later = Time::now();
+        later.0 -= chrono::Duration::hours(2);
+        assert!(later.sub(&opened) > Duration::hours(-1), "elapsed time went negative with the wall clock");
+        assert!(!later.before(&opened));
+
+        let mut ahead = Time::now();
+        ahead.0 += chrono::Duration::hours(2);
+        assert!(ahead.sub(&opened) < Duration::minutes(1), "a forward clock step must not look like elapsed time");
+        assert!(!ahead.after(&opened.add(Duration::minutes(1))));
+    }
+
+    #[test]
+    fn add_keeps_the_reading_and_other_constructors_drop_it() {
+        let start = Time::now();
+        let deadline = start.add(Duration::secs(30));
+        assert_eq!(deadline.sub(&start), Duration::secs(30));
+        assert_eq!(start.sub(&deadline), Duration::secs(-30));
+        assert!(deadline.after(&start) && start.before(&deadline));
+
+        // Without a reading on either side the wall clock decides, as before.
+        let wall = Time::from_unix(1_000, 0);
+        let moved = Time::from_unix(1_030, 0);
+        assert_eq!(moved.sub(&wall), Duration::secs(30));
+        assert_eq!(start.utc().sub(&wall), start.sub(&wall));
+        assert_eq!(start.truncate(Duration::MINUTE).1, None);
+    }
+
+    #[test]
+    fn equality_and_ordering_use_the_wall_clock_only() {
+        let now = Time::now();
+        let copy = Time::from_wall(now.0);
+        assert_eq!(now, copy);
+        assert_eq!(now.cmp(&copy), std::cmp::Ordering::Equal);
+        let mut hasher_a = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher_b = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&now, &mut hasher_a);
+        std::hash::Hash::hash(&copy, &mut hasher_b);
+        assert_eq!(std::hash::Hasher::finish(&hasher_a), std::hash::Hasher::finish(&hasher_b));
     }
 }
 

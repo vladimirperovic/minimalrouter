@@ -35,6 +35,22 @@ evidence collected before a release is tagged.
   release and refuse unsupported releases, instead of rewriting the
   repositories to a fixed release.
 
+### Fixed
+
+- **Time intervals no longer follow the wall clock.** The Rust port compared
+  timestamps by wall clock only, where Go's `time.Now()` also carries a
+  monotonic reading. Found by the GitHub lab: the router's clock was moved two
+  hours forward and back, and a login recorded in between left the per-source
+  login window "in the future", so the administrator stayed rate limited
+  (HTTP 429) long after the 60 s window. Values from `Time::now()` now carry a
+  monotonic reading again (`sub`, `before`, `after` use it), and a rate limit
+  bucket read back from the database that starts in the future counts as
+  expired. This also covers session timeouts and confirmation deadlines, which
+  use the same type. Regression tests: `rust/tests/rate_limit_clock.rs` and the
+  `monotonic_time_tests` in `goish/time.rs`.
+- An unauthenticated `Expect: 100-continue` request announcing a 100 MB body
+  is answered with 413 at once instead of being invited to send the body.
+
 ### Upgrade compatibility
 
 - **Every appliance running v0.3.3 or earlier needs the full signed

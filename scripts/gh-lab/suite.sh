@@ -13,6 +13,10 @@ record() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RESULTS"; log "$1  $2  $3";
 # run NAME FUNCTION : the function's last line of output is the reason.
 run() {
     local name=$1 out rc
+    # LAB_ONLY=REGEX runs just the matching tests (plus the kernel-log crash scans).
+    if [ -n "${LAB_ONLY:-}" ] && ! printf "%s" "$name" | grep -Eiq "$LAB_ONLY|no crashes"; then
+        return 0
+    fi
     shift
     out=$("$@" 2>&1)
     rc=$?
@@ -452,24 +456,37 @@ t_memory_and_cpu() {
 }
 
 t_soak() {
-    local pid_d pid_a start end i rss_start rss_end code
+    local pid_d pid_a end half i rss_start rss_mid rss_end code line seconds
+    seconds=${LAB_SOAK_SECONDS:-300}
     pid_d=$(router_pid routerd)
     pid_a=$(router_pid router-applyd)
     rss_start=$(field "$(sample_memory soak_start | grep ' routerd ')" rss)
     api login >/dev/null || return 1
-    end=$((SECONDS + 300))
+    : > "$LOGS/soak-trend.txt"
+    end=$((SECONDS + seconds))
+    half=$((SECONDS + seconds / 2))
+    rss_mid=
     i=0
     while [ "$SECONDS" -lt "$end" ]; do
         api load 15 2 >/dev/null
         code=$(http_code POST snapshots "{\"label\":\"soak-$i\"}")
         [ "$code" = 200 ] || { echo "snapshot during the soak gave $code"; return 1; }
         i=$((i + 1))
+        line=$(sample_memory "soak_$i" | grep ' routerd ')
+        printf '%s %s\n' "$i" "$line" >> "$LOGS/soak-trend.txt"
+        if [ -z "$rss_mid" ] && [ "$SECONDS" -ge "$half" ]; then
+            rss_mid=$(field "$line" rss)
+        fi
     done
     rss_end=$(field "$(sample_memory soak_end | grep ' routerd ')" rss)
+    [ -n "$rss_mid" ] || rss_mid=$rss_start
     [ "$(router_pid routerd)" = "$pid_d" ] || { echo "routerd restarted during the soak"; return 1; }
     [ "$(router_pid router-applyd)" = "$pid_a" ] || { echo "router-applyd restarted during the soak"; return 1; }
-    [ "$(((rss_end - rss_start) / 1024))" -lt 25 ] || { echo "routerd grew by $(((rss_end - rss_start) / 1024)) MiB in 5 minutes"; return 1; }
-    echo "5 minute soak: no restart, memory $((rss_start / 1024)) -> $((rss_end / 1024)) MiB, $i rounds"
+    # The first minutes after a load test are allocator warm-up (the heap grows
+    # to the working set and stays); a leak keeps growing, so judge the second half.
+    [ "$(((rss_end - rss_mid) / 1024))" -lt 12 ] || { echo "routerd still growing in the second half of the soak: $((rss_mid / 1024)) -> $((rss_end / 1024)) MiB (start $((rss_start / 1024)) MiB, $i rounds)"; return 1; }
+    [ "$((rss_end / 1024))" -lt 160 ] || { echo "routerd is $((rss_end / 1024)) MiB after the soak"; return 1; }
+    echo "$((seconds / 60)) minute soak: no restart, memory $((rss_start / 1024)) -> $((rss_mid / 1024)) -> $((rss_end / 1024)) MiB (start, middle, end), $i rounds"
 }
 
 t_throughput() {

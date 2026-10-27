@@ -497,7 +497,7 @@ pub fn device_profile_statuses(cfg: &SystemConfig, now: Time) -> Vec<ProfileStat
             }
             boundaries.sort();
             if let Some(at) = boundaries.into_iter().find(|at| *at > now && schedule_allowed(&windows, at) != allowed) {
-                status.next_change_at = Some(Time(at));
+                status.next_change_at = Some(Time::from_wall(at));
                 status.next_state = if allowed { "blocked" } else { "allowed" }.into();
             }
         }
