@@ -36,6 +36,8 @@ jobs:
           sh -n packaging/alpine/prune-kernel-modules_test.sh
           sh -n scripts/alpine-bump.sh
           sh -n scripts/ci/alpine-release_test.sh
+          sh -n scripts/ci/bootstrap-determinism.sh
+          sh -n scripts/build-rust.sh
           sh -n scripts/ci/iso-validate.sh
           sh -n scripts/package-dist.sh
       - name: Test offline installer dependency mode
@@ -183,6 +185,8 @@ jobs:
           fetch-depth: 0
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
+      - name: Bootstrap programs must not embed build metadata
+        run: sh scripts/ci/bootstrap-determinism.sh
       - name: Decide whether this build is deliverable as a web update
         run: sh scripts/ci/bootstrap-compatibility.sh
 

@@ -61,11 +61,12 @@ build() {
     for bin in "$@"; do
         bins="$bins --bin $bin"
     done
-    targetdir="$root/rust/target/dist-$tag"
+    # Relative for cargo, so a Windows cargo run from Git Bash resolves it too.
+    targetdir="target/dist-$tag"
     # shellcheck disable=SC2086
     ( cd "$root/rust" && RUSTFLAGS="$rustflags" CARGO_TARGET_DIR="$targetdir" $builder --release --locked --target "$target" $bins )
     for bin in "$@"; do
-        cp "$targetdir/$target/release/$bin" "$out/$bin-linux-$arch"
+        cp "$root/rust/$targetdir/$target/release/$bin" "$out/$bin-linux-$arch"
     done
 }
 
