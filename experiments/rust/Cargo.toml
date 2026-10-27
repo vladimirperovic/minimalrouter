@@ -40,3 +40,9 @@ x509-parser = "0.16"
 
 [target."cfg(unix)".dependencies]
 signal-hook = "0.3"
+
+[profile.release]
+# Matches the Go release build (-trimpath -ldflags="-s -w"): no symbols.
+strip = "symbols"
+lto = true
+codegen-units = 1

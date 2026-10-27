@@ -1249,3 +1249,9 @@ mod tests {
         assert!(confirm_via_candidate_lan("192.168.2.1:443", "192.168.2.1") && !confirm_via_candidate_lan("192.168.1.1:443", "192.168.2.1"));
     }
 }
+
+/// 507 for a configuration mutation under critical storage pressure; routing
+/// itself stays active.
+pub fn write_storage_pressure(status: &crate::storage::Status) -> Response {
+    write_json(507, &json!({"error": "Storage pressure prevents durable configuration changes. Routing remains active; free disk space and retry.", "storage_pressure": status.level}))
+}

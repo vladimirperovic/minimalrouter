@@ -293,3 +293,8 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 }
+
+/// The validity window of a PEM certificate, for handshake cache checks.
+pub fn certificate_validity(cert_pem: &[u8]) -> Option<(Time, Time)> {
+    parse_cert(cert_pem).map(|facts| (facts.not_before, facts.not_after))
+}
