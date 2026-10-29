@@ -22,6 +22,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prove firewall observer against the Linux kernel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2
+          sudo unshare --net -- python3 scripts/gh-lab/firewall_kernel_check.py
       - name: Validate release and smoke-test shell syntax
         run: |
           sh -n scripts/prepare-public-root.sh

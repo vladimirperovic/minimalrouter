@@ -31,7 +31,6 @@ run() {
 }
 http_code() { api call "$@" | head -n 1 | awk '{print $2}'; }
 config_json() { api call GET config | tail -n +2; }
-firewall_fingerprint() { rsh "nft -s list ruleset | sed '/elements = {/,/}/d' | sha256sum | cut -c1-16"; }
 state_digest() { echo "revision=$(config_json | jq -r .revision) hostname=$(config_json | jq -r .system.hostname)"; }
 
 ppp_up() { rsh 'ip -4 -o addr show ppp0 | grep -q "10\.250\.0\."'; }
@@ -67,7 +66,7 @@ c_http_abuse() {
 
 c_wan_link_flaps() {
     local fw i
-    fw=$(firewall_fingerprint)
+    fw=$(firewall_fingerprint) || return 1
     for i in 1 2 3 4 5 6; do
         qemu_monitor "set_link nicwan off"
         sleep 4
@@ -129,13 +128,14 @@ c_frozen_applyd() {
 }
 
 c_kill_everything() {
-    local fw
-    fw=$(firewall_fingerprint)
+    local before="$LOGS/firewall-mass-kill-before.json" after="$LOGS/firewall-mass-kill-after.json"
+    firewall_snapshot "$before" || return 1
     rsh 'pkill -9 -f "slots/.*/bin/routerd-amd64"; pkill -9 -f "slots/.*/bin/router-applyd-amd64"; pkill -9 dnsmasq; pkill -9 pppd; true'
     wait_for 300 router_healthy || { rsh 'rc-status -a | head -30'; echo "router did not recover from killing every daemon"; return 1; }
     wait_for 300 ppp_up || { echo "PPPoE did not come back"; return 1; }
-    wait_for 60 client dig +short +time=3 "@$ROUTER_LAN_IP" github.com || { echo "DNS did not come back"; return 1; }
-    [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules differ after the mass kill"; return 1; }
+    wait_for 60 client python3 "$HERE/dns_stress.py" probe "$ROUTER_LAN_IP" github.com public udp || { echo "DNS did not come back"; return 1; }
+    firewall_snapshot "$after" || return 1
+    python3 "$HERE/firewall_observer.py" "$before" "$after" || return 1
     no_crashes || return 1
     echo "routerd, router-applyd, dnsmasq and pppd killed at once: all back, firewall identical"
 }

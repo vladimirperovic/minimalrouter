@@ -177,6 +177,33 @@ always-run step prepares the dedicated synthetic log directory for upload.
 Complete scenario output also goes to the workflow console. These fixes still
 require a new successful full Lab run; `71a5a2a` is not complete validation.
 
+The full [Lab run 40862236667](https://github.com/vladimirperovic/minimalrouter/actions/runs/40862236667)
+on `b8dceca` passed all 3,000 contracts, 39 basic scenarios, the strict frozen
+helper scenario and a 518,525-query DNS flood. Chaos finished with 16 passes
+and one failure: the text firewall fingerprint changed after killing all
+daemons. That test did not save its two immediate firewall snapshots, so the
+historical difference cannot be reconstructed exactly. The saved basic-suite
+and final-chaos snapshots have the same policy, apart from the revision marker
+advanced by intervening configuration changes.
+
+The helper recreates the main and pause tables independently. A table can
+move in the listing when recreated; nftables evaluates base chains by hook
+priority, not table listing order ([nft manual](https://netfilter.org/projects/nftables/manpage.html)).
+The lab now compares complete `nft -s -j list ruleset` snapshots, grouping only
+independent tables in a stable order and removing allocation handles. It keeps
+object, rule and expression order, hooks, priorities, policies, revision names
+and all set contents. Equal-priority base-chain registrations are rejected as
+ambiguous. Missing/extra tables, unsupported objects, failed captures and any
+policy difference fail. This replaces the old `sed` filter that discarded all
+set contents. Raw and canonical snapshots, including the two mass-kill
+snapshots, are retained in the artifact; a policy mismatch prints its diff.
+
+CI exercises the observer in a new isolated Linux network namespace: recreate
+an unchanged main table after the pause table, demonstrate the old text-hash
+failure, then require semantic equality. Changed default policies, reordered
+rules and deleted rules must still fail. No owner router or host firewall is
+used for this regression. A new full Lab run remains necessary.
+
 `scripts/ci-network-namespace-lab.sh` creates disposable WAN, router and LAN Linux
 namespaces and checks:
 

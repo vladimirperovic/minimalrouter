@@ -319,13 +319,11 @@ t_rollback_unconfirmed() {
 
 # ---------------------------------------------------------------- resilience
 
-# Rules only: counters, timeouts and the contents of dynamic sets (DNS filter,
-# accounting) change with traffic and are not part of the rule set.
-firewall_fingerprint() { rsh "nft -s list ruleset | sed '/elements = {/,/}/d' | sha256sum | cut -c1-16"; }
+# The shared observer keeps policies, rule order, set contents and revision.
 
 t_kill_routerd() {
     local old new fw
-    fw=$(firewall_fingerprint)
+    fw=$(firewall_fingerprint) || return 1
     old=$(router_pid routerd)
     rsh "kill -9 $old"
     wait_for 120 rsh 'test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ":8443 "' || { echo "dashboard did not come back"; return 1; }
@@ -339,7 +337,7 @@ t_kill_routerd() {
 
 t_kill_applyd() {
     local old new fw
-    fw=$(firewall_fingerprint)
+    fw=$(firewall_fingerprint) || return 1
     old=$(router_pid router-applyd)
     rsh "kill -9 $old"
     wait_for 180 rsh 'test -S /run/minimalrouter/apply.sock && test -s /run/minimalrouter/routerd.ready' || { echo "privileged helper did not come back"; return 1; }

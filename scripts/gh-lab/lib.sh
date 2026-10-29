@@ -69,3 +69,17 @@ qemu_monitor() {
 router_pid() {
     rsh "pgrep -f 'slots/.*/bin/$1-amd64' | head -n 1"
 }
+
+# Save the complete stateless JSON, retaining sets and every rule. No remote
+# shell pipeline: an SSH/nft error must not become the hash of an empty string.
+firewall_snapshot() {
+    local path=$1
+    rsh 'nft -s -j list ruleset' > "$path" || return 1
+    python3 "$(dirname "${BASH_SOURCE[0]}")/firewall_observer.py" "$path"
+}
+
+firewall_fingerprint() {
+    local path
+    path=$(mktemp "$LOGS/firewall-XXXXXX") || return 1
+    firewall_snapshot "$path"
+}
