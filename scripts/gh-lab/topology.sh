@@ -62,6 +62,10 @@ up() {
         --listen-address="$INET_IP" --pid-file="$LAB_RUN/provider-dns.pid" --server=1.1.1.1 \
         --address="/flood.lab.invalid/$INET_IP" --local=/flood.lab.invalid/ --local-ttl=0 \
         --log-facility="$LOGS/provider-dns.log"
+    # dnsmasq creates this as its service user (normally mode 0660). The runner
+    # must be able to archive it even when the scenario fails.
+    sudo chown "$(id -u)" "$LOGS/provider-dns.log"
+    chmod u+rw "$LOGS/provider-dns.log"
     sudo nft -f - <<'EOF'
 table ip lab {
   chain post {

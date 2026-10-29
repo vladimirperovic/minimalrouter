@@ -20,7 +20,7 @@ run() {
     out=$("$@" 2>&1)
     rc=$?
     # Preserve tracebacks and every DNS/HTTP observation, including on PASS.
-    printf '\n=== %s (exit %s) ===\n%s\n' "$name" "$rc" "$out" >> "$LOGS/chaos-details.txt"
+    printf '\n=== %s (exit %s) ===\n%s\n' "$name" "$rc" "$out" | tee -a "$LOGS/chaos-details.txt"
     if [ "$rc" -eq 0 ]; then
         record PASS "$name" "$(printf '%s' "$out" | tail -n 1 | cut -c1-220)"
     elif [ "$rc" -eq 77 ]; then

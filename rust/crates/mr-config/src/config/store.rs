@@ -189,8 +189,10 @@ impl SQLiteStore {
         Ok(cfg)
     }
 
-    /// Saves an updated configuration revision atomically.
-    pub fn save_config(&self, mut cfg: SystemConfig) -> Result<()> {
+    /// Saves the caller-assigned canonical revision and timestamp atomically.
+    /// The engine sends this exact configuration to the privileged helper and
+    /// retains it in memory; changing metadata here would make a reload differ.
+    pub fn save_config(&self, cfg: SystemConfig) -> Result<()> {
         let conn = self.lock();
         cfg.validate().map_err(|e| wrapf("refusing to persist invalid configuration", e))?;
         let current: Option<String> = conn
@@ -209,7 +211,6 @@ impl SQLiteStore {
             None => {}
         }
 
-        cfg.updated_at = Time::now();
         let data = json::marshal_string(&cfg).map_err(|e| wrapf("failed to serialize config", e))?;
         let mut conn = conn;
         let tx = conn.transaction().map_err(|e| wrapf("failed to begin transaction", e))?;

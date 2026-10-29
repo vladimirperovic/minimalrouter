@@ -80,9 +80,31 @@ def require_ready(lab):
     lab.get("health")
 
 
+def changed_paths(before, after, path="config"):
+    """Report locations only: never log configuration secrets or field values."""
+    if type(before) is not type(after):
+        return [path]
+    if isinstance(before, dict):
+        result = []
+        for key in sorted(before.keys() | after.keys()):
+            child = f"{path}.{key}"
+            if key not in before or key not in after:
+                result.append(child)
+            else:
+                result.extend(changed_paths(before[key], after[key], child))
+        return result
+    if isinstance(before, list):
+        if len(before) != len(after):
+            return [path]
+        return [p for i, (left, right) in enumerate(zip(before, after))
+                for p in changed_paths(left, right, f"{path}[{i}]")]
+    return [] if before == after else [path]
+
+
 def require_unchanged(before, after):
-    if before != after:
-        raise RuntimeError("canonical configuration changed during the frozen-helper timeout")
+    paths = changed_paths(before, after)
+    if paths:
+        raise RuntimeError("canonical configuration changed: " + ", ".join(paths))
 
 
 def require_timeout(status, body, elapsed):
@@ -158,7 +180,7 @@ def dns_flood(lab):
     if candidate["dhcp"]["dns_enabled"]:
         raise RuntimeError("DNS flood fixture requires the plain-DNS lab profile")
     candidate["dhcp"]["dns_servers"] = [PROVIDER]
-    candidate["dns"]["records"] = (candidate["dns"]["records"] or []) + [{"name": LOCAL, "ip": "192.168.1.1"}]
+    candidate["dns"]["records"] = (candidate["dns"].get("records") or []) + [{"name": LOCAL, "ip": "192.168.1.1"}]
     configured = False
     try:
         configured = True  # restore even if the observer loses the PUT response
@@ -195,7 +217,10 @@ def dns_flood(lab):
         if configured:
             current = lab.get("config")
             current["dhcp"]["dns_servers"] = before["dhcp"]["dns_servers"]
-            current["dns"]["records"] = before["dns"]["records"]
+            if "records" in before["dns"]:
+                current["dns"]["records"] = before["dns"]["records"]
+            else:
+                current["dns"].pop("records", None)
             committed(lab, current)
             restored = lab.get("config")
             for key in ("revision", "updated_at"):

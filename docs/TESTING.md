@@ -159,6 +159,24 @@ the HTTP client timed out after 60 seconds, ahead of the 120-second IPC deadline
 The helper log later recorded the queued apply and a broken response pipe.
 The stricter scenarios require a fresh full Lab run before claiming resolution.
 
+The next full run, [40851414199](https://github.com/vladimirperovic/minimalrouter/actions/runs/40851414199)
+on `71a5a2a`, again passed all 3,000 contracts and all 39 basic scenarios,
+but failed two chaos scenarios. The DNS observer assumed an empty `records`
+field was present; the API intentionally omits it, so that run never sent the
+DNS flood. The helper observer reached the post-reboot comparison and found a
+configuration difference. A local regression reproduced a canonical timestamp
+mismatch: the engine assigned `updated_at`, then `save_config` replaced it in
+its private copy. Persistence now retains the engine-assigned timestamp;
+regular and confirmed commits are compared in full against durable state and
+a reloaded engine. The lab comparison still includes timestamp and revision.
+Differences report field paths without secret values.
+
+That run also lost its artifact because the provider DNS log was not readable
+by the upload action. The provider log now grants the runner access, and an
+always-run step prepares the dedicated synthetic log directory for upload.
+Complete scenario output also goes to the workflow console. These fixes still
+require a new successful full Lab run; `71a5a2a` is not complete validation.
+
 `scripts/ci-network-namespace-lab.sh` creates disposable WAN, router and LAN Linux
 namespaces and checks:
 

@@ -105,10 +105,20 @@ jobs:
         run: bash scripts/gh-lab/run.sh "$(cat iso-path.txt)"
 
       - name: Require every contract case to have executed and passed
-        if: ${{ inputs.only == '' }}
+        if: ${{ always() && inputs.only == '' }}
         run: |
           jq -e '.planned == 3000 and .executed == 3000 and .passed == 3000 and .failed == 0 and .not_run == 0 and .error == null' \
             /tmp/minimalrouter-lab/logs/contracts/summary.json
+
+      - name: Make collected lab logs readable
+        if: always()
+        run: |
+          # The dedicated lab directory contains synthetic diagnostics only.
+          # Do not let a root/service-owned file discard the whole artifact.
+          if [ -d /tmp/minimalrouter-lab/logs ]; then
+            sudo chown -R "$(id -u):$(id -g)" /tmp/minimalrouter-lab/logs
+            chmod -R u+rwX /tmp/minimalrouter-lab/logs
+          fi
 
       - name: Upload logs, results and measurements
         if: always()

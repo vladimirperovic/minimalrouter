@@ -159,9 +159,13 @@ class DNSWireTests(unittest.TestCase):
 
 
 class DNSCleanupTests(unittest.TestCase):
-    def test_failed_dns_probe_fails_scenario_and_restores_original_configuration(self):
+    def lab(self, records="omitted"):
         lab = mock.Mock()
         current = copy.deepcopy(CONFIG)
+        if records == "omitted":
+            current["dns"].pop("records", None)
+        else:
+            current["dns"]["records"] = records
         def get(path):
             return copy.deepcopy({"config": current, "recovery/status": {"engine": {
                 "apply_in_progress": False, "recovery_required": False}},
@@ -172,13 +176,61 @@ class DNSCleanupTests(unittest.TestCase):
             return 200, {"state": "Committed"}
         lab.get.side_effect = get
         lab.api.side_effect = api
-        with mock.patch.object(scenarios, "dns_probe", side_effect=TimeoutError("DNS timed out")), \
-                contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(TimeoutError, "DNS timed out"):
+        lab.shell.side_effect = lambda script: "123" if "pidof" in script or "pgrep" in script and "awk" not in script else "1024"
+        lab.client.return_value = '{"queries_sent": 300000, "seconds": 12}'
+        return lab, current, copy.deepcopy(current)
+
+    def test_failed_dns_probe_restores_omitted_null_and_empty_record_lists(self):
+        for records in ("omitted", None, []):
+            with self.subTest(records=records):
+                lab, current, before = self.lab(records)
+                with mock.patch.object(scenarios, "dns_probe", side_effect=TimeoutError("DNS timed out")), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(TimeoutError, "DNS timed out"):
+                        scenarios.dns_flood(lab)
+                self.assertEqual(lab.api.call_count, 2)
+                self.assertEqual(current["dhcp"], before["dhcp"])
+                self.assertEqual(current["dns"], before["dns"])
+
+    def test_live_api_omitted_records_reaches_flood_and_every_strict_probe(self):
+        lab, current, before = self.lab()
+        with mock.patch.object(scenarios, "dns_probe") as probe, \
+                mock.patch.object(scenarios.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            scenarios.dns_flood(lab)
+        self.assertEqual(probe.call_count, 13)
+        self.assertEqual(lab.client.call_count, 1)
+        self.assertIn("flood", lab.client.call_args.args)
+        self.assertEqual(current["dns"], before["dns"])
+        self.assertEqual(current["dhcp"], before["dhcp"])
+
+    def test_failed_post_flood_check_remains_failure_after_successful_restore(self):
+        lab, current, before = self.lab()
+        with mock.patch.object(scenarios, "dns_probe"), \
+                mock.patch.object(scenarios, "dns_checks", side_effect=[None, TimeoutError("post-flood DNS timed out")]), \
+                mock.patch.object(scenarios.time, "sleep"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(TimeoutError, "post-flood DNS timed out"):
                 scenarios.dns_flood(lab)
-        self.assertEqual(lab.api.call_count, 2)
-        self.assertEqual(current["dhcp"], CONFIG["dhcp"])
-        self.assertEqual(current["dns"], CONFIG["dns"])
+        self.assertEqual(lab.client.call_count, 1)
+        self.assertEqual(current["dns"], before["dns"])
+
+
+class CanonicalDiagnosticsTests(unittest.TestCase):
+    def test_timestamp_revision_and_secret_changes_all_fail_without_logging_values(self):
+        before = {"revision": 4, "updated_at": "old", "wan": {"password": "synthetic-before"}}
+        after = {"revision": 5, "updated_at": "new", "wan": {"password": "synthetic-after"}}
+        with self.assertRaises(RuntimeError) as caught:
+            scenarios.require_unchanged(before, after)
+        message = str(caught.exception)
+        for path in ("config.revision", "config.updated_at", "config.wan.password"):
+            self.assertIn(path, message)
+        self.assertNotIn("synthetic-before", message)
+        self.assertNotIn("synthetic-after", message)
+
+    def test_omitted_or_reordered_list_entries_are_not_ignored(self):
+        before = {"dns": {"records": ["first", "second"]}}
+        for after in ({"dns": {}}, {"dns": {"records": ["second", "first"]}}):
+            with self.assertRaisesRegex(RuntimeError, "config.dns.records"):
+                scenarios.require_unchanged(before, after)
 
 
 if __name__ == "__main__":

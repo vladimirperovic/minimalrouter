@@ -66,6 +66,36 @@ fn temp_store() -> (Arc<SQLiteStore>, std::path::PathBuf) {
     (Arc::new(store), dir)
 }
 
+#[test]
+fn committed_canonical_metadata_is_identical_after_reload() {
+    for confirmed in [false, true] {
+        let (store, dir) = temp_store();
+        let initial = store.get_latest_config().unwrap();
+        let client = ScriptedClient::ok();
+        let engine = Engine::with_client(initial.clone(), Some(store.clone()), client.clone());
+        let mut candidate = if confirmed { gateway_move(&initial) } else { initial };
+        candidate.system.hostname = "canonical-metadata".into();
+        let (tx, result) = engine.process_transaction("tx-canonical-metadata", candidate);
+        result.unwrap();
+        if confirmed {
+            assert_eq!(tx.current_state, State::AwaitingConfirmation);
+            engine.confirm_transaction(&tx.id).1.unwrap();
+        } else {
+            assert_eq!(tx.current_state, State::Committed);
+        }
+        let current = engine.get_current_config();
+        let durable = store.get_latest_config().unwrap();
+        assert_eq!(current.updated_at, durable.updated_at, "confirmed={confirmed}: commit changed the canonical timestamp");
+        assert_eq!(current, durable);
+        let reloaded = Engine::with_client(durable, Some(store.clone()), client);
+        assert_eq!(current, reloaded.get_current_config());
+        drop(reloaded);
+        drop(engine);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
 fn gateway_move(cfg: &SystemConfig) -> SystemConfig {
     let mut next = cfg.clone();
     next.lan.ip_address = "192.168.1.2".into();
