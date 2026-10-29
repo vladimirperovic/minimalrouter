@@ -1,7 +1,7 @@
 """Compare nft -s -j snapshots of the isolated lab without hiding policy changes.
 
-Only the listing order of independent tables and kernel object handles are
-normalized. Object/rule/expression order, set contents, revision counters,
+Only independent table listing order, kernel handles and packet/byte counter
+readings are normalized. Object/rule/expression order, set contents, revision counters,
 chain hooks/priorities/policies and every other field remain significant.
 """
 import argparse
@@ -15,6 +15,26 @@ import sys
 
 TABLES = {("inet", "minimalrouter"), ("inet", "minimalrouter_pause")}
 KINDS = {"table", "chain", "rule", "set", "map", "counter", "quota", "limit", "flowtable"}
+
+
+def without_counter_readings(value):
+    if isinstance(value, list):
+        return [without_counter_readings(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key == "counter" and isinstance(item, dict):
+            # nft 1.0.9 includes these runtime readings in JSON even with -s.
+            # Keep the counter statement, name, revision and every other field.
+            item = copy.deepcopy(item)
+            for reading in ("packets", "bytes"):
+                if reading in item:
+                    if type(item[reading]) is not int or item[reading] < 0:
+                        raise ValueError("invalid packet/byte counter reading")
+                    del item[reading]
+        result[key] = without_counter_readings(item)
+    return result
 
 
 def canonical(document):
@@ -66,7 +86,7 @@ def canonical(document):
     for key, kind, body in objects:
         if kind == "rule" and (*key, body.get("chain")) not in chains:
             raise ValueError("rule references a missing chain")
-        tables[key].append({kind: body})
+        tables[key].append(without_counter_readings({kind: body}))
     markers = [obj["counter"]["name"] for obj in tables[("inet", "minimalrouter")]
                if "counter" in obj and re.fullmatch(r"mr_revision_[0-9]+", obj["counter"].get("name", ""))]
     if len(markers) != 1:

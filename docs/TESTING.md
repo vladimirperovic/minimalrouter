@@ -190,7 +190,8 @@ The helper recreates the main and pause tables independently. A table can
 move in the listing when recreated; nftables evaluates base chains by hook
 priority, not table listing order ([nft manual](https://netfilter.org/projects/nftables/manpage.html)).
 The lab now compares complete `nft -s -j list ruleset` snapshots, grouping only
-independent tables in a stable order and removing allocation handles. It keeps
+independent tables in a stable order, removing allocation handles and runtime
+packet/byte counter readings (nft 1.0.9 retains these in JSON even with `-s`). It keeps
 object, rule and expression order, hooks, priorities, policies, revision names
 and all set contents. Equal-priority base-chain registrations are rejected as
 ambiguous. Missing/extra tables, unsupported objects, failed captures and any

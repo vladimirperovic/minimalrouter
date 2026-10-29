@@ -49,7 +49,7 @@ def main():
     before, old_text = snapshot(), nft("-s", "list", "ruleset")
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
         sender.sendto(b"observer counter regression", ("127.0.0.1", 9))
-    observer.compare(before, snapshot())  # -s must omit changing packet counters
+    observer.compare(before, snapshot())  # ignore only runtime counter readings
     nft("-f", "-", data="delete table inet minimalrouter\n" + MAIN)
     after = snapshot()
     if old_text == nft("-s", "list", "ruleset"):

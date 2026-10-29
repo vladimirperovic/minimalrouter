@@ -53,6 +53,18 @@ class FirewallObserverTests(unittest.TestCase):
     def test_changed_default_policy_fails(self):
         self.assert_change_fails(lambda items: items[2]["chain"].update(policy="accept"))
 
+    def test_only_counter_packet_and_byte_readings_are_ignored(self):
+        after = copy.deepcopy(self.before)
+        after["nftables"][1]["counter"].update(packets=200, bytes=16000)
+        self.assertEqual(observer.render(self.before), observer.render(after))
+        self.assert_change_fails(lambda items: items[1]["counter"].update(name="different-counter"))
+        self.assert_change_fails(lambda items: items[1]["counter"].update(packets="invalid"))
+        before = {"expr": [{"counter": {"packets": 0, "bytes": 0}}, {"limit": {"rate": 30, "burst": 60}}]}
+        after = {"expr": [{"counter": {"packets": 9, "bytes": 50}}, {"limit": {"rate": 30, "burst": 60}}]}
+        self.assertEqual(observer.without_counter_readings(before), observer.without_counter_readings(after))
+        after["expr"][1]["limit"]["rate"] = 300
+        self.assertNotEqual(observer.without_counter_readings(before), observer.without_counter_readings(after))
+
     def test_changed_priority_and_hook_fail(self):
         self.assert_change_fails(lambda items: items[3]["chain"].update(prio=20))
         self.assert_change_fails(lambda items: items[3]["chain"].update(hook="input"))
