@@ -4,6 +4,11 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 down() {
+    if [ -f "$LAB_RUN/provider-dns.pid" ]; then
+        # The fixture lives only inside this lab's provider namespace.
+        isp kill "$(cat "$LAB_RUN/provider-dns.pid")" 2>/dev/null || true
+        rm -f "$LAB_RUN/provider-dns.pid"
+    fi
     sudo pkill -f 'pppoe-server -F -I isp0' 2>/dev/null || true
     sudo pkill -f 'http.server 8080' 2>/dev/null || true
     sudo pkill -x dhclient 2>/dev/null || true
@@ -51,6 +56,12 @@ up() {
     isp ip route add default via 172.31.0.1
     isp sysctl -qw net.ipv4.ip_forward=1
     isp ip addr add "$INET_IP/32" dev lo
+    # A deterministic upstream for the DNS flood only. TTL=0 and unique names
+    # exercise forwarding without saturating or rate-limiting public resolvers.
+    isp dnsmasq --conf-file=/dev/null --no-hosts --no-resolv --bind-interfaces \
+        --listen-address="$INET_IP" --pid-file="$LAB_RUN/provider-dns.pid" --server=1.1.1.1 \
+        --address="/flood.lab.invalid/$INET_IP" --local=/flood.lab.invalid/ --local-ttl=0 \
+        --log-facility="$LOGS/provider-dns.log"
     sudo nft -f - <<'EOF'
 table ip lab {
   chain post {

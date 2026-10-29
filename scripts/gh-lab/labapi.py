@@ -47,8 +47,8 @@ def request(conn, method, path, body=None, cookie=None, csrf=None):
     return response.status, response.getheaders(), response.read()
 
 
-def connect():
-    return http.client.HTTPSConnection(HOST, PORT, context=CTX, timeout=60)
+def connect(timeout=60):
+    return http.client.HTTPSConnection(HOST, PORT, context=CTX, timeout=timeout)
 
 
 def login(password=None):

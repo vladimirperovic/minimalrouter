@@ -19,6 +19,8 @@ run() {
     shift
     out=$("$@" 2>&1)
     rc=$?
+    # Preserve tracebacks and every DNS/HTTP observation, including on PASS.
+    printf '\n=== %s (exit %s) ===\n%s\n' "$name" "$rc" "$out" >> "$LOGS/chaos-details.txt"
     if [ "$rc" -eq 0 ]; then
         record PASS "$name" "$(printf '%s' "$out" | tail -n 1 | cut -c1-220)"
     elif [ "$rc" -eq 77 ]; then
@@ -123,18 +125,7 @@ c_frozen_routerd() {
 }
 
 c_frozen_applyd() {
-    local pid code before after
-    pid=$(router_pid router-applyd)
-    api login >/dev/null || return 1
-    before=$(config_json | jq -r .revision)
-    rsh "kill -STOP $pid"
-    code=$(api call PUT config "$(config_json | jq -c '.system.hostname = "frozen-helper"')" | head -n 1 | awk '{print $2}')
-    rsh "kill -CONT $pid"
-    case "$code" in 5*|4*) ;; 200|202) echo "(change was accepted while the helper was frozen: $code)" ;; esac
-    wait_for 120 router_healthy || { echo "router did not recover after the helper froze"; return 1; }
-    after=$(config_json | jq -r .revision)
-    [ "$(config_json | jq -r .system.hostname)" != frozen-helper ] || [ "$after" -gt "$before" ] || { echo "half-applied state: hostname changed without a new revision"; return 1; }
-    echo "config change during a frozen privileged helper ended with HTTP $code and a consistent state (revision $before -> $after)"
+    python3 "$HERE/scenarios.py" frozen-helper
 }
 
 c_kill_everything() {
@@ -150,27 +141,7 @@ c_kill_everything() {
 }
 
 c_dns_flood() {
-    local before after
-    before=$(daemon_memory_mib routerd)
-    client python3 - "$ROUTER_LAN_IP" <<'PY'
-import random, socket, sys, time
-target = (sys.argv[1], 53)
-end = time.time() + 12
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-count = 0
-while time.time() < end:
-    name = "".join(random.choice("abcdefghij") for _ in range(12)).encode()
-    query = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + bytes([len(name)]) + name + b"\x03com\x00\x00\x01\x00\x01"
-    sock.sendto(query, target)
-    count += 1
-print(count, "queries sent")
-PY
-    sleep 5
-    client dig +short +time=5 "@$ROUTER_LAN_IP" github.com | grep -q . || { echo "DNS stopped answering after the flood"; return 1; }
-    router_healthy || return 1
-    after=$(daemon_memory_mib routerd)
-    [ "$((after - before))" -lt 30 ] || { echo "routerd grew $((after - before)) MiB during the DNS flood"; return 1; }
-    echo "DNS flood from the LAN: resolver and routerd healthy (routerd $before -> $after MiB)"
+    python3 "$HERE/scenarios.py" dns-flood
 }
 
 c_wan_syn_flood() {

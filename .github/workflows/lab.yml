@@ -51,7 +51,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             qemu-system-x86 qemu-utils xorriso expect socat sshpass \
             pppoe ppp \
-            nftables iproute2 dnsutils isc-dhcp-client iperf3 nmap jq curl netcat-openbsd python3 \
+            nftables iproute2 dnsutils dnsmasq-base isc-dhcp-client iperf3 nmap jq curl netcat-openbsd python3 \
             hping3 udhcpc
           # The PPP modules may be in the extra-modules package of the runner's kernel,
           # which does not exist for every kernel build (7.0.0-azure had none); the lab

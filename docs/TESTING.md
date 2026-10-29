@@ -131,6 +131,34 @@ hypervisor, thermal profile or long-running deployment.
 
 ## Network laboratory
 
+The GitHub QEMU chaos run retains complete observer output in
+`chaos-details.txt`, including transport exceptions. Its frozen-helper scenario
+waits for the existing 120-second privileged IPC deadline with a 150-second
+HTTP observer budget. It requires HTTP 422 and `RecoveryRequired`, unchanged
+canonical configuration and refusal of another mutation. SIGCONT and a reboot
+then reconcile the queued ambiguous request from durable canonical state;
+the next scenario starts only after reconciliation and pending-state checks.
+An empty HTTP status, a socket timeout or an unrelated rejection fails the test.
+
+The DNS flood sends unique queries without pacing for twelve seconds, then
+keeps the original five-second recovery interval. A provider-side resolver
+answers the reserved `flood.lab.invalid` zone with zero TTL, so the flood
+exercises uncached forwarding without sending the attack to public DNS.
+Normal public names still use the real upstream. Before and after the flood,
+exact local and forwarded A records and public resolution are required over
+both UDP and TCP. A resolver restart, invalid/truncated response, wrong address,
+timeout or routerd growth of at least 30 MiB fails. Fixture configuration is
+applied through the normal privileged API and restored on exit; existing
+firewall, DNS readiness and rollback verification remain enabled.
+
+The first full run on `81a8588` passed all 3,000 contracts but failed the old
+DNS flood observer. Its `dig +short` output did not preserve whether the
+failure was local, upstream or transport related; that run does not establish
+a DNS daemon crash. Its empty-status frozen-helper PASS was invalid because
+the HTTP client timed out after 60 seconds, ahead of the 120-second IPC deadline.
+The helper log later recorded the queued apply and a broken response pipe.
+The stricter scenarios require a fresh full Lab run before claiming resolution.
+
 `scripts/ci-network-namespace-lab.sh` creates disposable WAN, router and LAN Linux
 namespaces and checks:
 
