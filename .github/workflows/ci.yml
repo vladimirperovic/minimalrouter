@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -151,6 +152,10 @@ jobs:
         uses: ./.github/actions/setup-rust
       - name: Verify Rust formatting
         run: make fmt-check
+      - name: Validate the 3,000-case API observer and catalogue
+        run: |
+          python3 -I -m unittest discover -s scripts/gh-lab -p 'test_contracts.py' -v
+          python3 -I scripts/gh-lab/contracts.py --catalog
       - name: No compiler warnings (host and both musl targets)
         working-directory: rust
         env:
@@ -163,6 +168,14 @@ jobs:
       - name: Run the workspace tests, including the Unix-only tests
         working-directory: rust
         run: cargo test --workspace --locked
+      - name: Upload API contract case results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-contract-fixture-${{ github.sha }}
+          path: rust/target/contract-matrix
+          if-no-files-found: error
+          retention-days: 14
       - name: Run clippy
         # Informational until the warnings that predate this check are cleaned up.
         continue-on-error: true

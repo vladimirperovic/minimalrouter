@@ -59,3 +59,7 @@ alpine-standard-3.21.3-x86_64.iso
 /web/node_modules/
 /web/test-results/
 /web/playwright-report/
+
+# Python test harness bytecode
+__pycache__/
+*.pyc

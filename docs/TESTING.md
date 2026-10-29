@@ -29,6 +29,70 @@ manifests and 2,000 version comparisons, all taken from Go v0.3.3. The Go unit
 suite (727 tests) and its race detector, fuzzers and live DNS-filter tests were
 not carried over; see `CURRENT_VALIDATION.md` for what is and is not covered.
 
+### 3,000 deterministic API contracts
+
+`scripts/gh-lab/contracts.py` builds six groups of 500 unique named requests:
+
+| Category | Assertion |
+|---|---|
+| Authentication | Every protected route rejects absent, empty or forged sessions with 401 |
+| Read-only sessions | Mutating routes reject a read-only session before decoding or applying a body |
+| CSRF | Mutating routes reject absent, malformed or incorrect CSRF tokens |
+| Origin | Mutating routes reject foreign, malformed or disallowed-scheme origins |
+| Cross-site requests | Fetch Metadata blocks mutations even with a valid session and CSRF token |
+| Configuration types | Preview rejects wrong JSON types across the synthetic full configuration |
+
+The catalogue includes all 87 currently registered protected routes. Route
+coverage is checked against Rust's route registration, so a newly added route
+cannot silently lose its authentication tests. The observer has its own tests:
+
+```sh
+python3 -I -m unittest discover -s scripts/gh-lab -p 'test_contracts.py' -v
+python3 -I scripts/gh-lab/contracts.py --catalog
+cargo test --manifest-path rust/Cargo.toml --locked --test api_contract_matrix -- --nocapture
+```
+
+The Rust integration test runs the catalogue through real HTTPS, authentication
+and SQLite, with a privileged-helper tripwire that must receive zero requests.
+The same catalogue also runs against the installed router in the GitHub QEMU
+lab. Positive read/preview controls and canonical-state/health checkpoints every
+100 requests are additional checks, not counted as cases. A matching status
+from the wrong protection layer is a failure. The first failure stops the matrix;
+unexecuted cases are explicitly recorded, never counted as passes. Case JSONL,
+JUnit, counts and a replayable catalogue digest are uploaded as artifacts;
+session cookies, CSRF tokens and response bodies are not recorded.
+
+These are 3,000 request contracts, not 3,000 independent features or complete
+hardware validation. Successful configuration changes, confirmation/rollback,
+real networking, firmware installation, supervision and chaos need the existing
+Rust tests, packaging checks and installed lab scenarios as well.
+
+### Complete GitHub run on a candidate branch
+
+The workflows can be dispatched without opening a PR:
+
+```sh
+gh workflow run ci.yml --ref BRANCH
+gh workflow run deep-validation.yml --ref BRANCH
+gh workflow run service-supervision.yml --ref BRANCH
+gh workflow run performance.yml --ref BRANCH
+gh workflow run secret-scan.yml --ref BRANCH
+gh workflow run codeql.yml --ref BRANCH
+gh workflow run iso.yml --ref BRANCH
+# Wait for this exact commit's Appliance ISO run to succeed, then:
+gh workflow run lab.yml --ref BRANCH -f iso_run_id=SUCCESSFUL_ISO_RUN_ID
+```
+
+The lab refuses an ISO whose successful workflow head differs from its own
+checkout. A complete run leaves `only` empty and requires all 3,000 contract
+cases to execute and pass, plus the existing network, service-crash, PPPoE,
+reboot/power-cut, firewall, CPU/memory/load and soak checks. A filtered run is
+useful for diagnosis but is not a complete run. All credentials and state on
+these disposable GitHub runners are synthetic; no owner router is contacted.
+The catalogue refuses a non-loopback target unless the GitHub lab's QEMU PID
+and disposable disk match. Its loopback fixture mode is only for integration
+tests, and cannot be used against a LAN router.
+
 ### Dashboard
 
 ```sh

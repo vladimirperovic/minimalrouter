@@ -86,6 +86,12 @@ jobs:
             echo "No successful Appliance ISO run on $branch yet; run that workflow first." >&2
             exit 1
           fi
+          # Never report a new branch head as validated by an older/different ISO.
+          gh run view "$run_id" --json headSha,conclusion,workflowName,url > iso-provenance.json
+          jq -e --arg sha "$GITHUB_SHA" \
+            '.headSha == $sha and .conclusion == "success" and .workflowName == "Appliance ISO"' iso-provenance.json
+          mkdir -p /tmp/minimalrouter-lab/logs
+          cp iso-provenance.json /tmp/minimalrouter-lab/logs/iso-provenance.json
           echo "Using the ISO from Appliance ISO run $run_id"
           gh run download "$run_id" --pattern 'minimalrouter-appliance-iso-*' --dir iso
           find iso -name '*.iso' | tee iso-path.txt
@@ -97,6 +103,12 @@ jobs:
           LAB_ONLY: ${{ inputs.only }}
           LAB_SOAK_SECONDS: ${{ inputs.soak_seconds }}
         run: bash scripts/gh-lab/run.sh "$(cat iso-path.txt)"
+
+      - name: Require every contract case to have executed and passed
+        if: ${{ inputs.only == '' }}
+        run: |
+          jq -e '.planned == 3000 and .executed == 3000 and .passed == 3000 and .failed == 0 and .not_run == 0 and .error == null' \
+            /tmp/minimalrouter-lab/logs/contracts/summary.json
 
       - name: Upload logs, results and measurements
         if: always()

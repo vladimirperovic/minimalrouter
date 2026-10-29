@@ -63,6 +63,18 @@ wait_for 600 rsh 'test -s /run/minimalrouter/routerd.ready' || { echo 'ERROR: ro
 set +e
 bash "$HERE/suite.sh"
 suite_status=$?
+contracts_status=0
+if [ -z "${LAB_ONLY:-}" ] || printf '%s' '3000 API contracts' | grep -Eiq "$LAB_ONLY"; then
+    log "running 3,000 deterministic API contracts against the installed router"
+    python3 -I "$HERE/contracts.py" --out "$LOGS/contracts" 2>&1 | tee "$LOGS/contracts.log"
+    contracts_status=${PIPESTATUS[0]}
+    if [ "$contracts_status" -ne 0 ]; then
+        log "API contract failure: stopping before further disruptive tests; unexecuted cases are not passes"
+        exit "$contracts_status"
+    fi
+else
+    log "API contracts not selected by LAB_ONLY; this is not a full validation run"
+fi
 if [ "${LAB_CHAOS:-1}" = 1 ] && router_ok=$(rsh true 2>/dev/null); then
     bash "$HERE/chaos.sh"
     chaos_status=$?
@@ -71,5 +83,5 @@ else
     chaos_status=1
     [ "${LAB_CHAOS:-1}" = 0 ] && chaos_status=0
 fi
-log "suite exit $suite_status, chaos exit $chaos_status"
-[ "$suite_status" -eq 0 ] && [ "$chaos_status" -eq 0 ]
+log "suite exit $suite_status, contracts exit $contracts_status, chaos exit $chaos_status"
+[ "$suite_status" -eq 0 ] && [ "$contracts_status" -eq 0 ] && [ "$chaos_status" -eq 0 ]
