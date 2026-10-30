@@ -324,28 +324,24 @@ t_rollback_unconfirmed() {
 t_kill_routerd() {
     local old new fw
     fw=$(firewall_fingerprint) || return 1
-    old=$(router_pid routerd) || return 1
-    rsh "kill -9 $old"
-    wait_for 120 rsh 'test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ":8443 "' || { echo "dashboard did not come back"; return 1; }
-    new=$(router_pid routerd) || return 1
-    [ -n "$new" ] && [ "$new" != "$old" ] || { echo "routerd was not restarted (pid $old -> $new)"; return 1; }
+    old=$(router_identity routerd) || return 1
+    rsh "kill -9 ${old%% *}" || { echo "could not kill routerd (identity $old)"; return 1; }
+    new=$(wait_for_router_restart 120 routerd "$old") || { echo "dashboard did not come back"; return 1; }
     api login >/dev/null || { echo "cannot sign in after the restart"; return 1; }
     [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules changed while routerd restarted"; return 1; }
     rsh 'ip -4 -o addr show ppp0 | grep -q "10\.250\.0\."' || { echo "PPPoE dropped"; return 1; }
-    echo "routerd restarted (pid $old -> $new); firewall and PPPoE untouched"
+    echo "routerd restarted (identity $old -> $new); firewall and PPPoE untouched"
 }
 
 t_kill_applyd() {
     local old new fw
     fw=$(firewall_fingerprint) || return 1
-    old=$(router_pid router-applyd) || return 1
-    rsh "kill -9 $old"
-    wait_for 180 rsh 'test -S /run/minimalrouter/apply.sock && test -s /run/minimalrouter/routerd.ready' || { echo "privileged helper did not come back"; return 1; }
-    new=$(router_pid router-applyd) || return 1
-    [ -n "$new" ] && [ "$new" != "$old" ] || { echo "router-applyd was not restarted (pid $old -> $new)"; return 1; }
+    old=$(router_identity router-applyd) || return 1
+    rsh "kill -9 ${old%% *}" || { echo "could not kill router-applyd (identity $old)"; return 1; }
+    new=$(wait_for_router_restart 180 router-applyd "$old") || { echo "privileged helper did not come back"; return 1; }
     [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules changed after the helper restarted"; return 1; }
     [ "$(http_code GET health)" = 200 ] || { echo "API unhealthy after the helper restart"; return 1; }
-    echo "router-applyd restarted (pid $old -> $new); firewall identical"
+    echo "router-applyd restarted (identity $old -> $new); firewall identical"
 }
 
 t_pppoe_flap() {
