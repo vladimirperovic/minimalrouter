@@ -22,6 +22,7 @@ truncate -s 8G "$OUT/installed.raw"
 timeout 2100 expect scripts/ci/iso-full-install.exp "$OUT/serial-test.iso" "$OUT/installed.raw" "$OUT/full-install.log"
 grep -F 'FULL_ISO_INSTALL_OK' "$OUT/full-install.log"
 grep -F 'INSTALLED_SSH_OK' "$OUT/full-install.log"
+grep -F 'CHECK_KERNEL_SECURITY_OK' "$OUT/full-install.log"
 
 timeout 2100 expect scripts/ci/iso-installed-reboot.exp "$OUT/installed.raw" "$OUT/reboot.log"
 for marker in INSTALLED_COLD_BOOT_OK ROUTERD_CRASH_RECOVERY_OK INSTALLED_WARM_REBOOT_OK INSTALLED_REBOOT_MATRIX_OK; do

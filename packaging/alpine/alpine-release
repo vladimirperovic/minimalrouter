@@ -1,0 +1,10 @@
+# The Alpine release the Golden appliance image is built from. Every build,
+# CI and development script reads it from this file; nothing else may pin an
+# Alpine version (scripts/ci/alpine-release_test.sh enforces that).
+#
+# Move to a newer release with:
+#   sh scripts/alpine-bump.sh <version>
+# It checks that every package, the installer ISO and the builder image exist
+# for that release before changing anything. See docs/GOLDEN-IMAGE.md.
+ALPINE_VERSION=3.24.3
+ALPINE_BRANCH="v${ALPINE_VERSION%.*}"

@@ -16,8 +16,8 @@ All operating-system construction happens before the user boots the ISO:
 
 ```text
 CI / trusted build host
-  ├─ build Go binaries + Dashboard
-  ├─ assemble Alpine 3.22 rootfs with linux-lts and runtime packages
+  ├─ build Rust binaries + Dashboard
+  ├─ assemble the pinned Alpine rootfs (3.24, linux-lts 6.18) and prune unused kernel modules
   ├─ install MinimalRouter into that rootfs
   ├─ create one bootable 8 GiB MBR/ext4 Golden disk image
   ├─ compress + SHA256 the image
@@ -146,7 +146,8 @@ unsigned development rebuild. A release ISO must fail if
 
 ## Stage B — build Alpine rootfs
 
-`packaging/alpine/build-rootfs.sh` builds a clean Alpine 3.22 x86-64 rootfs in a
+`packaging/alpine/build-rootfs.sh` builds a clean x86-64 rootfs of the Alpine release pinned in
+`packaging/alpine/alpine-release` (3.24) in a
 trusted builder/container.
 
 Important packages include:
@@ -401,7 +402,7 @@ The v0.1.6 gate proves:
 - kernel and `/lib/modules/$(uname -r)` match;
 - `routerd` service and readiness marker;
 - Dashboard/API TCP/8443 readiness;
-- valid Alpine v3.22 main/community repositories;
+- valid main/community repositories for the pinned Alpine branch;
 - cold boot of the installed disk with the ISO removed;
 - proof that completed firstboot does not re-enter;
 - `routerd` supervision recovery after a forced crash;
@@ -444,6 +445,34 @@ real evidence for:
 
 The installer ISO contains UEFI boot metadata, but the current Golden target disk
 is MBR + ExtLinux and the full E2E target is SeaBIOS.
+
+## Kernel modules and moving to a newer Alpine release
+
+After the packages are installed, `packaging/alpine/prune-kernel-modules.sh`
+removes kernel subsystems a headless router never loads (sound, media,
+Bluetooth, NFC, InfiniBand, staging, IIO, large GPU drivers, KVM, unused
+filesystems). It first proves from `modules.dep` that no kept module depends on
+a removed one, then runs `depmod` and fails unless every module in
+`minimalrouter.modules` and `kernel-modules.required` still resolves. The
+builder then regenerates the initramfs from that same tree, so kernel,
+initramfs and `/lib/modules` remain one validated set.
+
+The Alpine release is pinned only in `packaging/alpine/alpine-release`;
+`scripts/ci/alpine-release_test.sh` fails if anything else pins a release. To
+move to a newer release run `sh scripts/alpine-bump.sh <version>`: it checks
+every package, the installer ISO and the builder image first, then updates the
+pin and the installers' supported branches. Installers always use the running
+system's own release and never switch an existing appliance to another one.
+The Appliance ISO workflow must pass before such a change is merged.
+
+For v0.4.0, `check-kernel-security.sh` additionally requires Linux 6.18.56 or
+newer within the 6.18 branch, the baseline fixing CVE-2026-98432. It checks the
+rootfs kernel and the distinct live ISO kernel without modifying the live
+flasher or replacing individual kernel/initramfs/modloop components. Kernel
+build evidence is retained with the image, and the full installation test
+requires the booted installed kernel to pass the same check. A new kernel
+branch requires an explicit review of the baseline rather than an unchecked
+major-version comparison.
 
 ## Future-agent checklist
 
@@ -499,7 +528,7 @@ reboot, existing-install refusal and undersized-disk refusal. Production ISO and
 refused target disk hashes must remain unchanged. The signed release cannot
 publish until the same gates succeed; validation logs and digests are uploaded.
 
-Local Go, shell/mock and packaging-parity tests are necessary but do not satisfy
+Local Rust, shell/mock and packaging-parity tests are necessary but do not satisfy
 this gate. Before merge/release, run the changed **Appliance ISO** workflow and
 repeat the complete gate on the actual signed release ISO, retaining its digest,
 build commit and logs. Earlier tests of the published v0.1.7 ISO (different source)

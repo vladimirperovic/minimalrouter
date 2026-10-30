@@ -13,6 +13,10 @@ if sh "$WORK/fail.sh" </dev/null > "$WORK/fail.log" 2>&1; then
     echo 'FAIL recovery shell exit turned failure into success'; exit 1
 fi
 echo 'PASS clean recovery shell exit retains firstboot failure'
+grep -q '^supervisor=supervise-daemon$' "$SOURCE/firstboot.sh"
+grep -q '^command_args="-D -o PidFile=none"$' "$SOURCE/firstboot.sh"
+grep -q "cat > /etc/conf.d/sshd <<'SSHD_SERVICE'" "$SOURCE/firstboot.sh"
+echo 'PASS first boot supervises sshd so a crash is not permanent'
 cat > "$WORK/bin/router-setup" <<'MOCK'
 #!/bin/sh
 exit "${SETUP_RC:-0}"

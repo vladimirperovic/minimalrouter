@@ -4,8 +4,7 @@
 # live flasher. No Alpine or MinimalRouter installation runs on the user's VM.
 set -eu
 
-ALPINE_VERSION="${ALPINE_VERSION:-3.22.5}"
-ALPINE_BRANCH="v3.22"
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/alpine-release"
 ALPINE_ARCH="x86_64"
 ALPINE_BASE_URL="https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}"
 ALPINE_ISO_NAME="alpine-extended-${ALPINE_VERSION}-${ALPINE_ARCH}.iso"
@@ -190,6 +189,7 @@ need sha256sum
 need tar
 need xorriso
 need docker
+need file
 
 mkdir -p "$BUILD_DIR" "$CACHE_DIR"
 
@@ -217,6 +217,8 @@ fi
 # after signing, even when constructing the Golden image from that payload.
 [ "$(cat "$DIST_DIR/VERSION")" = "$VERSION" ] || { echo "ERROR: distribution VERSION mismatch" >&2; exit 1; }
 sh packaging/alpine/build-rootfs.sh
+INSTALLED_KERNEL_RELEASE="$(cat "$BUILD_DIR/minimalrouter-rootfs-${VERSION}-amd64.tar.gz.kernel-release")"
+sh packaging/alpine/check-kernel-security.sh --release "$INSTALLED_KERNEL_RELEASE"
 
 echo "[2/6] Building the bootable golden disk image..."
 sh packaging/alpine/build-golden-image.sh
@@ -231,6 +233,13 @@ fetch_file "$ALPINE_SHA_URL" "$BASE_SHA"
     cd "$CACHE_DIR"
     sha256sum -c "$(basename "$BASE_SHA")"
 )
+# The live installer kernel comes from the verified base ISO, independently
+# of the freshly built Golden disk. Both must satisfy the security floor.
+LIVE_KERNEL="$BUILD_DIR/installer-vmlinuz-lts"
+rm -f "$LIVE_KERNEL"
+xorriso -osirrox on -indev "$BASE_ISO" -extract /boot/vmlinuz-lts "$LIVE_KERNEL"
+INSTALLER_KERNEL_RELEASE="$(sh packaging/alpine/check-kernel-security.sh --image "$LIVE_KERNEL")"
+echo "Verified kernels: installed=$INSTALLED_KERNEL_RELEASE installer=$INSTALLER_KERNEL_RELEASE"
 
 echo "[4/6] Building the tiny live flasher overlay..."
 build_apkovl
@@ -251,6 +260,9 @@ build_date=$BUILD_DATE
 alpine_version=$ALPINE_VERSION
 architecture=amd64
 install_model=golden-image
+installed_kernel=$INSTALLED_KERNEL_RELEASE
+installer_kernel=$INSTALLER_KERNEL_RELEASE
+kernel_security_floor=CVE-2026-98432:6.18.56
 EOF
 cp "$GOLDEN_IMAGE" "$INJECT_DIR/minimalrouter/golden.img.gz"
 cp "$GOLDEN_SHA" "$INJECT_DIR/minimalrouter/golden.img.gz.sha256"

@@ -6,7 +6,7 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/minimalrouter-installer-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT HUP INT TERM
 export WORK
 mkdir -p "$WORK/mock-bin" "$WORK/bin" "$WORK/etc/apk"
-: > "$WORK/etc/alpine-release"
+echo 3.24.3 > "$WORK/etc/alpine-release"
 : > "$WORK/etc/apk/repositories"
 export PATH="$WORK/mock-bin:$PATH"
 cat > "$WORK/mock-bin/id" <<'MOCK'
@@ -47,7 +47,24 @@ sed '/# Fail before replacing appliance runtime files/,$d' "$SOURCE/install-dist
 output=$(sh "$WORK/install-dist.sh" 2>&1)
 printf '%s\n' "$output" | grep -q 'MOCK apk update'
 printf '%s\n' "$output" | grep -q 'MOCK apk add'
-echo 'PASS normal dependency installation'
+grep -qx 'https://dl-cdn.alpinelinux.org/alpine/v3.24/main' "$WORK/etc/apk/repositories"
+grep -qx 'https://dl-cdn.alpinelinux.org/alpine/v3.24/community' "$WORK/etc/apk/repositories"
+echo 'PASS normal dependency installation from the running release'
+
+# An existing appliance keeps its own release: never point 3.22 at 3.24.
+echo 3.22.5 > "$WORK/etc/alpine-release"
+printf '%s\n' https://dl-cdn.alpinelinux.org/alpine/v3.22/main https://dl-cdn.alpinelinux.org/alpine/v3.22/community > "$WORK/etc/apk/repositories"
+sh "$WORK/install-dist.sh" > /dev/null 2>&1
+! grep -q 'v3.24' "$WORK/etc/apk/repositories"
+echo 'PASS an older supported release keeps its repositories'
+
+rm -f "$WORK/intent" "$WORK/apk.log"
+echo 3.20.7 > "$WORK/etc/alpine-release"
+if sh "$WORK/install-dist.sh" > "$WORK/output" 2>&1; then exit 1; fi
+grep -q "unsupported Alpine release '3.20'" "$WORK/output"
+[ ! -e "$WORK/intent" ] && [ ! -e "$WORK/apk.log" ]
+echo 3.24.3 > "$WORK/etc/alpine-release"
+echo 'PASS unsupported release refused before install intent and package mutation'
 : > "$WORK/apk.log"
 output=$(sh "$WORK/install-dist.sh" --offline 2>&1)
 printf '%s\n' "$output" | grep -q 'All required dependencies already installed'

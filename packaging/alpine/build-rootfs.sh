@@ -5,35 +5,49 @@ OUT="build/iso/minimalrouter-rootfs-${VERSION}-amd64.tar.gz"
 DIST="build/dist/minimalrouter-linux-amd64"
 [ -d "$DIST" ] || { echo "ERROR: build distribution first" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required to build the rootfs" >&2; exit 1; }
-rm -f "$OUT"
+rm -f "$OUT" "$OUT.kernel-release"
 repo="$(pwd)"
+. packaging/alpine/alpine-release
+BUILDER_IMAGE="alpine:$ALPINE_VERSION"
 
 # Trust starts with the pulled official builder keyring. Repository metadata
 # and any key upgrades must verify under those keys; never recover a key
 # mismatch by accepting an unauthenticated replacement trust root.
-docker pull --platform linux/amd64 alpine:3.22 >/dev/null
+docker pull --platform linux/amd64 "$BUILDER_IMAGE" >/dev/null
 
-docker run --rm --platform linux/amd64 \
-  -v "$repo:/work" -w /work alpine:3.22 /bin/sh -ec '
+docker run --rm --platform linux/amd64 -e "ALPINE_BRANCH=$ALPINE_BRANCH" \
+  -v "$repo:/work" -w /work "$BUILDER_IMAGE" /bin/sh -ec '
     apk update
     apk add --no-cache --upgrade alpine-keys
     ROOT=/tmp/rootfs
     rm -rf "$ROOT"; mkdir -p "$ROOT/etc/apk/keys"
     printf "%s\n" \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/main \
-      https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /tmp/repos
+      "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/main" \
+      "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/community" > /tmp/repos
 
     # apk --root verifies repositories using the target roots keyring, not the
     # apk clients own /etc/apk/keys. Seed the signature-verified official
     # Alpine keys before the very first target-root package transaction.
     cp -a /etc/apk/keys/. "$ROOT/etc/apk/keys/"
 
-    apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
-      --no-cache add alpine-base alpine-conf linux-lts linux-firmware-none e2fsprogs e2fsprogs-extra \
-      grub grub-efi syslinux dosfstools util-linux nftables ppp ppp-pppoe dnsmasq-dnssec-nftset \
-      iproute2 iputils-ping iputils-arping ca-certificates openssh-server \
-      wireguard-tools-wg doas squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
-      chrony chrony-openrc logrotate
+    PACKAGES="$(sed -e "s/#.*//" /work/packaging/alpine/rootfs-packages)"
+    if ! apk --root "$ROOT" --arch x86_64 --initdb --repositories-file /tmp/repos \
+        --no-cache add $PACKAGES > /tmp/apk-add.log 2>&1; then
+      cat /tmp/apk-add.log
+      # apk 3 (Alpine 3.24) reports a failing package trigger as an error. The
+      # grub and syslinux triggers only try to detect a boot device in this
+      # build root, which has none (no /dev or /proc); the Golden image installs
+      # its bootloader later, in build-golden-image.sh. Tolerate exactly those
+      # two, fail on any other error, and prove every package is installed.
+      unexpected="$(grep "^ERROR:" /tmp/apk-add.log | grep -vE "exec/(grub|syslinux)-[^ ]*[.]trigger" || true)"
+      [ -z "$unexpected" ] || { echo "ERROR: unexpected apk errors:" >&2; echo "$unexpected" >&2; exit 1; }
+      for package in $PACKAGES; do
+        apk --root "$ROOT" info -e "$package" > /dev/null || { echo "ERROR: package $package was not installed" >&2; exit 1; }
+      done
+      echo "NOTE: tolerated only the grub/syslinux boot-device trigger errors above"
+    else
+      cat /tmp/apk-add.log
+    fi
     cp /tmp/repos "$ROOT/etc/apk/repositories"
 
     # First boot verifies the prebuilt ext4 filesystem with resize2fs before any
@@ -61,6 +75,23 @@ docker run --rm --platform linux/amd64 \
     MINIMALROUTER_IMAGE_BUILD=1 chroot "$ROOT" /bin/sh -c \
       "cd /root/minimalrouter-installer && MINIMALROUTER_IMAGE_BUILD=1 ./install.sh --offline"
 
+    # Remove kernel subsystems a headless router never loads, proving first
+    # that no kept or required module depends on them, then rebuild the
+    # initramfs from that same tree so kernel, initramfs and /lib/modules stay
+    # one validated set. kmod and file are builder tools only.
+    apk add --no-cache kmod file >/dev/null
+    sh /work/packaging/alpine/prune-kernel-modules.sh "$ROOT" \
+      /work/packaging/alpine/minimalrouter.modules \
+      /work/packaging/alpine/kernel-modules.required
+    KERNEL_RELEASE="$(basename "$(find "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 -type d)")"
+    sh /work/packaging/alpine/check-kernel-security.sh --release "$KERNEL_RELEASE"
+    BOOT_KERNEL_RELEASE="$(sh /work/packaging/alpine/check-kernel-security.sh --image "$ROOT/boot/vmlinuz-lts")"
+    [ "$BOOT_KERNEL_RELEASE" = "$KERNEL_RELEASE" ] || {
+      echo "ERROR: rootfs kernel and module release differ" >&2
+      exit 1
+    }
+    chroot "$ROOT" mkinitfs -o /boot/initramfs-lts "$KERNEL_RELEASE"
+
     # apk --root --initdb does not create the runlevels that setup-alpine and
     # setup-disk would. Without mdev + hwdrivers in sysinit, only NIC drivers
     # the initramfs already loaded (virtio_net) ever appear: Hyper-V, e1000 and
@@ -78,6 +109,7 @@ docker run --rm --platform linux/amd64 \
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
     printf "%s\n" "'$VERSION'" > "$ROOT/etc/minimalrouter/VERSION"
+    printf "%s\n" "$KERNEL_RELEASE" > "$ROOT/etc/minimalrouter/kernel-release"
 
     # Keep the management instructions visible after installation as well as on
     # the final installer screen. Alpine getty displays /etc/issue before login,
@@ -101,6 +133,8 @@ ISSUE
     tar -C "$ROOT" -czf /work/build/iso/minimalrouter-rootfs-'$VERSION'-amd64.tar.gz .
   '
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
+tar -xOf "$OUT" ./etc/minimalrouter/kernel-release > "$OUT.kernel-release"
+sh packaging/alpine/check-kernel-security.sh --release "$(cat "$OUT.kernel-release")"
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }

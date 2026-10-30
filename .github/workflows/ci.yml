@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,6 +22,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prove firewall observer against the Linux kernel
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 file tcl
+          sudo unshare --net -- python3 scripts/gh-lab/firewall_kernel_check.py
       - name: Validate release and smoke-test shell syntax
         run: |
           sh -n scripts/prepare-public-root.sh
@@ -32,6 +38,14 @@ jobs:
           sh -n packaging/alpine/slot-exec
           sh -n packaging/alpine/firstboot-ready
           sh -n packaging/alpine/firstboot_test.sh
+          sh -n packaging/alpine/prune-kernel-modules.sh
+          sh -n packaging/alpine/prune-kernel-modules_test.sh
+          sh -n packaging/alpine/check-kernel-security.sh
+          sh -n packaging/alpine/check-kernel-security_test.sh
+          sh -n scripts/alpine-bump.sh
+          sh -n scripts/ci/alpine-release_test.sh
+          sh -n scripts/ci/bootstrap-determinism.sh
+          sh -n scripts/build-rust.sh
           sh -n scripts/ci/iso-validate.sh
           sh -n scripts/package-dist.sh
       - name: Test offline installer dependency mode
@@ -39,6 +53,10 @@ jobs:
           sh packaging/alpine/install-dist_test.sh
           sh packaging/alpine/firstboot_test.sh
           sh packaging/alpine/slot-exec_test.sh
+          sh packaging/alpine/prune-kernel-modules_test.sh
+          sh packaging/alpine/check-kernel-security_test.sh
+          tclsh scripts/ci/iso-kernel-release_test.tcl
+          sh scripts/ci/alpine-release_test.sh
           sh scripts/ci/iso-validate_test.sh
       - name: Reject private and runtime files
         run: |
@@ -132,35 +150,51 @@ jobs:
           test ! -e /tmp/minimalrouter-public-root/PUBLIC_RELEASE_CHECKLIST.md
           test -z "$(git -C /tmp/minimalrouter-public-root status --short)"
 
-  go:
-    name: Go format, tests, vulnerabilities and vet
+  rust:
+    name: Rust format, warnings, tests, clippy and advisories
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Verify Go formatting
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Verify Rust formatting
         run: make fmt-check
-      - name: Verify downloaded modules
-        run: go mod verify
-      - name: Run Go tests with race detector
-        run: go test -race ./...
-
-      - name: Verify permanent migration worker privilege drop
+      - name: Validate the 3,000-case API observer and catalogue
         run: |
-          go test -c ./internal/recovery -o /tmp/minimalrouter-recovery-tests
-          sudo /tmp/minimalrouter-recovery-tests -test.run '^TestMigrationWorkerLinuxPrivilegeBoundary$' -test.v
-      - name: Run Go vet
-        run: go vet ./...
-      - name: Install pinned govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
-      - name: Scan reachable Go vulnerabilities
-        run: govulncheck ./...
+          python3 -I -m unittest discover -s scripts/gh-lab -p 'test_*.py' -v
+          python3 -I scripts/gh-lab/contracts.py --catalog
+      - name: No compiler warnings (host and both musl targets)
+        working-directory: rust
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: |
+          cargo check --workspace --all-targets --locked
+          # The musl targets compile C (ring, SQLite), so cross-build with zig.
+          cargo zigbuild --workspace --all-targets --locked --target x86_64-unknown-linux-musl
+          cargo zigbuild --workspace --all-targets --locked --target aarch64-unknown-linux-musl
+      - name: Run the workspace tests, including the Unix-only tests
+        working-directory: rust
+        run: cargo test --workspace --locked
+      - name: Upload API contract case results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-contract-fixture-${{ github.sha }}
+          path: rust/target/contract-matrix
+          if-no-files-found: error
+          retention-days: 14
+      - name: Run clippy
+        # Informational until the warnings that predate this check are cleaned up.
+        continue-on-error: true
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets --locked
+      - name: Install pinned cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Scan dependencies for known vulnerabilities
+        working-directory: rust
+        run: cargo audit --deny warnings
 
   bootstrap-compatibility:
     name: Bootstrap A/B update compatibility
@@ -172,18 +206,25 @@ jobs:
         with:
           # The check builds the baseline release tag as well as this tree.
           fetch-depth: 0
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Bootstrap programs must not embed build metadata
+        run: sh scripts/ci/bootstrap-determinism.sh
       - name: Decide whether this build is deliverable as a web update
         run: sh scripts/ci/bootstrap-compatibility.sh
 
   dashboard-browsers:
     name: Dashboard browser (${{ matrix.project }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    # Playwright's own image carries the browsers and every system library they
+    # need. Installing them with apt on the runner depends on the Azure Ubuntu
+    # mirror, which sometimes serves WebKit's 117 MB at a few tens of KB/s and
+    # failed this job through three bounded retries. The image tag must match
+    # the @playwright/test version in web/package.json (1.62.0).
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+      options: --ipc=host --init
     strategy:
       fail-fast: false
       matrix:
@@ -216,8 +257,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build production dashboard
         run: pnpm build
-      - name: Install test browser
-        run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+      - name: Check the test browser
+        # A no-op while the image matches @playwright/test; after a version bump
+        # that outran the image tag it downloads the matching browser from
+        # Playwright's CDN (no apt) instead of failing on a missing executable.
+        run: pnpm exec playwright install ${{ matrix.browser }}
       - name: Run browser E2E tests
         run: pnpm test:e2e --project=${{ matrix.project }} --workers=2
       - name: Upload browser failure traces
@@ -236,6 +280,11 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Same image as the browser matrix above: the demo E2E step needs both
+    # browsers and must not depend on the runner's apt mirror either.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07
+      options: --ipc=host --init
     defaults:
       run:
         working-directory: web
@@ -267,8 +316,8 @@ jobs:
         run: pnpm test
       - name: Type-check and build dashboard
         run: pnpm build
-      - name: Install demo test browsers
-        run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Check the demo test browsers
+        run: pnpm exec playwright install chromium webkit
       - name: Build GitHub Pages demo dashboard
         run: pnpm build
         env:
@@ -288,18 +337,15 @@ jobs:
     name: Clean Alpine install and wizard
     needs:
       - public-root
-      - go
+      - rust
       - dashboard
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
         with:

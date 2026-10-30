@@ -4,7 +4,7 @@ Minimal Router OS is a network security boundary. Security defects can affect
 every device behind the router, so the project treats secure defaults, least
 privilege, recovery, and honest limitation reporting as core requirements.
 
-The project is currently **Beta (v0.3.3)**. v0.3.3 is intended for controlled
+The project is currently **Beta (v0.4.0)**. v0.4.0 is intended for controlled
 pilots with console access and a known-good rollback router. No version is
 supported as an unattended production firewall unless a future release
 explicitly states that it has reached that level and publishes the corresponding
@@ -16,7 +16,7 @@ There is no stable/LTS supported release yet.
 
 | Version | Security support |
 |---|---|
-| `v0.3.3` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
+| `v0.4.0` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
 | `main` | Active development; may contain unreleased changes |
 | Unofficial forks or modified images | Not supported by this project |
 
@@ -109,7 +109,7 @@ The default and first-run configuration is intended to provide:
 
 ## Golden ISO installation boundary
 
-The v0.3.3 Golden ISO is part of the security boundary.
+The v0.4.0 Golden ISO is part of the security boundary.
 
 - The user VM is a flasher target, not a package/build host.
 - The live flasher verifies the embedded Golden image before writing it.
@@ -311,9 +311,12 @@ become router administrator authority by default.
 
 The public repository uses:
 
-- pinned Go modules and a committed `go.sum`;
+- a committed `Cargo.lock` with every build run with `--locked`, and a
+  RustSec advisory scan (`cargo audit`) in CI;
+- all `unsafe` code confined to one audited module and rejected elsewhere by
+  the compiler and by a CI check;
 - a locked frontend dependency graph;
-- CI for tests, race detection, linting, production builds, repository hygiene,
+- CI for tests, warning-free builds, linting, production builds, repository hygiene,
   clean Alpine installation and Golden ISO E2E installation;
 - CodeQL analysis;
 - Dependabot update pull requests;
@@ -360,7 +363,7 @@ Before a private development tree is published as a new public repository:
 - verify that no runtime state, internal handoff material, private remote URL, or
   real network inventory is present;
 - pass a current-tree and full-history secret scan;
-- pass repository-hygiene checks, Go race tests, vet, dashboard lint/build,
+- pass repository-hygiene checks, Rust tests, clippy, dashboard lint/build,
   CodeQL, and a clean Alpine installation test on the exact release commit;
 - review the rendered README, license, support policy, contribution guide,
   security policy, and comparison claims;

@@ -5,7 +5,8 @@
 set -e
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-VM_DIR="${MINIMALROUTER_VM_DIR:-/private/tmp/minimalrouter-alpine-3.22.5}"
+. "$SCRIPT_DIR/packaging/alpine/alpine-release"
+VM_DIR="${MINIMALROUTER_VM_DIR:-/private/tmp/minimalrouter-alpine-$ALPINE_VERSION}"
 REPO="$SCRIPT_DIR"
 API="https://192.168.1.1:8443"
 PASSWD="${MINIMALROUTER_TEST_PASSWORD:-SuperSecure12345678}"
@@ -64,7 +65,9 @@ import time
 VM_DIR = os.environ["MINIMALROUTER_VM_DIR"]
 IMAGE = f"{VM_DIR}/boot/Image"
 INITRAMFS = f"{VM_DIR}/boot/initramfs-virt"
-ISO = f"{VM_DIR}/alpine-virt-3.22.5-aarch64.iso"
+ALPINE_VERSION = os.environ["MINIMALROUTER_ALPINE_VERSION"]
+ALPINE_BRANCH = "v" + ALPINE_VERSION.rsplit(".", 1)[0]
+ISO = f"{VM_DIR}/alpine-virt-{ALPINE_VERSION}-aarch64.iso"
 REPO = os.environ["MINIMALROUTER_REPO"]
 RUNNER = f"{VM_DIR}/minimalrouter-alpine-vm"
 API = "https://192.168.1.1:8443"
@@ -128,7 +131,7 @@ else:
     drain(2)
     cmd("mkdir -p /mnt/minimalrouter", 1)
     cmd("mount -t virtiofs minimalrouter /mnt/minimalrouter", 2)
-    cmd("printf '%s\\n' https://dl-cdn.alpinelinux.org/alpine/v3.22/main https://dl-cdn.alpinelinux.org/alpine/v3.22/community > /etc/apk/repositories", 1)
+    cmd(f"printf '%s\\n' https://dl-cdn.alpinelinux.org/alpine/{ALPINE_BRANCH}/main https://dl-cdn.alpinelinux.org/alpine/{ALPINE_BRANCH}/community > /etc/apk/repositories", 1)
     cmd("apk update", 15)
     cmd("apk add --no-cache nftables ppp ppp-pppoe dnsmasq iproute2 curl ca-certificates wireguard-tools-wg squid jq", 60)
     cmd("cd /mnt/minimalrouter && sh packaging/alpine/install.sh", 30)
@@ -213,6 +216,7 @@ PYEOF
 # Start VM in detached process so it survives parent shell exit
 : > "$LOG"
 MINIMALROUTER_VM_DIR="$VM_DIR" \
+MINIMALROUTER_ALPINE_VERSION="$ALPINE_VERSION" \
 MINIMALROUTER_REPO="$REPO" \
 MINIMALROUTER_TEST_PASSWORD="$PASSWD" \
 nohup python3 "$VM_DIR/quick-test-pty.py" > "$LOG" 2>&1 &

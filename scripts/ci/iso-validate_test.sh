@@ -28,13 +28,14 @@ MOCK
 cat > "$WORK/bin/expect" <<'MOCK'
 #!/bin/sh
 case "$1" in
- *iso-full-install.exp) stage=install; logfile=$4; markers='FULL_ISO_INSTALL_OK INSTALLED_SSH_OK' ;;
+ *iso-full-install.exp) stage=install; logfile=$4; markers='FULL_ISO_INSTALL_OK INSTALLED_SSH_OK CHECK_KERNEL_SECURITY_OK' ;;
  *iso-installed-reboot.exp) stage=reboot; logfile=$3; markers='INSTALLED_COLD_BOOT_OK ROUTERD_CRASH_RECOVERY_OK INSTALLED_WARM_REBOOT_OK INSTALLED_REBOOT_MATRIX_OK' ;;
  *iso-installer-safety.exp) stage=$2; logfile=$5
   case "$2" in existing) markers=EXISTING_INSTALL_GUARD_OK ;; small) markers=UNDERSIZED_DISK_GUARD_OK ;; *) exit 99 ;; esac ;;
  *) exit 99 ;;
 esac
 [ "${FAIL_STAGE:-}" != "$stage" ] || exit 42
+[ "${MISSING_KERNEL_MARKER:-0}" != 1 ] || markers=$(printf '%s' "$markers" | sed 's/ CHECK_KERNEL_SECURITY_OK//')
 printf '%s\n' "$markers" > "$logfile"
 MOCK
 # macOS developer hosts may have shasum but not sha256sum.
@@ -54,5 +55,9 @@ for stage in install reboot existing small; do
  fi
  [ ! -e "$WORK/$stage/result.txt" ]
 done
+if MISSING_KERNEL_MARKER=1 sh "$REPO/scripts/ci/iso-validate.sh" "$WORK/production.iso" "$WORK/missing-kernel" > "$WORK/missing-kernel.log" 2>&1; then
+ echo 'FAIL missing installed kernel security evidence was accepted'; exit 1
+fi
+[ ! -e "$WORK/missing-kernel/result.txt" ]
 [ "$(cat "$WORK/production.iso")" = 'synthetic production ISO' ]
 echo 'PASS mocked ISO install/reboot/existing/small failures block completion; production ISO stays unchanged'

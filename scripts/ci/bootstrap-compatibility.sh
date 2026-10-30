@@ -4,7 +4,7 @@
 #
 # router-update/recovery run from /usr/libexec/minimalrouter/bootstrap;
 # router-setup is the installed firstboot verifier under /usr/sbin. All run
-# outside the A/B slot. cmd/router-update/runtime_layout.go refuses activation
+# outside the A/B slot. rust/src/bin/router-update.rs refuses activation
 # unless the candidate's copy of each is byte-identical to the installed one,
 # because a binary that survives rollback cannot itself be rolled back by moving
 # a symlink. So "is this release web-updatable?" is exactly "are the bootstrap
@@ -12,7 +12,7 @@
 #
 # Both sides are built here with the same toolchain and the same deterministic
 # flags, so the answer reflects the bootstrap source only — not the commit hash
-# Go would otherwise stamp into every build.
+# would otherwise be stamped into every build.
 #
 # Usage: sh scripts/ci/bootstrap-compatibility.sh [baseline-ref]
 #   baseline-ref defaults to bootstrap_baseline_ref in
@@ -22,8 +22,6 @@ set -eu
 BASELINE_FILE="packaging/alpine/bootstrap-baseline.json"
 BOOTSTRAP_COMMANDS="router-update router-recovery router-setup"
 BOOTSTRAP_ARCHES="amd64 arm64"
-# Must stay in sync with GO_BOOTSTRAP_BUILD_FLAGS and GO_LDFLAGS in the Makefile.
-BOOTSTRAP_LDFLAGS="-s -w -buildid="
 
 json_string_field() {
     sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$2" | head -1
@@ -51,38 +49,47 @@ trap cleanup EXIT INT TERM
 git worktree add --detach "$BASELINE_TREE" "$BASELINE_REF" >/dev/null 2>&1 ||
     { echo "ERROR: could not check out baseline ref $BASELINE_REF" >&2; exit 1; }
 
+# Each tree builds its own bootstrap binaries with its own scripts/build-rust.sh,
+# which leaves out version, commit and date so the bytes depend on source only.
 build_bootstrap() {
     tree="$1"
     outdir="$2"
     mkdir -p "$outdir"
     for arch in $BOOTSTRAP_ARCHES; do
+        ( cd "$tree" && sh scripts/build-rust.sh "$arch" bootstrap "$outdir" )
         for command in $BOOTSTRAP_COMMANDS; do
-            ( cd "$tree" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
-                go build -trimpath -buildvcs=false -ldflags="$BOOTSTRAP_LDFLAGS" \
-                -o "$outdir/$command-$arch" "./cmd/$command" )
+            mv "$outdir/$command-linux-$arch" "$outdir/$command-$arch"
         done
     done
 }
 
-echo "Building bootstrap binaries from the working tree..."
-build_bootstrap "$PWD" "$WORK/head"
-echo "Building bootstrap binaries from baseline $BASELINE_REF..."
-build_bootstrap "$BASELINE_TREE" "$WORK/base"
-
 drift=0
-for arch in $BOOTSTRAP_ARCHES; do
-    for command in $BOOTSTRAP_COMMANDS; do
-        name="$command-$arch"
-        head_sum="$(sha256sum "$WORK/head/$name" | cut -d' ' -f1)"
-        base_sum="$(sha256sum "$WORK/base/$name" | cut -d' ' -f1)"
-        if [ "$head_sum" = "$base_sum" ]; then
-            printf 'same       %-26s %s\n' "$name" "$head_sum"
-        else
-            printf 'CHANGED    %-26s baseline=%s head=%s\n' "$name" "$base_sum" "$head_sum"
-            drift=1
-        fi
+if [ ! -f "$BASELINE_TREE/rust/Cargo.toml" ] || [ ! -f "$BASELINE_TREE/scripts/build-rust.sh" ]; then
+    # The baseline predates the Rust runtime, so its bootstrap binaries are
+    # Go builds. No Rust build can be byte-identical to them.
+    echo "Baseline $BASELINE_REF predates the Rust runtime: its bootstrap binaries"
+    echo "are not Rust builds, so they cannot match this tree's."
+    drift=1
+else
+    echo "Building bootstrap binaries from the working tree..."
+    build_bootstrap "$PWD" "$WORK/head"
+    echo "Building bootstrap binaries from baseline $BASELINE_REF..."
+    build_bootstrap "$BASELINE_TREE" "$WORK/base"
+
+    for arch in $BOOTSTRAP_ARCHES; do
+        for command in $BOOTSTRAP_COMMANDS; do
+            name="$command-$arch"
+            head_sum="$(sha256sum "$WORK/head/$name" | cut -d' ' -f1)"
+            base_sum="$(sha256sum "$WORK/base/$name" | cut -d' ' -f1)"
+            if [ "$head_sum" = "$base_sum" ]; then
+                printf 'same       %-26s %s\n' "$name" "$head_sum"
+            else
+                printf 'CHANGED    %-26s baseline=%s head=%s\n' "$name" "$base_sum" "$head_sum"
+                drift=1
+            fi
+        done
     done
-done
+fi
 
 echo
 if [ "$drift" -eq 0 ]; then
@@ -114,5 +121,5 @@ echo "This change is NOT recorded. Update $BASELINE_FILE in this pull request:"
 echo "  bootstrap_change_acknowledged_version -> $CURRENT_VERSION"
 echo "  bootstrap_change_reason               -> why bootstrap code had to change"
 echo "and document the one-time full-installer step for existing appliances."
-echo "Do not relax the byte-identity check in cmd/router-update to make this pass."
+echo "Do not relax the byte-identity check in router-update to make this pass."
 exit 1

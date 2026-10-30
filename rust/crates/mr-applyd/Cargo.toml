@@ -1,0 +1,21 @@
+[package]
+name = "mr-applyd"
+description = "router-applyd: the narrowly allowlisted privileged helper."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mr-core.workspace = true
+mr-config.workspace = true
+mr-services.workspace = true
+bcrypt.workspace = true
+hex.workspace = true
+libc.workspace = true
+log.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[target."cfg(unix)".dependencies]
+signal-hook.workspace = true

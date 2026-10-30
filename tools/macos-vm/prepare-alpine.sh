@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
+. "$(dirname "$0")/../../packaging/alpine/alpine-release"
 
-version="${1:-3.22.5}"
+version="${1:-$ALPINE_VERSION}"
 cache_dir="${2:-/private/tmp/minimalrouter-alpine-${version}}"
-base_url="https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64"
+base_url="https://dl-cdn.alpinelinux.org/alpine/v${version%.*}/releases/aarch64"
 iso_name="alpine-virt-${version}-aarch64.iso"
 iso_path="${cache_dir}/${iso_name}"
 boot_dir="${cache_dir}/boot"

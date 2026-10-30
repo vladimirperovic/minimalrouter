@@ -4,6 +4,8 @@
 # the runner indefinitely. Most awaited stages use seven minutes; the raw golden
 # disk copy gets ten because hosted-runner TCG throughput varies substantially.
 set timeout 720
+# The installed image must point at the Alpine branch it was built from.
+set alpine_branch [exec sh -c {. packaging/alpine/alpine-release && printf %s "$ALPINE_BRANCH"}]
 set iso [lindex $argv 0]
 set disk [lindex $argv 1]
 set logpath [lindex $argv 2]
@@ -25,7 +27,7 @@ match_max 65536
 # drivers (mdev + hwdrivers) instead of stopping firstboot with a single port.
 spawn qemu-system-x86_64 \
     -machine pc,accel=tcg \
-    -cpu max \
+    -cpu Westmere \
     -smp 1 \
     -m 1536 \
     -boot once=d \
@@ -53,6 +55,7 @@ proc wait_and_send {pattern text code} {
 }
 
 proc verify_ssh {password marker} {
+    set last_error ""
     for {set i 0} {$i < 60} {incr i} {
         if {![catch {
             exec sshpass -p $password ssh \
@@ -68,9 +71,29 @@ proc verify_ssh {password marker} {
                 return
             }
         }
+        set last_error $output
         after 1000
     }
     puts stderr "SSH verification failed: $marker"
+    puts stderr "last ssh result: $last_error"
+    # Show why, from both ends: a verbose client run, then the guest's sshd
+    # settings, drop-ins, log, firewall and listeners over the serial console
+    # (echo is off, so the end marker below only appears in real output).
+    catch {
+        exec sshpass -p $password ssh -vvv \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 \
+            -p 2222 \
+            root@127.0.0.1 "echo $marker" 2>@1
+    } verbose
+    puts stderr "---- verbose ssh client ----\n$verbose"
+    send -- "echo SSH_DIAG_BEGIN; rc-service sshd status 2>&1; ps w 2>&1 | grep -E 'sshd|supervise|routerd|applyd' | grep -v grep; rc-status -a 2>&1 | head -n 40; ls -la /var/log 2>&1; dmesg 2>&1 | tail -n 30; sshd -t 2>&1; echo SSH_RESTART_TRY; rc-service sshd restart 2>&1; sleep 3; ss -lnt 2>&1 | grep ':22 '; /usr/sbin/sshd -ddd -p 2299 -o ListenAddress=127.0.0.1 2>&1 | head -n 40 & sleep 3; ss -lntp 2>&1 | grep 2299; pkill -f 'sshd -ddd' 2>&1; echo SSH_DIAG_SETTINGS; sshd -T 2>&1 | grep -Ei '^(permitrootlogin|passwordauthentication|kbdinteractiveauthentication|authenticationmethods|allowusers|listenaddress|usepam|port)'; ls -la /etc/ssh /etc/ssh/sshd_config.d 2>&1; grep -vE '^#|^$' /etc/ssh/sshd_config 2>&1; grep -i sshd /var/log/messages 2>&1 | tail -n 40; nft list ruleset 2>&1 | grep -n -B2 -A2 'dport 22'; ss -lntp 2>&1; ip -4 addr 2>&1; echo SSH_DIAG_END\r"
+    set timeout 60
+    expect {
+        -re {SSH_DIAG_END} {}
+        timeout { puts stderr "timeout collecting guest SSH diagnostics" }
+    }
     exit 60
 }
 
@@ -192,6 +215,30 @@ expect {
     eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 48 }
 }
 
+# Check the kernel actually running from the installed disk with the same
+# build-host policy as both image kernels. TTY echo is already disabled, so
+# the release must come from uname output, not from the command we send.
+# This ready-shell command needs no boot-length wait; restore it afterward.
+set kernel_probe_previous_timeout $timeout
+set timeout 60
+send -- "printf 'RUNNING_KERNEL_RELEASE=%s\\n' \"\$(uname -r)\"\r"
+expect {
+    # The guest's CR/LF reaches Expect as \r\r\n (its own pty translates the
+    # newline a second time), so a fixed \r?\n after the release never matched
+    # and this waited out the whole 720 s timeout. Any CR or LF ends the value.
+    -re {RUNNING_KERNEL_RELEASE=([^\r\n]+)[\r\n]} {
+        set running_kernel $expect_out(1,string)
+        if {[catch {exec sh packaging/alpine/check-kernel-security.sh --release $running_kernel} error]} {
+            puts stderr "installed kernel security check failed: $error"
+            exit 53
+        }
+    }
+    timeout { puts stderr "missing installed kernel release"; exit 54 }
+    eof { puts stderr "QEMU exited before installed kernel verification"; exit 55 }
+}
+set timeout $kernel_probe_previous_timeout
+unset kernel_probe_previous_timeout
+
 # Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
 # Then echo the marker through the guest serial console as well, so the retained
 # qemu-full-install.log contains durable evidence for the workflow grep.
@@ -211,9 +258,10 @@ set checks {
     {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
     {dnsmasq --version | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)' && echo CHECK_DNSMASQ_NFTSET_OK}
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
+    {test "$(cat /etc/minimalrouter/kernel-release)" = "$(uname -r)" && echo CHECK_KERNEL_SECURITY_OK}
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
-    {grep -q 'v3.22/main' /etc/apk/repositories && grep -q 'v3.22/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
+    {grep -q '@ALPINE_BRANCH@/main' /etc/apk/repositories && grep -q '@ALPINE_BRANCH@/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
     {nft list ruleset | grep -q 'tcp dport 22 accept' && echo CHECK_NFT_SSH_OK}
     {ss -lnt | grep -q ':22 ' && echo CHECK_SSH_LISTEN_OK}
@@ -222,6 +270,7 @@ set checks {
     {ss -lnt | grep -q ':8443 ' && echo CHECK_DASHBOARD_LISTEN_OK}
 }
 
+set checks [string map [list @ALPINE_BRANCH@ $alpine_branch] $checks]
 foreach command $checks {
     send -- "$command\r"
 }
@@ -240,6 +289,7 @@ foreach marker {
     CHECK_STATE_DB_OK
     CHECK_DNSMASQ_NFTSET_OK
     CHECK_KERNEL_MODULE_MATCH_OK
+    CHECK_KERNEL_SECURITY_OK
     CHECK_SSHD_ENABLED
     CHECK_SERIAL_GETTY_OK
     CHECK_APK_REPOS_OK

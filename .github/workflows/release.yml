@@ -50,11 +50,8 @@ jobs:
           git config gpg.ssh.allowedSignersFile "$RUNNER_TEMP/minimalrouter-signing/allowed_signers"
           git verify-tag "$GITHUB_REF_NAME"
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -76,12 +73,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso qemu-system-x86 qemu-utils expect sshpass \
-            extlinux syslinux-common e2fsprogs util-linux
+            extlinux syslinux-common e2fsprogs util-linux file tcl
 
       - name: Run release checks
         run: |
-          go test -race ./...
-          go vet ./...
+          sh packaging/alpine/check-kernel-security_test.sh
+          tclsh scripts/ci/iso-kernel-release_test.tcl
+          make test
+          make vet
           pnpm --dir web lint
           pnpm --dir web test
           pnpm --dir web build
@@ -116,16 +115,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cargo build --release --locked --manifest-path rust/Cargo.toml --bin firmware-sign
           key="$RUNNER_TEMP/minimalrouter-signing/release.key"
           version="${GITHUB_REF_NAME#v}"
-          go run ./cmd/firmware-sign \
+          rust/target/release/firmware-sign \
             --dir build/dist/minimalrouter-linux-amd64 \
             --key "$key" \
             --version "$version" \
             --commit "$GITHUB_SHA" \
             --public-key-output build/dist/minimalrouter-linux-amd64/firmware-signing.pub \
             --output build/minimalrouter-linux-amd64.manifest.json
-          go run ./cmd/firmware-sign \
+          rust/target/release/firmware-sign \
             --dir build/dist/minimalrouter-linux-arm64 \
             --key "$key" \
             --version "$version" \

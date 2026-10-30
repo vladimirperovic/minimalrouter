@@ -19,11 +19,8 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
 
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -46,7 +43,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso qemu-system-x86 qemu-utils expect sshpass \
-            extlinux syslinux-common e2fsprogs util-linux
+            extlinux syslinux-common e2fsprogs util-linux file tcl
 
       - name: Validate golden-image architecture
         run: |
@@ -56,6 +53,8 @@ jobs:
           sh -n packaging/alpine/live-installer.sh
           sh -n packaging/alpine/firstboot.sh
           sh -n packaging/alpine/firstboot.initd
+          sh packaging/alpine/check-kernel-security_test.sh
+          tclsh scripts/ci/iso-kernel-release_test.tcl
 
           grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh
           grep -F 'build-golden-image.sh' packaging/alpine/build-iso.sh

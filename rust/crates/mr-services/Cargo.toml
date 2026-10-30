@@ -1,0 +1,26 @@
+[package]
+name = "mr-services"
+description = "Service generators, telemetry, the apply engine, DNS filtering and recovery backups."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mr-core.workspace = true
+mr-config.workspace = true
+aes-gcm.workspace = true
+argon2.workspace = true
+base64.workspace = true
+chrono.workspace = true
+hex.workspace = true
+libc.workspace = true
+log.workspace = true
+png.workspace = true
+psl.workspace = true
+qrcode.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+x25519-dalek.workspace = true

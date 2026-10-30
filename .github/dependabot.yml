@@ -1,8 +1,8 @@
 version: 2
 
 updates:
-  - package-ecosystem: "gomod"
-    directory: "/"
+  - package-ecosystem: "cargo"
+    directory: "/rust"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -11,9 +11,9 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-      - "go"
+      - "rust"
     commit-message:
-      prefix: "deps(go)"
+      prefix: "deps(rust)"
 
   - package-ecosystem: "npm"
     directory: "/web"

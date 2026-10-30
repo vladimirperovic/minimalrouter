@@ -5,10 +5,72 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Current release: v0.3.3
+## Release line: v0.4.0
+
+**Minimal Router OS v0.4.0 — Beta**, prepared 2026-10-30
+([release notes](releases/v0.4.0.md)). All router executables are built from
+the Rust workspace; the React/TypeScript dashboard remains the same application.
+New Golden images use Alpine 3.24 and the Linux 6.18 series, with a mandatory
+minimum of 6.18.56 for CVE-2026-98432. Both the live ISO kernel and the installed
+kernel are checked. The actual image releases are recorded in BUILD-INFO.
+
+### Qualification and evidence
+
+Publication requires all seven release workflows plus the complete installed
+QEMU Lab on the exact commit, then a successful Signed release workflow against
+the signed production ISO. A previous green build or a filtered lab run is not
+evidence for a later candidate. Resolve the published tag to its commit and
+inspect [Actions](https://github.com/vladimirperovic/minimalrouter/actions)
+for the final run results and retained artifacts.
+
+Evidence collected while preparing this release:
+
+- Candidate `b1861dd` passed the seven workflows and the earlier QEMU Lab.
+  Its [Appliance ISO run](https://github.com/vladimirperovic/minimalrouter/actions/runs/40579436378)
+  installed and booted `6.18.59-0-lts`, with firstboot, real SSH, service recovery
+  and installer refusal checks.
+- The later `b7968ec` validation branch added a canonical-metadata fix and
+  stricter observers. Its seven release workflows passed. Its
+  [Lab run](https://github.com/vladimirperovic/minimalrouter/actions/runs/40876109782)
+  passed all 3,000 API contracts and 17 chaos scenarios, but failed the soak
+  observer. The retained samples show the same daemon PID and increasing CPU
+  ticks throughout; the unanchored process search could match its own SSH shell.
+  The release fixes that observer, requires one anchored daemon identity with
+  its process start time, and adds real Linux-process regressions. This earlier
+  failed run is not accepted as release qualification.
+- Local Windows checks on the included Rust source passed formatting, all 118
+  tests (including all 3,000 HTTPS API contract cases) and `make vet`'s Clippy
+  command. Clippy emitted 110 warnings and no errors. Dashboard lint, 86 unit
+  tests and the production build passed; its separate symlink regression could
+  not create a Windows symlink and must pass on Linux CI.
+- Kernel policy tests cover old, malformed and unsupported kernel releases,
+  actual x86 boot headers, and refusal to accept missing installed-boot evidence.
+- Five new native journal regressions pass, including four that reproduced a
+  missing recovery version-floor check before its fix. Linux additionally runs
+  nine persisted-filesystem regressions, with the complete selection repeated
+  25 times alongside API operation-store recovery. Local release-mode API
+  benchmarks produced nine valid samples; Linux CI must also execute the six
+  real slot-state samples. Benchmark tests are deliberately selected separately
+  from ordinary unit tests.
+
+### Upgrade and remaining limits
+
+Every v0.3.3-or-earlier appliance needs the full signed distribution installer
+for the Rust bootstrap transition. It does not upgrade the existing Alpine
+branch or kernel. Moving to the new Golden OS uses a blank replacement disk;
+existing OS installations need a separate vendor kernel update and reboot.
+See [installation](INSTALLATION.md#upgrading-to-v040).
+
+The QEMU lab uses synthetic credentials, network namespaces and disposable
+disks. It does not establish owner-ISP PPPoE compatibility, physical NIC
+qualification, installed UEFI boot, external Internet scans, prolonged hardware
+soak or real power-loss reliability. Earlier owner-appliance observations below
+belong to the Go releases and are not Rust production validation.
+
+## Previous release: v0.3.3
 
 **Minimal Router OS v0.3.3 — Beta**, 2026-10-15
-([release notes](releases/v0.3.3.md)). It closes a gap in the **Encrypted DNS,
+([release notes](https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.3.3)). It closes a gap in the **Encrypted DNS,
 VPN & proxy bypass** DNS filter category: the category now also blocks the
 iCloud Private Relay CNAME target `mask.apple-dns.net`, the `mask-canary`
 alias chain and Firefox's canary domain `use-application-dns.net`.
@@ -221,8 +283,8 @@ public-IP propagation still need a real-provider rerun.
 
 ## Automated validation outside the ISO path
 
-Repository workflows cover `go test -race`, `go vet`, vulnerability and secret
-scans, CodeQL, frontend lint/unit/build/Playwright, clean Alpine install and
+Repository workflows cover the Rust format, warning-free build, workspace tests,
+clippy, dependency-advisory and secret scans, CodeQL, frontend lint/unit/build/Playwright, clean Alpine install and
 update/rollback, transaction crash/recovery, ARM64 QEMU smoke tests, an isolated
 WAN-router-LAN network lab, storage pressure, appliance health, service
 supervision and control-plane benchmarks. They do not replace real ISP, NIC,

@@ -2,8 +2,8 @@
 
 This document explains why a signed release is sometimes installable from the
 dashboard and sometimes only by the full distribution installer, and how to tell
-which one a given build is. Read it before changing `cmd/router-update/`,
-`Makefile` build flags, or anything under `/usr/libexec/minimalrouter/bootstrap`.
+which one a given build is. Read it before changing `rust/src/bin/router-update.rs`,
+`scripts/build-rust.sh`, or anything under `/usr/libexec/minimalrouter/bootstrap`.
 
 ## The rule
 
@@ -22,9 +22,9 @@ Three runtime tools are deliberately outside the slot:
 `router-update` performs the activation and the rollback; `router-recovery` is
 the local console used when the management plane cannot be reached. The installed `router-setup` also verifies canonical provisioning before services start. These tools cannot
 be rolled back by moving a symlink, because the code doing the rollback would be
-the code being rolled back. So `verifyRuntimeLayoutCompatibility` refuses to
+the code being rolled back. So `verify_runtime_layout_compatibility` refuses to
 activate a candidate whose copies of them are not **byte-identical** to the ones
-already installed ([runtime_layout.go](../cmd/router-update/runtime_layout.go)).
+already installed ([router-update.rs](../rust/src/bin/router-update.rs)).
 
 The same applies to the OS integration files (init scripts, firstboot scripts,
 sysctl, module list, logrotate, `slot-exec`, `compatibility.json`, the PPP QoS hook): they run
@@ -57,9 +57,17 @@ by the signed release manifest, which is the trust anchor that actually matters;
 `routerd` and `router-applyd` keep their VCS stamps because they live in the
 slot and are never byte-compared.
 
-Because the toolchain is part of the input, `go.mod`'s Go version is part of the
+Because the toolchain is part of the input, the toolchain version is part of the
 bootstrap contract: bumping it changes the bytes and requires the same
 acknowledgement as a source change.
+
+Since v0.4.0 the same rule holds for the Rust build. `scripts/build-rust.sh`
+builds the three bootstrap programs without the version, commit and build-date
+variables that the runtime daemons receive, remaps source and toolchain paths out
+of the binaries, and uses `--locked` so `Cargo.lock` is part of the input. The
+pinned inputs are Rust 1.99.1, zig 0.17.0 and cargo-zigbuild 0.24.0
+(`.github/actions/setup-rust`); changing any of them, or `Cargo.lock`, can change
+the bytes.
 
 ## How to tell whether a build is web-updatable
 
@@ -83,9 +91,23 @@ The baseline and any intentional break are recorded in
 
 If the check reports drift that is not acknowledged, it fails. The fix is to
 record the change and document the installer step — **never** to relax the
-byte-identity check in `cmd/router-update`.
+byte-identity check in `router-update`.
 
 ## Current checkout and installation boundary
+
+v0.4.0 replaces the Go runtime with a Rust implementation, so `router-update`,
+`router-recovery` and `router-setup` are different programs from every v0.3.x
+build on both architectures. `bootstrap-baseline.json` acknowledges the change
+for version 0.4.0 and moves `requires_full_installer_from` to 0.3.3: **every
+appliance running v0.3.3 or earlier needs the full signed distribution installer
+once**, and the dashboard A/B updater refuses the transition by design. The
+v0.4.0 Golden ISO also moves the operating system to Alpine 3.24 with linux-lts
+6.18; an existing appliance keeps its own Alpine release, and a replacement
+appliance may be installed on a blank disk and restored from an encrypted backup.
+The baseline stays at v0.3.1 until the v0.4.0 tag exists; the check reports a
+baseline without a Rust workspace as a recorded change. After the tag, move
+`bootstrap_baseline_ref` to v0.4.0 so the comparison is against the bytes
+appliances actually run.
 
 `bootstrap_baseline_ref` is v0.3.1, the bytes published appliances run since
 2026-10-14. v0.3.2 changed only `routerd`, `router-applyd`, the dashboard and

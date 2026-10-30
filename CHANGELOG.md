@@ -4,6 +4,88 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
+## [v0.4.0] — 2026-10-30
+
+Rust runtime and a new Alpine Golden image. Publication requires the exact
+release commit to pass all release workflows and the complete installed QEMU
+lab, followed by the signed ISO installation gate. Evidence and remaining
+hardware limits are recorded in `docs/CURRENT_VALIDATION.md`.
+
+### Changed
+
+- **The runtime is written in Rust.** `routerd`, `router-applyd`,
+  `router-recovery`, `router-update`, `router-setup`, `firmware-sign`,
+  `firmware-keygen` and `minimalrouter-mcp` are built from the workspace under
+  `rust/` as static musl binaries for AMD64 and ARM64. The Go implementation is
+  removed (it remains in git history; v0.3.3 is its last release). Behaviour
+  is held to Go v0.3.3 by frozen fixtures: 502 configurations, 1,401 generated
+  service files, 500 signed firmware manifests and 2,000 version comparisons.
+  Measured on a lab router with the first port, `routerd` used about a third
+  less memory at idle and returned the 64 MiB password-hashing buffer at once;
+  the event-driven build has not been re-measured.
+- All `unsafe` code is confined to one audited module, and the build rejects it
+  anywhere else.
+- New installations use **Alpine 3.24** with the **linux-lts 6.18** kernel
+  (was Alpine 3.22, linux-lts 6.12). Kernel subsystems a router never loads
+  are removed from the image after a dependency check (about 38% of the module
+  tree on the 6.18.58 package), and the initramfs is rebuilt from the same
+  module tree.
+- The Alpine release is pinned in one file, `packaging/alpine/alpine-release`;
+  `scripts/alpine-bump.sh` checks and performs moves to newer releases.
+- The installers install packages from the running system's own Alpine
+  release and refuse unsupported releases, instead of rewriting the
+  repositories to a fixed release.
+
+### Fixed
+
+- **CVE-2026-98432 kernel baseline.** New Golden images require Linux 6.18.56
+  or newer in the 6.18 branch. Both the live installer kernel and installed
+  image kernel are checked, and the installation E2E checks the booted kernel.
+  Older images and existing OS installations need their own kernel update;
+  changing the MinimalRouter application version does not patch Linux.
+- Canonical configuration timestamps survive saving and reloading unchanged,
+  including transactions that require confirmation. The privileged helper,
+  active engine and persistent store now retain the same committed metadata.
+- Interrupted firmware recovery rejects malformed or decreasing version floors
+  and non-forward activation journals. Explicit rollback still keeps the
+  highest verified version as the minimum for future upgrades.
+- Development tooling uses Vitest 4.1.12, including the fixes for
+  GHSA-qxg6-89mg-rqv8 and GHSA-xp26-3454-mjgp; Vite is 8.1.6.
+- **Time intervals no longer follow the wall clock.** The Rust port compared
+  timestamps by wall clock only, where Go's `time.Now()` also carries a
+  monotonic reading. Found by the GitHub lab: the router's clock was moved two
+  hours forward and back, and a login recorded in between left the per-source
+  login window "in the future", so the administrator stayed rate limited
+  (HTTP 429) long after the 60 s window. Values from `Time::now()` now carry a
+  monotonic reading again (`sub`, `before`, `after` use it), and a rate limit
+  bucket read back from the database that starts in the future counts as
+  expired. This also covers session timeouts and confirmation deadlines, which
+  use the same type. Regression tests: `rust/tests/rate_limit_clock.rs` and the
+  `monotonic_time_tests` in `goish/time.rs`.
+- An unauthenticated `Expect: 100-continue` request announcing a 100 MB body
+  is answered with 413 at once instead of being invited to send the body.
+
+### Upgrade compatibility
+
+- **Every appliance running v0.3.3 or earlier needs the full signed
+  installer once.** The bootstrap programs (`router-update`, `router-recovery`,
+  `router-setup`) are different programs, so the dashboard updater refuses the
+  transition by design. Releases after v0.4.0 are compared against it.
+- Existing appliances keep Alpine 3.22; neither the dashboard update nor the
+  full installer changes their release or installs a replacement kernel. Use
+  the new Golden ISO on a blank replacement disk to move to Alpine 3.24, or
+  separately update the existing OS kernel. See `docs/INSTALLATION.md`.
+
+### Not carried over from the Go test suite
+
+The Go race detector, coverage-guided fuzzers, coverage measurement, the live
+DNS-filter and privilege-drop tests were not ported one-for-one.
+The Rust suite is not a one-for-one port of the Go unit tests. Frozen parity
+fixtures, 3,000 API request contracts and installed network/chaos scenarios
+provide complementary coverage. Explicit crash-boundary and corrupt-journal
+tests, a deterministic malformed-journal corpus, and API/update runtime
+benchmarks run in Rust; see `docs/TESTING.md` for their boundaries.
+
 ## [v0.3.3] — 2026-10-15
 
 Closes a gap in the encrypted-DNS bypass DNS filter category after an iPhone on a

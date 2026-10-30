@@ -54,7 +54,7 @@ describe("router DNS enforcement", () => {
 });
 
 // The appliance validates every custom rule name against safeNamePattern in
-// internal/config/validation.go:
+// rust/crates/mr-config/src/config/validation.rs:
 //   ^[\pL\pN][\pL\pN ._()/-]{0,63}$
 // A preset whose generated name falls outside it cannot be switched on at all:
 // the write is refused and the operator only sees a banner at the top of the

@@ -22,7 +22,7 @@ router's authenticated HTTPS API. It has no network listener of its own.
 ## Build
 
 ```bash
-go build -trimpath -o bin/minimalrouter-mcp ./cmd/minimalrouter-mcp
+make build-mcp   # writes bin/minimalrouter-mcp
 ```
 
 ## Client configuration

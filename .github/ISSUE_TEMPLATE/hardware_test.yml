@@ -34,7 +34,7 @@ body:
     attributes:
       label: Platform
       description: Generic hardware or VM details, Alpine version, hypervisor, CPU, RAM, disk, NIC chipset or virtual NIC type.
-      placeholder: Alpine 3.22 VM, 1 vCPU, 1 GiB RAM, 8 GiB disk, two VirtIO NICs
+      placeholder: Alpine 3.24 VM, 1 vCPU, 1 GiB RAM, 8 GiB disk, two VirtIO NICs
     validations:
       required: true
 

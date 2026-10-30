@@ -20,43 +20,109 @@ jobs:
   benchmarks:
     name: API and update benchmarks
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Measure concurrent API dispatch and real update-state reads
+        env:
+          MINIMALROUTER_BENCH_OUTPUT: ${{ github.workspace }}/build/performance/benchmarks
+          MINIMALROUTER_BENCH_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/performance/benchmarks
+          rustc -Vv > build/performance/benchmarks/toolchain.txt
+          cargo test --manifest-path rust/Cargo.toml --release --locked --test performance \
+            -- --ignored --nocapture --test-threads=1 2>&1 | tee build/performance/benchmarks/run.log
+      - name: Reject missing or invalid measurements
+        run: |
+          python3 - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          root = Path('build/performance/benchmarks')
+          expected = {
+              'api': {'APISetupStatusParallel', 'APIProtectedEndpointParallel', 'APIMalformedRequestParallel'},
+              'update': {'SlotManagerState', 'SlotManagerStateWithJournal'},
+          }
+          summary = ['### API and update benchmarks', '',
+                     'Release-mode synthetic API dispatch includes request construction and correctness checks; '
+                     'slot reads use real files and symlinks. Wall ns/op measures aggregate throughput, '
+                     'not request latency or allocations.', '',
+                     '| Operation | Sample | Workers | Operations | Wall ns/op | Operations/s |',
+                     '|---|---:|---:|---:|---:|---:|']
+          for suite, names in expected.items():
+              report = json.loads((root / f'{suite}.json').read_text())
+              assert report['schema_version'] == 1 and report['suite'] == suite
+              assert report['source_commit'] == os.environ['GITHUB_SHA']
+              assert report['profile'] == 'release' and report['target_os'] == 'linux'
+              assert report['sample_seconds'] == 1 and report['repetitions'] == 3
+              rows = report['measurements']
+              assert len(rows) == len(names) * 3, f'{suite}: missing or extra samples'
+              assert {(r['name'], r['repetition']) for r in rows} == {(n, i) for n in names for i in range(1, 4)}
+              for row in rows:
+                  assert row['workers'] == (4 if suite == 'api' else 1)
+                  assert type(row['operations']) is int and row['operations'] > 0
+                  assert type(row['elapsed_ns']) is int and row['elapsed_ns'] >= 1_000_000_000
+                  for field in ('wall_ns_per_op', 'operations_per_second'):
+                      assert type(row[field]) in (int, float) and math.isfinite(row[field]) and row[field] > 0
+                  assert math.isclose(row['wall_ns_per_op'], row['elapsed_ns'] / row['operations'], rel_tol=1e-9)
+                  assert math.isclose(row['operations_per_second'], row['operations'] * 1e9 / row['elapsed_ns'], rel_tol=1e-9)
+                  summary.append(f"| {row['name']} | {row['repetition']} | {row['workers']} | {row['operations']} | {row['wall_ns_per_op']:.1f} | {row['operations_per_second']:.1f} |")
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('\n'.join(summary) + '\n')
+          print('Validated all 15 API/update measurements.')
+          PY
+      - name: Upload API and update benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run concurrent management API benchmarks
+          name: api-update-performance-${{ github.sha }}
+          path: build/performance/benchmarks
+          if-no-files-found: error
+          retention-days: 30
+
+  binaries:
+    name: Release binary size and build time
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Build the static AMD64 and ARM64 binaries and record sizes
         run: |
           mkdir -p build/performance
-          go test ./internal/api \
-            -run '^$' \
-            -bench '^BenchmarkAPI' \
-            -benchmem \
-            -benchtime=1s \
-            -count=3 | tee build/performance/api.txt
-      - name: Run update state benchmarks
+          start="$(date +%s)"
+          make build-linux-amd64 build-linux-arm64
+          echo "build_seconds=$(( $(date +%s) - start ))" | tee build/performance/build-time.txt
+          stat -c '%s %n' bin/*-linux-* | tee build/performance/sizes.txt
+          {
+            echo '### Release binary sizes (bytes)'
+            echo
+            echo '| Binary | Size |'
+            echo '|---|---:|'
+            for f in bin/*-linux-*; do
+              printf '| %s | %s |\n' "$(basename "$f")" "$(stat -c %s "$f")"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Reject a size regression
         run: |
-          go test ./internal/firmware \
-            -run '^$' \
-            -bench '^BenchmarkSlotManager' \
-            -benchmem \
-            -benchtime=1s \
-            -count=3 | tee build/performance/update.txt
-      - name: Reject benchmark crashes and missing measurements
-        run: |
-          grep -q 'BenchmarkAPISetupStatusParallel' build/performance/api.txt
-          grep -q 'BenchmarkAPIProtectedEndpointParallel' build/performance/api.txt
-          grep -q 'BenchmarkSlotManagerState' build/performance/update.txt
-          grep -q 'allocs/op' build/performance/api.txt
-          grep -q 'allocs/op' build/performance/update.txt
+          # Generous ceilings, set well above the measured sizes so only a real
+          # regression (an accidental dependency, lost LTO) trips them.
+          limit() {
+            size="$(stat -c %s "bin/$1-linux-amd64")"
+            [ "$size" -le "$2" ] || { echo "$1 is $size bytes, over the $2 byte ceiling" >&2; exit 1; }
+          }
+          limit routerd 14000000
+          limit router-applyd 5500000
+          limit router-recovery 6000000
+          limit router-setup 6000000
+          limit router-update 3000000
       - name: Upload performance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: performance-${{ github.sha }}
           path: build/performance
-          if-no-files-found: error
-          retention-days: 30

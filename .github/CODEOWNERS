@@ -3,9 +3,12 @@
 
 # Security-sensitive and privileged paths
 /SECURITY.md @vladimirperovic
-/internal/auth/ @vladimirperovic
-/internal/apply/ @vladimirperovic
-/internal/services/nftables.go @vladimirperovic
-/cmd/router-applyd/ @vladimirperovic
+/rust/crates/mr-applyd/ @vladimirperovic
+/rust/crates/mr-core/src/sys.rs @vladimirperovic
+/rust/crates/mr-core/src/firmware/ @vladimirperovic
+/rust/**/auth*.rs @vladimirperovic
+/rust/**/apply/ @vladimirperovic
+/rust/**/nftables.rs @vladimirperovic
+/scripts/build-rust.sh @vladimirperovic
 /packaging/ @vladimirperovic
 /.github/workflows/ @vladimirperovic
