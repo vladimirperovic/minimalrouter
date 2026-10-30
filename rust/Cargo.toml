@@ -45,7 +45,7 @@ signal-hook = "0.3"
 subtle = "2.6.1"
 time = "0.3"
 ureq = { version = "2", default-features = false, features = ["tls"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 x509-parser = "0.16"
 
 mr-core = { path = "crates/mr-core" }
