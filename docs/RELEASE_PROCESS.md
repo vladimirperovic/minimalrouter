@@ -1,7 +1,7 @@
 # Maintainer release process
 
 This document is the operational release checklist for Minimal Router OS. The
-target release line is **Beta v0.3.3** (candidate until publication). Release
+target release line is **Beta v0.4.0** (candidate until publication). Release
 claims must stay inside the evidence recorded in
 [`CURRENT_VALIDATION.md`](CURRENT_VALIDATION.md).
 
@@ -12,7 +12,7 @@ passed the repository release gates. Do not create a release tag on a red or
 partially tested commit and do not weaken tag, firmware-signature, ISO, checksum,
 SBOM, or attestation validation to make publication succeed.
 
-For v0.3.3 the exact pre-tag candidate must pass all seven required PR workflows:
+For v0.4.0 the exact pre-tag candidate must pass all seven required PR workflows:
 
 - CI;
 - CodeQL;
@@ -22,8 +22,15 @@ For v0.3.3 the exact pre-tag candidate must pass all seven required PR workflows
 - Service supervision;
 - Appliance ISO.
 
+The complete **Lab** workflow must also pass for v0.4.0, using the successful
+Appliance ISO from that exact commit. Leave its `only` filter empty; all 3,000
+API contracts, network tests, chaos tests and the soak must execute and pass.
+The kernel-security gate must identify patched kernels in both the live ISO
+and installed appliance. Do not substitute an earlier branch's ISO or a filtered
+lab run for this evidence.
+
 The release tag must then point to the exact validated `main` commit that contains
-`VERSION=0.3.3` and `docs/releases/v0.3.3.md`.
+`VERSION=0.4.0` and `docs/releases/v0.4.0.md`.
 
 ## 1. Final pre-tag audit
 
@@ -31,9 +38,9 @@ Before creating the tag:
 
 1. Confirm the intended PR is merged and `main` contains only reviewed release
    changes.
-2. Confirm `VERSION` and `web/package.json` both identify `0.3.3`.
+2. Confirm `VERSION` and `web/package.json` both identify `0.4.0`.
 3. Confirm current README, installation, Proxmox, security, support, validation,
-   changelog and release documentation describe v0.3.3 rather than an older
+   changelog and release documentation describe v0.4.0 rather than an older
    maturity level or install path.
 4. Confirm the GitHub Pages demo uses the same production React entry point,
    components and CSS. Demo-only behavior must remain gated by
@@ -41,14 +48,15 @@ Before creating the tag:
 5. Review the full current tree for credentials, private topology, generated
    runtime state, backups, packet captures, VM disks, logs, private host
    inventory and other material prohibited by `PRIVACY.md` and `AGENTS.md`.
-6. Reconfirm all seven required workflows are green on the exact candidate.
+6. Reconfirm all seven required workflows and the complete Lab are green on
+   the exact candidate, including the booted-kernel security check.
 7. Record the exact `main` SHA that will be tagged.
 
 `docs/releases/` holds only the current release's notes: when preparing a new
 release, replace the previous file; earlier notes stay on GitHub Releases, in
 `CHANGELOG.md` and in the git history. Historical statements elsewhere may keep
 older version numbers when they are clearly identified as history rather than
-presented as current v0.3.3 state.
+presented as current v0.4.0 state.
 
 ## 2. Create the SSH-signed annotated tag
 
@@ -63,9 +71,9 @@ git checkout main
 git pull --ff-only origin main
 git status --short
 git rev-parse HEAD
-git tag -s v0.3.3 -m "Minimal Router OS v0.3.3"
-git verify-tag v0.3.3
-git push origin v0.3.3
+git tag -s v0.4.0 -m "Minimal Router OS v0.4.0"
+git verify-tag v0.4.0
+git push origin v0.4.0
 ```
 
 Before the push, `git rev-parse HEAD` must equal the exact audited `main` SHA.
@@ -73,7 +81,7 @@ Do not move or recreate a published release tag casually.
 
 ## 3. Signed release workflow
 
-Pushing `v0.3.3` starts `.github/workflows/release.yml` (`Signed release`).
+Pushing `v0.4.0` starts `.github/workflows/release.yml` (`Signed release`).
 
 The job runs in the `production-release` environment, which requires a
 maintainer approval before its first step. **The push does not publish
@@ -100,14 +108,14 @@ A failed release E2E or signature check is a release blocker. Fix the underlying
 problem on `main`, validate a new exact candidate, and create a new release tag
 only according to the project's versioning policy; never bypass the failed gate.
 
-## 4. Expected v0.3.3 release assets
+## 4. Expected v0.4.0 release assets
 
-The public v0.3.3 release must contain exactly the intended user-download and
+The public v0.4.0 release must contain exactly the intended user-download and
 verification set:
 
 ```text
-minimalrouter-0.3.3-amd64.iso
-minimalrouter-0.3.3-amd64.iso.sha256
+minimalrouter-0.4.0-amd64.iso
+minimalrouter-0.4.0-amd64.iso.sha256
 minimalrouter-linux-amd64.tar.gz
 minimalrouter-linux-arm64.tar.gz
 minimalrouter-linux-amd64.manifest.json
@@ -143,7 +151,7 @@ and `SUPPORT.md`, not by the prerelease flag.
 
 After the workflow finishes successfully:
 
-1. Confirm the release title identifies `Minimal Router OS v0.3.3 (Beta)` and
+1. Confirm the release title identifies `Minimal Router OS v0.4.0 (Beta)` and
    that the release is published, not draft, and is marked latest.
 2. Confirm every expected asset above exists once and has a non-zero size.
 3. Download/inspect `SHA256SUMS` and verify that it lists both archives, both
@@ -151,7 +159,7 @@ After the workflow finishes successfully:
 4. Verify the standalone ISO checksum:
 
    ```sh
-   sha256sum -c minimalrouter-0.3.3-amd64.iso.sha256
+   sha256sum -c minimalrouter-0.4.0-amd64.iso.sha256
    ```
 
 5. Verify the complete downloaded asset set where practical:
@@ -162,7 +170,7 @@ After the workflow finishes successfully:
 
 6. Confirm GitHub Attestations were created for AMD64/ARM64 archives and SBOMs,
    signed manifests/checksums, and the tested Golden ISO.
-7. Confirm release notes come from `docs/releases/v0.3.3.md`.
+7. Confirm release notes come from `docs/releases/v0.4.0.md`.
 8. Confirm no temporary, unsigned, development-only, private, or internal artifact
    was attached to the release.
 
@@ -171,7 +179,7 @@ trust details.
 
 ## 6. Owner pilot after publication
 
-v0.3.3 remains a controlled Beta even after the signed release workflow passes.
+v0.4.0 remains a controlled Beta even after the signed release workflow passes.
 Before treating it as a normal replacement router, keep the known-good router and
 local console available and execute the remaining owner-Proxmox gates in
 `CURRENT_VALIDATION.md`/`PROJECT.md`, including repeated real PPPoE/reboot

@@ -14,7 +14,7 @@ cleanup() {
     if [ -f "$LAB_RUN/router.pid" ]; then
         qemu_monitor quit 2>/dev/null || kill "$(cat "$LAB_RUN/router.pid")" 2>/dev/null
     fi
-    "$HERE/topology.sh" down
+    bash "$HERE/topology.sh" down
 }
 trap cleanup EXIT
 

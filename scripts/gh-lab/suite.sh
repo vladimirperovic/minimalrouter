@@ -324,10 +324,10 @@ t_rollback_unconfirmed() {
 t_kill_routerd() {
     local old new fw
     fw=$(firewall_fingerprint) || return 1
-    old=$(router_pid routerd)
+    old=$(router_pid routerd) || return 1
     rsh "kill -9 $old"
     wait_for 120 rsh 'test -s /run/minimalrouter/routerd.ready && ss -lnt | grep -q ":8443 "' || { echo "dashboard did not come back"; return 1; }
-    new=$(router_pid routerd)
+    new=$(router_pid routerd) || return 1
     [ -n "$new" ] && [ "$new" != "$old" ] || { echo "routerd was not restarted (pid $old -> $new)"; return 1; }
     api login >/dev/null || { echo "cannot sign in after the restart"; return 1; }
     [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules changed while routerd restarted"; return 1; }
@@ -338,10 +338,10 @@ t_kill_routerd() {
 t_kill_applyd() {
     local old new fw
     fw=$(firewall_fingerprint) || return 1
-    old=$(router_pid router-applyd)
+    old=$(router_pid router-applyd) || return 1
     rsh "kill -9 $old"
     wait_for 180 rsh 'test -S /run/minimalrouter/apply.sock && test -s /run/minimalrouter/routerd.ready' || { echo "privileged helper did not come back"; return 1; }
-    new=$(router_pid router-applyd)
+    new=$(router_pid router-applyd) || return 1
     [ -n "$new" ] && [ "$new" != "$old" ] || { echo "router-applyd was not restarted (pid $old -> $new)"; return 1; }
     [ "$(firewall_fingerprint)" = "$fw" ] || { echo "firewall rules changed after the helper restarted"; return 1; }
     [ "$(http_code GET health)" = 200 ] || { echo "API unhealthy after the helper restart"; return 1; }
@@ -479,14 +479,15 @@ response_sizes() {
 }
 
 t_soak() {
-    local pid_d pid_a end half i rss_start rss_mid rss_end code line seconds
+    local identity_d identity_a final_d final_a end half i rss_start rss_mid rss_end code line seconds
     seconds=${LAB_SOAK_SECONDS:-300}
-    pid_d=$(router_pid routerd)
-    pid_a=$(router_pid router-applyd)
+    identity_d=$(router_identity routerd) || return 1
+    identity_a=$(router_identity router-applyd) || return 1
     rss_start=$(field "$(sample_memory soak_start | grep ' routerd ')" rss)
     api login >/dev/null || return 1
     : > "$LOGS/soak-trend.txt"
     : > "$LOGS/soak-detail.txt"
+    printf 'identity_start routerd=%s router-applyd=%s\n' "$identity_d" "$identity_a" >> "$LOGS/soak-detail.txt"
     { echo "== response sizes at the start"; response_sizes; smaps_detail soak_start; } >> "$LOGS/soak-detail.txt"
     end=$((SECONDS + seconds))
     half=$((SECONDS + seconds / 2))
@@ -507,8 +508,11 @@ t_soak() {
     rss_end=$(field "$(sample_memory soak_end | grep ' routerd ')" rss)
     { echo "== response sizes at the end"; response_sizes; smaps_detail soak_end; } >> "$LOGS/soak-detail.txt"
     [ -n "$rss_mid" ] || rss_mid=$rss_start
-    [ "$(router_pid routerd)" = "$pid_d" ] || { echo "routerd restarted during the soak"; return 1; }
-    [ "$(router_pid router-applyd)" = "$pid_a" ] || { echo "router-applyd restarted during the soak"; return 1; }
+    final_d=$(router_identity routerd) || return 1
+    final_a=$(router_identity router-applyd) || return 1
+    printf 'identity_end routerd=%s router-applyd=%s\n' "$final_d" "$final_a" >> "$LOGS/soak-detail.txt"
+    [ "$final_d" = "$identity_d" ] || { echo "routerd restarted during the soak ($identity_d -> $final_d)"; return 1; }
+    [ "$final_a" = "$identity_a" ] || { echo "router-applyd restarted during the soak ($identity_a -> $final_a)"; return 1; }
     # The first minutes after a load test are allocator warm-up (the heap grows
     # to the working set and stays); a leak keeps growing, so judge the second half.
     [ "$(((rss_end - rss_mid) / 1024))" -lt 12 ] || { echo "routerd still growing in the second half of the soak: $((rss_mid / 1024)) -> $((rss_end / 1024)) MiB (start $((rss_start / 1024)) MiB, $i rounds)"; return 1; }

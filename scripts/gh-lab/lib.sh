@@ -64,10 +64,18 @@ qemu_monitor() {
     printf '%s\n' "$1" | socat - "UNIX-CONNECT:$LAB_RUN/router.mon" >/dev/null
 }
 
-# router_pid NAME : pid of the daemon from the active slot (the supervisor's
-# command line also mentions the daemon, so match the slot binary).
+# Send the observer on stdin so its source never becomes a candidate process's
+# command line. The observer anchors argv[0], requires one match and records
+# starttime as well as PID, so PID reuse cannot hide a restart during a soak.
+router_identity() {
+    rsh sh -s "$1" < "$(dirname "${BASH_SOURCE[0]}")/process-identity.sh"
+}
+
+# router_pid NAME : only the daemon, never an SSH shell or supervisor.
 router_pid() {
-    rsh "pgrep -f 'slots/.*/bin/$1-amd64' | head -n 1"
+    local identity
+    identity=$(router_identity "$1") || return 1
+    printf '%s\n' "${identity%% *}"
 }
 
 # Save the complete stateless JSON, retaining sets and every rule. No remote

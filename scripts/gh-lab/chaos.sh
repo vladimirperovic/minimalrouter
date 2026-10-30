@@ -113,7 +113,7 @@ c_clock_jumps() {
 
 c_frozen_routerd() {
     local pid
-    pid=$(router_pid routerd)
+    pid=$(router_pid routerd) || return 1
     rsh "kill -STOP $pid"
     sleep 25
     # Frozen, the management plane cannot answer, but routing must carry on.

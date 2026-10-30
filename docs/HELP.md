@@ -6,7 +6,7 @@ This guide explains the appliance for people who do not need to know Linux netwo
 
 There are two recommended deployment paths.
 
-### Option A — v0.3.3 Golden ISO install
+### Option A — v0.4.0 Golden ISO install
 
 Use the Golden Appliance ISO when you want the cleanest, most repeatable AMD64/Proxmox deployment.
 

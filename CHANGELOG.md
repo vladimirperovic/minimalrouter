@@ -4,11 +4,12 @@ All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
 
-## [Unreleased] — v0.4.0 candidate
+## [v0.4.0] — 2026-10-30
 
-Candidate under test. Nothing below has passed the Appliance ISO workflow, a
-lab router or a Proxmox pilot yet; this entry will be rewritten with the
-evidence collected before a release is tagged.
+Rust runtime and a new Alpine Golden image. Publication requires the exact
+release commit to pass all release workflows and the complete installed QEMU
+lab, followed by the signed ISO installation gate. Evidence and remaining
+hardware limits are recorded in `docs/CURRENT_VALIDATION.md`.
 
 ### Changed
 
@@ -37,6 +38,14 @@ evidence collected before a release is tagged.
 
 ### Fixed
 
+- **CVE-2026-98432 kernel baseline.** New Golden images require Linux 6.18.56
+  or newer in the 6.18 branch. Both the live installer kernel and installed
+  image kernel are checked, and the installation E2E checks the booted kernel.
+  Older images and existing OS installations need their own kernel update;
+  changing the MinimalRouter application version does not patch Linux.
+- Canonical configuration timestamps survive saving and reloading unchanged,
+  including transactions that require confirmation. The privileged helper,
+  active engine and persistent store now retain the same committed metadata.
 - **Time intervals no longer follow the wall clock.** The Rust port compared
   timestamps by wall clock only, where Go's `time.Now()` also carries a
   monotonic reading. Found by the GitHub lab: the router's clock was moved two
@@ -58,14 +67,17 @@ evidence collected before a release is tagged.
   `router-setup`) are different programs, so the dashboard updater refuses the
   transition by design. Releases after v0.4.0 are compared against it.
 - Existing appliances keep Alpine 3.22; neither the dashboard update nor the
-  full installer changes their release.
+  full installer changes their release or installs a replacement kernel. Use
+  the new Golden ISO on a blank replacement disk to move to Alpine 3.24, or
+  separately update the existing OS kernel. See `docs/INSTALLATION.md`.
 
 ### Not carried over from the Go test suite
 
 The Go race detector, the two fuzzers, coverage measurement, the live
 DNS-filter and privilege-drop tests and the API benchmarks were not ported.
-The Rust suite has 111 test functions against 727 in Go; most Go unit tests
-were not ported.
+The Rust suite is not a one-for-one port of the Go unit tests. Frozen parity
+fixtures, 3,000 API request contracts and installed network/chaos scenarios
+provide complementary coverage; see `docs/TESTING.md` for their boundaries.
 
 ## [v0.3.3] — 2026-10-15
 

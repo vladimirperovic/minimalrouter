@@ -5,7 +5,7 @@ OUT="build/iso/minimalrouter-rootfs-${VERSION}-amd64.tar.gz"
 DIST="build/dist/minimalrouter-linux-amd64"
 [ -d "$DIST" ] || { echo "ERROR: build distribution first" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required to build the rootfs" >&2; exit 1; }
-rm -f "$OUT"
+rm -f "$OUT" "$OUT.kernel-release"
 repo="$(pwd)"
 . packaging/alpine/alpine-release
 BUILDER_IMAGE="alpine:$ALPINE_VERSION"
@@ -78,12 +78,18 @@ docker run --rm --platform linux/amd64 -e "ALPINE_BRANCH=$ALPINE_BRANCH" \
     # Remove kernel subsystems a headless router never loads, proving first
     # that no kept or required module depends on them, then rebuild the
     # initramfs from that same tree so kernel, initramfs and /lib/modules stay
-    # one validated set. kmod is a builder tool only, not a target package.
-    apk add --no-cache kmod >/dev/null
+    # one validated set. kmod and file are builder tools only.
+    apk add --no-cache kmod file >/dev/null
     sh /work/packaging/alpine/prune-kernel-modules.sh "$ROOT" \
       /work/packaging/alpine/minimalrouter.modules \
       /work/packaging/alpine/kernel-modules.required
     KERNEL_RELEASE="$(basename "$(find "$ROOT/lib/modules" -mindepth 1 -maxdepth 1 -type d)")"
+    sh /work/packaging/alpine/check-kernel-security.sh --release "$KERNEL_RELEASE"
+    BOOT_KERNEL_RELEASE="$(sh /work/packaging/alpine/check-kernel-security.sh --image "$ROOT/boot/vmlinuz-lts")"
+    [ "$BOOT_KERNEL_RELEASE" = "$KERNEL_RELEASE" ] || {
+      echo "ERROR: rootfs kernel and module release differ" >&2
+      exit 1
+    }
     chroot "$ROOT" mkinitfs -o /boot/initramfs-lts "$KERNEL_RELEASE"
 
     # apk --root --initdb does not create the runlevels that setup-alpine and
@@ -103,6 +109,7 @@ docker run --rm --platform linux/amd64 -e "ALPINE_BRANCH=$ALPINE_BRANCH" \
     rm -f "$ROOT/etc/ssh"/ssh_host_* "$ROOT/etc/machine-id"
     mkdir -p "$ROOT/etc/minimalrouter"
     printf "%s\n" "'$VERSION'" > "$ROOT/etc/minimalrouter/VERSION"
+    printf "%s\n" "$KERNEL_RELEASE" > "$ROOT/etc/minimalrouter/kernel-release"
 
     # Keep the management instructions visible after installation as well as on
     # the final installer screen. Alpine getty displays /etc/issue before login,
@@ -126,6 +133,8 @@ ISSUE
     tar -C "$ROOT" -czf /work/build/iso/minimalrouter-rootfs-'$VERSION'-amd64.tar.gz .
   '
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
+tar -xOf "$OUT" ./etc/minimalrouter/kernel-release > "$OUT.kernel-release"
+sh packaging/alpine/check-kernel-security.sh --release "$(cat "$OUT.kernel-release")"
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }

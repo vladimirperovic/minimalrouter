@@ -114,20 +114,25 @@ sh packaging/alpine/install-dist_test.sh
 
 Repository workflows currently cover:
 
-- Rust format, warning-free build, tests, clippy and dependency advisory checks;
+- Rust formatting, builds, tests, clippy and dependency advisory checks;
 - frontend lint, unit, build and Playwright E2E;
 - clean Alpine packaging and first-run smoke tests;
 - update activation/rollback and interrupted-update recovery;
 - configuration transaction and recovery-state regressions;
 - storage-pressure and appliance-health policies;
-- API/update-journal fuzzing;
-- CodeQL, secret scanning, `gosec`, `shellcheck` and `actionlint`;
+- installed API mutation/HTTP-abuse scenarios and update-journal regressions;
+- CodeQL, secret scanning, Rust dependency auditing and shell/workflow checks;
 - ARM64/QEMU smoke tests;
 - isolated WAN-router-LAN DHCP/DNS/NAT/firewall tests;
 - control-plane benchmarks.
 
 Automated tests are regression evidence. They do not prove a specific ISP, NIC,
 hypervisor, thermal profile or long-running deployment.
+
+The Golden kernel-security regression rejects pre-fix, unknown-branch and
+malformed kernel releases. Both ISO construction and the installed boot test
+must pass the same baseline check; a matching `/lib/modules` directory alone
+does not establish that the kernel contains the security fix.
 
 ## Network laboratory
 

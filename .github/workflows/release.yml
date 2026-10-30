@@ -73,10 +73,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso qemu-system-x86 qemu-utils expect sshpass \
-            extlinux syslinux-common e2fsprogs util-linux
+            extlinux syslinux-common e2fsprogs util-linux file
 
       - name: Run release checks
         run: |
+          sh packaging/alpine/check-kernel-security_test.sh
           make test
           make vet
           pnpm --dir web lint

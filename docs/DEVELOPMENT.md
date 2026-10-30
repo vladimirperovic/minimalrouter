@@ -1,6 +1,6 @@
 # Development guide
 
-Minimal Router OS is a **Beta (v0.3.3)** Rust and React project. The production
+Minimal Router OS is a **Beta (v0.4.0)** Rust and React project. The production
 appliance runs on Alpine Linux; ordinary unit and frontend work can be done on
 macOS or Linux without altering the developer's network.
 

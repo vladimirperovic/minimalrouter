@@ -43,7 +43,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso qemu-system-x86 qemu-utils expect sshpass \
-            extlinux syslinux-common e2fsprogs util-linux
+            extlinux syslinux-common e2fsprogs util-linux file
 
       - name: Validate golden-image architecture
         run: |
@@ -53,6 +53,7 @@ jobs:
           sh -n packaging/alpine/live-installer.sh
           sh -n packaging/alpine/firstboot.sh
           sh -n packaging/alpine/firstboot.initd
+          sh packaging/alpine/check-kernel-security_test.sh
 
           grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh
           grep -F 'build-golden-image.sh' packaging/alpine/build-iso.sh

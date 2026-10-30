@@ -25,7 +25,7 @@ jobs:
       - name: Prove firewall observer against the Linux kernel
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends nftables iproute2
+          sudo apt-get install -y --no-install-recommends nftables iproute2 file
           sudo unshare --net -- python3 scripts/gh-lab/firewall_kernel_check.py
       - name: Validate release and smoke-test shell syntax
         run: |
@@ -40,6 +40,8 @@ jobs:
           sh -n packaging/alpine/firstboot_test.sh
           sh -n packaging/alpine/prune-kernel-modules.sh
           sh -n packaging/alpine/prune-kernel-modules_test.sh
+          sh -n packaging/alpine/check-kernel-security.sh
+          sh -n packaging/alpine/check-kernel-security_test.sh
           sh -n scripts/alpine-bump.sh
           sh -n scripts/ci/alpine-release_test.sh
           sh -n scripts/ci/bootstrap-determinism.sh
@@ -52,6 +54,7 @@ jobs:
           sh packaging/alpine/firstboot_test.sh
           sh packaging/alpine/slot-exec_test.sh
           sh packaging/alpine/prune-kernel-modules_test.sh
+          sh packaging/alpine/check-kernel-security_test.sh
           sh scripts/ci/alpine-release_test.sh
           sh scripts/ci/iso-validate_test.sh
       - name: Reject private and runtime files

@@ -16,7 +16,7 @@ All operating-system construction happens before the user boots the ISO:
 
 ```text
 CI / trusted build host
-  ├─ build Go binaries + Dashboard
+  ├─ build Rust binaries + Dashboard
   ├─ assemble the pinned Alpine rootfs (3.24, linux-lts 6.18) and prune unused kernel modules
   ├─ install MinimalRouter into that rootfs
   ├─ create one bootable 8 GiB MBR/ext4 Golden disk image
@@ -465,6 +465,15 @@ pin and the installers' supported branches. Installers always use the running
 system's own release and never switch an existing appliance to another one.
 The Appliance ISO workflow must pass before such a change is merged.
 
+For v0.4.0, `check-kernel-security.sh` additionally requires Linux 6.18.56 or
+newer within the 6.18 branch, the baseline fixing CVE-2026-98432. It checks the
+rootfs kernel and the distinct live ISO kernel without modifying the live
+flasher or replacing individual kernel/initramfs/modloop components. Kernel
+build evidence is retained with the image, and the full installation test
+requires the booted installed kernel to pass the same check. A new kernel
+branch requires an explicit review of the baseline rather than an unchecked
+major-version comparison.
+
 ## Future-agent checklist
 
 Before changing the ISO architecture:
@@ -519,7 +528,7 @@ reboot, existing-install refusal and undersized-disk refusal. Production ISO and
 refused target disk hashes must remain unchanged. The signed release cannot
 publish until the same gates succeed; validation logs and digests are uploaded.
 
-Local Go, shell/mock and packaging-parity tests are necessary but do not satisfy
+Local Rust, shell/mock and packaging-parity tests are necessary but do not satisfy
 this gate. Before merge/release, run the changed **Appliance ISO** workflow and
 repeat the complete gate on the actual signed release ISO, retaining its digest,
 build commit and logs. Earlier tests of the published v0.1.7 ISO (different source)

@@ -215,6 +215,22 @@ expect {
     eof { puts stderr "QEMU exited before installed appliance services became ready"; exit 48 }
 }
 
+# Check the kernel actually running from the installed disk with the same
+# build-host policy as both image kernels. TTY echo is already disabled, so
+# the release must come from uname output, not from the command we send.
+send -- "printf 'RUNNING_KERNEL_RELEASE=%s\\n' \"\$(uname -r)\"\r"
+expect {
+    -re {RUNNING_KERNEL_RELEASE=([^\r\n]+)\r?\n} {
+        set running_kernel $expect_out(1,string)
+        if {[catch {exec sh packaging/alpine/check-kernel-security.sh --release $running_kernel} error]} {
+            puts stderr "installed kernel security check failed: $error"
+            exit 53
+        }
+    }
+    timeout { puts stderr "missing installed kernel release"; exit 54 }
+    eof { puts stderr "QEMU exited before installed kernel verification"; exit 55 }
+}
+
 # Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
 # Then echo the marker through the guest serial console as well, so the retained
 # qemu-full-install.log contains durable evidence for the workflow grep.
@@ -234,6 +250,7 @@ set checks {
     {test -s /var/lib/minimalrouter/minimalrouter.db && echo CHECK_STATE_DB_OK}
     {dnsmasq --version | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)' && echo CHECK_DNSMASQ_NFTSET_OK}
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
+    {test "$(cat /etc/minimalrouter/kernel-release)" = "$(uname -r)" && echo CHECK_KERNEL_SECURITY_OK}
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
     {grep -q '@ALPINE_BRANCH@/main' /etc/apk/repositories && grep -q '@ALPINE_BRANCH@/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
@@ -264,6 +281,7 @@ foreach marker {
     CHECK_STATE_DB_OK
     CHECK_DNSMASQ_NFTSET_OK
     CHECK_KERNEL_MODULE_MATCH_OK
+    CHECK_KERNEL_SECURITY_OK
     CHECK_SSHD_ENABLED
     CHECK_SERIAL_GETTY_OK
     CHECK_APK_REPOS_OK
