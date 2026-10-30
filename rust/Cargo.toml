@@ -32,7 +32,7 @@ rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"]
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-gencat", "unicode-perl", "perf-literal"] }
 roxmltree = "0.21.2"
 rusqlite = { version = "0.41.0", features = ["bundled", "fallible_uint"] }
-ed25519-dalek = "2.1"
+ed25519-dalek = "3.0"
 flate2 = "1"
 tar = "0.4"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
