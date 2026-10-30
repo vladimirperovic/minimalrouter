@@ -1,6 +1,6 @@
 #!/bin/sh
 # Identify one real daemon, never the SSH shell whose command mentions it.
-# The optional slot root permits an isolated Linux regression with /bin/sleep.
+# The optional slot root permits an isolated Linux process fixture.
 set -eu
 name=${1:?daemon name required}
 case "$name" in routerd|router-applyd|dnsmasq|pppd) ;; *) echo "invalid daemon name" >&2; exit 1 ;; esac
@@ -12,13 +12,16 @@ case "$name" in
         pids=$(pgrep -f "$pattern") || { echo "$name slot process missing" >&2; exit 1; }
         ;;
     dnsmasq|pppd)
-        # These are system daemons, not slot binaries. Match the exact comm,
-        # never an SSH shell whose argument happens to mention their name.
-        candidates=$(pgrep -x "$name") || { echo "$name process missing" >&2; exit 1; }
+        # Read the kernel comm directly. BusyBox pgrep -x can reject an
+        # absolute argv[0] before considering its matching comm.
         pids=
-        for candidate in $candidates; do
-            comm=$(cat "/proc/$candidate/comm" 2>/dev/null) || continue
-            [ "$comm" != "$name" ] || pids="$pids $candidate"
+        for comm_file in /proc/[0-9]*/comm; do
+            IFS= read -r comm 2>/dev/null < "$comm_file" || continue
+            [ "$comm" = "$name" ] || continue
+            candidate=${comm_file#/proc/}
+            candidate=${candidate%/comm}
+            case "$candidate" in ''|*[!0-9]*) continue ;; esac
+            pids="$pids $candidate"
         done
         [ -n "$pids" ] || { echo "$name process missing" >&2; exit 1; }
         ;;
@@ -28,8 +31,8 @@ set -- $pids
 pid=$1
 case "$name" in
     dnsmasq|pppd)
-        # BusyBox may also consider argv[0] for pgrep -x. A renamed argv[0]
-        # is insufficient: the kernel comm must name this exact daemon.
+        # Recheck after discovery: a vanished or renamed process is not
+        # evidence of the exact daemon whose start time we are observing.
         [ "$(cat "/proc/$pid/comm")" = "$name" ] || { echo "$name process comm mismatch" >&2; exit 1; }
         ;;
 esac

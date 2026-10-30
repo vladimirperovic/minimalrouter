@@ -56,6 +56,20 @@ Evidence collected while preparing this release:
   Both exceed the enforced security floor. Its queued Lab was cancelled before
   execution so the observer fixes could be qualified together; it supplies no
   Lab evidence.
+- Merged candidate `e6889cb` passed all seven release workflows. Its
+  [Appliance ISO run](https://github.com/vladimirperovic/minimalrouter/actions/runs/40997439461)
+  proved the full installation with live kernel `6.18.58-0-lts` and installed
+  kernel `6.18.59-0-lts`. Its unfiltered
+  [Lab run](https://github.com/vladimirperovic/minimalrouter/actions/runs/41000366814)
+  passed all 39 baseline scenarios, all 3,000 distinct API contracts and the
+  300-second soak with unchanged daemon identities. Chaos reported 16 passes:
+  the simultaneous-kill check stopped before dispatch because BusyBox's
+  `pgrep -x` did not find the full-path `dnsmasq` process. No four-daemon
+  restart was attempted or proven. Review also found that inline memory
+  observers could select their own SSH shell. The next candidate must include
+  portable exact-name discovery, memory samples bound to live PID/start-time
+  identities, Alpine regressions and a complete successful Lab.
+  This failed Lab is not release qualification.
 - Local Windows checks on the included Rust source passed formatting, all 118
   tests (including all 3,000 HTTPS API contract cases) and `make vet`'s Clippy
   command. Clippy emitted 110 warnings and no errors. Dashboard lint, 86 unit

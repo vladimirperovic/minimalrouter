@@ -19,7 +19,7 @@ TIMEOUT = {"tx": {"state": "RecoveryRequired"}, "error": "privileged apply outco
 class FrozenHelperTests(unittest.TestCase):
     def lab(self):
         lab = mock.Mock()
-        lab.shell.return_value = "123"
+        lab.identity.return_value = ("123", "456")
         lab.get.side_effect = lambda path: copy.deepcopy({"config": CONFIG, "recovery/status": {
             "engine": {"apply_in_progress": False, "recovery_required": False}},
             "transactions/pending": {"pending": False}, "health": {}}[path])
@@ -35,7 +35,7 @@ class FrozenHelperTests(unittest.TestCase):
         lab.api.side_effect = TimeoutError("no HTTP response")
         with self.assertRaisesRegex(TimeoutError, "no HTTP response"):
             self.run_scenario(lab)
-        self.assertIn(mock.call("kill -CONT 123"), lab.shell.call_args_list)
+        self.assertIn(mock.call("CONT", ("123", "456")), lab.process_state.call_args_list)
         lab.reboot.assert_called_once()
         self.assertEqual(lab.api.call_args.kwargs["timeout"], 150)
 
@@ -47,7 +47,7 @@ class FrozenHelperTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.run_scenario(lab)
                 lab.reboot.assert_called_once()
-                self.assertIn(mock.call("kill -CONT 123"), lab.shell.call_args_list)
+                self.assertIn(mock.call("CONT", ("123", "456")), lab.process_state.call_args_list)
 
     def test_canonical_change_after_reboot_is_failure(self):
         lab = self.lab()
@@ -82,6 +82,16 @@ class FrozenHelperTests(unittest.TestCase):
     def test_early_rejection_is_not_proof_of_the_helper_deadline(self):
         with self.assertRaisesRegex(RuntimeError, "120s IPC deadline"):
             scenarios.require_timeout(422, TIMEOUT, 0.1)
+
+    def test_replaced_helper_is_not_signalled_and_reconciliation_still_runs(self):
+        lab = self.lab()
+        lab.process_state.side_effect = RuntimeError("process identity changed")
+        with self.assertRaisesRegex(RuntimeError, "identity changed"):
+            self.run_scenario(lab)
+        lab.api.assert_not_called()
+        lab.reboot.assert_called_once()
+        self.assertEqual(lab.process_state.call_args_list,
+                         [mock.call("STOP", ("123", "456")), mock.call("CONT", ("123", "456"))])
 
     def test_http_client_propagates_timeout_and_closes_connection(self):
         lab = scenarios.Lab.__new__(scenarios.Lab)
@@ -176,7 +186,8 @@ class DNSCleanupTests(unittest.TestCase):
             return 200, {"state": "Committed"}
         lab.get.side_effect = get
         lab.api.side_effect = api
-        lab.shell.side_effect = lambda script: "123" if "pidof" in script or "pgrep" in script and "awk" not in script else "1024"
+        lab.identity.side_effect = lambda name: ("123", "456") if name == "dnsmasq" else ("124", "457")
+        lab.memory.return_value = 1024
         lab.client.return_value = '{"queries_sent": 300000, "seconds": 12}'
         return lab, current, copy.deepcopy(current)
 
@@ -211,6 +222,31 @@ class DNSCleanupTests(unittest.TestCase):
             with self.assertRaisesRegex(TimeoutError, "post-flood DNS timed out"):
                 scenarios.dns_flood(lab)
         self.assertEqual(lab.client.call_count, 1)
+        self.assertEqual(current["dns"], before["dns"])
+
+    def test_same_pid_with_new_starttime_cannot_pass_and_restores_configuration(self):
+        for changed in ("dnsmasq", "routerd"):
+            with self.subTest(changed=changed):
+                lab, current, before = self.lab()
+                calls = {}
+                def identity(name):
+                    calls[name] = calls.get(name, 0) + 1
+                    return ("123", "457" if name == changed and calls[name] > 1 else "456")
+                lab.identity.side_effect = identity
+                with mock.patch.object(scenarios, "dns_probe"), mock.patch.object(scenarios.time, "sleep"), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    with self.assertRaisesRegex(RuntimeError, "restarted during the flood"):
+                        scenarios.dns_flood(lab)
+                self.assertEqual(current["dns"], before["dns"])
+                self.assertEqual(current["dhcp"], before["dhcp"])
+
+    def test_missing_memory_observation_is_failure_and_restores_configuration(self):
+        lab, current, before = self.lab()
+        lab.memory.side_effect = RuntimeError("missing or malformed process RSS")
+        with mock.patch.object(scenarios, "dns_probe"), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "process RSS"):
+                scenarios.dns_flood(lab)
+        lab.client.assert_not_called()
         self.assertEqual(current["dns"], before["dns"])
 
 
