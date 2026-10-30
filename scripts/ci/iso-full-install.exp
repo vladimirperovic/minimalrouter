@@ -218,6 +218,9 @@ expect {
 # Check the kernel actually running from the installed disk with the same
 # build-host policy as both image kernels. TTY echo is already disabled, so
 # the release must come from uname output, not from the command we send.
+# This ready-shell command needs no boot-length wait; restore it afterward.
+set kernel_probe_previous_timeout $timeout
+set timeout 60
 send -- "printf 'RUNNING_KERNEL_RELEASE=%s\\n' \"\$(uname -r)\"\r"
 expect {
     # The guest's CR/LF reaches Expect as \r\r\n (its own pty translates the
@@ -233,6 +236,8 @@ expect {
     timeout { puts stderr "missing installed kernel release"; exit 54 }
     eof { puts stderr "QEMU exited before installed kernel verification"; exit 55 }
 }
+set timeout $kernel_probe_previous_timeout
+unset kernel_probe_previous_timeout
 
 # Prove the QEMU LAN host-forward reaches the actual trusted-LAN SSH service.
 # Then echo the marker through the guest serial console as well, so the retained

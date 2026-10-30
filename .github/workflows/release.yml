@@ -73,11 +73,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso qemu-system-x86 qemu-utils expect sshpass \
-            extlinux syslinux-common e2fsprogs util-linux file
+            extlinux syslinux-common e2fsprogs util-linux file tcl
 
       - name: Run release checks
         run: |
           sh packaging/alpine/check-kernel-security_test.sh
+          tclsh scripts/ci/iso-kernel-release_test.tcl
           make test
           make vet
           pnpm --dir web lint
