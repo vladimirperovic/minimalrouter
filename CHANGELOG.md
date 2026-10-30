@@ -46,6 +46,11 @@ hardware limits are recorded in `docs/CURRENT_VALIDATION.md`.
 - Canonical configuration timestamps survive saving and reloading unchanged,
   including transactions that require confirmation. The privileged helper,
   active engine and persistent store now retain the same committed metadata.
+- Interrupted firmware recovery rejects malformed or decreasing version floors
+  and non-forward activation journals. Explicit rollback still keeps the
+  highest verified version as the minimum for future upgrades.
+- Development tooling uses Vitest 4.1.12, including the fixes for
+  GHSA-qxg6-89mg-rqv8 and GHSA-xp26-3454-mjgp; Vite is 8.1.6.
 - **Time intervals no longer follow the wall clock.** The Rust port compared
   timestamps by wall clock only, where Go's `time.Now()` also carries a
   monotonic reading. Found by the GitHub lab: the router's clock was moved two
@@ -73,11 +78,13 @@ hardware limits are recorded in `docs/CURRENT_VALIDATION.md`.
 
 ### Not carried over from the Go test suite
 
-The Go race detector, the two fuzzers, coverage measurement, the live
-DNS-filter and privilege-drop tests and the API benchmarks were not ported.
+The Go race detector, coverage-guided fuzzers, coverage measurement, the live
+DNS-filter and privilege-drop tests were not ported one-for-one.
 The Rust suite is not a one-for-one port of the Go unit tests. Frozen parity
 fixtures, 3,000 API request contracts and installed network/chaos scenarios
-provide complementary coverage; see `docs/TESTING.md` for their boundaries.
+provide complementary coverage. Explicit crash-boundary and corrupt-journal
+tests, a deterministic malformed-journal corpus, and API/update runtime
+benchmarks run in Rust; see `docs/TESTING.md` for their boundaries.
 
 ## [v0.3.3] — 2026-10-15
 

@@ -292,10 +292,27 @@ impl SlotManager {
             }
             "install" | "activate" | "rollback" => Ok(()),
             _ => Err(errorf!("unknown slot operation journal kind")),
+        }?;
+        // Recovery trusts this persisted transition just as the original
+        // operation did. A corrupt but parseable journal must not erase the
+        // high-water mark or turn activation into an implicit downgrade.
+        let floor = match old.upgrade_floor() {
+            Err(err) if operation.kind == "install" && crate::goish::errors::is::<ErrUnknownInstalledVersion>(&err) => String::new(),
+            result => result?,
+        };
+        if !floor.is_empty() && (next.minimum_version.is_empty() || compare_release_versions(&next.minimum_version, &floor)? < 0) {
+            return Err(errorf!("slot operation journal cannot lower or erase the recorded version floor"));
         }
+        if operation.kind == "activate" {
+            validate_forward_upgrade(&next.current, &floor)?;
+        }
+        Ok(())
     }
 
     fn validate_journal_state(&self, state: &SlotState) -> Result<()> {
+        if !state.minimum_version.is_empty() {
+            parse_release_version(&state.minimum_version)?;
+        }
         for version in [&state.current, &state.previous, &state.pending] {
             if version.is_empty() {
                 continue;
@@ -597,6 +614,10 @@ fn installation_minimum(state: &SlotState, proposed: &str) -> Result<String> {
     }
     Ok(proposed.into())
 }
+
+#[cfg(test)]
+#[path = "slots_journal_tests.rs"]
+mod journal_tests;
 
 #[cfg(all(test, unix))]
 mod tests {

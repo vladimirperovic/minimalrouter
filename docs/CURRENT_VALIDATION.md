@@ -38,13 +38,20 @@ Evidence collected while preparing this release:
   The release fixes that observer, requires one anchored daemon identity with
   its process start time, and adds real Linux-process regressions. This earlier
   failed run is not accepted as release qualification.
-- Local Windows checks on the included Rust source passed formatting, all 113
+- Local Windows checks on the included Rust source passed formatting, all 118
   tests (including all 3,000 HTTPS API contract cases) and `make vet`'s Clippy
   command. Clippy emitted 110 warnings and no errors. Dashboard lint, 86 unit
   tests and the production build passed; its separate symlink regression could
   not create a Windows symlink and must pass on Linux CI.
 - Kernel policy tests cover old, malformed and unsupported kernel releases,
   actual x86 boot headers, and refusal to accept missing installed-boot evidence.
+- Five new native journal regressions pass, including four that reproduced a
+  missing recovery version-floor check before its fix. Linux additionally runs
+  nine persisted-filesystem regressions, with the complete selection repeated
+  25 times alongside API operation-store recovery. Local release-mode API
+  benchmarks produced nine valid samples; Linux CI must also execute the six
+  real slot-state samples. Benchmark tests are deliberately selected separately
+  from ordinary unit tests.
 
 ### Upgrade and remaining limits
 

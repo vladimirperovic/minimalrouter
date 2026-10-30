@@ -134,6 +134,22 @@ malformed kernel releases. Both ISO construction and the installed boot test
 must pass the same baseline check; a matching `/lib/modules` directory alone
 does not establish that the kernel contains the security fix.
 
+`mr-core` slot-journal regressions exercise interrupted activation, rollback
+and full installation at persisted boundaries. They also cover corrupt
+journals, read-only state projection, recovery retry, monotonic version floors
+and a deterministic malformed-input corpus. The repeated CI gate explicitly
+selects these tests and API operation-store recovery tests, and fails if the
+expected tests do not execute. This is not a claim of race detection or
+coverage-guided fuzzing.
+
+The **API and update benchmarks** job runs stable release-mode Rust tests
+explicitly with `--ignored`. It records three samples for each of concurrent
+setup status, protected-endpoint rejection, malformed-request rejection, slot
+state and slot state with an operation journal. Status/body and unchanged-state
+assertions stay inside the workload. Linux CI requires all 15 measurements and
+retains JSON plus toolchain data. Aggregate wall nanoseconds per operation are
+throughput measurements, not network latency or Go allocation-count parity.
+
 ## Network laboratory
 
 The GitHub QEMU chaos run retains complete observer output in

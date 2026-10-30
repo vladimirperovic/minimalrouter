@@ -29,14 +29,42 @@ jobs:
       - name: Stress the update slot and operation journal tests
         working-directory: rust
         run: |
-          # The Go suite ran these 25 times under the race detector. Rust has
-          # no race detector; repetition still catches flaky ordering.
-          cargo test --locked --no-run -p mr-core
-          rounds=0
-          while [ "$rounds" -lt 25 ]; do
-            cargo test --locked -p mr-core firmware
-            rounds=$((rounds + 1))
+          set -euo pipefail
+          mkdir -p ../test-results/recovery
+          cargo test --locked --no-run --lib -p mr-core -p mr-api
+          # Fail if a renamed filter or platform exclusion selects no tests.
+          cargo test --locked -p mr-core --lib firmware::slots::journal_tests -- --list \
+            | tee ../test-results/recovery/slot-tests.txt
+          test "$(grep -c '^firmware::slots::journal_tests::.*: test$' ../test-results/recovery/slot-tests.txt)" -ge 14
+          for test_name in \
+            interrupted_activation_recovers_at_every_persisted_boundary \
+            interrupted_rollback_recovers_at_every_persisted_boundary_and_preserves_floor \
+            interrupted_installation_keeps_updates_fenced_and_the_authenticated_floor \
+            corrupt_journal_cannot_change_runtime_pointers_or_erase_evidence \
+            deterministic_journal_bytes_never_make_status_mutate_disk; do
+            grep -Fx "firmware::slots::journal_tests::unix::${test_name}: test" ../test-results/recovery/slot-tests.txt
           done
+          operation_test=api::update::tests::operation_store_is_idempotent_and_recovers_interruptions
+          cargo test --locked -p mr-api --lib "$operation_test" -- --list \
+            | tee ../test-results/recovery/api-tests.txt
+          grep -Fx "${operation_test}: test" ../test-results/recovery/api-tests.txt
+          # Exercise persisted crash boundaries and a deterministic corruption
+          # corpus. This is neither Go's race detector nor coverage-guided fuzzing.
+          for round in $(seq 1 25); do
+            echo "Recovery regression round $round/25"
+            cargo test --locked -p mr-core --lib firmware::slots::journal_tests -- --nocapture \
+              2>&1 | tee "../test-results/recovery/slots-${round}.log"
+            cargo test --locked -p mr-api --lib "$operation_test" -- --exact --nocapture \
+              2>&1 | tee "../test-results/recovery/api-${round}.log"
+          done
+      - name: Preserve recovery test selection and results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: update-recovery-${{ github.sha }}
+          path: test-results/recovery/
+          if-no-files-found: error
+          retention-days: 14
 
   network-laboratory:
     name: WAN, router and LAN namespace laboratory
