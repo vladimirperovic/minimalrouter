@@ -220,7 +220,10 @@ expect {
 # the release must come from uname output, not from the command we send.
 send -- "printf 'RUNNING_KERNEL_RELEASE=%s\\n' \"\$(uname -r)\"\r"
 expect {
-    -re {RUNNING_KERNEL_RELEASE=([^\r\n]+)\r?\n} {
+    # The guest's CR/LF reaches Expect as \r\r\n (its own pty translates the
+    # newline a second time), so a fixed \r?\n after the release never matched
+    # and this waited out the whole 720 s timeout. Any CR or LF ends the value.
+    -re {RUNNING_KERNEL_RELEASE=([^\r\n]+)[\r\n]} {
         set running_kernel $expect_out(1,string)
         if {[catch {exec sh packaging/alpine/check-kernel-security.sh --release $running_kernel} error]} {
             puts stderr "installed kernel security check failed: $error"
