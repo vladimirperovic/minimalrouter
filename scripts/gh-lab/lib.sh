@@ -78,6 +78,78 @@ router_pid() {
     printf '%s\n' "${identity%% *}"
 }
 
+# A socket pathname and routerd.ready can outlive SIGKILL. Require the listener
+# itself to belong to the observed daemon, not just a stale filesystem entry.
+router_listener_ready() {
+    local name=$1 pid=$2
+    case "$name" in routerd|router-applyd) ;; *) return 1 ;; esac
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    rsh sh -s "$name" "$pid" <<'SH'
+name=$1
+pid=$2
+test -s /run/minimalrouter/routerd.ready || exit 1
+rc-service "$name" status >/dev/null 2>&1 || exit 1
+case "$name" in
+    routerd) family=-t; endpoint=8443 ;;
+    router-applyd)
+        test -S /run/minimalrouter/apply.sock || exit 1
+        family=-x; endpoint=/run/minimalrouter/apply.sock ;;
+    *) exit 1 ;;
+esac
+listeners=$(ss -H -l -n -p "$family") || exit 1
+printf '%s\n' "$listeners" | awk -v endpoint="$endpoint" -v pid="$pid" '
+    {
+        # UNIX includes a Netid column; TCP-only output normally does not.
+        state = ($1 == "LISTEN" ? 1 : ($2 == "LISTEN" ? 2 : 0))
+        if (!state) next
+        address = $(state + 3)
+        matches = (endpoint == "8443" ? address ~ /:8443$/ : address == endpoint)
+        if (matches && index($0, "pid=" pid ",")) found = 1
+    }
+    END { exit !found }
+'
+SH
+}
+
+# router_restarted_ready NAME OLD_IDENTITY : print a new PID/starttime only
+# after it owns its listener and the management API answers. Bracket readiness
+# with identity reads so another restart during the probe cannot count as ready.
+router_restarted_ready() {
+    local name=$1 old=$2 identity final code
+    [[ "$old" =~ ^[1-9][0-9]*\ [0-9]+$ ]] || return 1
+    identity=$(router_identity "$name") || return 1
+    [[ "$identity" =~ ^[1-9][0-9]*\ [0-9]+$ ]] || return 1
+    [ "$identity" != "$old" ] || return 1
+    router_listener_ready "$name" "${identity%% *}" >/dev/null 2>&1 || return 1
+    # This trusted-LAN read needs no login and cannot consume the auth budget.
+    code=$(curl -sk -o /dev/null --max-time 5 -w '%{http_code}' "$ROUTER_URL/api/v1/setup/status") || return 1
+    [ "$code" = 200 ] || return 1
+    final=$(router_identity "$name") || return 1
+    [ "$final" = "$identity" ] || return 1
+    printf '%s\n' "$identity"
+}
+
+# Like wait_for, with the same two-second polling/deadline semantics, but keep
+# the successful identity as evidence instead of discarding the probe output.
+wait_for_router_restart() {
+    local limit=$1 name=$2 old=$3 identity end
+    [[ "$limit" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+    case "$name" in routerd|router-applyd) ;; *) return 1 ;; esac
+    [[ "$old" =~ ^[1-9][0-9]*\ [0-9]+$ ]] || return 1
+    end=$((SECONDS + limit))
+    while :; do
+        if identity=$(router_restarted_ready "$name" "$old"); then
+            printf '%s\n' "$identity"
+            return 0
+        fi
+        if [ "$SECONDS" -ge "$end" ]; then
+            echo "$name did not obtain a new live identity and ready listener within ${limit}s (old $old)" >&2
+            return 1
+        fi
+        sleep 2
+    done
+}
+
 # Save the complete stateless JSON, retaining sets and every rule. No remote
 # shell pipeline: an SSH/nft error must not become the hash of an empty string.
 firewall_snapshot() {

@@ -127,11 +127,118 @@ c_frozen_applyd() {
     python3 "$HERE/scenarios.py" frozen-helper
 }
 
+mass_kill_identity() {
+    local identity pid started
+    identity=$(router_identity "$1") || return 1
+    [[ "$identity" =~ ^[1-9][0-9]*\ [0-9]+$ ]] || { echo "invalid $1 process identity" >&2; return 1; }
+    read -r pid started <<< "$identity"
+    [ "$pid" -gt 1 ] || { echo "unsafe $1 process identity" >&2; return 1; }
+    printf '%s\n' "$identity"
+}
+
+mass_kill_dispatch() {
+    local identity pid started
+    local -a pairs=()
+    [ "$#" -eq 4 ] || return 1
+    for identity in "$@"; do
+        [[ "$identity" =~ ^[1-9][0-9]*\ [0-9]+$ ]] || return 1
+        read -r pid started <<< "$identity"
+        [ "$pid" -gt 1 ] || return 1
+        pairs+=("$pid" "$started")
+    done
+    # Only numeric identities go into SSH argv. Sending this program on stdin
+    # prevents the observer/SSH shell from matching a daemon-killing pattern.
+    rsh sh -s -- "${pairs[@]}" <<'KILL_DAEMONS'
+set -efu
+[ "$#" -eq 8 ] || exit 1
+same_process() {
+    observed_stat=$(cat "/proc/$1/stat") || return 1
+    observed_fields=${observed_stat##*) }
+    set -- $observed_fields
+    [ "$#" -ge 20 ] || return 1
+    case "$1" in Z|X) return 1 ;; esac
+    shift 19
+    [ "$1" = "$expected_start" ]
+}
+pids=
+while [ "$#" -gt 0 ]; do
+    pid=$1 expected_start=$2
+    shift 2
+    case "$pid:$expected_start" in *[!0-9:]*) exit 1 ;; esac
+    [ "$pid" -gt 1 ] || exit 1
+    case " $pids " in *" $pid "*) echo "duplicate kill target" >&2; exit 1 ;; esac
+    same_process "$pid" || { echo "kill target identity changed: $pid" >&2; exit 1; }
+    kill -0 "$pid" || exit 1
+    pids="$pids $pid"
+done
+# One batch, after every target has been checked. A partial/failed dispatch
+# is a failed scenario, even if the remaining services look healthy later.
+kill -KILL $pids
+printf '%s\n' 'mass-kill dispatched: 4'
+KILL_DAEMONS
+}
+
+mass_kill_restarted() {
+    local after=$1 name identity ready i=0 changed=0
+    shift
+    local -a old=("$@") observed=()
+    [ "${#old[@]}" -eq 4 ] || return 1
+    : > "$after"
+    for name in routerd router-applyd dnsmasq pppd; do
+        if identity=$(mass_kill_identity "$name"); then
+            printf '%s %s\n' "$name" "$identity" >> "$after"
+            observed+=("$identity")
+            [ "$identity" != "${old[$i]}" ] || changed=1
+        else
+            printf '%s unavailable\n' "$name" >> "$after"
+            observed+=("")
+            changed=1
+        fi
+        i=$((i + 1))
+    done
+    # Do not let existing healthy services stand in for a successful kill.
+    [ "$changed" -eq 0 ] || return 1
+    i=0
+    for name in routerd router-applyd; do
+        ready=$(router_restarted_ready "$name" "${old[$i]}") || return 1
+        [ "$ready" = "${observed[$i]}" ] || return 1
+        i=$((i + 1))
+    done
+    # All four observations must remain live and stable through the probes.
+    i=0
+    for name in routerd router-applyd dnsmasq pppd; do
+        identity=$(mass_kill_identity "$name") || return 1
+        [ "$identity" = "${observed[$i]}" ] || return 1
+        i=$((i + 1))
+    done
+}
+
 c_kill_everything() {
     local before="$LOGS/firewall-mass-kill-before.json" after="$LOGS/firewall-mass-kill-after.json"
+    local identities_before="$LOGS/process-mass-kill-before.txt" identities_after="$LOGS/process-mass-kill-after.txt"
+    local dispatch="$LOGS/process-mass-kill-dispatch.txt" name identity
+    local -a old=()
     firewall_snapshot "$before" || return 1
-    rsh 'pkill -9 -f "slots/.*/bin/routerd-amd64"; pkill -9 -f "slots/.*/bin/router-applyd-amd64"; pkill -9 dnsmasq; pkill -9 pppd; true'
-    wait_for 300 router_healthy || { rsh 'rc-status -a | head -30'; echo "router did not recover from killing every daemon"; return 1; }
+    : > "$identities_before"
+    for name in routerd router-applyd dnsmasq pppd; do
+        identity=$(mass_kill_identity "$name") || return 1
+        old+=("$identity")
+        printf '%s %s\n' "$name" "$identity" >> "$identities_before"
+    done
+    cat "$identities_before"
+    if ! mass_kill_dispatch "${old[@]}" > "$dispatch" 2>&1; then
+        cat "$dispatch"
+        echo "mass-kill dispatch failed; refusing recovery-only success"
+        return 1
+    fi
+    cat "$dispatch"
+    [ "$(cat "$dispatch")" = 'mass-kill dispatched: 4' ] || { echo "mass-kill acknowledgement missing"; return 1; }
+    if ! wait_for 300 mass_kill_restarted "$identities_after" "${old[@]}"; then
+        cat "$identities_after" 2>/dev/null || true
+        echo "all four daemons did not acquire new ready process identities"
+        return 1
+    fi
+    cat "$identities_after"
     wait_for 300 ppp_up || { echo "PPPoE did not come back"; return 1; }
     wait_for 60 client python3 "$HERE/dns_stress.py" probe "$ROUTER_LAN_IP" github.com public udp || { echo "DNS did not come back"; return 1; }
     firewall_snapshot "$after" || return 1

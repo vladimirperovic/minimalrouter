@@ -1,6 +1,8 @@
 """The daemon observer must not mistake an SSH shell for the running binary."""
+import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -21,11 +23,11 @@ class ProcessIdentityTests(unittest.TestCase):
         self.binary.parent.mkdir(parents=True)
         self.binary.symlink_to(shutil.which("sleep"))
 
-    def start(self, args):
-        process = subprocess.Popen(args)
+    def start(self, args, **kwargs):
+        process = subprocess.Popen(args, start_new_session=True, **kwargs)
         def stop():
             if process.poll() is None:
-                process.terminate()
+                os.killpg(process.pid, signal.SIGTERM)
             process.wait(timeout=5)
         self.addCleanup(stop)
         return process
@@ -57,7 +59,7 @@ class ProcessIdentityTests(unittest.TestCase):
         self.start([str(self.binary), "60"])
         result = self.observe()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("multiple slot processes", result.stderr)
+        self.assertIn("multiple matching processes", result.stderr)
 
     def test_real_restart_changes_identity(self):
         first = self.start([str(self.binary), "60"])
@@ -72,6 +74,27 @@ class ProcessIdentityTests(unittest.TestCase):
 
     def test_invalid_daemon_name_cannot_become_a_pattern(self):
         self.assertNotEqual(self.observe(".*").returncode, 0)
+
+    def test_system_daemons_require_exact_comm_and_one_live_process(self):
+        for name in ("dnsmasq", "pppd"):
+            existing = subprocess.run(["pgrep", "-x", name], capture_output=True)
+            if existing.returncode == 0:
+                self.skipTest(f"requires a fixture environment without an existing {name}")
+            with self.subTest(name=name):
+                self.assertNotEqual(self.observe(name).returncode, 0)
+                # Both command text and a spoofed argv[0] must be ignored.
+                self.start(["sh", "-c", "sleep 60 & wait", "probe", name])
+                self.start([name, "60"], executable=shutil.which("sleep"))
+                self.assertNotEqual(self.observe(name).returncode, 0)
+                binary = self.binary.with_name(name)
+                binary.symlink_to(shutil.which("sleep"))
+                daemon = self.start([str(binary), "60"])
+                self.assertEqual(pathlib.Path(f"/proc/{daemon.pid}/comm").read_text().strip(), name)
+                result = self.observe(name)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(int(result.stdout.split()[0]), daemon.pid)
+                self.start([str(binary), "60"])
+                self.assertNotEqual(self.observe(name).returncode, 0)
 
 
 if __name__ == "__main__":

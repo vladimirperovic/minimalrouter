@@ -32,12 +32,30 @@ Evidence collected while preparing this release:
 - The later `b7968ec` validation branch added a canonical-metadata fix and
   stricter observers. Its seven release workflows passed. Its
   [Lab run](https://github.com/vladimirperovic/minimalrouter/actions/runs/40876109782)
-  passed all 3,000 API contracts and 17 chaos scenarios, but failed the soak
+  passed all 3,000 API contracts and reported 17 chaos passes, but failed the soak
   observer. The retained samples show the same daemon PID and increasing CPU
   ticks throughout; the unanchored process search could match its own SSH shell.
   The release fixes that observer, requires one anchored daemon identity with
   its process start time, and adds real Linux-process regressions. This earlier
   failed run is not accepted as release qualification.
+- Candidate `eb790f6` passed all seven release workflows. Its
+  [Lab run](https://github.com/vladimirperovic/minimalrouter/actions/runs/40987250444)
+  passed all 3,000 API contracts and the soak, but the helper restart check
+  accepted stale socket/readiness files before OpenRC started the replacement
+  process. Inspection also found that the simultaneous-kill scenario could kill
+  its own SSH shell and report success without restarting every service. Its
+  17 reported chaos passes therefore do not establish a complete mass-kill
+  recovery. This run is not accepted as release qualification.
+  Restart checks now require a changed live PID/start-time identity, a listener
+  owned by that replacement process, and a successful HTTPS readiness probe.
+  The simultaneous-kill test checks all four identities, signals their exact
+  PIDs, rejects dispatch failures, and retains before/after process evidence.
+- The merged candidate `1c1a801`
+  [passed the full Golden installation check](https://github.com/vladimirperovic/minimalrouter/actions/runs/40987439082),
+  booting `6.18.59-0-lts` from disk with a `6.18.58-0-lts` live installer.
+  Both exceed the enforced security floor. Its queued Lab was cancelled before
+  execution so the observer fixes could be qualified together; it supplies no
+  Lab evidence.
 - Local Windows checks on the included Rust source passed formatting, all 118
   tests (including all 3,000 HTTPS API contract cases) and `make vet`'s Clippy
   command. Clippy emitted 110 warnings and no errors. Dashboard lint, 86 unit
