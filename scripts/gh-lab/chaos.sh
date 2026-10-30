@@ -44,7 +44,16 @@ no_crashes() {
     bad=$(rsh 'dmesg | grep -iE "segfault|general protection|invalid opcode|Oops|BUG:|Call Trace|Out of memory|oom-kill|EXT4-fs error"' || true)
     [ -z "$bad" ] || { printf '%s\n' "$bad" | head -n 3; return 1; }
 }
-daemon_memory_mib() { rsh "awk '\$1==\"VmRSS:\"{print int(\$2/1024)}' /proc/\$(pgrep -f 'slots/.*/bin/$1-amd64' | head -n 1)/status"; }
+daemon_memory_mib() {
+    local identity current rss
+    identity=$(router_identity "$1") || return 1
+    # The observer validates this same PID/starttime before and after its read.
+    rss=$(rsh sh -s rss "${identity%% *}" "${identity#* }" < "$HERE/process-state.sh") || return 1
+    case "$rss" in ''|*[!0-9]*) echo "invalid daemon RSS" >&2; return 1 ;; esac
+    current=$(router_identity "$1") || return 1
+    [ "$current" = "$identity" ] || { echo "$1 changed during memory observation" >&2; return 1; }
+    printf '%s\n' "$((rss / 1024))"
+}
 
 # ------------------------------------------------------------------- tests
 
@@ -364,8 +373,8 @@ c_reboot_loop() {
 
 c_memory_after_chaos() {
     local routerd applyd
-    routerd=$(daemon_memory_mib routerd)
-    applyd=$(daemon_memory_mib router-applyd)
+    routerd=$(daemon_memory_mib routerd) || return 1
+    applyd=$(daemon_memory_mib router-applyd) || return 1
     echo "routerd ${routerd} MiB, router-applyd ${applyd} MiB after the whole chaos run"
     [ "$routerd" -lt 150 ] && [ "$applyd" -lt 60 ]
 }

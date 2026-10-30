@@ -27,6 +27,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nftables iproute2 file tcl
           sudo unshare --net -- python3 scripts/gh-lab/firewall_kernel_check.py
+      - name: Run lab observer regressions with Alpine BusyBox
+        run: |
+          . packaging/alpine/alpine-release
+          docker run --rm -i -v "$PWD:/repo:ro" -w /repo \
+            "alpine:$ALPINE_VERSION" sh -eu <<'ALPINE'
+          apk add --no-cache bash python3
+          # Keep the appliance's actual shell and process-name matching.
+          busybox_path=$(readlink -f "$(command -v busybox)")
+          test "$(readlink -f "$(command -v sh)")" = "$busybox_path"
+          test "$(readlink -f "$(command -v pgrep)")" = "$busybox_path"
+          python3 -I -B - <<'PY'
+          import unittest
+
+          def cases(suite):
+              for test in suite:
+                  if isinstance(test, unittest.TestSuite):
+                      yield from cases(test)
+                  else:
+                      yield test
+
+          suite = unittest.defaultTestLoader.discover("scripts/gh-lab", pattern="test_*.py")
+          selected = {test.id() for test in cases(suite)}
+          required = {
+              "test_process_identity.ProcessIdentityTests.test_system_daemon_discovery_does_not_depend_on_pgrep",
+              "test_process_state.ProcessStateLinuxTests.test_stop_and_continue_target_the_identified_process",
+              "test_process_state.ProcessStateLinuxTests.test_missing_rss_and_exit_during_read_cannot_pass",
+          }
+          count = suite.countTestCases()
+          if count < 64 or not required <= selected:
+              raise SystemExit("Incomplete lab observer regression discovery")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          print(f"Alpine lab regressions: {result.testsRun} executed, {len(result.skipped)} skipped")
+          raise SystemExit(not (result.wasSuccessful() and result.testsRun == count and not result.skipped))
+          PY
+          ALPINE
       - name: Validate release and smoke-test shell syntax
         run: |
           sh -n scripts/prepare-public-root.sh

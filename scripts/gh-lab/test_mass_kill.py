@@ -16,6 +16,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 BASH = ("C:/Program Files/Git/bin/bash.exe" if sys.platform == "win32"
         else shutil.which("bash"))
 NAMES = ("routerd", "router-applyd", "dnsmasq", "pppd")
+SLEEP_ARGS = ("-I", "-c", "import time; time.sleep(60)")
 
 
 class MassKillHarness(unittest.TestCase):
@@ -125,7 +126,7 @@ c_kill_everything
 @unittest.skipUnless(sys.platform.startswith("linux"), "requires real Linux /proc and processes")
 class MassKillLinuxTests(MassKillHarness):
     def start(self, binary):
-        args = binary if isinstance(binary, list) else [str(binary), "60"]
+        args = binary if isinstance(binary, list) else [str(binary), *SLEEP_ARGS]
         process = subprocess.Popen(args, start_new_session=True)
         def cleanup():
             if process.poll() is None:
@@ -140,7 +141,7 @@ class MassKillLinuxTests(MassKillHarness):
         return f"{process.pid} {fields[19]}"
 
     def fixture_processes(self):
-        processes = [self.start(shutil.which("sleep")) for _ in NAMES]
+        processes = [self.start(sys.executable) for _ in NAMES]
         return processes, [self.identity(p) for p in processes]
 
     def dispatch(self, identities):
@@ -177,8 +178,13 @@ class MassKillLinuxTests(MassKillHarness):
         self.assertTrue(all(p.poll() is None for p in processes))
 
     def test_wait_observes_the_last_delayed_replacement(self):
-        for name in ("dnsmasq", "pppd"):
-            if subprocess.run(["pgrep", "-x", name], capture_output=True).returncode == 0:
+        # BusyBox pgrep -x can miss a real daemon with an absolute argv[0].
+        for comm in pathlib.Path("/proc").glob("[0-9]*/comm"):
+            try:
+                name = comm.read_text().strip()
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            if name in ("dnsmasq", "pppd"):
                 self.skipTest(f"requires a fixture environment without an existing {name}")
         slot_root = self.root / "slots"
         bin_dir = slot_root / "fixture/bin"
@@ -186,7 +192,9 @@ class MassKillLinuxTests(MassKillHarness):
         binaries = []
         for name in NAMES:
             binary = bin_dir / (name + "-amd64" if name.startswith("router") else name)
-            binary.symlink_to(shutil.which("sleep"))
+            # Use a native executable whose behavior does not depend on the
+            # symlink name; Alpine's sleep commands are multicall applets.
+            binary.symlink_to(sys.executable)
             binaries.append(binary)
         old_processes = [self.start(binary) for binary in binaries]
         identities = [self.identity(p) for p in old_processes]

@@ -51,6 +51,33 @@ class Lab:
     def shell(self, script):
         return command("bash", "-c", '. "$1/lib.sh"; rsh "$2"', "lab", str(HERE), script)
 
+    def identity(self, name):
+        if name not in ("routerd", "router-applyd", "dnsmasq", "pppd"):
+            raise ValueError("invalid daemon name")
+        identity = command("bash", "-c", '. "$1/lib.sh"; router_identity "$2"',
+                           "lab", str(HERE), name)
+        fields = identity.split()
+        if len(fields) != 2 or any(not field.isascii() or not field.isdecimal() for field in fields) or int(fields[0]) <= 1:
+            raise RuntimeError("missing or malformed process identity")
+        return tuple(fields)
+
+    def process_state(self, action, identity):
+        if action not in ("rss", "STOP", "CONT") or len(identity) != 2 or any(
+                not field.isascii() or not field.isdecimal() for field in identity) or int(identity[0]) <= 1:
+            raise ValueError("invalid process observation")
+        return command("bash", "-c", '. "$1/lib.sh"; rsh sh -s "$2" "$3" "$4" < "$1/process-state.sh"',
+                       "lab", str(HERE), action, *identity)
+
+    def memory(self, name, identity):
+        if self.identity(name) != identity:
+            raise RuntimeError(f"{name} changed before memory observation")
+        rss = self.process_state("rss", identity)
+        if not rss.isascii() or not rss.isdecimal():
+            raise RuntimeError("missing or malformed process RSS")
+        if self.identity(name) != identity:
+            raise RuntimeError(f"{name} changed during memory observation")
+        return int(rss)
+
     def client(self, *args):
         return command("sudo", "ip", "netns", "exec", "client", *args)
 
@@ -121,14 +148,12 @@ def frozen_helper(lab):
     before = lab.get("config")
     candidate = copy.deepcopy(before)
     candidate["system"]["hostname"] = "frozen-helper"
-    pid = lab.shell("pgrep -f 'slots/.*/bin/router-applyd-amd64' | head -n 1")
-    if not pid.isdecimal():
-        raise RuntimeError("cannot identify the privileged helper")
+    identity = lab.identity("router-applyd")
     stopped = False
     try:
         # Mark first so even an interrupted SSH acknowledgement triggers SIGCONT.
         stopped = True
-        lab.shell(f"kill -STOP {pid}")
+        lab.process_state("STOP", identity)
         started = time.monotonic()
         status, body = lab.api("PUT", "config", candidate, timeout=150)
         elapsed = time.monotonic() - started
@@ -144,12 +169,14 @@ def frozen_helper(lab):
         print(f"frozen helper: HTTP {status}/RecoveryRequired after {elapsed:.1f}s; further mutation refused")
     finally:
         if stopped:
-            lab.shell(f"kill -CONT {pid}")
-            # The old request may still be queued in the helper. Reconcile from
-            # durable canonical state before any subsequent disruptive scenario.
-            lab.reboot()
-            require_unchanged(before, lab.get("config"))
-            require_ready(lab)
+            try:
+                lab.process_state("CONT", identity)
+            finally:
+                # The old request may still be queued in the helper. Reconcile
+                # even if its original process vanished before SIGCONT.
+                lab.reboot()
+                require_unchanged(before, lab.get("config"))
+                require_ready(lab)
     print("frozen helper: SIGCONT and reboot reconciliation complete; canonical state unchanged, no pending change")
 
 
@@ -187,21 +214,19 @@ def dns_flood(lab):
         committed(lab, candidate)
         dns_probe(lab, PROVIDER, "provider-baseline." + ZONE, PROVIDER, "udp")
         dns_checks(lab, "before")
-        pid = lab.shell("pidof dnsmasq")
-        routerd_pid = lab.shell("pgrep -f 'slots/.*/bin/routerd-amd64' | head -n 1")
-        if not pid.isdecimal() or not routerd_pid.isdecimal():
-            raise RuntimeError("DNS flood: missing resolver or routerd PID")
-        memory = lab.shell("awk '/VmRSS:/{print $2}' /proc/$(pgrep -f 'slots/.*/bin/routerd-amd64' | head -n 1)/status")
+        resolver = lab.identity("dnsmasq")
+        routerd = lab.identity("routerd")
+        memory = lab.memory("routerd", routerd)
         print(lab.client("python3", str(HERE / "dns_stress.py"), "flood", "192.168.1.1"))
         time.sleep(5)  # unchanged recovery budget from the original scenario
         dns_checks(lab, "after")
-        if lab.shell("pidof dnsmasq") != pid:
+        if lab.identity("dnsmasq") != resolver:
             raise RuntimeError("dnsmasq restarted during the flood")
-        if lab.shell("pgrep -f 'slots/.*/bin/routerd-amd64' | head -n 1") != routerd_pid:
+        if lab.identity("routerd") != routerd:
             raise RuntimeError("routerd restarted during the flood")
         require_ready(lab)
-        after = lab.shell("awk '/VmRSS:/{print $2}' /proc/$(pgrep -f 'slots/.*/bin/routerd-amd64' | head -n 1)/status")
-        if int(after) - int(memory) >= 30 * 1024:
+        after = lab.memory("routerd", routerd)
+        if after - memory >= 30 * 1024:
             raise RuntimeError("routerd grew by at least 30 MiB during the DNS flood")
         print(f"DNS flood: local and uncached forwarded UDP/TCP answers correct; no resolver restart; routerd RSS {memory} -> {after} KiB")
     except Exception:
