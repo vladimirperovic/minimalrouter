@@ -22,7 +22,7 @@ hex = "0.4.3"
 hmac = "0.12"
 libc = "0.2.191"
 log = "0.4.34"
-pem = "3"
+pem = "4"
 png = "0.17"
 psl = "2"
 qrcode = { version = "0.14", default-features = false }
