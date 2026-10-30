@@ -19,7 +19,7 @@ bcrypt = "0.15"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 getrandom = "0.3"
 hex = "0.4.3"
-hmac = "0.12"
+hmac = "0.13"
 libc = "0.2.191"
 log = "0.4.34"
 pem = "3"
