@@ -32,8 +32,8 @@ fn three_thousand_api_contracts_over_tls() {
     let dir = std::env::temp_dir().join(format!("mr-contracts-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let store = Arc::new(SQLiteStore::new_file_store(dir.to_str().unwrap()).unwrap());
-    let password = "contract fixture synthetic password";
-    let hash = minimalrouter::auth::hash_password(password).unwrap();
+    let password = hex::encode(minimalrouter::goish::rand::bytes(32).expect("generate contract fixture password"));
+    let hash = minimalrouter::auth::hash_password(&password).unwrap();
     let mut cfg = default_config();
     cfg.revision = store.get_latest_config().unwrap().revision + 1;
     store.commit_initial_setup(cfg, &hash).unwrap();
