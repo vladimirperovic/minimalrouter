@@ -11,7 +11,7 @@ edition = "2024"
 
 # One place for every external version; the crates opt in with `workspace = true`.
 [workspace.dependencies]
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 anyhow = "1.0.104"
 argon2 = "0.5"
 base64 = "0.23.1"
