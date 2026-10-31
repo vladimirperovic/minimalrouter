@@ -1,0 +1,4 @@
+GET /api/status?x=%2F HTTP/1.1
+Host: router
+Connection: close
+

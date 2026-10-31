@@ -68,6 +68,11 @@ fn download_release_file(asset_url: &str, destination: &str, maximum: u64) -> Re
     copy_limited(response.into_reader(), destination, maximum, "release asset exceeds size limit")
 }
 
+#[cfg(feature = "fuzzing")]
+pub fn fuzz_archive_path(name: &str) -> Result<String> {
+    safe_archive_path(name, "minimalrouter-linux-amd64")
+}
+
 fn safe_archive_path(name: &str, prefix: &str) -> Result<String> {
     let clean = filepath::clean(name.trim());
     if clean == "." || clean.is_empty() || filepath::is_abs(&clean) || clean == ".." || clean.starts_with("../") {

@@ -22,6 +22,9 @@ For v0.4.1 the exact pre-tag candidate must pass all seven required PR workflows
 - Service supervision;
 - Appliance ISO.
 
+The **Parser fuzzing** and **Safety mutation tests** workflows must also pass
+on the exact candidate.
+
 The complete **Lab** workflow must also pass for v0.4.1, using the successful
 Appliance ISO from that exact commit. Leave its `only` filter empty; all 3,000
 API contracts, network tests, chaos tests and the soak must execute and pass.

@@ -1,0 +1,49 @@
+name: Safety mutation tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "37 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  safety-contracts:
+    name: WG confirmation and IPC outcome mutation tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+      - name: Install pinned cargo-mutants
+        run: cargo install cargo-mutants --version 25.3.1 --locked
+      - name: Prove selected safety mutations are detected
+        working-directory: rust
+        run: |
+          mkdir -p ../test-results/mutation
+          cargo mutants -p mr-services --list --json \
+            --re verify_wg_client_handshake --re ApplyResponse::validate \
+            > ../test-results/mutation/selection.json
+          python3 ../scripts/ci/check-mutation-selection.py ../test-results/mutation/selection.json
+          cargo mutants -p mr-services --test-workspace false \
+            --re verify_wg_client_handshake --re ApplyResponse::validate \
+            --timeout 60 --build-timeout 300 --in-place \
+            --output ../test-results/mutation -- --lib
+      - name: Preserve every mutation and its result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: safety-mutations-${{ github.sha }}
+          path: test-results/mutation
+          if-no-files-found: error
+          retention-days: 14

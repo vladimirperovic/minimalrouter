@@ -929,6 +929,19 @@ mod handshake_tests {
     }
 
     #[test]
+    fn exact_freshness_and_activation_boundaries() {
+        assert!(verify(1000, 0, Some(1000), 1000).is_ok());
+        assert!(verify(1000, 25, Some(1000), 1180).is_ok());
+        assert!(verify(1000, 25, Some(1000), 1181).is_err());
+        assert!(verify(1000, 100, Some(1000), 1300).is_ok());
+        assert!(verify(1000, 100, Some(1000), 1301).is_err());
+        assert!(verify(1000, 0, Some(0), 1000).is_err());
+        assert!(verify(-1, 0, None, 1000).is_err());
+        assert!(verify(1030, 0, None, 1000).is_ok());
+        assert!(verify(i64::MAX, i64::MAX, Some(i64::MAX - 1), i64::MAX).is_ok());
+    }
+
+    #[test]
     fn unchanged_idle_client_and_future_timestamps() {
         assert!(verify(1, 0, None, 1000).is_ok());
         assert!(verify(1, 25, None, 1000).is_err());

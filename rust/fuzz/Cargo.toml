@@ -1,0 +1,50 @@
+[package]
+name = "minimalrouter-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[features]
+default = ["libfuzzer-sys/link_libfuzzer"]
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", default-features = false }
+serde_json = "1.0.154"
+mr-core = { path = "../crates/mr-core" }
+mr-config = { path = "../crates/mr-config", features = ["fuzzing"] }
+mr-services = { path = "../crates/mr-services" }
+mr-api = { path = "../crates/mr-api", features = ["fuzzing"] }
+
+[[bin]]
+name = "http_request"
+path = "fuzz_targets/http_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_json"
+path = "fuzz_targets/config_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "apply_ipc"
+path = "fuzz_targets/apply_ipc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "firmware_metadata"
+path = "fuzz_targets/firmware_metadata.rs"
+test = false
+doc = false
+bench = false

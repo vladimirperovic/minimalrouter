@@ -4,6 +4,10 @@ description = "Configuration model and store, authentication, TLS material, star
 version.workspace = true
 edition.workspace = true
 
+[features]
+# Test harness entry points; never enabled in appliance builds.
+fuzzing = []
+
 [dependencies]
 mr-core.workspace = true
 aes-gcm.workspace = true

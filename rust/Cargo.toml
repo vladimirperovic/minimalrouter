@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+exclude = ["fuzz"]
 # `cargo test` and `cargo build` at the root cover every crate, not only the
 # facade package below.
 default-members = [".", "crates/*"]

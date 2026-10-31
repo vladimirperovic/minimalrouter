@@ -69,3 +69,9 @@ WireGuard behavior was cross-checked against the upstream
 [`syncconf` implementation](https://git.zx2c4.com/wireguard-tools/tree/src/setconf.c):
 it preserves matching peers. Explicitly removing the old outbound peer avoids
 relying on timestamp precision to distinguish two configurations.
+
+Preparing the HTTP fuzz harness also exposed an additional length-conversion
+bug: Content-Length values above i64::MAX wrapped negative after u64 parsing.
+A failing in-memory regression reproduced it; checked conversion now returns
+400, with ordinary TCP regression cases and a synthetic fuzz seed. This was
+found while preparing the harness, not claimed as a completed fuzz campaign.

@@ -11,11 +11,20 @@ Prepared 2026-10-31. The [release notes](releases/v0.4.1.md) and
 [finding-by-finding review](SECURITY-REVIEW-0.4.1.md) describe the changes.
 No v0.4.0 tag was present when the public remote was fetched for this review.
 
+Parser fuzzing and scheduled QEMU Lab coverage were added during preparation.
+Targeted safety mutation coverage is also required. Fuzz campaign results
+must be checked on the final candidate; a Windows
+no-link harness type-check is not an ASan/libFuzzer run.
+
 Local verification collected during preparation:
 
 - The Rust workspace tests passed, including the HTTPS contract suite, MCP TLS
   integration, frozen Go fixtures and the added regressions. The explicit
   performance benchmark remains ignored in the ordinary unit-test run.
+- The targeted mutation gate detected all 20 generated WG/IPC mutations locally;
+  no missed, timeout or compiler-rejected mutations were reported.
+- The HTTP overflow reproducer failed before the fix and all four HTTP tests
+  (including the in-memory harness) passed afterwards.
 - Clippy completed successfully with existing style warnings; formatting is
   checked separately. No blanket warning suppression or new -D warnings gate.
 - Dashboard Vitest: 86 passed; dashboard production build and lint passed.

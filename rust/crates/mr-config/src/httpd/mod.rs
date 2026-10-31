@@ -9,6 +9,8 @@ mod server;
 
 pub use multipart::{Form, MultipartReader, Part, read_form};
 pub use router::{Handler, Router};
+#[cfg(feature = "fuzzing")]
+pub use server::fuzz_http_connection;
 pub use server::{BodySource, CertResolver, ServerOptions, serve};
 
 use serde::Serialize;

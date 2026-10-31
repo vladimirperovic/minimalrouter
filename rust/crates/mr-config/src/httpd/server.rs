@@ -392,9 +392,9 @@ fn serve_connection(stream: Box<dyn Stream>, remote: &str, local: &str, handler:
         } else {
             match head.headers.get("Content-Length").trim() {
                 "" => 0,
-                value => match value.parse::<u64>() {
-                    Ok(n) => n as i64,
-                    Err(_) => return simple_error(conn.reader.get_mut(), 400, "Bad Request: bad Content-Length"),
+                value => match value.parse::<u64>().ok().and_then(|n| i64::try_from(n).ok()) {
+                    Some(n) => n,
+                    None => return simple_error(conn.reader.get_mut(), 400, "Bad Request: bad Content-Length"),
                 },
             }
         };
@@ -724,10 +724,66 @@ mod tests {
         assert!(expect.starts_with("HTTP/1.1 413"), "oversized Expect request was not refused with 413 ({} bytes)", expect.len());
         assert!(!expect.contains("100 Continue"), "the server invited an oversized body");
         assert!(exchange("GET /nope HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").starts_with("HTTP/1.1 404"));
-        for headers in ["Transfer-Encoding: chunked\r\nContent-Length: 0", "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked", "X-Bad\x0bName: value"] {
+        for headers in [
+            "Transfer-Encoding: chunked\r\nContent-Length: 0",
+            "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked",
+            "X-Bad\x0bName: value",
+            "Content-Length: 9223372036854775808",
+            "Content-Length: 18446744073709551615",
+        ] {
             assert!(exchange(&format!("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\n{headers}\r\nConnection: close\r\n\r\n")).starts_with("HTTP/1.1 400"));
         }
         stop.trigger();
         server.join().unwrap();
     }
+}
+
+/// In-memory access to the production parser, body decoder and response writer.
+/// The feature is enabled only by the separate cargo-fuzz workspace.
+#[cfg(feature = "fuzzing")]
+pub fn fuzz_http_connection(data: &[u8]) {
+    struct MemoryStream(io::Cursor<Vec<u8>>);
+    impl Read for MemoryStream {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+    impl Write for MemoryStream {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Stream for MemoryStream {
+        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
+            Ok(())
+        }
+        fn close_write(&mut self) {}
+    }
+    if data.len() > 64 * 1024 {
+        return;
+    }
+    let handler: Handler = Arc::new(|request| {
+        assert!(request.content_length >= 0 || request.headers.get("Transfer-Encoding").eq_ignore_ascii_case("chunked"));
+        request.limit_body(64 * 1024);
+        let _ = request.query();
+        let _ = request.cookie("session");
+        match request.read_body() {
+            Ok(body) => Response::bytes(200, "application/octet-stream", body),
+            Err(_) => Response::error("invalid body", 400),
+        }
+    });
+    let options = ServerOptions { max_header_bytes: 4096, ..Default::default() };
+    serve_connection(Box::new(MemoryStream(io::Cursor::new(data.to_vec()))), "127.0.0.1:1", "127.0.0.1:443", &handler, &options);
+}
+
+#[cfg(all(test, feature = "fuzzing"))]
+#[test]
+fn fuzz_harness_rejects_overflowing_content_length() {
+    fuzz_http_connection(b"POST / HTTP/1.1\r\nHost: router\r\nContent-Length: 18446744073709551615\r\nConnection: close\r\n\r\n");
 }

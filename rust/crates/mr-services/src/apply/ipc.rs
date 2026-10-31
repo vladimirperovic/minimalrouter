@@ -259,3 +259,24 @@ pub fn decode_single<T: serde::de::DeserializeOwned>(data: &[u8]) -> std::result
     }
     crate::goish::json::from_value(&value).map_err(SingleDecodeError::Invalid)
 }
+
+#[cfg(test)]
+mod outcome_contract_tests {
+    use super::ApplyResponse;
+
+    #[test]
+    fn only_documented_privileged_outcomes_are_valid() {
+        // success, verified, rolled_back, recovery_required
+        let legal = [
+            [true, true, false, false],   // verified candidate
+            [false, false, false, false], // rejected before a runtime claim
+            [false, false, true, false],  // verified rollback
+            [false, false, false, true],  // operator recovery required
+        ];
+        for bits in 0u8..16 {
+            let flags = [bits & 1 != 0, bits & 2 != 0, bits & 4 != 0, bits & 8 != 0];
+            let response = ApplyResponse { success: flags[0], verified: flags[1], rolled_back: flags[2], recovery_required: flags[3], ..Default::default() };
+            assert_eq!(response.validate().is_ok(), legal.contains(&flags), "outcome {flags:?}");
+        }
+    }
+}
