@@ -33,7 +33,8 @@ On Linux with the nightly Rust toolchain and cargo-fuzz installed:
 
 ~~~sh
 cd rust
-cargo +nightly fuzz build --locked -O --debug-assertions
+cargo +nightly fetch --locked --manifest-path fuzz/Cargo.toml
+CARGO_NET_OFFLINE=true cargo +nightly fuzz build -O --debug-assertions
 cargo +nightly fuzz run http_request fuzz/seeds/http_request -- -max_total_time=60
 cargo +nightly fuzz run http_request path/to/crash-reproducer
 ~~~
