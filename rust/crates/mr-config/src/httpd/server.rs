@@ -159,7 +159,7 @@ impl Default for ServerOptions {
             read_header_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(15),
-            write_timeout: None,
+            write_timeout: Some(Duration::from_secs(30)),
             max_header_bytes: 1 << 20,
             max_connections: 128,
             shutdown_drain: Duration::from_secs(8),
@@ -328,12 +328,18 @@ fn read_head(reader: &mut BufReader<Box<dyn Stream>>, options: &ServerOptions, f
             return Err(HeadError::BadRequest("malformed MIME header line"));
         }
         let (name, value) = line.split_once(':').ok_or(HeadError::BadRequest("malformed MIME header line"))?;
-        if name.is_empty() || name.contains([' ', '\t']) {
+        if !super::valid_header_name(name) {
             return Err(HeadError::BadRequest("malformed MIME header line"));
         }
         headers.add(&canonical_key(name), value.trim_matches([' ', '\t']).to_string());
     }
     let te = headers.get("Transfer-Encoding").to_ascii_lowercase();
+    if headers.has("Transfer-Encoding") && headers.has("Content-Length") {
+        return Err(HeadError::BadRequest("message cannot contain both Transfer-Encoding and Content-Length"));
+    }
+    if headers.values("Transfer-Encoding").len() > 1 {
+        return Err(HeadError::BadRequest("message cannot contain multiple Transfer-Encoding headers"));
+    }
     if !te.is_empty() && te != "chunked" {
         return Err(HeadError::NotImplemented);
     }
@@ -476,7 +482,8 @@ fn http_date() -> String {
 }
 
 fn sniff_content_type(body: &[u8]) -> &'static str {
-    let text = std::str::from_utf8(body).is_ok() && !body.iter().any(|&b| b < 0x09 || (0x0e..0x20).contains(&b) && b != 0x1b);
+    // Go's text signature permits TAB, LF, FF, CR and ESC, but not VT.
+    let text = std::str::from_utf8(body).is_ok() && !body.iter().any(|&b| b < 0x09 || b == 0x0b || ((0x0e..0x20).contains(&b) && b != 0x1b));
     let trimmed = body.iter().skip_while(|b| b.is_ascii_whitespace()).take(14).map(|b| b.to_ascii_lowercase()).collect::<Vec<u8>>();
     if trimmed.starts_with(b"<!doctype html") || trimmed.starts_with(b"<html") {
         "text/html; charset=utf-8"
@@ -634,6 +641,38 @@ mod tests {
     use crate::httpd::Router;
 
     #[test]
+    fn control_bytes_and_header_names_cannot_be_misclassified() {
+        assert_eq!(sniff_content_type(b"a\x0bb"), "application/octet-stream");
+        assert_eq!(sniff_content_type(b"a\t\n\x0c\r\x1bb"), "text/plain; charset=utf-8");
+        let mut headers = Headers::default();
+        for name in ["X-Bad\r\nInjected", "X:Bad", "", "Bad Name"] {
+            headers.set(name, "value");
+            headers.add(name, "value");
+        }
+        assert_eq!(headers.iter().count(), 0);
+    }
+
+    #[test]
+    fn nonreading_peer_releases_response_writer() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let (done, completion) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let handler: Handler = Arc::new(|_| Response::bytes(200, "application/octet-stream", vec![0; 32 << 20]));
+            let options = ServerOptions { write_timeout: Some(Duration::from_millis(100)), ..Default::default() };
+            serve_connection(Box::new(stream), "127.0.0.1:1", "127.0.0.1:2", &handler, &options);
+            let _ = done.send(());
+        });
+        peer.write_all(b"GET / HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").unwrap();
+        let result = completion.recv_timeout(Duration::from_secs(5));
+        drop(peer);
+        server.join().unwrap();
+        assert!(result.is_ok(), "nonreading client retained its connection worker");
+        assert_eq!(ServerOptions::default().write_timeout, Some(Duration::from_secs(30)));
+    }
+
+    #[test]
     fn serves_routes_over_plain_http() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -685,6 +724,9 @@ mod tests {
         assert!(expect.starts_with("HTTP/1.1 413"), "oversized Expect request was not refused with 413 ({} bytes)", expect.len());
         assert!(!expect.contains("100 Continue"), "the server invited an oversized body");
         assert!(exchange("GET /nope HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").starts_with("HTTP/1.1 404"));
+        for headers in ["Transfer-Encoding: chunked\r\nContent-Length: 0", "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked", "X-Bad\x0bName: value"] {
+            assert!(exchange(&format!("POST /api/v1/echo HTTP/1.1\r\nHost: t\r\n{headers}\r\nConnection: close\r\n\r\n")).starts_with("HTTP/1.1 400"));
+        }
         stop.trigger();
         server.join().unwrap();
     }

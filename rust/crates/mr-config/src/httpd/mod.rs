@@ -22,6 +22,10 @@ pub struct Headers {
     items: Vec<(String, String)>,
 }
 
+fn valid_header_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 /// textproto.CanonicalMIMEHeaderKey for ASCII token names.
 pub fn canonical_key(name: &str) -> String {
     let mut upper = true;
@@ -48,11 +52,17 @@ impl Headers {
     }
 
     pub fn set(&mut self, name: &str, value: impl Into<String>) {
+        if !valid_header_name(name) {
+            return;
+        }
         self.del(name);
         self.items.push((canonical_key(name), value.into()));
     }
 
     pub fn add(&mut self, name: &str, value: impl Into<String>) {
+        if !valid_header_name(name) {
+            return;
+        }
         self.items.push((canonical_key(name), value.into()));
     }
 

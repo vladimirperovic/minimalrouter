@@ -36,6 +36,8 @@ pub(crate) struct TransactionRecord {
 pub(crate) struct PendingConfirmation {
     pub config_hash: String,
     pub config: SystemConfig,
+    pub handshake_not_before: i64,
+    pub wg_client_changed: bool,
 }
 
 pub(crate) fn failure(id: &str, message: &str, rolled_back: bool) -> ApplyResponse {
@@ -192,6 +194,9 @@ pub(crate) fn save_last_transaction(record: &TransactionRecord) -> Result<()> {
 }
 
 fn validate_pending_confirmation(pending: &PendingConfirmation) -> Result<()> {
+    if pending.handshake_not_before <= 0 {
+        return Err(errorf!("pending configuration activation timestamp is missing"));
+    }
     pending.config.validate().map_err(|e| wrapf("pending configuration is invalid", e))?;
     let expected = hash_config(&pending.config)?;
     if pending.config_hash.is_empty() || pending.config_hash != expected {

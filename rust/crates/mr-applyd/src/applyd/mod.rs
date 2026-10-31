@@ -119,6 +119,7 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
             }
         }
     };
+    let handshake_not_before = crate::goish::time::Time::now().unix();
     if let Err(err) = install_and_activate(&req.config, &generated, previous, req.require_confirmation) {
         return match rollback(previous, Some(&req.config), &previous_files) {
             Err(rollback_err) => {
@@ -146,7 +147,14 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
     }
     faultinject::run(faultinject::POST_PROVISIONAL_APPLY);
     if req.require_confirmation || req.defer_last_good {
-        let saved = hash_config(&req.config).and_then(|hash| save_pending_confirmation(&PendingConfirmation { config_hash: hash, config: req.config.clone() }));
+        let saved = hash_config(&req.config).and_then(|hash| {
+            save_pending_confirmation(&PendingConfirmation {
+                config_hash: hash,
+                config: req.config.clone(),
+                handshake_not_before,
+                wg_client_changed: previous.is_none_or(|p| p.wg_client != req.config.wg_client),
+            })
+        });
         if saved.is_err() {
             if rollback(previous, Some(&req.config), &previous_files).is_err() {
                 return recovery_failure(&req.id, "could not persist pending state and rollback failed");
@@ -169,11 +177,11 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
     ApplyResponse { id: req.id.clone(), success: true, verified: true, logs: "validated, preflighted, applied, and verified".into(), ..Default::default() }
 }
 
-fn verify_wg_client_handshake(interface: &str, keepalive: i64) -> Result<()> {
+fn verify_wg_client_handshake(interface: &str, keepalive: i64, not_before: Option<i64>) -> Result<()> {
     let iface = if interface.is_empty() { "wg1" } else { interface };
     let out =
         run_fixed_output("/usr/bin/wg", &["show", iface, "dump"]).map_err(|e| crate::goish::errors::wrapf("WireGuard client interface unavailable", e))?;
-    actions::wg_handshake_fresh(&out, keepalive)
+    actions::wg_handshake_fresh(&out, keepalive, not_before)
 }
 
 fn confirm_apply(req: &ApplyRequest) -> ApplyResponse {
@@ -196,7 +204,11 @@ fn confirm_apply(req: &ApplyRequest) -> ApplyResponse {
     if req.config.wg_client.enabled {
         // A wrong remote key, endpoint or network must never commit from a
         // handshake-less interface.
-        if let Err(err) = verify_wg_client_handshake(&req.config.wg_client.interface, req.config.wg_client.persistent_keepalive) {
+        if let Err(err) = verify_wg_client_handshake(
+            &req.config.wg_client.interface,
+            req.config.wg_client.persistent_keepalive,
+            pending.wg_client_changed.then_some(pending.handshake_not_before),
+        ) {
             return recovery_failure(
                 &req.id,
                 &format!("confirmed WireGuard client tunnel is not functional: {}; verified rollback is required", safe_error(&err)),

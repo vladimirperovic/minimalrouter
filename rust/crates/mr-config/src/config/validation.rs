@@ -468,23 +468,45 @@ impl SystemConfig {
         if c.trusted_networks.is_empty() {
             errs.add("trusted_networks", "must contain at least one CIDR network");
         }
-        let mut seen: HashSet<&str> = HashSet::new();
+        let mut seen = HashSet::new();
         for (i, network) in c.trusted_networks.iter().enumerate() {
             let field = format!("trusted_networks[{}]", i);
             if has_unsafe_control(network) {
                 errs.add(field, "must not contain control characters");
                 continue;
             }
-            if !seen.insert(network.as_str()) {
-                errs.add(field, "must not contain duplicate networks");
-                continue;
-            }
             let Some((ip, ip_net)) = net::parse_cidr(network) else {
                 errs.add(field, "must be a valid IPv4 or IPv6 CIDR network");
                 continue;
             };
-            if ip_net.mask.size().0 == 0 || ip.is_unspecified() {
+            let (prefix, bits) = ip_net.mask.size();
+            if prefix == 0 || ip.is_unspecified() {
                 errs.add(field, "wildcard networks (0.0.0.0/0, ::/0) are not allowed");
+                continue;
+            }
+            // Existing deployments may trust their ULA allocation (fc00::/7).
+            // Preserve that private scope without permitting public /1 ranges.
+            let ula = bits == 128 && prefix >= 7 && net::parse_cidr("fc00::/7").is_some_and(|(_, n)| n.contains(&ip_net.ip));
+            let minimum = if bits == 32 {
+                8
+            } else if ip.to4().is_some() {
+                104
+            } else if ula {
+                7
+            } else {
+                16
+            };
+            if prefix < minimum || ip.is_unspecified() || ip_net.ip.is_unspecified() {
+                errs.add(
+                    field,
+                    "trusted networks must be specific (IPv4 /8, IPv6 /16 or narrower, or a ULA subnet) and must not include the unspecified address",
+                );
+                continue;
+            }
+            // Compare the effective network, including alternate host-bit spellings.
+            let effective_prefix = if bits == 128 && ip.to4().is_some() { prefix - 96 } else { prefix };
+            if !seen.insert(format!("{}/{}", ip_net.ip, effective_prefix)) {
+                errs.add(field, "must not contain duplicate networks");
             }
         }
 
@@ -1027,4 +1049,34 @@ pub fn go_atoi(text: &str) -> Option<i64> {
         return None;
     }
     text.parse::<i64>().ok()
+}
+
+#[cfg(test)]
+mod trusted_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_broad_and_masked_unspecified_trusted_ranges() {
+        for network in ["192.168.1.0/1", "10.0.0.0/1", "::1/1", "2001:db8::/8", "0.1.2.3/8", "::ffff:192.168.1.1/97"] {
+            let mut cfg = default_config();
+            cfg.trusted_networks = crate::list![network.to_string()];
+            assert!(cfg.validate().unwrap_err().to_string().contains("trusted_networks"), "{network}");
+        }
+    }
+
+    #[test]
+    fn host_bits_keep_cidr_semantics_and_mapped_v4_cannot_bypass_boundary() {
+        for network in ["192.168.1.5/24", "::ffff:192.168.1.5/120", "2001:db8::/32", "fd00::/8", "fc00::/7", "::1/128"] {
+            let mut cfg = default_config();
+            cfg.trusted_networks = crate::list![network.to_string()];
+            cfg.validate().unwrap();
+            if network.contains("192.168") {
+                assert!(cfg.is_trusted_client_address("[::ffff:192.168.1.99]:1234"));
+                assert!(!cfg.is_trusted_client_address("192.168.2.99:1234"));
+            }
+        }
+        let mut cfg = default_config();
+        cfg.trusted_networks = crate::list!["192.168.1.0/24".into(), "192.168.1.5/24".into()];
+        assert!(cfg.validate().is_err());
+    }
 }

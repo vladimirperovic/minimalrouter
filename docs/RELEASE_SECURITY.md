@@ -42,14 +42,14 @@ maintainer machine, and has not been rotated — so an appliance verifies a
 v0.1.7 update with the key it already trusts, and no appliance-side action is
 required by this rotation.
 
-## v0.4.0 release artifacts
+## v0.4.1 release artifacts
 
 The Beta release publishes:
 
 ### Golden installer
 
-- `minimalrouter-0.4.0-amd64.iso`
-- `minimalrouter-0.4.0-amd64.iso.sha256`
+- `minimalrouter-0.4.1-amd64.iso`
+- `minimalrouter-0.4.1-amd64.iso.sha256`
 
 ### Signed update/install distributions
 
@@ -149,7 +149,7 @@ The appliance verifies A/B update payloads with the 32-byte Ed25519 public key a
 This root-controlled file is the local update trust anchor. A key carried inside
 a downloaded manifest is informational and is never accepted as a new trust root.
 
-The v0.4.0 release Golden ISO is required to install this trust anchor from the
+The v0.4.1 release Golden ISO is required to install this trust anchor from the
 signed release payload.
 
 ## Verify a downloaded release
@@ -157,7 +157,7 @@ signed release payload.
 At minimum, verify the checksum before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.4.0-amd64.iso.sha256
+sha256sum -c minimalrouter-0.4.1-amd64.iso.sha256
 ```
 
 For the complete downloaded release set:
@@ -170,7 +170,7 @@ With GitHub CLI, verify provenance/attestation for the selected artifact, for
 example:
 
 ```sh
-gh attestation verify minimalrouter-0.4.0-amd64.iso \
+gh attestation verify minimalrouter-0.4.1-amd64.iso \
   -R vladimirperovic/minimalrouter
 
 gh attestation verify minimalrouter-linux-amd64.tar.gz \
@@ -222,7 +222,7 @@ Staging does not change the active version. Review and activate explicitly:
 
 ```sh
 router-update status
-router-update activate --version 0.4.0 --confirm ACTIVATE-UPDATE
+router-update activate --version 0.4.1 --confirm ACTIVATE-UPDATE
 ```
 
 After activation, verify router services, LAN management, WAN, DHCP/DNS,
@@ -263,3 +263,20 @@ If the firmware release private key may have been exposed:
 7. preserve logs and attestations for investigation.
 
 A normal online update must never silently rotate its own root of trust.
+
+## Resource admission and local trust
+
+Argon2id derivations share one slot because each uses 64 MiB within routerd's
+128 MiB budget. Waiting is bounded at 15 seconds; contention returns retryable
+503 responses and does not mean credentials were rejected. Source-IP priority
+would not establish an authenticated administrator identity.
+
+The applyd sockets authorize root and the routerd UID through kernel peer
+credentials and root:routerd filesystem permissions. Root is intentionally
+trusted. The management listener can bind wildcard addresses while nftables and
+local-destination admission independently enforce the LAN/WireGuard boundary.
+
+v0.4.1 stores hashes of random bearer session identifiers, revoking older raw
+rows on migration. CSRF values alone cannot authenticate. Normal encrypted
+portable exports contain configuration and DNS policy, not live sessions.
+See [the audit disposition](SECURITY-REVIEW-0.4.1.md) for scope and limitations.

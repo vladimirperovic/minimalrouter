@@ -95,19 +95,19 @@ byte-identity check in `router-update`.
 
 ## Current checkout and installation boundary
 
-v0.4.0 replaces the Go runtime with a Rust implementation, so `router-update`,
-`router-recovery` and `router-setup` are different programs from every v0.3.x
-build on both architectures. `bootstrap-baseline.json` acknowledges the change
-for version 0.4.0 and moves `requires_full_installer_from` to 0.3.3: **every
-appliance running v0.3.3 or earlier needs the full signed distribution installer
-once**, and the dashboard A/B updater refuses the transition by design. The
-v0.4.0 Golden ISO also moves the operating system to Alpine 3.24 with linux-lts
-6.18; an existing appliance keeps its own Alpine release, and a replacement
-appliance may be installed on a blank disk and restored from an encrypted backup.
-The baseline stays at v0.3.1 until the v0.4.0 tag exists; the check reports a
-baseline without a Rust workspace as a recorded change. After the tag, move
-`bootstrap_baseline_ref` to v0.4.0 so the comparison is against the bytes
-appliances actually run.
+v0.4.1 hardens shared validation and canonical storage used by the installed
+recovery/setup tools. These bootstrap programs live outside the A/B slot.
+The baseline metadata acknowledges the change for v0.4.1 and requires the full
+signed distribution installer for v0.4.0 and earlier. Do not bypass the
+runtime byte-identity check. A new Golden installation on a blank replacement
+disk, followed by an encrypted configuration restore, is the complete OS path.
+
+The baseline remains v0.3.1 while the v0.4.1 candidate is unpublished (no v0.4.0
+tag was present when preparing this candidate). After signed publication, move
+the baseline to v0.4.1 before preparing a later web-compatible release.
+
+Historical context: v0.4.0 introduced the Rust runtime and Alpine 3.24 Golden
+image; that already required a full installer transition from all Go releases.
 
 `bootstrap_baseline_ref` is v0.3.1, the bytes published appliances run since
 2026-10-14. v0.3.2 changed only `routerd`, `router-applyd`, the dashboard and

@@ -40,29 +40,26 @@ fn meta_for(source: &Source) -> Catalog {
     Catalog { category: source.id.into(), label: source.label.into(), url: source.url(), ..Default::default() }
 }
 
-pub(crate) fn read_catalog(path: &std::path::Path, source: &Source) -> (Catalog, Result<()>) {
+pub(crate) struct CatalogIndex {
+    pub meta: Catalog,
+    conn: std::sync::Mutex<Connection>,
+}
+
+impl CatalogIndex {
+    pub fn find(&self, name: &str) -> Result<String> {
+        catalog_match(&self.conn.lock().unwrap_or_else(|e| e.into_inner()), name)
+    }
+}
+
+pub(crate) fn read_catalog(path: &std::path::Path, source: &Source) -> Result<CatalogIndex> {
     let mut meta = meta_for(source);
-    if !path.exists() {
-        return (meta, Err(errorf!("no catalog")));
+    let conn = open_catalog(path, true)?;
+    (meta.hash, meta.entries, meta.updated_at) =
+        conn.query_row("SELECT hash,entries,updated_at FROM metadata", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    if meta.entries < 1 || meta.entries > MAX_FEED_DOMAINS as i64 || meta.hash.len() != 64 {
+        return Err(errorf!("invalid catalog metadata"));
     }
-    let result = (|| {
-        let conn = open_catalog(path, true)?;
-        let (hash, entries, updated): (String, i64, i64) =
-            conn.query_row("SELECT hash,entries,updated_at FROM metadata", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
-        Ok::<_, crate::goish::errors::Error>((hash, entries, updated))
-    })();
-    match result {
-        Ok((hash, entries, updated)) => {
-            meta.hash = hash;
-            meta.entries = entries;
-            meta.updated_at = updated;
-            if meta.entries < 1 || meta.entries > MAX_FEED_DOMAINS as i64 || meta.hash.len() != 64 {
-                return (meta, Err(errorf!("invalid catalog metadata")));
-            }
-            (meta, Ok(()))
-        }
-        Err(e) => (meta, Err(e)),
-    }
+    Ok(CatalogIndex { meta, conn: std::sync::Mutex::new(conn) })
 }
 
 pub(crate) fn build_catalog(
@@ -208,8 +205,7 @@ pub(crate) fn emit_catalog(path: &std::path::Path, w: &mut dyn Write) -> Result<
     Ok(())
 }
 
-pub(crate) fn catalog_match(path: &std::path::Path, name: &str) -> Result<String> {
-    let conn = open_catalog(path, true)?;
+fn catalog_match(conn: &Connection, name: &str) -> Result<String> {
     let mut candidate = name;
     while candidate.contains('.') {
         let found: Option<String> = conn.query_row("SELECT domain FROM domains WHERE domain=?", params![candidate], |r| r.get(0)).optional()?;

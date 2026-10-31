@@ -412,6 +412,16 @@ struct ApiClient {
     cookies: Mutex<BTreeMap<String, String>>,
 }
 
+impl Drop for ApiClient {
+    fn drop(&mut self) {
+        minimalrouter::sys::zeroize_string(&mut self.csrf);
+        let jar = self.cookies.get_mut().unwrap_or_else(|e| e.into_inner());
+        for value in jar.values_mut() {
+            minimalrouter::sys::zeroize_string(value);
+        }
+    }
+}
+
 impl ApiClient {
     fn remember_cookies(&self, response: &ureq::Response) {
         let mut jar = self.cookies.lock().unwrap_or_else(|e| e.into_inner());
@@ -419,25 +429,32 @@ impl ApiClient {
             let pair = header.split(';').next().unwrap_or("");
             let Some((name, value)) = pair.split_once('=') else { continue };
             let expired = header.split(';').any(|attr| attr.trim().eq_ignore_ascii_case("max-age=0"));
-            if expired || value.is_empty() {
-                jar.remove(name.trim());
-            } else {
-                jar.insert(name.trim().into(), value.trim().into());
+            let previous = if expired || value.is_empty() { jar.remove(name.trim()) } else { jar.insert(name.trim().into(), value.trim().into()) };
+            if let Some(mut previous) = previous {
+                minimalrouter::sys::zeroize_string(&mut previous);
             }
         }
     }
 
     fn cookie_header(&self) -> String {
-        self.cookies.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("; ")
+        use std::fmt::Write;
+        let mut out = String::new();
+        for (name, value) in self.cookies.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            if !out.is_empty() {
+                out.push_str("; ");
+            }
+            let _ = write!(out, "{name}={value}");
+        }
+        out
     }
 
     /// One call; every non-2xx status becomes an error so an error body is
     /// never decoded as configuration or reported as success.
     fn request(&self, method: &str, path: &str, body: Option<&[u8]>) -> Result<(Vec<u8>, u16), CallError> {
         let mut request = self.agent.request(method, &format!("{}{}", self.base, path));
-        let cookie = self.cookie_header();
-        if !cookie.is_empty() {
-            request = request.set("Cookie", &cookie);
+        let cookie = minimalrouter::sys::SecretString(self.cookie_header());
+        if !cookie.0.is_empty() {
+            request = request.set("Cookie", &cookie.0);
         }
         if body.is_some() {
             request = request.set("Content-Type", "application/json");
@@ -521,32 +538,47 @@ fn new_api_client(settings: &Settings) -> Result<ApiClient, String> {
     }
     #[cfg(not(unix))]
     let _ = meta;
-    let raw = std::fs::read(&password_path).map_err(|e| format!("read password file: {}", e))?;
-    let mut password = raw.strip_suffix(b"\n").unwrap_or(&raw);
+    let raw = minimalrouter::sys::SecretBytes(std::fs::read(&password_path).map_err(|e| format!("read password file: {}", e))?);
+    let mut password = raw.0.strip_suffix(b"\n").unwrap_or(&raw.0);
     password = password.strip_suffix(b"\r").unwrap_or(password);
     if password.contains(&b'\r') || password.contains(&b'\n') {
         return Err("password file must contain exactly one password line".into());
     }
-    let client = ApiClient {
+    let mut client = ApiClient {
         base: url.clone(),
-        agent: ureq::AgentBuilder::new().timeout(StdDuration::from_secs(10)).tls_config(tls).redirects(10).build(),
+        agent: ureq::AgentBuilder::new().timeout(StdDuration::from_secs(10)).tls_config(tls).redirects(0).build(),
         csrf: String::new(),
         cookies: Mutex::new(BTreeMap::new()),
     };
-    let login = json!({"password": String::from_utf8_lossy(password), "totp_code": std::env::var("MINIMALROUTER_TOTP_CODE").unwrap_or_default().trim(), "read_only": !settings.allow_mutations});
-    let body = minimalrouter::goish::json::marshal(&login).map_err(|e| e.to_string())?;
-    let response = match client.agent.post(&format!("{}/api/v1/auth/login", url)).set("Content-Type", "application/json").send_bytes(&body) {
+    #[derive(serde::Serialize)]
+    struct Login<'a> {
+        password: &'a str,
+        totp_code: &'a str,
+        read_only: bool,
+    }
+    let totp = minimalrouter::sys::SecretString(std::env::var("MINIMALROUTER_TOTP_CODE").unwrap_or_default());
+    let login = Login {
+        password: std::str::from_utf8(password).map_err(|_| "password file must be UTF-8")?,
+        totp_code: totp.0.trim(),
+        read_only: !settings.allow_mutations,
+    };
+    let body = minimalrouter::sys::SecretBytes(minimalrouter::goish::json::marshal(&login).map_err(|e| e.to_string())?);
+    let response = match client.agent.post(&format!("{}/api/v1/auth/login", url)).set("Content-Type", "application/json").send_bytes(&body.0) {
         Ok(response) => response,
         Err(ureq::Error::Status(_, _)) => return Err("router authentication rejected".into()),
         Err(err) => return Err(format!("router login: {}", err)),
     };
     client.remember_cookies(&response);
-    let mut data = Vec::new();
-    let _ = response.into_reader().take(64 << 10).read_to_end(&mut data);
-    let csrf =
-        serde_json::from_slice::<Value>(&data).ok().and_then(|v| v.get("csrf_token").and_then(Value::as_str).map(String::from)).filter(|t| !t.is_empty());
+    let mut data = minimalrouter::sys::SecretBytes(Vec::new());
+    let _ = response.into_reader().take(64 << 10).read_to_end(&mut data.0);
+    #[derive(serde::Deserialize)]
+    struct LoginResponse {
+        csrf_token: String,
+    }
+    let csrf = serde_json::from_slice::<LoginResponse>(&data.0).ok().map(|v| v.csrf_token).filter(|t| !t.is_empty());
     let Some(csrf) = csrf else { return Err("router authentication rejected".into()) };
-    Ok(ApiClient { csrf, ..client })
+    client.csrf = csrf;
+    Ok(client)
 }
 
 struct Bridge {
@@ -884,7 +916,7 @@ fn main() {
     let settings = Settings {
         api_url: std::env::var("MINIMALROUTER_API_URL").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "https://192.168.1.1:8443".into()),
         allow_mutations: std::env::var("MINIMALROUTER_MCP_MODE").as_deref() == Ok("admin"),
-        totp_configured: !std::env::var("MINIMALROUTER_TOTP_CODE").unwrap_or_default().trim().is_empty(),
+        totp_configured: !minimalrouter::sys::SecretString(std::env::var("MINIMALROUTER_TOTP_CODE").unwrap_or_default()).0.trim().is_empty(),
     };
     let client = new_api_client(&settings).unwrap_or_else(|err| {
         eprintln!("minimalrouter-mcp: secure API initialization failed: {}", err);

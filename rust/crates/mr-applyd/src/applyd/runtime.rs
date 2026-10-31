@@ -551,6 +551,13 @@ pub(crate) fn sync_or_activate_wireguard_client(cfg: &SystemConfig, previous: Op
     if run_fixed_output("/sbin/ip", &["link", "show", "dev", &iface]).is_err() {
         return activate_wireguard_client(cfg, DEFAULT_COMMAND_TIMEOUT);
     }
+    if cfg.wg_client != previous.wg_client {
+        // syncconf retains the authenticated session for an unchanged public
+        // key. Retire that peer before applying endpoint/AllowedIPs edits, so
+        // confirmation cannot inherit the previous configuration's handshake.
+        run_fixed("/usr/bin/wg", &["set", &iface, "peer", &previous.wg_client.public_key, "remove"])
+            .map_err(|e| wrapf("retire previous WireGuard client session", e))?;
+    }
     run_fixed("/usr/bin/wg", &["syncconf", &iface, WIREGUARD_CLIENT_RUNTIME_PATH]).map_err(|e| wrapf("sync WireGuard client configuration", e))?;
     if !previous.wg_client.preshared_key.is_empty() && cfg.wg_client.preshared_key.is_empty() && previous.wg_client.public_key == cfg.wg_client.public_key {
         clear_wireguard_preshared_key(&iface, &cfg.wg_client.public_key)?;

@@ -341,3 +341,54 @@ fn timer_rollback_restores_previous_configuration() {
     assert_eq!(engine.get_status().active_state, Some(State::RolledBack));
     assert_eq!(client.requests.lock().unwrap()[1].id, "tx-timeout-timeout-rollback-1");
 }
+
+#[test]
+fn endpoint_and_allowed_ips_edits_cannot_confirm_with_a_pre_apply_handshake() {
+    use minimalrouter::apply::TunnelStatus;
+    use minimalrouter::goish::time::Time;
+    for endpoint_change in [true, false] {
+        let mut initial = default_config();
+        initial.wg_client.enabled = true;
+        initial.wg_client.private_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=".into();
+        initial.wg_client.public_key = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=".into();
+        initial.wg_client.endpoint = "198.51.100.1:51820".into();
+        initial.wg_client.address = "10.200.0.2/32".into();
+        initial.wg_client.allowed_ips = minimalrouter::list!["10.20.0.0/24".into()];
+        initial.wg_client.persistent_keepalive = 0;
+        initial.validate().unwrap();
+        let mut candidate = initial.clone();
+        if endpoint_change {
+            candidate.wg_client.endpoint = "198.51.100.2:51820".into();
+        } else {
+            candidate.wg_client.allowed_ips = minimalrouter::list!["10.21.0.0/24".into()];
+        }
+        let status = ApplyResponse {
+            success: true,
+            verified: true,
+            tunnel_status: Some(TunnelStatus { last_handshake: Time::now().unix() - 1, ..Default::default() }),
+            ..Default::default()
+        };
+        let client = ScriptedClient::new(vec![ok(), Ok(status)]);
+        let engine = Engine::with_client(initial.clone(), None, client.clone());
+        let (tx, result) = engine.process_transaction("changed-client", candidate);
+        result.unwrap();
+        assert_eq!(tx.current_state, State::AwaitingConfirmation);
+        let error = engine.confirm_transaction(&tx.id).1.unwrap_err();
+        assert!(error.to_string().contains("new handshake"), "{error}");
+        assert_eq!(engine.get_current_config(), initial);
+        assert!(!client.ops().iter().any(|op| op == "CONFIRM"));
+    }
+}
+
+#[test]
+fn exhausted_revision_is_rejected_before_privileged_work() {
+    let mut initial = default_config();
+    initial.revision = i64::MAX as u64;
+    let client = ScriptedClient::ok();
+    let engine = Engine::with_client(initial.clone(), None, client.clone());
+    initial.system.hostname = "revision-overflow".into();
+    let (tx, result) = engine.process_transaction("exhausted-revision", initial);
+    assert_eq!(tx.current_state, State::Rejected);
+    assert!(result.unwrap_err().to_string().contains("revision limit"));
+    assert!(client.ops().is_empty());
+}

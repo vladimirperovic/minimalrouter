@@ -33,12 +33,11 @@ fn cipher_for(password: &str, salt: &[u8]) -> Result<Aes256Gcm> {
     }
     let _slot = crate::kdf::Slot::acquire()?;
     let params = argon2::Params::new(64 * 1024, 3, 1, Some(32)).map_err(|e| errorf!("{}", e))?;
-    let mut key = [0u8; 32];
+    let mut key = crate::sys::SecretBytes([0u8; 32]);
     argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
-        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .hash_password_into(password.as_bytes(), salt, &mut key.0)
         .map_err(|e| errorf!("{}", e))?;
-    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| errorf!("{}", e))?;
-    key.fill(0);
+    let cipher = Aes256Gcm::new_from_slice(&key.0).map_err(|e| errorf!("{}", e))?;
     Ok(cipher)
 }
 
@@ -49,18 +48,18 @@ pub fn encrypt(cfg: &SystemConfig, policy: Option<&Policy>, password: &str) -> R
     if let Some(policy) = policy {
         policy.validate()?;
     }
-    let mut plaintext = json::marshal(&Payload {
+    let plaintext = crate::sys::SecretBytes(json::marshal(&Payload {
         product: "Minimal Router OS".into(),
         version: 2,
         created_at: Time::now_utc().rfc3339(),
         config: cfg.clone(),
         dns_filter: policy.cloned(),
-    })?;
+    })?);
     let salt = rand::bytes(16).map_err(|e| errorf!("{}", e))?;
     let aead = cipher_for(password, &salt)?;
     let nonce = rand::bytes(12).map_err(|e| errorf!("{}", e))?;
-    let sealed = aead.encrypt(Nonce::from_slice(&nonce), AeadPayload { msg: &plaintext, aad: AAD }).map_err(|_| errorf!("seal backup"))?;
-    plaintext.fill(0);
+    let sealed = aead.encrypt(Nonce::from_slice(&nonce), AeadPayload { msg: &plaintext.0, aad: AAD }).map_err(|_| errorf!("seal backup"))?;
+    drop(plaintext);
     let envelope = BackupEnvelope {
         product: PRODUCT.into(),
         format_version: 2,
@@ -101,10 +100,11 @@ pub fn decrypt(raw: &[u8], password: &str) -> Result<Payload> {
     let nonce = crate::goish::base64::std_decode(&envelope.nonce).filter(|n| n.len() == 12).ok_or_else(|| errorf!("invalid backup nonce"))?;
     let ciphertext = crate::goish::base64::std_decode(&envelope.ciphertext).filter(|c| c.len() >= 16).ok_or_else(|| errorf!("invalid backup ciphertext"))?;
     let aead = cipher_for(password, &salt)?;
-    let mut plaintext =
-        aead.decrypt(Nonce::from_slice(&nonce), AeadPayload { msg: &ciphertext, aad: AAD }).map_err(|_| errorf!("backup authentication failed"))?;
-    let parsed: std::result::Result<Payload, _> = json::unmarshal(&plaintext);
-    plaintext.fill(0);
+    let plaintext = crate::sys::SecretBytes(
+        aead.decrypt(Nonce::from_slice(&nonce), AeadPayload { msg: &ciphertext, aad: AAD }).map_err(|_| errorf!("backup authentication failed"))?,
+    );
+    let parsed: std::result::Result<Payload, _> = json::unmarshal(&plaintext.0);
+    drop(plaintext);
     let mut payload = parsed.map_err(|_| errorf!("invalid backup payload"))?;
     if payload.product != "Minimal Router OS" || payload.version != 2 {
         return Err(errorf!("unsupported backup payload"));

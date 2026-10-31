@@ -8,7 +8,7 @@
   <a href="#status"><img alt="Status: Beta" src="https://img.shields.io/badge/status-beta-blue" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/vladimirperovic/minimalrouter/actions/workflows/codeql.yml/badge.svg" /></a>
-  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.4.0"><img alt="Beta release: v0.4.0" src="https://img.shields.io/badge/beta-v0.4.0-6b7280" /></a>
+  <a href="https://github.com/vladimirperovic/minimalrouter/releases/tag/v0.4.1"><img alt="Beta release: v0.4.1" src="https://img.shields.io/badge/beta-v0.4.1-6b7280" /></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
 </p>
 
@@ -43,32 +43,35 @@ recoverable and fail-closed.
 
 <a id="status"></a>
 
-> **Beta — v0.4.0.** The preferred AMD64/Proxmox installation path is the
+> **Beta — v0.4.1.** The preferred AMD64/Proxmox installation path is the
 > **Golden Appliance ISO**. Alpine Linux, the matching `linux-lts` kernel and
 > modules, MinimalRouter, Dashboard and runtime packages are built in CI before
 > the user VM boots. The ISO verifies and flashes that prebuilt image, reboots,
-> then runs a short first-boot router configuration. v0.4.0 moves all router
-> executables to Rust and new Golden installations to Alpine 3.24 / Linux 6.18.
+> then runs a short first-boot router configuration. Since v0.4.0, all router
+> executables build from Rust; Golden installations use Alpine 3.24 / Linux 6.18.
 > The image build rejects kernels older than the CVE-2026-98432 fix. Appliances
-> on v0.3.3 or earlier need the full signed distribution installer for the Rust
-> transition; this does not upgrade their existing OS kernel. See the
-> [upgrade instructions](docs/INSTALLATION.md#upgrading-to-v040).
+> on v0.4.0 or earlier need the full signed distribution installer for the
+> updated bootstrap tools; this does not upgrade their existing OS kernel. See
+> [upgrade instructions](docs/INSTALLATION.md#upgrading-to-v041).
 > This remains a controlled-pilot Beta with console recovery available. See
 > [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
-## v0.4.0 quick start — Proxmox
+This checkout prepares v0.4.1; publication remains gated by the exact-commit
+checks in [the validation record](docs/CURRENT_VALIDATION.md).
 
-Download these assets from the **v0.4.0 GitHub release**:
+## v0.4.1 quick start — Proxmox
+
+Download these assets from the **v0.4.1 GitHub release**:
 
 ```text
-minimalrouter-0.4.0-amd64.iso
-minimalrouter-0.4.0-amd64.iso.sha256
+minimalrouter-0.4.1-amd64.iso
+minimalrouter-0.4.1-amd64.iso.sha256
 ```
 
 Verify before attaching the ISO:
 
 ```sh
-sha256sum -c minimalrouter-0.4.0-amd64.iso.sha256
+sha256sum -c minimalrouter-0.4.1-amd64.iso.sha256
 ```
 
 Create a QEMU/KVM VM with the currently proven target profile:
@@ -103,8 +106,8 @@ Serial:    ttyS0 @ 115200
 Full instructions, including the Proxmox VM profile:
 [`docs/INSTALLATION.md`](docs/INSTALLATION.md).
 
-> The installer ISO contains BIOS and UEFI boot metadata, but the v0.4.0
-> **installed Golden target** that is fully exercised end-to-end is the
+> The installer ISO contains BIOS and UEFI boot metadata, but the v0.4.1
+> **installed Golden target** required by end-to-end release qualification is the
 > SeaBIOS/MBR path. Do not claim UEFI installed-disk qualification yet.
 
 ## If the ISO gives you trouble: build it yourself onto an Alpine VM

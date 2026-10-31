@@ -426,29 +426,10 @@ pub(crate) fn parse_wg_tunnel_status(iface: &str, dump: &str) -> TunnelStatus {
     status
 }
 
-/// Requires a completed and, with keepalive, recent wg1 handshake.
-pub(crate) fn wg_handshake_fresh(dump: &str, keepalive: i64) -> Result<()> {
-    for line in dump.split('\n') {
-        let f: Vec<&str> = line.split_whitespace().collect();
-        if f.len() < 8 || f[0] == "interface" {
-            continue;
-        }
-        let Some(ts) = crate::config::go_atoi(f[4]).filter(|ts| *ts > 0) else {
-            return Err(errorf!("WireGuard client tunnel has no completed handshake"));
-        };
-        let last_seen = Time::now().sub(&Time::from_unix(ts, 0));
-        if last_seen < crate::goish::time::Duration::secs(-30) {
-            return Err(errorf!("WireGuard client handshake timestamp is in the future"));
-        }
-        if keepalive > 0 {
-            let max_age = crate::goish::time::Duration::minutes(3).max(crate::goish::time::Duration::secs(keepalive * 3));
-            if last_seen > max_age {
-                return Err(errorf!("WireGuard client handshake is stale (last {} ago)", last_seen.round(crate::goish::time::Duration::SECOND)));
-            }
-        }
-        return Ok(());
-    }
-    Err(errorf!("WireGuard client tunnel has no peer"))
+/// Uses exactly the same freshness rules as the management plane.
+pub(crate) fn wg_handshake_fresh(dump: &str, keepalive: i64, not_before: Option<i64>) -> Result<()> {
+    let status = parse_wg_tunnel_status("wg1", dump);
+    crate::apply::verify_wg_client_handshake(status.last_handshake, keepalive, not_before, Time::now().unix())
 }
 
 #[cfg(test)]
@@ -470,9 +451,9 @@ mod tests {
     fn handshake_freshness() {
         let now = Time::now().unix();
         let dump = format!("priv pub 51820 off\npeer psk 1.2.3.4:51820 10.0.0.0/8 {} 10 20 25\n", now - 10);
-        wg_handshake_fresh(&dump, 25).unwrap();
+        wg_handshake_fresh(&dump, 25, None).unwrap();
         let stale = format!("priv pub 51820 off\npeer psk 1.2.3.4:51820 10.0.0.0/8 {} 10 20 25\n", now - 600);
-        assert!(wg_handshake_fresh(&stale, 25).unwrap_err().to_string().starts_with("WireGuard client handshake is stale"));
+        assert!(wg_handshake_fresh(&stale, 25, None).unwrap_err().to_string().starts_with("WireGuard client handshake is stale"));
         assert_eq!(parse_wg_tunnel_status("wg1", &dump).rx_bytes, 10);
     }
 }

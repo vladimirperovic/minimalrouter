@@ -222,11 +222,10 @@ pub(crate) fn read_request(stream: &std::os::unix::net::UnixStream, limit: usize
         if n == 0 {
             return Ok(data);
         }
-        let take = n.min(limit - data.len());
-        data.extend_from_slice(&buf[..take]);
-        if data.len() >= limit {
-            return Ok(data);
+        if n > limit.saturating_sub(data.len()) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "request exceeds byte limit"));
         }
+        data.extend_from_slice(&buf[..n]);
     }
 }
 
@@ -240,6 +239,16 @@ pub(crate) fn write_json_line<T: serde::Serialize>(stream: &std::os::unix::net::
     Ok(())
 }
 
+#[cfg(unix)]
+struct ConnectionPermit(std::sync::Arc<std::sync::Mutex<std::sync::mpsc::Receiver<()>>>);
+
+#[cfg(unix)]
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        let _ = self.0.lock().unwrap_or_else(|e| e.into_inner()).recv();
+    }
+}
+
 /// Accepts with at most `limit` concurrent handlers, acquiring before Accept
 /// so idle peers cannot create unbounded descriptors or threads.
 #[cfg(unix)]
@@ -250,19 +259,61 @@ pub(crate) fn serve_bounded(listener: std::os::unix::net::UnixListener, limit: u
         if tx.send(()).is_err() {
             return;
         }
+        let permit = ConnectionPermit(rx.clone());
         match listener.accept() {
             Ok((stream, _)) => {
-                let rx = rx.clone();
-                std::thread::spawn(move || {
+                // Dropped on unwind and on thread creation failure as well.
+                if let Err(err) = std::thread::Builder::new().spawn(move || {
+                    let _permit = permit;
                     handle(stream);
-                    let _ = rx.lock().map(|r| r.recv());
-                });
+                }) {
+                    log::warn!("start connection handler: {}", err);
+                }
             }
             Err(err) => {
-                let _ = rx.lock().map(|r| r.recv());
+                drop(permit);
                 log::warn!("accept connection: {}", err);
                 std::thread::sleep(Duration::from_millis(100));
             }
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn request_limit_requires_eof_and_rejects_valid_json_prefix() {
+        for bytes in [b"{}".as_slice(), b"{} ".as_slice()] {
+            let (reader, mut writer) = UnixStream::pair().unwrap();
+            writer.write_all(bytes).unwrap();
+            writer.shutdown(std::net::Shutdown::Write).unwrap();
+            let result = read_request(&reader, 2, Instant::now() + Duration::from_secs(1));
+            if bytes.len() == 2 {
+                assert_eq!(result.unwrap(), bytes);
+            } else {
+                assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+            }
+        }
+    }
+
+    #[test]
+    fn panicking_handler_returns_connection_capacity() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        for _ in 0..16 {
+            tx.try_send(()).expect("previous panic leaked a permit");
+            let permit = ConnectionPermit(rx.clone());
+            assert!(
+                std::thread::spawn(move || {
+                    let _permit = permit;
+                    panic!("deliberate handler failure");
+                })
+                .join()
+                .is_err()
+            );
         }
     }
 }

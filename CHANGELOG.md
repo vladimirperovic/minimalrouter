@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.1] — candidate
+
+- Require a new post-activation WireGuard client handshake and share confirmation
+  freshness rules across routerd and router-applyd.
+- Harden trusted CIDRs, applyd panic capacity/IPC limits, HTTP writes and framing,
+  persisted session identifiers, sensitive buffers and private/durable writes.
+- Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
+  and recover operation bookkeeping after worker panics.
+- Validate archive roots/modes and checked revision arithmetic.
+- Add targeted regressions and document every supplied audit finding in
+  [SECURITY-REVIEW-0.4.1.md](docs/SECURITY-REVIEW-0.4.1.md).
+- Record the full signed installer requirement for v0.4.0 and earlier; retain
+  all Golden ISO, signed-update and rollback gates.
+
+
 All notable user-visible changes are documented here. The project intends to use
 semantic versioning when the first stable release is published. During beta,
 compatibility may still change between releases.
