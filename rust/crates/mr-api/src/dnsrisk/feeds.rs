@@ -42,9 +42,10 @@ pub struct FeedStatus {
     pub updating: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct Feed {
     pub source: Source,
-    pub db: Option<Mutex<Connection>>,
+    pub db: Option<std::sync::Arc<Mutex<Connection>>>,
     pub slot: i64,
     pub etag: String,
     pub status: FeedStatus,
@@ -271,7 +272,7 @@ impl Service {
                 params![source.id, slot, count, now.unix(), now.unix(), next_etag],
             )?;
             let feed = &mut feeds[index];
-            feed.db = Some(Mutex::new(next));
+            feed.db = Some(std::sync::Arc::new(Mutex::new(next)));
             feed.slot = slot;
             feed.etag = next_etag.clone();
             feed.status.entries = count;

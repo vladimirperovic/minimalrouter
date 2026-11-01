@@ -1,0 +1,54 @@
+name: Parser fuzzing
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 2 * * *"
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Total fuzzing budget across the four targets"
+        type: choice
+        options: ["300", "1800"]
+        default: "300"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fuzzing-${{ github.event_name }}-${{ github.ref }}-${{ github.event.schedule }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    name: Production parsers with AddressSanitizer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build all four fuzz targets
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          sanitizer: address
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          project-src-path: ${{ github.workspace }}
+          keep-unaffected-fuzz-targets: true
+      - name: Fuzz or prune the saved corpus
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+          mode: ${{ github.event.schedule == '17 4 * * 0' && 'prune' || (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'batch' || 'code-change' }}
+          fuzz-seconds: ${{ github.event.schedule == '23 2 * * *' && '1800' || github.event.schedule == '17 4 * * 0' && '600' || inputs.seconds || '300' }}
+          parallel-fuzzing: true
+          output-sarif: true
+          report-unreproducible-crashes: true

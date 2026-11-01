@@ -9,6 +9,8 @@ mod server;
 
 pub use multipart::{Form, MultipartReader, Part, read_form};
 pub use router::{Handler, Router};
+#[cfg(feature = "fuzzing")]
+pub use server::fuzz_http_connection;
 pub use server::{BodySource, CertResolver, ServerOptions, serve};
 
 use serde::Serialize;
@@ -20,6 +22,10 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Headers {
     items: Vec<(String, String)>,
+}
+
+fn valid_header_name(name: &str) -> bool {
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
 /// textproto.CanonicalMIMEHeaderKey for ASCII token names.
@@ -48,11 +54,17 @@ impl Headers {
     }
 
     pub fn set(&mut self, name: &str, value: impl Into<String>) {
+        if !valid_header_name(name) {
+            return;
+        }
         self.del(name);
         self.items.push((canonical_key(name), value.into()));
     }
 
     pub fn add(&mut self, name: &str, value: impl Into<String>) {
+        if !valid_header_name(name) {
+            return;
+        }
         self.items.push((canonical_key(name), value.into()));
     }
 

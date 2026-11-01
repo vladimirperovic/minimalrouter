@@ -1,7 +1,7 @@
 //! Canonical SQLite persistence and snapshot management.
 //!
-//! The schema, SQL statements and stored text formats match the Go store, so a
-//! database written by either implementation can be opened by the other.
+//! Configuration and snapshot formats remain compatible with the Go store.
+//! Since v0.4.1 session identifiers are hashed and legacy bearer rows are revoked.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
@@ -202,7 +202,7 @@ impl SQLiteStore {
         match current {
             Some(text) => {
                 let advances =
-                    json::unmarshal::<SystemConfig>(text.as_bytes()).map(|current| cfg.revision == current.revision.wrapping_add(1)).unwrap_or(false);
+                    json::unmarshal::<SystemConfig>(text.as_bytes()).map(|current| Some(cfg.revision) == current.revision.checked_add(1)).unwrap_or(false);
                 if !advances {
                     return Err(errorf!("configuration revision must advance exactly once"));
                 }
@@ -250,7 +250,7 @@ impl SQLiteStore {
         let tx = conn.transaction().map_err(|e| wrapf("failed to begin snapshot transaction", e))?;
         tx.execute(
             "INSERT INTO snapshots (id, revision, created_at, checksum, config_json, kind, label) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![id, cfg.revision as i64, created_at, checksum, data, kind, label],
+            params![id, i64::try_from(cfg.revision).map_err(|_| errorf!("snapshot revision exceeds SQLite range"))?, created_at, checksum, data, kind, label],
         )
         .map_err(|e| wrapf("failed to insert snapshot", e))?;
         tx.execute_batch(prune_snapshots_sql(kind)).map_err(|e| wrapf("failed to prune snapshots", e))?;
@@ -487,7 +487,7 @@ impl SQLiteStore {
         let current_json: String =
             tx.query_row("SELECT config_json FROM config_revisions ORDER BY revision DESC LIMIT 1", [], |r| r.get(0)).map_err(sql_err)?;
         let current: SystemConfig = json::unmarshal(current_json.as_bytes())?;
-        if cfg.revision != current.revision.wrapping_add(1) {
+        if Some(cfg.revision) != current.revision.checked_add(1) {
             return Err(errorf!("initial configuration revision must advance exactly once"));
         }
         cfg.updated_at = Time::now_utc();
@@ -510,7 +510,7 @@ impl SQLiteStore {
         self.lock()
             .execute(
                 "INSERT INTO sessions (id, csrf_token, read_only, auth_generation, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
-                params![session_id, csrf_token, read_only, auth_generation as i64, created_at.rfc3339(), last_seen.rfc3339()],
+                params![session_lookup_key(session_id), csrf_token, read_only, auth_generation as i64, created_at.rfc3339(), last_seen.rfc3339()],
             )
             .map_err(sql_err)?;
         Ok(())
@@ -535,7 +535,7 @@ impl SQLiteStore {
         }
         tx.execute(
             "INSERT INTO sessions (id, csrf_token, read_only, auth_generation, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)",
-            params![session_id, csrf_token, read_only, expected_generation as i64, created_at.rfc3339(), last_seen.rfc3339()],
+            params![session_lookup_key(session_id), csrf_token, read_only, expected_generation as i64, created_at.rfc3339(), last_seen.rfc3339()],
         )
         .map_err(sql_err)?;
         tx.commit().map_err(sql_err)?;
@@ -546,9 +546,11 @@ impl SQLiteStore {
     pub fn get_session(&self, session_id: &str) -> Result<(String, bool, u64, Time, Time)> {
         let (csrf, read_only, generation, created, last_seen): (String, bool, i64, String, String) = self
             .lock()
-            .query_row("SELECT csrf_token, read_only, auth_generation, created_at, last_seen FROM sessions WHERE id = ?", params![session_id], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
-            })
+            .query_row(
+                "SELECT csrf_token, read_only, auth_generation, created_at, last_seen FROM sessions WHERE id = ?",
+                params![session_lookup_key(session_id)],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
             .map_err(sql_err)?;
         let created_at = Time::parse_rfc3339(&created).ok_or_else(|| errorf!("parsing time {:?} as RFC3339", created))?;
         let last_seen_at = Time::parse_rfc3339(&last_seen).ok_or_else(|| errorf!("parsing time {:?} as RFC3339", last_seen))?;
@@ -556,12 +558,12 @@ impl SQLiteStore {
     }
 
     pub fn update_session_last_seen(&self, session_id: &str, last_seen: Time) -> Result<()> {
-        self.lock().execute("UPDATE sessions SET last_seen = ? WHERE id = ?", params![last_seen.rfc3339(), session_id]).map_err(sql_err)?;
+        self.lock().execute("UPDATE sessions SET last_seen = ? WHERE id = ?", params![last_seen.rfc3339(), session_lookup_key(session_id)]).map_err(sql_err)?;
         Ok(())
     }
 
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
-        self.lock().execute("DELETE FROM sessions WHERE id = ?", params![session_id]).map_err(sql_err)?;
+        self.lock().execute("DELETE FROM sessions WHERE id = ?", params![session_lookup_key(session_id)]).map_err(sql_err)?;
         Ok(())
     }
 
@@ -599,6 +601,12 @@ impl SQLiteStore {
         self.lock().execute("DELETE FROM rate_limit_buckets WHERE window_start < ?", params![cutoff]).map_err(sql_err)?;
         Ok(())
     }
+}
+
+// Only the random bearer session token authenticates a request; CSRF alone
+// cannot. Store a domain-separated digest so a database copy is not a cookie jar.
+fn session_lookup_key(token: &str) -> String {
+    format!("sha256:{}", hex::encode(Sha256::new().chain_update(b"minimalrouter-session-v1:").chain_update(token.as_bytes()).finalize()))
 }
 
 fn get_auth_generation(conn: &Connection) -> rusqlite::Result<u64> {
@@ -684,6 +692,9 @@ fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
             conn.execute_batch(&format!("ALTER TABLE {} ADD COLUMN {}", table, definition))?;
         }
     }
+    // Legacy rows contain reusable bearer tokens. Revoke rather than preserve
+    // them on upgrade. Hashed rows continue to survive normal restarts.
+    conn.execute("DELETE FROM sessions WHERE id NOT GLOB 'sha256:*'", [])?;
     // Seed older appliances from the complete retained history.
     conn.execute_batch(
         "INSERT OR IGNORE INTO backup_export_status(id, exported_at)
@@ -715,4 +726,34 @@ pub fn set_mode(path: &str, mode: u32) -> std::io::Result<()> {
 #[cfg(not(unix))]
 pub fn set_mode(_path: &str, _mode: u32) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod session_storage_tests {
+    use super::*;
+
+    #[test]
+    fn database_identifiers_are_not_reusable_bearer_tokens() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        let store = SQLiteStore { conn: Mutex::new(conn) };
+        let now = Time::now();
+        store.create_session("synthetic-session-token", "synthetic-csrf", false, 1, now, now).unwrap();
+        let saved: String = store.lock().query_row("SELECT id FROM sessions", [], |r| r.get(0)).unwrap();
+        assert_ne!(saved, "synthetic-session-token");
+        assert!(saved.starts_with("sha256:"));
+        assert!(store.get_session(&saved).is_err());
+        assert_eq!(store.get_session("synthetic-session-token").unwrap().0, "synthetic-csrf");
+        store.update_session_last_seen("synthetic-session-token", now.add(Duration::MINUTE)).unwrap();
+        assert_eq!(store.get_session("synthetic-session-token").unwrap().4.unix(), now.add(Duration::MINUTE).unix());
+        store
+            .lock()
+            .execute("INSERT INTO sessions(id,csrf_token,created_at,last_seen) VALUES('legacy-token','csrf',?,?)", params![now.rfc3339(), now.rfc3339()])
+            .unwrap();
+        run_migrations(&store.lock()).unwrap();
+        assert_eq!(store.lock().query_row("SELECT count(*) FROM sessions", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert!(store.get_session("synthetic-session-token").is_ok());
+        store.delete_session("synthetic-session-token").unwrap();
+        assert!(store.get_session("synthetic-session-token").is_err());
+    }
 }

@@ -244,7 +244,14 @@ fn write_atomic(path: &str, data: &[u8], mode: u32) -> Result<()> {
     let dir = target.parent().unwrap_or(std::path::Path::new("."));
     let tmp = dir.join(format!(".tls-{}", crate::auth::generate_random_hex(6)?));
     let result = (|| -> std::io::Result<()> {
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        let mut file = options.open(&tmp)?;
         crate::config::set_mode(&tmp.to_string_lossy(), mode)?;
         file.write_all(data)?;
         file.sync_all()?;

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use super::catalog::{Catalog, catalog_match, catalog_path, download_catalog, emit_catalog, read_catalog};
+use super::catalog::{Catalog, CatalogIndex, catalog_path, download_catalog, emit_catalog, read_catalog};
 #[cfg(unix)]
 use super::policy::Response;
 use super::policy::{Applied, MAX_DOMAINS, MAX_METADATA_BYTES, Policy, Request, SOCKET_PATH, Source, default_policy, domain, sources};
@@ -189,6 +189,13 @@ pub struct Service {
     wake: Condvar,
     download: Arc<Download>,
     workers: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    catalogs: Mutex<std::collections::HashMap<PathBuf, CachedCatalog>>,
+}
+
+struct CachedCatalog {
+    modified: std::time::SystemTime,
+    size: u64,
+    index: Arc<CatalogIndex>,
 }
 
 fn now_utc() -> Time {
@@ -217,6 +224,7 @@ impl Service {
             wake: Condvar::new(),
             download: Arc::new(|path, source, previous, allow| download_catalog(path, source, previous, allow)),
             workers: Mutex::new(Vec::new()),
+            catalogs: Mutex::new(std::collections::HashMap::new()),
         });
         service.open_journal()?;
         let weak = Arc::downgrade(&service);
@@ -237,6 +245,7 @@ impl Service {
             let _ = handle.join();
         }
         *self.journal.lock().unwrap() = None;
+        self.catalogs.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     fn open_journal(&self) -> Result<()> {
@@ -327,26 +336,37 @@ impl Service {
     }
 
     fn catalog(&self, source: &Source, hash: &str) -> (Catalog, i64, Result<()>) {
-        let mut chosen = Catalog::default();
-        let mut slot: i64 = -1;
-        for i in 0..2 {
-            let (meta, result) = read_catalog(&catalog_path(&self.dir, source.id, i), source);
-            if result.is_err() {
-                continue;
+        match self.catalog_index(source, hash) {
+            Ok((index, slot)) => (index.meta.clone(), slot, Ok(())),
+            Err(err) => (Catalog { category: source.id.into(), label: source.label.into(), url: source.url(), ..Default::default() }, -1, Err(err)),
+        }
+    }
+
+    fn catalog_index(&self, source: &Source, hash: &str) -> Result<(Arc<CatalogIndex>, i64)> {
+        let mut chosen: Option<(Arc<CatalogIndex>, i64)> = None;
+        for slot in 0..2 {
+            let path = catalog_path(&self.dir, source.id, slot);
+            let Ok(metadata) = std::fs::metadata(&path) else { continue };
+            let Ok(modified) = metadata.modified() else { continue };
+            // Fixed sources and two slots bound this cache. Inspect the file on
+            // every lookup so replacement/removal cannot keep a stale index live.
+            let mut cache = self.catalogs.lock().unwrap_or_else(|e| e.into_inner());
+            let unchanged = cache.get(&path).is_some_and(|c| c.modified == modified && c.size == metadata.len());
+            if !unchanged {
+                cache.remove(&path);
+                let Ok(index) = read_catalog(&path, source) else { continue };
+                cache.insert(path.clone(), CachedCatalog { modified, size: metadata.len(), index: Arc::new(index) });
             }
-            if !hash.is_empty() && meta.hash == hash {
-                return (meta, i as i64, Ok(()));
+            let index = cache[&path].index.clone();
+            drop(cache);
+            if !hash.is_empty() && index.meta.hash == hash {
+                return Ok((index, slot as i64));
             }
-            if hash.is_empty() && meta.updated_at >= chosen.updated_at {
-                chosen = meta;
-                slot = i as i64;
+            if hash.is_empty() && chosen.as_ref().is_none_or(|(old, _)| index.meta.updated_at >= old.meta.updated_at) {
+                chosen = Some((index, slot as i64));
             }
         }
-        if slot < 0 {
-            let empty = Catalog { category: source.id.into(), label: source.label.into(), url: source.url(), ..Default::default() };
-            return (empty, -1, Err(errorf!("list not downloaded")));
-        }
-        (chosen, slot, Ok(()))
+        chosen.ok_or_else(|| errorf!("list not downloaded"))
     }
 
     pub fn status(&self, deadline: Instant) -> Result<Status> {
@@ -427,7 +447,8 @@ impl Service {
         drop(st);
         let this = self.clone();
         let handle = std::thread::spawn(move || {
-            let result = this.apply(&next, refresh);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| this.apply(&next, refresh)))
+                .unwrap_or_else(|_| Err(errorf!("DNS worker panicked; outcome unconfirmed; verify the applied policy")));
             let mut st = this.state();
             st.busy = false;
             st.generation += 1;
@@ -473,7 +494,16 @@ impl Service {
                 observer(&st.operations[0]);
             }
         });
-        self.workers.lock().unwrap().push(handle);
+        let mut workers = self.workers.lock().unwrap_or_else(|e| e.into_inner());
+        let mut i = 0;
+        while i < workers.len() {
+            if workers[i].is_finished() {
+                let _ = workers.swap_remove(i).join();
+            } else {
+                i += 1;
+            }
+        }
+        workers.push(handle);
         Ok(op)
     }
 
@@ -501,6 +531,7 @@ impl Service {
                     return Err(errorf!("storage pressure prevents DNS list refresh; current policy retained"));
                 }
                 let next_slot = if slot == 0 { 1 } else { 0 };
+                self.catalogs.lock().unwrap_or_else(|e| e.into_inner()).remove(&catalog_path(&self.dir, source.id, next_slot));
                 let allow = self.allow_write.as_deref();
                 meta = (self.download)(&catalog_path(&self.dir, source.id, next_slot), &source, &meta, allow)
                     .map_err(|e| errorf!("{}: refresh failed; current policy and lists retained ({})", source.label, e))?;
@@ -551,14 +582,14 @@ impl Service {
         };
         for source in sources() {
             let hash = state.sources.get(source.id).cloned().unwrap_or_default();
-            let (_, slot, read) = self.catalog(&source, &hash);
-            if read.is_err() {
+            let index = self.catalog_index(&source, &hash);
+            if index.is_err() {
                 if state.policy.category(source.id) {
                     return Err(errorf!("installed list index is unavailable"));
                 }
                 continue;
             }
-            let found = catalog_match(&catalog_path(&self.dir, source.id, slot as usize), &d)?;
+            let found = index?.0.find(&d)?;
             if !found.is_empty() {
                 let on = state.policy.category(source.id);
                 result.matches.push(Match { category: source.id.into(), domain: found, enabled: on });
@@ -608,5 +639,71 @@ fn run(service: std::sync::Weak<Service>) {
         if st.closed {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod regression_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct TestHelper {
+        panic_next: AtomicBool,
+    }
+    impl Helper for TestHelper {
+        fn call(&self, _: Instant, request: Request, _: Option<Emit<'_>>) -> Result<Applied, (Applied, crate::goish::errors::Error)> {
+            if request.operation == "apply" && self.panic_next.swap(false, Ordering::SeqCst) {
+                panic!("deliberate worker failure");
+            }
+            let mut state = Applied { healthy: true, policy: request.policy, ..Default::default() };
+            if request.operation == "apply" {
+                state.policy.revision += 1;
+            }
+            Ok(state)
+        }
+    }
+
+    #[test]
+    fn catalog_connections_are_reused_and_replaced_catalogs_are_reloaded() {
+        let dir = std::env::temp_dir().join(format!("mr-catalog-cache-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let service = Service::open(dir.to_str().unwrap(), Arc::new(TestHelper { panic_next: AtomicBool::new(false) }), None).unwrap();
+        let source = sources()[0].clone();
+        let path = catalog_path(&service.dir, source.id, 0);
+        let meta = super::super::catalog::build_catalog(&path, &source, b"bad.example.com\n".as_slice(), None).unwrap();
+        let (first, _) = service.catalog_index(&source, &meta.hash).unwrap();
+        let (second, _) = service.catalog_index(&source, &meta.hash).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(second.find("sub.bad.example.com").unwrap(), "bad.example.com");
+        drop(first);
+        drop(second);
+        service.catalogs.lock().unwrap().remove(&path);
+        let next = super::super::catalog::build_catalog(&path, &source, b"other.example.net\nlonger.example.org\n".as_slice(), None).unwrap();
+        assert!(service.catalog_index(&source, &meta.hash).is_err());
+        let (index, _) = service.catalog_index(&source, &next.hash).unwrap();
+        assert!(index.find("bad.example.com").unwrap().is_empty());
+        assert_eq!(index.find("other.example.net").unwrap(), "other.example.net");
+        drop(index);
+        service.close();
+        drop(service);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn worker_panic_is_reviewable_and_does_not_block_next_operation() {
+        let dir = std::env::temp_dir().join(format!("mr-worker-panic-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let service = Service::open(dir.to_str().unwrap(), Arc::new(TestHelper { panic_next: AtomicBool::new(true) }), None).unwrap();
+        for attempt in 0..12 {
+            service.start_operation(&default_policy(), false, "test").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while service.state().busy && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let history = service.history();
+            assert_eq!(history[0].state, if attempt == 0 { "needs_review" } else { "completed" });
+        }
+        assert!(service.workers.lock().unwrap().len() <= 3);
+        service.close();
+        drop(service);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

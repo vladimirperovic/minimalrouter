@@ -68,6 +68,11 @@ fn download_release_file(asset_url: &str, destination: &str, maximum: u64) -> Re
     copy_limited(response.into_reader(), destination, maximum, "release asset exceeds size limit")
 }
 
+#[cfg(feature = "fuzzing")]
+pub fn fuzz_archive_path(name: &str) -> Result<String> {
+    safe_archive_path(name, "minimalrouter-linux-amd64")
+}
+
 fn safe_archive_path(name: &str, prefix: &str) -> Result<String> {
     let clean = filepath::clean(name.trim());
     if clean == "." || clean.is_empty() || filepath::is_abs(&clean) || clean == ".." || clean.starts_with("../") {
@@ -96,11 +101,15 @@ fn extract_release_archive(archive_path: &str, destination: &str, arch: &str) ->
         let name = String::from_utf8_lossy(&entry.path_bytes()).into_owned();
         let clean = safe_archive_path(&name, &prefix)?;
         let mode = entry.header().mode().unwrap_or(0) & 0o777;
+        if clean == prefix && entry.header().entry_type() != tar::EntryType::Directory {
+            return Err(errorf!("release archive payload root must be a directory"));
+        }
         let target = join(destination, &clean);
         match entry.header().entry_type() {
             tar::EntryType::Directory => {
                 std::fs::create_dir_all(&target)?;
-                chmod(&target, mode)?;
+                // An archive cannot make directories unwritable or world-writable.
+                chmod(&target, 0o755)?;
                 if clean == prefix {
                     seen_root = true;
                 }
@@ -121,7 +130,7 @@ fn extract_release_archive(archive_path: &str, destination: &str, arch: &str) ->
                 if written != size {
                     return Err(errorf!("short release archive entry"));
                 }
-                chmod(&target, mode)?;
+                chmod(&target, if mode & 0o111 != 0 { 0o755 } else { 0o644 })?;
                 seen_root = true;
             }
             _ => return Err(errorf!("release archive contains unsupported entry type at {:?}", name)),
@@ -255,6 +264,7 @@ mod tests {
         assert_eq!(std::fs::read(Path::new(&root).join("bin/routerd-amd64")).unwrap(), b"ELF");
 
         for (entries, want) in [
+            (vec![("minimalrouter-linux-amd64", tar::EntryType::Regular, &b"x"[..])], "payload root must be a directory"),
             (vec![("../x", tar::EntryType::Regular, &b"x"[..])], "unsafe release archive path"),
             (vec![("other/x", tar::EntryType::Regular, &b"x"[..])], "unexpected top-level path"),
             (vec![("minimalrouter-linux-amd64/link", tar::EntryType::Symlink, &b""[..])], "unsupported entry type"),

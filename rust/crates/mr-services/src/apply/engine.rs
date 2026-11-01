@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
-use super::ipc::{ApplyRequest, ApplyResponse, Client, DEFAULT_SOCKET_PATH, TunnelStatus, UnixClient, op};
+use super::ipc::{ApplyRequest, ApplyResponse, Client, DEFAULT_SOCKET_PATH, UnixClient, op};
 use super::safety::{inspect_lan_change, validate_transition_safety};
 use crate::config::{self, Revision, SQLiteStore, SystemConfig, equal_section, requires_confirmation, validate_live_candidate};
 use crate::errorf;
@@ -110,6 +110,7 @@ impl Timer {
 
 struct PendingChange {
     tx: TxRef,
+    handshake_not_before: i64,
     previous: SystemConfig,
     timer: Option<Timer>,
     rollback_attempts: u32,
@@ -325,7 +326,10 @@ impl Engine {
             }
         }
 
-        new_cfg.revision = current.revision + 1;
+        let Some(revision) = current.revision.checked_add(1).filter(|r| *r <= i64::MAX as u64) else {
+            reject!(State::Rejected, "configuration revision limit reached".into());
+        };
+        new_cfg.revision = revision;
         new_cfg.updated_at = Time::now();
         lock(tx).config = new_cfg.clone();
         set(State::Planned, None);
@@ -358,6 +362,9 @@ impl Engine {
         // Canonical persistence always precedes helper last-good persistence
         // when a commit callback exists, including first-run setup.
         apply_req.defer_last_good = !apply_req.require_confirmation && commit_config.is_some();
+        // The helper retires the previous peer on client changes. Accept a
+        // new handshake in this same second, but never a historical one.
+        let handshake_not_before = Time::now().unix();
         let (mut st, result) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &apply_req);
         let resp = match result {
             Ok(resp) => resp,
@@ -409,6 +416,7 @@ impl Engine {
             });
             st.pending = Some(PendingChange {
                 tx: tx.clone(),
+                handshake_not_before,
                 previous: current,
                 timer: Some(timer),
                 rollback_attempts: 0,
@@ -525,7 +533,13 @@ impl Engine {
                         return (st, Err(errorf!("{}", msg)));
                     }
                 };
-                if let Err(err) = verify_wg_client_status_for_confirmation(tunnel.as_ref(), candidate.wg_client.persistent_keepalive) {
+                let not_before = st.pending.as_ref().expect("pending").handshake_not_before;
+                if let Err(err) = verify_wg_client_handshake(
+                    tunnel.as_ref().map_or(0, |s| s.last_handshake),
+                    candidate.wg_client.persistent_keepalive,
+                    Some(not_before),
+                    Time::now().unix(),
+                ) {
                     lock(tx).error = format!("WireGuard client confirmation failed: {}", err);
                     return (st, Err(err));
                 }
@@ -880,19 +894,61 @@ pub(crate) fn same_ipv4_network(a: &str, b: &str) -> bool {
     }
 }
 
-fn verify_wg_client_status_for_confirmation(status: Option<&TunnelStatus>, keepalive: i64) -> Result<()> {
-    let Some(status) = status.filter(|s| s.last_handshake > 0) else {
+/// Shared by the management plane and privileged confirmation gate.
+/// A changed client must complete a handshake after activation began, even
+/// without keepalive. Unchanged idle peers retain their existing semantics.
+pub fn verify_wg_client_handshake(last_handshake: i64, keepalive: i64, not_before: Option<i64>, now: i64) -> Result<()> {
+    if last_handshake <= 0 {
         return Err(errorf!("WireGuard client tunnel has no completed handshake"));
-    };
-    if keepalive <= 0 {
-        return Ok(());
     }
-    let max_age = GoDuration::minutes(3).max(GoDuration::secs(keepalive * 3));
-    let age = Time::now().sub(&Time::from_unix(status.last_handshake, 0));
-    if age > max_age {
-        return Err(errorf!("WireGuard client handshake is stale (last {} ago)", age.round(GoDuration::SECOND)));
+    if last_handshake > now.saturating_add(30) {
+        return Err(errorf!("WireGuard client handshake timestamp is in the future"));
+    }
+    if not_before.is_some_and(|start| start <= 0 || last_handshake < start) {
+        return Err(errorf!("WireGuard client requires a new handshake after configuration activation"));
+    }
+    if keepalive > 0 || not_before.is_some() {
+        let max_age = 180.max(keepalive.saturating_mul(3));
+        if now.saturating_sub(last_handshake) > max_age {
+            return Err(errorf!("WireGuard client handshake is stale"));
+        }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::verify_wg_client_handshake as verify;
+
+    #[test]
+    fn changed_client_requires_post_activation_handshake_without_keepalive() {
+        assert!(verify(999, 0, Some(1000), 1001).is_err());
+        assert!(verify(1000, 0, Some(1000), 1001).is_ok());
+        assert!(verify(1000, 0, Some(1000), 1200).is_err());
+        assert!(verify(0, 0, Some(1000), 1001).is_err());
+    }
+
+    #[test]
+    fn exact_freshness_and_activation_boundaries() {
+        assert!(verify(1000, 0, Some(1000), 1000).is_ok());
+        assert!(verify(1000, 25, Some(1000), 1180).is_ok());
+        assert!(verify(1000, 25, Some(1000), 1181).is_err());
+        assert!(verify(1000, 100, Some(1000), 1300).is_ok());
+        assert!(verify(1000, 100, Some(1000), 1301).is_err());
+        assert!(verify(1000, 0, Some(0), 1000).is_err());
+        assert!(verify(-1, 0, None, 1000).is_err());
+        assert!(verify(1030, 0, None, 1000).is_ok());
+        assert!(verify(i64::MAX, i64::MAX, Some(i64::MAX - 1), i64::MAX).is_ok());
+    }
+
+    #[test]
+    fn unchanged_idle_client_and_future_timestamps() {
+        assert!(verify(1, 0, None, 1000).is_ok());
+        assert!(verify(1, 25, None, 1000).is_err());
+        for keepalive in [0, 25] {
+            assert!(verify(1031, keepalive, None, 1000).is_err());
+        }
+    }
 }
 
 /// Renders every artifact for an APPLY_ALL request; the error names the

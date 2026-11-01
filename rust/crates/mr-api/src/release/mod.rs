@@ -7,6 +7,8 @@ mod checker;
 mod prepare;
 
 pub use checker::*;
+#[cfg(feature = "fuzzing")]
+pub use prepare::fuzz_archive_path;
 pub use prepare::{prepare_local_release, prepare_published};
 
 use serde::{Deserialize, Serialize};

@@ -280,7 +280,7 @@ impl UpdatePreferences {
         let _ = self.channel();
         let mut data = crate::goish::json::marshal_indent(&json!({"channel": channel.as_str()}), "  ")?;
         data.push(b'\n');
-        write_private_atomic(&self.path, ".update-preferences-", &data, false)?;
+        write_private_atomic(&self.path, ".update-preferences-", &data, true)?;
         *self.channel.lock().unwrap_or_else(|e| e.into_inner()) = Some(channel);
         Ok(())
     }

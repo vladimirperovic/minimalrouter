@@ -5,10 +5,48 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Release line: v0.4.0
+## Release line: v0.4.1 candidate
+
+Prepared 2026-10-31. The [release notes](releases/v0.4.1.md) and
+[finding-by-finding review](SECURITY-REVIEW-0.4.1.md) describe the changes.
+No v0.4.0 tag was present when the public remote was fetched for this review.
+
+Parser fuzzing and scheduled QEMU Lab coverage were added during preparation.
+Targeted safety mutation coverage is also required. Fuzz campaign results
+must be checked on the final candidate; a Windows
+no-link harness type-check is not an ASan/libFuzzer run.
+
+Local verification collected during preparation:
+
+- The Rust workspace tests passed, including the HTTPS contract suite, MCP TLS
+  integration, frozen Go fixtures and the added regressions. The explicit
+  performance benchmark remains ignored in the ordinary unit-test run.
+- The targeted mutation gate detected all 20 generated WG/IPC mutations locally;
+  no missed, timeout or compiler-rejected mutations were reported.
+- The HTTP overflow reproducer failed before the fix and all four HTTP tests
+  (including the in-memory harness) passed afterwards.
+- Clippy completed successfully with existing style warnings; formatting is
+  checked separately. No blanket warning suppression or new -D warnings gate.
+- Dashboard Vitest: 86 passed; dashboard production build and lint passed.
+  The separate precompression test is blocked by Windows symlink privilege
+  (EPERM); it remains mandatory in Linux CI.
+- Linux musl workspace and test binaries cross-compiled with the installed Zig
+  toolchain. This proves compilation, not Linux execution or ISO behavior.
+- The Windows Git Bash installer check passed its first eight mock cases but
+  exited nonzero later; no complete local packaging pass is claimed.
+
+The initial sandbox refused TLS temporary-file operations; the Rust tests were
+rerun with normal local filesystem/loopback access. These environment failures
+were not bypassed by weakening production checks.
+
+The exact v0.4.1 commit still requires all seven PR workflows, an unfiltered
+installed QEMU Lab, and signed-release ISO E2E before publication. The historical
+runs below do not qualify these changes. No real-lab validation is claimed.
+
+## Historical v0.4.0 preparation evidence
 
 **Minimal Router OS v0.4.0 — Beta**, prepared 2026-10-30
-([release notes](releases/v0.4.0.md)). All router executables are built from
+([historical notes](https://github.com/vladimirperovic/minimalrouter/blob/3aae5c4fc3437d6c857dc4139c772392b0877609/docs/releases/v0.4.0.md)). All router executables are built from
 the Rust workspace; the React/TypeScript dashboard remains the same application.
 New Golden images use Alpine 3.24 and the Linux 6.18 series, with a mandatory
 minimum of 6.18.56 for CVE-2026-98432. Both the live ISO kernel and the installed

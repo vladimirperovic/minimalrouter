@@ -1,0 +1,8 @@
+POST /api/config HTTP/1.1
+Host: router
+Transfer-Encoding: chunked
+
+2
+{}
+0
+

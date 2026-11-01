@@ -1,0 +1,2 @@
+# Raw HTTP messages require CRLF and a terminal empty line.
+seeds/http_request/* -text whitespace=cr-at-eol,-blank-at-eof

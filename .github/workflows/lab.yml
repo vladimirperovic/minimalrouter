@@ -10,7 +10,9 @@ name: Lab
 # `gh workflow run lab.yml --ref BRANCH`; it never rebuilds the ISO.
 
 on:
-  # Started by hand (gh workflow run lab.yml --ref BRANCH), not on every push: a
+  schedule:
+    - cron: "47 4 * * 1"
+  # Weekly on main, or by hand (gh workflow run lab.yml --ref BRANCH), not on every push: a
   # pull_request path filter matches the whole PR, so every push would restart
   # a run that takes about 1.5 hours.
   workflow_dispatch:
@@ -101,7 +103,7 @@ jobs:
         env:
           # Inputs reach the scripts as environment variables, never in the shell text.
           LAB_ONLY: ${{ inputs.only }}
-          LAB_SOAK_SECONDS: ${{ inputs.soak_seconds }}
+          LAB_SOAK_SECONDS: ${{ inputs.soak_seconds || '300' }}
         run: bash scripts/gh-lab/run.sh "$(cat iso-path.txt)"
 
       - name: Require every contract case to have executed and passed

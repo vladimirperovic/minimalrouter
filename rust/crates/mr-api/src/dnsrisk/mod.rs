@@ -144,7 +144,7 @@ impl Service {
             }
             if feed.status.entries > 0 && (feed.slot == 0 || feed.slot == 1) {
                 match open_feed(&feed_path(&dir, source.id, feed.slot)) {
-                    Ok(conn) => feed.db = Some(Mutex::new(conn)),
+                    Ok(conn) => feed.db = Some(std::sync::Arc::new(Mutex::new(conn))),
                     Err(_) => {
                         feed.status.entries = 0;
                         feed.status.updated_at = 0;
@@ -284,6 +284,10 @@ impl Service {
         result
     }
 
+    fn feed_snapshot(&self) -> Vec<Feed> {
+        self.feeds().clone()
+    }
+
     fn process_locked(&self, _stop: &crate::shutdown::Shutdown, batch: &Batch, incomplete: &mut bool) -> Result<()> {
         if batch.generation != self.generation.load(Ordering::SeqCst) {
             return Ok(());
@@ -295,7 +299,8 @@ impl Service {
         if !(self.allow_write)() {
             return Err(errorf!("storage pressure"));
         }
-        let feeds = self.feeds();
+        // Keep connections alive without holding the publication lock during SQL.
+        let feeds = self.feed_snapshot();
         let loaded = feeds.iter().filter(|f| f.db.is_some()).count();
         if loaded == 0 {
             return Err(ErrListsNotLoaded.into());
@@ -453,9 +458,17 @@ mod tests {
         {
             let mut feeds = service.feeds_mut();
             let feed = feeds.iter_mut().find(|f| f.source.id == "malware").unwrap();
-            feed.db = Some(Mutex::new(open_feed(&path).unwrap()));
+            feed.db = Some(std::sync::Arc::new(Mutex::new(open_feed(&path).unwrap())));
             feed.slot = 1;
         }
+        let snapshot = service.feed_snapshot();
+        // A batch can retain its old connection while a refresh publishes a new set.
+        let publication = service.feeds.try_write().expect("snapshot retained the publication read lock");
+        drop(publication);
+        let retained = snapshot.iter().find(|f| f.source.id == "malware").unwrap().db.as_ref().unwrap().clone();
+        assert_eq!(retained.lock().unwrap().query_row("SELECT count(*) FROM domains", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+        drop(retained);
+        drop(snapshot);
         let stop = crate::shutdown::Shutdown::new();
         let batch = Batch {
             lookups: vec![Lookup { name: "cdn.bad.example.com".into(), address: "192.168.1.9".into(), count: 2, at: Time::now().unix() }],

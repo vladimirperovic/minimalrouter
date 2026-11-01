@@ -16,6 +16,28 @@ pub fn zeroize(buf: &mut [u8]) {
     std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Owns sensitive bytes and erases them on every exit, including error/unwind.
+pub struct SecretBytes<T: AsMut<[u8]>>(pub T);
+
+impl<T: AsMut<[u8]>> Drop for SecretBytes<T> {
+    fn drop(&mut self) {
+        zeroize(self.0.as_mut());
+    }
+}
+
+/// Erases the original String allocation without making another secret copy.
+pub fn zeroize_string(value: &mut String) {
+    zeroize(&mut std::mem::take(value).into_bytes());
+}
+
+pub struct SecretString(pub String);
+
+impl Drop for SecretString {
+    fn drop(&mut self) {
+        zeroize_string(&mut self.0);
+    }
+}
+
 #[cfg(unix)]
 mod unix {
     use std::ffi::{CStr, CString};

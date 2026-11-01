@@ -6,7 +6,7 @@ This guide explains the appliance for people who do not need to know Linux netwo
 
 There are two recommended deployment paths.
 
-### Option A — v0.4.0 Golden ISO install
+### Option A — v0.4.1 Golden ISO install
 
 Use the Golden Appliance ISO when you want the cleanest, most repeatable AMD64/Proxmox deployment.
 
@@ -230,3 +230,10 @@ Prefer the least destructive action: **Diagnose connection** → **Startup Timel
 ## Security model in plain language
 
 The management plane is intentionally not a general root process. Privileged network application is separated behind a narrow helper. WAN management is not opened by default. Authentication, trusted management networks, CSRF/origin checks, rate limiting and optional TOTP protect the dashboard. Secrets are redacted from normal read APIs and diagnostics. Firmware is accepted only when it chains to the installed trust anchor. These controls reduce risk, but they do not remove the need to secure administrator credentials, signing keys, endpoints and the hypervisor itself.
+
+### Traffic history retention
+
+Accounting retains at most MAX_TRACKED_DEVICES times the configured retention
+months across the entire table, prioritizing recent months and higher traffic.
+This is a global storage bound, not a separate device quota for every month;
+quieter or older rows may be pruned first.
