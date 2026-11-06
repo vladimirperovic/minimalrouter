@@ -62,6 +62,10 @@
   image, not with an A/B web update; the sshd limits and the 12-character
   recovery-password minimum apply to appliances installed or first booted after
   this change.
+- Close the OpenSSH musl password bypass (Alpine advisory of 2026-11-05,
+  OpenSSH 10.6p2): firstboot limits SSH logins to `root`, the full installer
+  adds `AllowUsers root` to already provisioned appliances, and the rootfs
+  build fails unless `openssh-server` is at least Alpine's `10.3_p1-r2`.
 - Correct three statements in `SECURITY.md` that did not match the code: the
   content-type check accepts an absent `Content-Type`; loopback passes only the
   source gate while `routerd` serves only the management addresses, and an empty

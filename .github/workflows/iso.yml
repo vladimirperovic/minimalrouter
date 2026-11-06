@@ -54,6 +54,7 @@ jobs:
           sh -n packaging/alpine/firstboot.sh
           sh -n packaging/alpine/firstboot.initd
           sh packaging/alpine/check-kernel-security_test.sh
+          sh packaging/alpine/check-openssh-security_test.sh
           tclsh scripts/ci/iso-kernel-release_test.tcl
 
           grep -F 'install_model=golden-image' packaging/alpine/build-iso.sh

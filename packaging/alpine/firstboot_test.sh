@@ -112,6 +112,14 @@ grep -q 'FAIL-CALLED: Password entry ended' "$WORK/password.out"
 if printf '%s\n' 'valid password 1' 'valid password 1' | CHPASSWD_RC=1 run_password; then echo 'FAIL chpasswd failure accepted'; exit 1; fi
 grep -q 'FAIL-CALLED: Could not set the recovery password' "$WORK/password.out"
 echo 'PASS firstboot fails closed when echo cannot be disabled, input ends or chpasswd fails'
+# Root is the only SSH account, and the restriction precedes any Match block.
+sed -n "/^    cat > \/etc\/ssh\/sshd_config <<'SSHD'\$/,/^SSHD\$/p" "$SOURCE/firstboot.sh" > "$WORK/sshd_config"
+[ "$(sed -n 2p "$WORK/sshd_config")" = 'AllowUsers root' ]
+[ "$(grep -c '^AllowUsers' "$WORK/sshd_config")" = 1 ]
+if grep -Eq '^(Match|AllowGroups|Include)' "$WORK/sshd_config"; then
+    echo 'FAIL provisioned sshd_config can bypass or scope AllowUsers root'; exit 1
+fi
+echo 'PASS provisioned SSH accepts root logins only'
 cat > "$WORK/bin/router-setup" <<'MOCK'
 #!/bin/sh
 exit "${SETUP_RC:-0}"

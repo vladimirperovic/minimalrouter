@@ -92,6 +92,41 @@ require_dnsmasq_nftset() {
     fi
 }
 
+# Appliances provisioned before SSH was limited to root keep the sshd_config
+# their firstboot wrote. Without PAM, unpatched musl sshd accepted any 257-1024
+# byte password for an account whose shadow field is `*` (OpenSSH 10.6p2,
+# Alpine openssh 10.3_p1-r2). SSH is the root recovery path and root always has
+# a real hash, so add `AllowUsers root` once, first in the file where no Match
+# block can scope it. An operator's own AllowUsers/AllowGroups policy is kept.
+# Every failure leaves the file untouched and the installation continues: a
+# half-finished install would strand the appliance in local recovery.
+restrict_appliance_ssh_to_root() {
+    config=/etc/ssh/sshd_config
+    candidate="$config.minimalrouter-new"
+    [ -f "$config" ] || return 0
+    if ! effective="$(/usr/sbin/sshd -T -f "$config" 2>/dev/null)"; then
+        echo "WARNING: sshd rejects $config; SSH login policy left unchanged" >&2
+        return 0
+    fi
+    if printf '%s\n' "$effective" | grep -Eq '^(allowusers|allowgroups) '; then
+        echo "SSH login policy already set by AllowUsers/AllowGroups; left unchanged"
+        return 0
+    fi
+    rm -f "$candidate"
+    # Copy first so the candidate keeps the original owner and mode.
+    if cp -p "$config" "$candidate" && {
+        echo "# MinimalRouter: SSH is the root recovery path; other accounts may not log in."
+        echo "AllowUsers root"
+        cat "$config"
+    } > "$candidate" && /usr/sbin/sshd -t -f "$candidate" >/dev/null 2>&1 && sync &&
+        mv -f "$candidate" "$config"; then
+        echo "SSH logins are now limited to root (active after the reboot that completes this installation)"
+    else
+        rm -f "$candidate"
+        echo "WARNING: could not limit SSH logins to root; SSH login policy left unchanged" >&2
+    fi
+}
+
 if [ "$OFFLINE_MODE" -eq 1 ]; then
     echo "[1/7] Checking dependencies (offline mode)..."
     MISSING_PKGS=""
@@ -133,6 +168,11 @@ if [ -f /etc/minimalrouter/installed ]; then
             printf '\nrc_need="${rc_need} minimalrouter-firstboot"\n' >> "/etc/conf.d/$service"
         fi
     done
+fi
+# Only a provisioned Golden appliance has the root-recovery sshd_config this
+# changes; a generic Alpine host keeps whatever SSH logins its owner set up.
+if [ -f /etc/minimalrouter/installed ] && [ -f /etc/minimalrouter/firstboot-complete ]; then
+    restrict_appliance_ssh_to_root
 fi
 sync
 

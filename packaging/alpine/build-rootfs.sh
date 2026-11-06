@@ -5,7 +5,7 @@ OUT="build/iso/minimalrouter-rootfs-${VERSION}-amd64.tar.gz"
 DIST="build/dist/minimalrouter-linux-amd64"
 [ -d "$DIST" ] || { echo "ERROR: build distribution first" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { echo "ERROR: Docker is required to build the rootfs" >&2; exit 1; }
-rm -f "$OUT" "$OUT.kernel-release"
+rm -f "$OUT" "$OUT.kernel-release" "$OUT.apk-installed"
 repo="$(pwd)"
 . packaging/alpine/alpine-release
 BUILDER_IMAGE="alpine:$ALPINE_VERSION"
@@ -135,6 +135,16 @@ ISSUE
 [ -s "$OUT" ] || { echo "ERROR: rootfs archive was not created" >&2; exit 1; }
 tar -xOf "$OUT" ./etc/minimalrouter/kernel-release > "$OUT.kernel-release"
 sh packaging/alpine/check-kernel-security.sh --release "$(cat "$OUT.kernel-release")"
+# The shipped archive must carry an openssh-server at or above the musl
+# password-bypass floor. apk keeps its database under /lib or, after the /usr
+# merge, /usr/lib; read whichever the archive actually contains.
+for apk_db in ./lib/apk/db/installed ./usr/lib/apk/db/installed; do
+  tar -xOf "$OUT" "$apk_db" > "$OUT.apk-installed" 2>/dev/null && break
+  rm -f "$OUT.apk-installed"
+done
+[ -s "$OUT.apk-installed" ] || { echo "ERROR: rootfs is missing the apk installed database" >&2; exit 1; }
+sh packaging/alpine/check-openssh-security.sh --db "$OUT.apk-installed"
+rm -f "$OUT.apk-installed"
 tar -tzf "$OUT" | grep -q '^./boot/vmlinuz-lts$' || { echo "ERROR: rootfs missing linux-lts kernel" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/router-applyd$' || { echo "ERROR: rootfs missing minimalrouter" >&2; exit 1; }
 tar -tzf "$OUT" | grep -q '^./usr/sbin/resize2fs$' || { echo "ERROR: rootfs missing resize2fs" >&2; exit 1; }
