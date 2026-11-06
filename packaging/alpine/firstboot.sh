@@ -96,7 +96,14 @@ resize_root_filesystem() {
 configure_ssh() {
     mkdir -p /etc/ssh
     ssh-keygen -A >/dev/null 2>&1 || fail "Could not generate SSH host keys"
+    # SSH exists for root recovery only, and root always carries a real hash
+    # (firstboot-ready enforces it). Limiting logins to root keeps password
+    # authentication away from accounts whose shadow field is `*`: on musl
+    # without PAM, unpatched sshd accepted any 257-1024 byte password for them
+    # (OpenSSH 10.6p2, Alpine openssh 10.3_p1-r2). install-dist.sh adds the
+    # same line to appliances provisioned before this restriction existed.
     cat > /etc/ssh/sshd_config <<'SSHD'
+AllowUsers root
 Port 22
 AddressFamily inet
 PermitRootLogin yes

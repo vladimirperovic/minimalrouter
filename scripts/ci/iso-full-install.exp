@@ -260,6 +260,7 @@ set checks {
     {test -d "/lib/modules/$(uname -r)" && echo CHECK_KERNEL_MODULE_MATCH_OK}
     {test "$(cat /etc/minimalrouter/kernel-release)" = "$(uname -r)" && echo CHECK_KERNEL_SECURITY_OK}
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
+    {test "$(/usr/sbin/sshd -T | grep -E '^allow(users|groups) ')" = 'allowusers root' && echo CHECK_SSH_ROOT_ONLY_OK}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
     {grep -q '@ALPINE_BRANCH@/main' /etc/apk/repositories && grep -q '@ALPINE_BRANCH@/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
@@ -291,6 +292,7 @@ foreach marker {
     CHECK_KERNEL_MODULE_MATCH_OK
     CHECK_KERNEL_SECURITY_OK
     CHECK_SSHD_ENABLED
+    CHECK_SSH_ROOT_ONLY_OK
     CHECK_SERIAL_GETTY_OK
     CHECK_APK_REPOS_OK
     CHECK_LAN_IP_OK

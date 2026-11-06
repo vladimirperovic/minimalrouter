@@ -359,7 +359,7 @@ Firstboot:
 2. runs `router-setup collect` for WAN/LAN, optional PPPoE and Dashboard password;
 3. applies the reviewed config offline to canonical state;
 4. sets a separate recovery/root password;
-5. generates unique SSH host keys;
+5. generates unique SSH host keys and limits SSH logins to `root`;
 6. restores `tty1` and `ttyS0` recovery gettys and adds `ttyS0` to `securetty`;
 7. writes `/etc/minimalrouter/firstboot-complete`;
 8. returns control to OpenRC so networking and MinimalRouter services may start.
@@ -398,6 +398,7 @@ The v0.1.6 gate proves:
 - nftables trusted-LAN SSH accept rule;
 - SSH TCP/22 listener;
 - `sshd` enabled in OpenRC;
+- effective `sshd` configuration allows `root` only;
 - firstboot-complete marker and SQLite state DB;
 - kernel and `/lib/modules/$(uname -r)` match;
 - `routerd` service and readiness marker;
@@ -473,6 +474,15 @@ build evidence is retained with the image, and the full installation test
 requires the booted installed kernel to pass the same check. A new kernel
 branch requires an explicit review of the baseline rather than an unchecked
 major-version comparison.
+
+`check-openssh-security.sh` applies the same fail-closed rule to the
+`openssh-server` package recorded in the finished rootfs archive's apk database.
+Alpine's build has no PAM, and on musl an unpatched `sshd` accepted any
+257–1024 byte password for an account whose shadow field is `*` (Alpine advisory
+of 2026-11-05, OpenSSH 10.6p2). The floor is Alpine's `10.3_p1-r2`; another
+upstream series fails the build until its floor is reviewed. Installed appliances
+also limit SSH logins to `root`, which always carries a real password hash, so
+the bypass has no account to reach even on an unpatched package.
 
 ## Future-agent checklist
 
