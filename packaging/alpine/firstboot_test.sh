@@ -17,6 +17,14 @@ grep -q '^supervisor=supervise-daemon$' "$SOURCE/firstboot.sh"
 grep -q '^command_args="-D -o PidFile=none"$' "$SOURCE/firstboot.sh"
 grep -q "cat > /etc/conf.d/sshd <<'SSHD_SERVICE'" "$SOURCE/firstboot.sh"
 echo 'PASS first boot supervises sshd so a crash is not permanent'
+# Root is the only SSH account, and the restriction precedes any Match block.
+sed -n "/^    cat > \/etc\/ssh\/sshd_config <<'SSHD'\$/,/^SSHD\$/p" "$SOURCE/firstboot.sh" > "$WORK/sshd_config"
+[ "$(sed -n 2p "$WORK/sshd_config")" = 'AllowUsers root' ]
+[ "$(grep -c '^AllowUsers' "$WORK/sshd_config")" = 1 ]
+if grep -Eq '^(Match|AllowGroups|Include)' "$WORK/sshd_config"; then
+    echo 'FAIL provisioned sshd_config can bypass or scope AllowUsers root'; exit 1
+fi
+echo 'PASS provisioned SSH accepts root logins only'
 cat > "$WORK/bin/router-setup" <<'MOCK'
 #!/bin/sh
 exit "${SETUP_RC:-0}"

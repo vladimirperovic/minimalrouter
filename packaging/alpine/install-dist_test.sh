@@ -113,3 +113,69 @@ for module in ppp_generic pppox pppoe; do
     grep -qx "$module" "$SOURCE/minimalrouter.modules"
 done
 echo 'PASS kernel module list is loaded at boot through the modules service'
+
+# Appliances provisioned before SSH was limited to root get AllowUsers root from
+# the full installer. Run only the real function against a temporary sshd_config;
+# the mock sshd prints the effective keywords (-T) and validates candidates (-t).
+mkdir -p "$WORK/etc/ssh"
+cat > "$WORK/mock-bin/sshd" <<'MOCK'
+#!/bin/sh
+case "$1" in
+  -T) [ -z "${SSHD_REJECT_CURRENT:-}" ] || exit 1
+      awk '!/^[[:space:]]*(#|$)/ { $1 = tolower($1); print }' "$3" ;;
+  -t) [ -z "${SSHD_REJECT_CANDIDATE:-}" ] || exit 1
+      grep -qx 'AllowUsers root' "$3" ;;
+  *) exit 2 ;;
+esac
+MOCK
+chmod 0755 "$WORK/mock-bin/sshd"
+awk '/^restrict_appliance_ssh_to_root\(\)/ {copy=1} copy {print} copy && /^}/ {exit}' "$SOURCE/install-dist.sh" |
+    sed "s|/etc/ssh/|$WORK/etc/ssh/|g; s|/usr/sbin/sshd|$WORK/mock-bin/sshd|g" > "$WORK/restrict-ssh.sh"
+printf '\nrestrict_appliance_ssh_to_root\n' >> "$WORK/restrict-ssh.sh"
+config="$WORK/etc/ssh/sshd_config"
+unchanged() {
+    cmp -s "$config" "$WORK/original" && [ ! -e "$config.minimalrouter-new" ]
+}
+cat > "$config" <<'CONFIG'
+Port 22
+PermitRootLogin yes
+PasswordAuthentication yes
+Match Address 192.0.2.0/24
+    PasswordAuthentication no
+CONFIG
+chmod 0600 "$config"
+cp -p "$config" "$WORK/original"
+mode="$(ls -l "$config" | cut -c1-10)"
+sh "$WORK/restrict-ssh.sh" > "$WORK/output" 2>&1
+grep -q 'limited to root' "$WORK/output"
+# Before every original line, so no Match block can scope the directive.
+[ "$(grep -v '^#' "$config" | head -n 1)" = 'AllowUsers root' ]
+tail -n +3 "$config" | cmp -s - "$WORK/original"
+[ "$(ls -l "$config" | cut -c1-10)" = "$mode" ]
+[ ! -e "$config.minimalrouter-new" ]
+cp -p "$config" "$WORK/original"
+sh "$WORK/restrict-ssh.sh" > "$WORK/output" 2>&1
+unchanged
+grep -q 'already set' "$WORK/output"
+echo 'PASS provisioned appliance SSH is limited to root once, ahead of every Match block'
+
+printf 'AllowGroups wheel\nPort 22\n' > "$config"
+cp -p "$config" "$WORK/original"
+sh "$WORK/restrict-ssh.sh" > /dev/null 2>&1
+unchanged
+printf 'Port 22\n' > "$config"
+cp -p "$config" "$WORK/original"
+SSHD_REJECT_CANDIDATE=1 sh "$WORK/restrict-ssh.sh" > "$WORK/output" 2>&1
+unchanged
+grep -q 'WARNING' "$WORK/output"
+SSHD_REJECT_CURRENT=1 sh "$WORK/restrict-ssh.sh" > "$WORK/output" 2>&1
+unchanged
+grep -q 'WARNING' "$WORK/output"
+echo 'PASS operator SSH policy, invalid configs and rejected candidates stay untouched'
+
+# A generic Alpine host keeps its owner's SSH logins: only a provisioned Golden
+# appliance runs the migration.
+grep -A1 '^if \[ -f /etc/minimalrouter/installed \] && \[ -f /etc/minimalrouter/firstboot-complete \]; then$' \
+    "$SOURCE/install-dist.sh" | tail -n 1 | grep -qx '    restrict_appliance_ssh_to_root'
+[ "$(grep -c '^ *restrict_appliance_ssh_to_root$' "$SOURCE/install-dist.sh")" = 1 ]
+echo 'PASS only a provisioned Golden appliance has its SSH policy changed'

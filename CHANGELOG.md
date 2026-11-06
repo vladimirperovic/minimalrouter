@@ -13,6 +13,10 @@
   [SECURITY-REVIEW-0.4.1.md](docs/SECURITY-REVIEW-0.4.1.md).
 - Record the full signed installer requirement for v0.4.0 and earlier; retain
   all Golden ISO, signed-update and rollback gates.
+- Close the OpenSSH musl password bypass (Alpine advisory of 2026-11-05,
+  OpenSSH 10.6p2): firstboot limits SSH logins to `root`, the full installer
+  adds `AllowUsers root` to already provisioned appliances, and the rootfs
+  build fails unless `openssh-server` is at least Alpine's `10.3_p1-r2`.
 
 
 All notable user-visible changes are documented here. The project intends to use
