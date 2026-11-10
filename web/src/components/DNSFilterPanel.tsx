@@ -6,6 +6,8 @@ import { dnsClockZone, type DNSDevice } from "../lib/dnsProtection";
 import { useDNSProtection } from "../lib/useDNSProtection";
 import NetworkDNSProtection from "./NetworkDNSProtection";
 import DNSEnforcementCard from "./DNSEnforcementCard";
+import DNSExemptCard from "./DNSExemptCard";
+import { withExemption } from "../lib/dnsExemptions";
 import DNSProfileDialog from "./DNSProfileDialog";
 import DNSProfileCard from "./DNSProfileCard";
 import DNSDisclosureHeading from "./DNSDisclosureHeading";
@@ -23,6 +25,7 @@ export default function DNSFilterPanel({ apiConnected, leases = [] }: Props) {
   const [search, setSearch] = useState("");
   const [resolvers, setResolvers] = useState<string | null>(null);
   const [resolverError, setResolverError] = useState("");
+  const [exemptError, setExemptError] = useState("");
   const resolverBase = useRef<RouterConfig | null>(null);
   const configRevision = useRef(config?.revision);
   useEffect(() => {
@@ -61,6 +64,13 @@ export default function DNSFilterPanel({ apiConnected, leases = [] }: Props) {
     catch(error) { setError((error as Error).message); }
     finally { setSaving(false); }
   }
+  async function changeExemption(device: DNSDevice, exempt: boolean) {
+    if (!config || !canEdit) return;
+    setSaving(true); setExemptError("");
+    try { await previewAndApplyConfig(withExemption(config,device,exempt)); }
+    catch(error) { setExemptError((error as Error).message); }
+    finally { setSaving(false); }
+  }
   async function saveResolvers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!config || !canEdit) return;
     setSaving(true); setResolverError("");
@@ -76,6 +86,8 @@ export default function DNSFilterPanel({ apiConnected, leases = [] }: Props) {
   return <section className="section-block dns-filter" id="adguard">
     <div className="section-heading dns-filter-heading"><div><p className="eyebrow">DNS Filter & device profiles</p><h2>DNS protection & schedules</h2><p className="dns-filter-intro">Manage network filtering, understand a blocked site and set device schedules.</p></div><button className="button primary" disabled={!canEdit || profiles.length >= 64} type="button" onClick={() => open()}>Add device profile</button></div>
     <NetworkDNSProtection control={control} devices={devices} configRevision={config?.revision} enforcement={<DNSEnforcementCard config={config} canEdit={canEdit} rulesInUse={rulesInUse}/>}/>
+
+    <DNSExemptCard config={config} devices={devices} canEdit={canEdit} error={exemptError} onChange={(device,exempt) => void changeExemption(device,exempt)}/>
 
     <article className="dns-protection-card dns-profiles-card" aria-label="Device profiles">
       <header><div className="dns-section-lead"><span className="dns-disclosure-icon"><DNSUtilityIcon kind="device"/></span><div><p className="eyebrow">A schedule for each device</p><h3>Device profiles</h3><p>Give each device its own time for the services that matter.</p></div></div><span className="dns-neutral-chip">{profiles.length} / 64 profiles</span></header>
