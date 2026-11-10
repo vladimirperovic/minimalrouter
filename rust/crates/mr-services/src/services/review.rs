@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
 use super::device_profiles::{active_managed_services, effective_day_windows};
+use super::nftables::{dns_exempt_from_rule, dns_exemption};
 use crate::config::{AccessWindow, FirewallConfig, FirewallRule, Revision, SystemConfig, equal_section, firewall_rule_scope};
 use crate::errorf;
 use crate::goish::errors::Result;
@@ -159,6 +160,12 @@ fn explain_verdict(cfg: &SystemConfig, flow: &FirewallFlow, result: &mut Firewal
             return ("deny", "Isolated segments cannot reach router services.");
         }
         if flow.port == 53 && flow.protocol != "icmp" {
+            if src == "lan" && dns_exemption(cfg).is_some_and(|exemption| exemption.ips.iter().any(|ip| *ip == flow.source_ip)) {
+                return (
+                    "allow",
+                    "This device is exempt from the network DNS categories: lookups addressed to the router are redirected to the first upstream resolver before they reach it.",
+                );
+            }
             return ("allow", "Router DNS is permitted from LAN and authenticated WireGuard; listener availability is not tested.");
         }
         if flow.protocol == "tcp"
@@ -204,6 +211,7 @@ fn explain_verdict(cfg: &SystemConfig, flow: &FirewallFlow, result: &mut Firewal
                 && r.direction == "forward"
                 && r.action == "deny"
                 && firewall_rule_matches(r, flow)
+                && !dns_exempt_from_rule(cfg, r, &flow.source_ip)
                 && (firewall_rule_scope(r) == "all" || (dst == "wan" && cfg.wan.enabled))
         }) {
             result.rule_id = rule.id.clone();
@@ -399,6 +407,17 @@ pub fn describe_network_changes(current: &SystemConfig, next: &SystemConfig) -> 
         if old_records.contains_key(record.name.as_str()) {
             changes.push(format!("Local DNS removed: {} → {}", record.name, record.ip));
         }
+    }
+    let mut old_exempt: HashMap<&str, &str> = current.adguard.exempt_devices.iter().map(|d| (d.ip_address.as_str(), d.hostname.as_str())).collect();
+    for device in next.adguard.exempt_devices.iter() {
+        if old_exempt.remove(device.ip_address.as_str()).is_none() {
+            changes.push(format!("DNS protection exemption added: {} · {}", device.hostname, device.ip_address));
+        }
+    }
+    let mut removed: Vec<_> = old_exempt.into_iter().collect();
+    removed.sort();
+    for (ip, hostname) in removed {
+        changes.push(format!("DNS protection exemption removed: {} · {}", hostname, ip));
     }
     if changes.len() > 50 {
         let extra = changes.len() - 50;

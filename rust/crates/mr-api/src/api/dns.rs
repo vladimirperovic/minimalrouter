@@ -82,6 +82,9 @@ struct DNSFilterContext {
     bundled_enabled: bool,
     profiles: Vec<ProfileStatus>,
     devices: Vec<DNSFilterDevice>,
+    /// Addresses whose lookups skip the network DNS categories.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    exempt_devices: Vec<String>,
     blockers: Vec<String>,
 }
 
@@ -136,6 +139,16 @@ fn explain_dns_domain(cfg: &SystemConfig, leases: &[DHCPLease], mut check: dnsfi
     if let Some((kind, address)) = &local {
         check.action = "Local DNS record".into();
         layers.push(layer(kind, "local", format!("Local address {} takes precedence over DNS lists.", address)));
+    }
+    if !device.is_empty() && services::dns_exempt_addresses(cfg).iter().any(|ip| ip == device) {
+        if check.action == "Block" || local.is_some() {
+            check.action = "Not filtered for this device".into();
+        }
+        layers.push(layer(
+            "device_exemption",
+            "allow",
+            "This device is exempt from the network DNS categories: its lookups go to the first upstream resolver, so lists, exceptions and local DNS names do not apply to it.".into(),
+        ));
     }
     let mut profile_out = None;
     if let Some(profile) = services::device_profile_statuses(cfg, now).into_iter().find(|p| p.ip_addresses.iter().any(|ip| ip == device)) {
@@ -254,6 +267,7 @@ impl Server {
             bundled_enabled: cfg.adguard.enabled,
             profiles: services::device_profile_statuses(&cfg, now),
             devices: devices.into_values().collect(),
+            exempt_devices: services::dns_exempt_addresses(&cfg),
             blockers,
         }
     }

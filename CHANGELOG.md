@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+- DNS Filter: **Devices outside DNS protection**. A reserved LAN device can be
+  exempted from the network DNS categories (adult, gambling, ads, threats and
+  bypass). dnsmasq blocks globally, so the router redirects that device's DNS
+  lookups to the first upstream resolver and leaves it out of the DNS
+  enforcement presets; every other firewall rule still applies. Applies and
+  rolls back like any network change. Exempt devices lose router-only names
+  and DNS Activity coverage. The shared configuration model changes, so the
+  installed `router-recovery` and `router-setup` differ from v0.4.1 (amd64
+  checked with `scripts/ci/bootstrap-compatibility.sh bc79bce`): an appliance
+  at v0.4.1 needs the full signed installer once; this is not a web update. Documented in [DNS_FILTER.md](docs/DNS_FILTER.md#devices-outside-dns-protection);
+  `adguard.exempt_devices` in the configuration API, `exempt_devices` in the
+  DNS filter status, and a `device_exemption` layer in domain checks.
+
 ## [0.4.1] — candidate
 
 - Require a new post-activation WireGuard client handshake and share confirmation

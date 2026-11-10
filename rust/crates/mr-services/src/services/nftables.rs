@@ -3,9 +3,54 @@ use std::fmt::Write;
 
 use super::device_profiles::{active_managed_services, write_device_profile_objects};
 use super::firewall_counter::firewall_rule_counter;
-use crate::config::{PortForwardRule, SystemConfig, firewall_rule_scope};
+use crate::config::{FirewallRule, PortForwardRule, SystemConfig, firewall_rule_scope};
 use crate::goish::errors::{Result, wrapf};
 use crate::goish::net::{self, IPNet};
+
+/// Reserved LAN devices that skip the network DNS categories, and the resolver
+/// their lookups are sent to. dnsmasq's block rules are global, so the router
+/// redirects these devices' queries past dnsmasq to the first upstream
+/// resolver. Without a usable upstream nothing is exempted and the filter
+/// stays authoritative for everyone.
+pub(crate) struct DnsExemption {
+    pub ips: Vec<String>,
+    pub upstream: String,
+}
+
+pub(crate) fn dns_exemption(cfg: &SystemConfig) -> Option<DnsExemption> {
+    let ipv4 = |value: &str| net::parse_ip(value).is_some_and(|ip| ip.to4().is_some());
+    let mut ips: Vec<String> = cfg.adguard.exempt_devices.iter().map(|device| device.ip_address.trim().to_string()).filter(|ip| ipv4(ip)).collect();
+    ips.sort();
+    ips.dedup();
+    if ips.is_empty() {
+        return None;
+    }
+    let upstream = cfg.dhcp.dns_servers.iter().map(|server| server.trim()).find(|server| ipv4(server))?.to_string();
+    Some(DnsExemption { ips, upstream })
+}
+
+/// Addresses whose DNS lookups currently skip the network DNS categories, in
+/// canonical sorted order. Empty when no usable upstream resolver exists.
+pub fn dns_exempt_addresses(cfg: &SystemConfig) -> Vec<String> {
+    dns_exemption(cfg).map(|exemption| exemption.ips).unwrap_or_default()
+}
+
+/// The two firewall presets that make router DNS binding: direct DNS (TCP/UDP
+/// 53) and DNS-over-TLS/QUIC (TCP/UDP 853) toward the Internet, for everyone.
+pub(crate) fn is_dns_enforcement_rule(rule: &FirewallRule) -> bool {
+    rule.direction == "forward"
+        && rule.action == "deny"
+        && rule.src_ip.is_empty()
+        && (rule.protocol == "tcp" || rule.protocol == "udp")
+        && (rule.dst_port == 53 || rule.dst_port == 853)
+        && firewall_rule_scope(rule) == "wan"
+}
+
+/// True when `rule` is one of the DNS enforcement rules and `source_ip` is an
+/// exempt device, so the rule does not apply to it.
+pub(crate) fn dns_exempt_from_rule(cfg: &SystemConfig, rule: &FirewallRule, source_ip: &str) -> bool {
+    is_dns_enforcement_rule(rule) && dns_exemption(cfg).is_some_and(|exemption| exemption.ips.iter().any(|ip| ip == source_ip))
+}
 
 /// Per-host byte counters, read (never written) by routerd through two exact
 /// allowlisted `nft -j list set` commands. The table is recreated on every
@@ -74,11 +119,17 @@ pub(crate) fn lan_broadcast_address(cidr: &str) -> String {
 }
 
 fn write_custom_rules(buf: &mut String, cfg: &SystemConfig, direction: &str, action: &str) {
+    let exemption = dns_exemption(cfg);
     for rule in cfg.firewall.custom_rules.iter() {
         if !rule.enabled || rule.direction != direction || rule.action != action {
             continue;
         }
         let mut matches = vec![format!("iifname \"{}\"", cfg.lan.interface)];
+        if let Some(exemption) = exemption.as_ref().filter(|_| is_dns_enforcement_rule(rule)) {
+            // Exempt devices skip the DNS enforcement presets; their lookups
+            // were already redirected to the upstream resolver in prerouting.
+            matches.push(format!("ip saddr != {{ {} }}", exemption.ips.join(", ")));
+        }
         if !rule.src_ip.is_empty() {
             matches.push(format!("ip saddr {}", rule.src_ip));
         }
@@ -275,19 +326,44 @@ fn wg_server_interface(cfg: &SystemConfig) -> &str {
     if cfg.wireguard.interface.is_empty() { "wg0" } else { &cfg.wireguard.interface }
 }
 
-/// The prerouting DNAT chain; every rule is bound to the WireGuard interface.
-fn write_tunnel_port_forwards(buf: &mut String, cfg: &SystemConfig) {
+/// The prerouting DNAT chain: tunnel port forwards, bound to the WireGuard
+/// interface, and the DNS exemption redirect, bound to the LAN interface.
+fn write_prerouting(buf: &mut String, cfg: &SystemConfig) {
     let rules = enabled_tunnel_port_forwards(cfg);
-    if rules.is_empty() {
+    let exemption = if cfg.lan.interface.is_empty() { None } else { dns_exemption(cfg) };
+    if rules.is_empty() && exemption.is_none() {
         return;
     }
-    let wg = wg_server_interface(cfg);
     buf.push_str("  chain prerouting {\n");
     buf.push_str("    type nat hook prerouting priority dstnat; policy accept;\n\n");
-    buf.push_str("    # Port forwards are reachable only over the WireGuard tunnel, never the WAN.\n");
-    for rule in rules {
-        for protocol in port_forward_protocols(&rule.protocol) {
-            let _ = writeln!(buf, "    iifname \"{}\" {} dport {} dnat ip to {}:{}", wg, protocol, rule.external_port, rule.internal_ip, rule.internal_port);
+    if let Some(exemption) = &exemption {
+        // dnsmasq applies its block rules to every client, so these reserved
+        // devices bypass it: lookups addressed to the router go to the first
+        // upstream resolver. Replies are translated back by conntrack.
+        buf.push_str("    # DNS exemption: reserved devices skip the network DNS categories (lookups go to the first upstream resolver).\n");
+        for protocol in ["udp", "tcp"] {
+            let _ = writeln!(
+                buf,
+                "    iifname \"{}\" ip saddr {{ {} }} ip daddr {} {} dport 53 dnat ip to {}:53",
+                cfg.lan.interface,
+                exemption.ips.join(", "),
+                cfg.lan.ip_address,
+                protocol,
+                exemption.upstream
+            );
+        }
+        if !rules.is_empty() {
+            buf.push('\n');
+        }
+    }
+    if !rules.is_empty() {
+        let wg = wg_server_interface(cfg);
+        buf.push_str("    # Port forwards are reachable only over the WireGuard tunnel, never the WAN.\n");
+        for rule in rules {
+            for protocol in port_forward_protocols(&rule.protocol) {
+                let _ =
+                    writeln!(buf, "    iifname \"{}\" {} dport {} dnat ip to {}:{}", wg, protocol, rule.external_port, rule.internal_ip, rule.internal_port);
+            }
         }
     }
     buf.push_str("  }\n\n");
@@ -589,7 +665,7 @@ pub fn generate_nftables(cfg: &SystemConfig) -> Result<String> {
     buf.push_str("    counter drop\n");
     buf.push_str("  }\n\n");
 
-    write_tunnel_port_forwards(&mut buf, cfg);
+    write_prerouting(&mut buf, cfg);
 
     // Postrouting (masquerade NAT).
     buf.push_str("  chain postrouting {\n");

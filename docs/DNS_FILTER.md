@@ -49,6 +49,35 @@ matching parent/list. It does not perform an Internet lookup. The result is a
 policy decision, not evidence that a person visited a site or that an observed
 query was blocked. A missing installed index is reported as unknown.
 
+## Devices outside DNS protection
+
+dnsmasq applies its block lists to every client, so a category cannot be
+switched off for one device. Instead, a **reserved** device can be listed under
+**Devices outside DNS protection** (DNS Filter page). For that device:
+
+- its DNS lookups addressed to the router are redirected, before they reach
+  dnsmasq, to the **first upstream resolver** in Upstream DNS (a prerouting
+  `dnat` rule for UDP and TCP 53, bound to the LAN interface and to the
+  device's address). All five categories, blocking exceptions and the bundled
+  list are therefore skipped for it;
+- it is left out of the DNS enforcement presets (*Block direct external DNS*
+  on TCP/UDP 53 and *Block DNS-over-TLS and DNS-over-QUIC* on TCP/UDP 853), so
+  it may also use another resolver. Every other deny rule, including a deny
+  rule written for that device alone, still applies;
+- names that only the router knows (local DNS records and DHCP host names) do
+  not resolve for it through the router, and DNS Activity does not see its
+  lookups, because they no longer reach dnsmasq. Use IP addresses or the
+  device's own hosts file for LAN names.
+
+The exemption is part of the network configuration, so it is previewed,
+applied and confirmed like a firewall change and rolled back with it. Each
+entry must have a DHCP reservation (otherwise a different device could inherit
+the address), cannot be the router, cannot belong to a device profile (profiles
+need router DNS), and at most 32 devices can be listed. Without a usable
+upstream resolver nothing is exempted and the filter stays authoritative for
+everyone. The exemption covers the router's DNS filter only: it does not change
+what the device's own applications, VPN or mobile data do.
+
 ## Resolver and transaction behavior
 
 The privileged helper streams and independently validates domain-only input,
