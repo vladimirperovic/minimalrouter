@@ -117,6 +117,7 @@ export type RouterConfig = {
     last_updated: string;
     filter_devices?: unknown[];
     device_profiles: unknown[];
+    exempt_devices?: Array<{ ip_address: string; hostname: string }>;
   };
   qos: { enabled: boolean; algorithm: string; download_limit_mbps: number; upload_limit_mbps: number };
   accounting?: { enabled: boolean; retention_months: number };

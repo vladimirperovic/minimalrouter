@@ -68,9 +68,51 @@ impl SystemConfig {
             }
             validate_profile_schedule(&mut errs, &format!("{base}.schedule"), &profile.schedule);
         }
+        errs.0.extend(self.validate_dns_exemptions(lan_network).0);
+        errs
+    }
+
+    /// Exemptions skip the network DNS categories, so each one must name a
+    /// device that cannot silently change identity: a DHCP reservation.
+    fn validate_dns_exemptions(&self, lan_network: Option<&IPNet>) -> ValidationErrors {
+        let mut errs = ValidationErrors::default();
+        let exempt = &self.adguard.exempt_devices;
+        if exempt.is_empty() {
+            return errs;
+        }
+        if exempt.len() > MAX_DNS_EXEMPT_DEVICES {
+            errs.add("adguard.exempt_devices", format!("cannot contain more than {MAX_DNS_EXEMPT_DEVICES} devices"));
+        }
+        let reserved: HashSet<&str> = self.dhcp.static_leases.iter().map(|lease| lease.ip_address.as_str()).collect();
+        let profiled: HashSet<&str> = self.adguard.device_profiles.iter().flat_map(|profile| profile.ip_addresses.iter().map(String::as_str)).collect();
+        let mut seen: HashSet<&str> = HashSet::new();
+        for (i, device) in exempt.iter().enumerate() {
+            let base = format!("adguard.exempt_devices[{i}]");
+            let raw = device.ip_address.as_str();
+            let ip = parse_ipv4(raw);
+            if ip.is_none() || lan_network.is_some_and(|n| !n.contains_opt(ip.as_ref())) {
+                errs.add(format!("{base}.ip_address"), "must be a valid address in the LAN subnet");
+            } else if raw == self.lan.ip_address {
+                errs.add(format!("{base}.ip_address"), "cannot be the router itself");
+            } else if !reserved.contains(raw) {
+                errs.add(format!("{base}.ip_address"), "needs a DHCP reservation so the exemption cannot move to another device");
+            }
+            if !seen.insert(raw) {
+                errs.add(format!("{base}.ip_address"), "is already exempt");
+            }
+            if profiled.contains(raw) {
+                errs.add(format!("{base}.ip_address"), "belongs to a device profile, which requires router DNS; remove it from the profile first");
+            }
+            if !device.hostname.is_empty() && (!SAFE_NAME_PATTERN.is_match(&device.hostname) || has_unsafe_control(&device.hostname)) {
+                errs.add(format!("{base}.hostname"), "contains unsupported characters");
+            }
+        }
         errs
     }
 }
+
+/// Upper bound on exempt devices; each adds one address to two NAT rules.
+pub const MAX_DNS_EXEMPT_DEVICES: usize = 32;
 
 fn validate_profile_schedule(errs: &mut ValidationErrors, field: &str, schedule: &WeeklyAccessSchedule) {
     if !schedule.day_windows.is_empty() {

@@ -7,7 +7,8 @@ import { acceptConfirms } from "./fixtures/confirm";
 async function fixture(page: Page) {
   const state = { policy: { revision:7,categories:{},exceptions:[] } as DNSFilterPolicy, operation: undefined as DNSOperation | undefined, failStatus:false, checks:[] as Route[], holdChecks:false, statusReads:0 };
   const profile = { id:"kids",name:"Kids tablet",enabled:true,ip_addresses:["192.168.1.50"],services:["youtube"],schedule:{day_windows:{monday:[{start:"19:30",end:"22:30"}],tuesday:[{start:"07:15",end:"08:45"}]}} };
-  const config = {...structuredClone(CONFIG),adguard:{...CONFIG.adguard,device_profiles:[profile]}};
+  const reserved = [{id:"laptop",hostname:"Laptop",mac:"02:00:00:00:00:14",ip_address:"192.168.1.14"}];
+  const config = {...structuredClone(CONFIG),dhcp:{...CONFIG.dhcp,static_leases:reserved},adguard:{...CONFIG.adguard,device_profiles:[profile]}};
   const writes: {path:string;body:unknown}[] = [];
   await page.addInitScript(() => localStorage.setItem("minimalrouter:wan-speed-estimate-attempt",String(Date.now())));
   await page.route("**/api/v1/**",async route => {
@@ -121,4 +122,16 @@ test("profile Pause action preserves its schedule and global filter setting",asy
   const body = writes.find(write => write.path === "/api/v1/config")!.body as {adguard:{enabled:boolean;device_profiles:{enabled:boolean;schedule:unknown}[]}};
   expect(body.adguard.enabled).toBe(false);
   expect(body.adguard.device_profiles[0]).toMatchObject({enabled:false,schedule:{day_windows:{monday:[{start:"19:30",end:"22:30"}],tuesday:[{start:"07:15",end:"08:45"}]}}});
+});
+
+test("a reserved device can be taken out of the network DNS categories",async ({page}) => {
+  const {writes} = await fixture(page); await page.goto("/#dns-filter");
+  const card = page.getByLabel("Devices outside DNS protection",{exact:true});
+  await expect(card).toContainText("0 / 32 exempt");
+  await expect(card).toContainText("192.168.1.14");
+  await card.getByLabel("Skip DNS protection for Laptop").click();
+  await expect.poll(() => writes.some(write => write.path === "/api/v1/config")).toBe(true);
+  const body = writes.find(write => write.path === "/api/v1/config")!.body as {adguard:{exempt_devices:{ip_address:string;hostname:string}[];device_profiles:{id:string}[]}};
+  expect(body.adguard.exempt_devices).toEqual([{ip_address:"192.168.1.14",hostname:"Laptop"}]);
+  expect(body.adguard.device_profiles.map(item => item.id)).toEqual(["kids"]);
 });
