@@ -23,9 +23,8 @@ pub fn clean(path: &str) -> String {
         dotdot = 1;
     }
     while r < n {
-        if bytes[r] == b'/' {
-            r += 1;
-        } else if bytes[r] == b'.' && (r + 1 == n || bytes[r + 1] == b'/') {
+        // Empty path element ("//") or a "." element: both are skipped.
+        if bytes[r] == b'/' || (bytes[r] == b'.' && (r + 1 == n || bytes[r + 1] == b'/')) {
             r += 1;
         } else if bytes[r] == b'.' && bytes[r + 1] == b'.' && (r + 2 == n || bytes[r + 2] == b'/') {
             r += 2;

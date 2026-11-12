@@ -171,12 +171,12 @@ fn read_default_routes(path: &str) -> std::collections::HashSet<String> {
     };
     for line in data.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() >= 4 && fields[1] == "00000000" {
-            if let Ok(flags) = u64::from_str_radix(fields[3], 16) {
-                if flags & 0x1 != 0 {
-                    result.insert(fields[0].to_string());
-                }
-            }
+        if fields.len() >= 4
+            && fields[1] == "00000000"
+            && let Ok(flags) = u64::from_str_radix(fields[3], 16)
+            && flags & 0x1 != 0
+        {
+            result.insert(fields[0].to_string());
         }
     }
     result
