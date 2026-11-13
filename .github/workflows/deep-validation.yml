@@ -160,7 +160,9 @@ jobs:
 
   arm64-emulation:
     name: ARM64 build and QEMU smoke test
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-latest (26.04) qemu-user-static is only a virtual
+    # package and has no installation candidate.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Check out repository
