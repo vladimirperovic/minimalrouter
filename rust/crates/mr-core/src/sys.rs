@@ -312,6 +312,9 @@ mod unix {
             // sockaddr that stays valid until freeifaddrs; its family says
             // which concrete type it is, so for AF_INET it is a sockaddr_in.
             // ifa_name is a NUL-terminated string owned by the list.
+            // The closure stays lazy on purpose: `.and(..)` would build a
+            // `&sockaddr_in` for every address family, not only AF_INET.
+            #[allow(clippy::unnecessary_lazy_evaluations)]
             let ipv4 = unsafe { entry.ifa_addr.as_ref() }
                 .filter(|addr| i32::from(addr.sa_family) == libc::AF_INET)
                 .and_then(|_| unsafe { (entry.ifa_addr as *const libc::sockaddr_in).as_ref() });
@@ -355,12 +358,14 @@ mod unix {
         Ok(PeerCredentials { pid: cred.pid, uid: cred.uid, gid: cred.gid })
     }
 
+    #[cfg(target_os = "linux")]
     #[repr(C)]
     struct CapHeader {
         version: u32,
         pid: i32,
     }
 
+    #[cfg(target_os = "linux")]
     #[repr(C)]
     #[derive(Default, Clone, Copy, PartialEq)]
     struct CapData {
@@ -369,6 +374,7 @@ mod unix {
         inheritable: u32,
     }
 
+    #[cfg(target_os = "linux")]
     const CAPABILITY_VERSION_3: u32 = 0x2008_0522;
 
     /// Whether this process holds no capabilities at all.

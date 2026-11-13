@@ -185,10 +185,10 @@ pub fn parse_ip(value: &str) -> Option<IP> {
         let o = v4.octets();
         return Some(IP::v4(o[0], o[1], o[2], o[3]));
     }
-    if value.contains(':') {
-        if let Ok(v6) = value.parse::<Ipv6Addr>() {
-            return Some(IP(v6.octets().to_vec()));
-        }
+    if value.contains(':')
+        && let Ok(v6) = value.parse::<Ipv6Addr>()
+    {
+        return Some(IP(v6.octets().to_vec()));
     }
     None
 }
@@ -423,7 +423,7 @@ pub fn parse_mac(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     if b[2] == b':' || b[2] == b'-' {
-        if (b.len() + 1) % 3 != 0 {
+        if !(b.len() + 1).is_multiple_of(3) {
             return None;
         }
         let n = (b.len() + 1) / 3;
@@ -439,7 +439,7 @@ pub fn parse_mac(s: &str) -> Option<Vec<u8>> {
         return Some(hw);
     }
     if b[4] == b'.' {
-        if (b.len() + 1) % 5 != 0 {
+        if !(b.len() + 1).is_multiple_of(5) {
             return None;
         }
         let n = 2 * (b.len() + 1) / 5;

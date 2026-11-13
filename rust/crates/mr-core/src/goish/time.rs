@@ -466,7 +466,8 @@ pub fn parse_duration(input: &str) -> Result<Duration, String> {
         }
     }
     if neg {
-        return Ok(Duration((total as i128 * -1) as i64));
+        // total is at most 2^63, so its negation always fits an i64.
+        return Ok(Duration((-(total as i128)) as i64));
     }
     if total > (1u64 << 63) - 1 {
         return Err(err());
