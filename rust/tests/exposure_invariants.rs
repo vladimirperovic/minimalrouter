@@ -1507,7 +1507,7 @@ fn hostapd_is_wpa2_ccmp_without_wps_and_bridges_into_the_lan() {
         if !s.cfg.wifi.enabled {
             assert!(
                 !text.lines().any(|l| l.starts_with("interface=") || l.starts_with("ssid=")),
-                "[{}] hostapd renders an AP while Wi-Fi is off\n{text}",
+                "[{}] hostapd renders an AP while Wi-Fi is off",
                 s.name
             );
             continue;
@@ -1515,14 +1515,14 @@ fn hostapd_is_wpa2_ccmp_without_wps_and_bridges_into_the_lan() {
         checked += 1;
         let lines: BTreeSet<&str> = text.lines().collect();
         for want in ["wpa=2", "rsn_pairwise=CCMP", "bridge=br-lan", "ieee80211w=1"] {
-            assert!(lines.contains(want), "[{}] hostapd is missing `{want}`\n{text}", s.name);
+            assert!(lines.contains(want), "[{}] hostapd is missing `{want}`", s.name);
         }
         for l in text.lines() {
             let key = l.split('=').next().unwrap_or("");
-            assert!(!key.starts_with("wps") && key != "config_methods" && key != "device_name", "[{}] WPS-related hostapd line `{l}`", s.name);
-            assert!(!l.to_ascii_lowercase().contains("tkip") && !l.contains("wpa_pairwise"), "[{}] weak pairwise cipher line `{l}`", s.name);
-            assert!(!l.starts_with("wep_") && !l.starts_with("wpa=1") && !l.starts_with("wpa=3"), "[{}] legacy cipher line `{l}`", s.name);
-            assert!(!l.starts_with("macaddr_acl=") || l == "macaddr_acl=0", "[{}] unexpected ACL line `{l}`", s.name);
+            assert!(!key.starts_with("wps") && key != "config_methods" && key != "device_name", "[{}] WPS-related hostapd key `{key}`", s.name);
+            assert!(!l.to_ascii_lowercase().contains("tkip") && !l.contains("wpa_pairwise"), "[{}] weak pairwise cipher key `{key}`", s.name);
+            assert!(!l.starts_with("wep_") && !l.starts_with("wpa=1") && !l.starts_with("wpa=3"), "[{}] legacy cipher key `{key}`", s.name);
+            assert!(!l.starts_with("macaddr_acl=") || l == "macaddr_acl=0", "[{}] unexpected ACL key `{key}`", s.name);
         }
     }
     assert!(checked >= 2, "need at least two Wi-Fi samples, got {checked}");

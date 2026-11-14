@@ -94,8 +94,12 @@ impl Drop for TempDir {
 }
 
 // A throw-away fixture credential for this test file only.
-const PASSWORD: &str = "preauth fixture passphrase";
-static HASH: LazyLock<String> = LazyLock::new(|| minimalrouter::auth::hash_password(PASSWORD).unwrap());
+static PASSWORD: LazyLock<String> = LazyLock::new(|| {
+    let mut bytes = [0u8; 32];
+    minimalrouter::goish::rand::fill(&mut bytes).unwrap();
+    hex::encode(bytes)
+});
+static HASH: LazyLock<String> = LazyLock::new(|| minimalrouter::auth::hash_password(&PASSWORD).unwrap());
 
 struct Reply {
     status: u16,
@@ -280,7 +284,7 @@ fn untrusted_sources_get_403_on_every_route_even_with_a_valid_session() {
 
     // A real session from a trusted peer, so the replay below is meaningful.
     let json = [("Content-Type", "application/json")];
-    let login = call(&rig, "POST", "/api/v1/auth/login", LOOPBACK, &json, &format!(r#"{{"password":"{PASSWORD}"}}"#));
+    let login = call(&rig, "POST", "/api/v1/auth/login", LOOPBACK, &json, &format!(r#"{{"password":"{}"}}"#, PASSWORD.as_str()));
     assert_eq!(login.status, 200, "{}", login.body);
     let cookie = login.set_cookie.split(';').next().unwrap().to_string();
     let csrf = login.json()["csrf_token"].as_str().expect("csrf token").to_string();
@@ -412,7 +416,7 @@ fn setup_is_refused_after_completion_and_nothing_changes() {
     // The original credential still works, the attacker's does not.
     let bad = call(&rig, "POST", "/api/v1/auth/login", LOOPBACK, &json, r#"{"password":"attacker chosen passphrase"}"#);
     assert_eq!(bad.status, 401);
-    let good = call(&rig, "POST", "/api/v1/auth/login", LOOPBACK, &json, &format!(r#"{{"password":"{PASSWORD}"}}"#));
+    let good = call(&rig, "POST", "/api/v1/auth/login", LOOPBACK, &json, &format!(r#"{{"password":"{}"}}"#, PASSWORD.as_str()));
     assert_eq!(good.status, 200, "{}", good.body);
 }
 
