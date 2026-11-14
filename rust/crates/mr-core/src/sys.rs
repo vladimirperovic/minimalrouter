@@ -290,6 +290,49 @@ mod unix {
         Ok(unsafe { File::from_raw_fd(fd) })
     }
 
+    /// Opens a regular file through pinned directory descriptors. No path
+    /// component may be a symlink, and a concurrent FIFO substitution cannot
+    /// block the caller. Parent traversal is intentionally unsupported.
+    pub fn open_regular_nofollow(path: &str) -> io::Result<File> {
+        use std::os::unix::ffi::OsStrExt;
+        use std::path::{Component, Path};
+
+        let path = Path::new(path);
+        let mut directory = File::open(if path.is_absolute() { "/" } else { "." })?;
+        let mut names = Vec::new();
+        for component in path.components() {
+            match component {
+                Component::Normal(name) => names.push(name),
+                Component::RootDir | Component::CurDir => {}
+                _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "unsafe file path")),
+            }
+        }
+        if names.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "missing file name"));
+        }
+        for (index, name) in names.iter().enumerate() {
+            let last = index + 1 == names.len();
+            let name = CString::new(name.as_bytes()).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+            let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK | if last { 0 } else { libc::O_DIRECTORY };
+            // SAFETY: directory owns a live fd and name is NUL-terminated.
+            // No O_CREAT flag is used, so openat needs no mode argument.
+            let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
+            if fd < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: this newly opened fd has no other owner.
+            let opened = unsafe { File::from_raw_fd(fd) };
+            if last {
+                if !opened.metadata()?.is_file() {
+                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"));
+                }
+                return Ok(opened);
+            }
+            directory = opened;
+        }
+        unreachable!("nonempty component list")
+    }
+
     pub fn page_size() -> u64 {
         // SAFETY: sysconf has no preconditions.
         let size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };

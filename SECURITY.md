@@ -216,6 +216,19 @@ is not yet a finished release feature.
 
 ## Privileged persistence rules
 
+Firmware staging directories are created atomically with mode `0700` and stay
+private until the copied payload passes signature, hash, architecture and runtime
+layout checks. Only verified content becomes readable with the published slot's
+`0755` directory mode. Failed staging removes the private temporary tree.
+On Unix, firmware hashing and copying open each path component relative to a
+pinned directory descriptor, reject symlinks (including ancestor directories),
+and check the opened file is regular. Nonblocking opens reject FIFO substitutions
+without waiting for a writer. Each file is capped at 256 MiB, matching the
+management plane's expanded release limit; reads also reject size changes.
+Operator-supplied source paths must therefore use real directories rather than
+symlink aliases. Full-install baseline copies remain private until their copied
+inventory has been checked as well.
+
 The helper's transaction journal, pending-confirmation state, and `last-good`
 configuration are security-sensitive recovery metadata.
 

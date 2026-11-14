@@ -9,6 +9,9 @@
 - Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
   and recover operation bookkeeping after worker panics.
 - Validate archive roots/modes and checked revision arithmetic.
+- Keep firmware and baseline staging private until copied content is verified.
+  Reject source symlinks in all path components, special files and oversized
+  files through descriptor-based reads; reject size changes during reads.
 - Bound the management HTTP server: every socket read has an absolute deadline
   (a trickling client no longer extends it byte by byte), the TLS handshake has a
   total deadline, chunked trailers and header counts are limited, and each source
