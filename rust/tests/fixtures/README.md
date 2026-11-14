@@ -28,7 +28,9 @@ these (everything else is compared byte for byte):
 - **nftables SSH rules.** Go accepted `tcp dport 22` from the whole LAN and
   WireGuard interfaces. Rust accepts it only from the IPv4 members of
   `trusted_networks`, and writes a comment instead when there is no IPv4
-  trusted network (`with_ssh_deviation`).
+  trusted network. Each of these is followed by a comment line and an explicit
+  `iifname "<if>" tcp dport 22 drop`, so a custom firewall rule written later
+  in the `input` chain cannot widen SSH (`with_ssh_deviation`).
 - **Firewall explanation, probe 3** (`192.168.1.50 -> 192.168.1.1 tcp 22`). Go's
   management `allow` becomes `deny` with reason "SSH is accepted only from
   trusted management networks." when the source is outside those networks

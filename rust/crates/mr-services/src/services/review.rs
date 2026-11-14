@@ -166,6 +166,9 @@ fn explain_verdict(cfg: &SystemConfig, flow: &FirewallFlow, result: &mut Firewal
             && (src == "wireguard" || cfg.system.management_access != "wireguard_only")
         {
             // sshd cannot apply trusted networks itself, so the packet policy does.
+            // This runs before the custom-allow lookup below on purpose: the
+            // generated input chain drops new tcp/22 from other sources before
+            // any custom input allow (tcp/22 or any protocol) is evaluated.
             let trusted = || {
                 let source = net::parse_ip(&flow.source_ip);
                 super::nftables::trusted_ipv4_sources(cfg).iter().filter_map(|n| net::parse_cidr(n)).any(|(_, n)| n.contains_opt(source.as_ref()))
@@ -512,4 +515,51 @@ pub fn device_profile_statuses(cfg: &SystemConfig, now: Time) -> Vec<ProfileStat
         result.push(status);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn custom_input_allow(id: &str, protocol: &str, dst_port: i64) -> FirewallRule {
+        FirewallRule {
+            id: id.into(),
+            name: id.into(),
+            action: "allow".into(),
+            direction: "input".into(),
+            protocol: protocol.into(),
+            dst_port,
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    fn explain(cfg: &SystemConfig, source: &str, protocol: &str, port: i64) -> (String, String) {
+        let flow = FirewallFlow { source_ip: source.into(), destination_ip: cfg.lan.ip_address.clone(), protocol: protocol.into(), port };
+        let result = explain_firewall_flow(cfg, &flow).unwrap_or_else(|(_, e)| panic!("explain failed: {e}"));
+        (result.verdict, result.reason)
+    }
+
+    #[test]
+    fn custom_input_allows_do_not_widen_ssh_beyond_trusted_networks() {
+        let mut cfg = crate::config::default_config();
+        cfg.trusted_networks = vec!["192.168.1.10/32".to_string()].into();
+        cfg.firewall.custom_rules = vec![custom_input_allow("ssh", "tcp", 22), custom_input_allow("everything", "any", 0)].into();
+        // The generated policy drops tcp/22 from other sources before either custom rule.
+        let nft = crate::services::generate_nftables(&cfg).unwrap();
+        assert!(nft.contains("    iifname \"eth1\" tcp dport 22 drop\n"));
+        for rules in [vec![custom_input_allow("ssh", "tcp", 22)], vec![custom_input_allow("everything", "any", 0)], cfg.firewall.custom_rules.to_vec()] {
+            cfg.firewall.custom_rules = rules.into();
+            let denied = ("deny".to_string(), "SSH is accepted only from trusted management networks.".to_string());
+            assert_eq!(explain(&cfg, "192.168.1.50", "tcp", 22), denied);
+            // A trusted host is allowed, an untrusted one still reaches non-SSH ports a custom rule opens.
+            assert_eq!(explain(&cfg, "192.168.1.10", "tcp", 22).0, "allow");
+            // Only tcp/22 is dropped: the protocol-any custom rule keeps its other matches.
+            let udp = explain(&cfg, "192.168.1.50", "udp", 22).0;
+            let other = explain(&cfg, "192.168.1.50", "tcp", 2222).0;
+            let any_rule = cfg.firewall.custom_rules.iter().any(|r| r.protocol == "any");
+            assert_eq!(udp, if any_rule { "allow" } else { "deny" });
+            assert_eq!(other, if any_rule { "allow" } else { "deny" });
+        }
+    }
 }

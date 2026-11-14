@@ -102,8 +102,10 @@ fn flow_probes() -> Vec<FirewallFlow> {
 // 1. SSH (tcp/22) from the LAN and WireGuard interfaces is no longer accepted
 //    from the whole interface. Go emitted `iifname "<if>" tcp dport 22 accept`;
 //    Rust emits that accept restricted to the IPv4 members of
-//    `trusted_networks`, or a comment when there are none. Mirrors
-//    `write_ssh_accept` in `mr-services/src/services/nftables.rs`.
+//    `trusted_networks`, or a comment when there are none. Each of those is
+//    followed by an explicit `    iifname "<if>" tcp dport 22 drop` (with the
+//    comment line above it) so a later custom input allow cannot reopen SSH.
+//    Mirrors `write_ssh_accept` in `mr-services/src/services/nftables.rs`.
 // 2. The firewall explanation of router-destined tcp/22 from a source outside
 //    those networks is a deny instead of the management allow (probe 3 only).
 
@@ -141,6 +143,8 @@ fn with_ssh_deviation(cfg: &SystemConfig, go_text: &str) -> String {
         } else {
             out.push_str(&format!("    iifname \"{iface}\" ip saddr {{ {sources} }} tcp dport 22 accept\n"));
         }
+        out.push_str(&format!("    # No later rule, custom input allows included, may reopen SSH on {iface} for other sources\n"));
+        out.push_str(&format!("    iifname \"{iface}\" tcp dport 22 drop\n"));
     }
     out
 }

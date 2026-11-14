@@ -100,7 +100,10 @@ The default and first-run configuration is intended to provide:
 - management HTTPS on the selected LAN address, not on WAN;
 - password-protected SSH recovery enabled only after firstboot and permitted by
   generated policy only from the IPv4 members of `trusted_networks` on the LAN
-  (and WireGuard) interface, never by a WAN accept rule. There is deliberately no
+  (and WireGuard) interface, never by a WAN accept rule. The accept is followed by
+  an unconditional drop of new tcp/22 on the same interface, ahead of any custom
+  firewall rule, so a custom input rule (tcp/22 or any protocol) cannot widen SSH
+  beyond those networks. There is deliberately no
   packet-level rate limit on new SSH connections, because scripted administration
   opens one connection per command; `sshd` is configured with `MaxAuthTries 4`,
   `LoginGraceTime 30` and `PerSourceMaxStartups 4` and keeps OpenSSH's default
