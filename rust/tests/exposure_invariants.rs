@@ -1505,11 +1505,7 @@ fn hostapd_is_wpa2_ccmp_without_wps_and_bridges_into_the_lan() {
     for s in samples() {
         let text = generate_hostapd(&s.cfg).unwrap();
         if !s.cfg.wifi.enabled {
-            assert!(
-                !text.lines().any(|l| l.starts_with("interface=") || l.starts_with("ssid=")),
-                "[{}] hostapd renders an AP while Wi-Fi is off",
-                s.name
-            );
+            assert!(!text.lines().any(|l| l.starts_with("interface=") || l.starts_with("ssid=")), "[{}] hostapd renders an AP while Wi-Fi is off", s.name);
             continue;
         }
         checked += 1;
