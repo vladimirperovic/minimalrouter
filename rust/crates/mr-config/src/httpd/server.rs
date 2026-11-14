@@ -14,50 +14,91 @@ use crate::shutdown::{InFlight, Shutdown};
 
 /// Where a request body is read from; tests use an in-memory cursor.
 pub trait BodySource: Read {
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()>;
+    /// The instant after which no further socket read may start or complete.
+    fn set_read_deadline(&mut self, deadline: Option<Instant>);
     fn send_continue(&mut self) -> io::Result<()>;
 }
 
 impl BodySource for io::Cursor<Vec<u8>> {
-    fn set_read_timeout(&mut self, _: Option<Duration>) -> io::Result<()> {
-        Ok(())
-    }
+    fn set_read_deadline(&mut self, _: Option<Instant>) {}
     fn send_continue(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
 
+fn deadline_passed() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "i/o timeout")
+}
+
+/// A TCP socket whose every receive is bounded by one absolute deadline.
+///
+/// A per-call socket timeout alone bounds inactivity, not duration: a peer
+/// that sends one byte just inside each timeout keeps a read loop (a TLS
+/// record, a chunk-size line, a trailer block) alive indefinitely. Arming the
+/// remaining time before each receive makes the deadline hold below TLS and
+/// below every framing loop, so no caller has to re-check it.
+struct DeadlineSocket {
+    sock: TcpStream,
+    read_deadline: Option<Instant>,
+}
+
+impl Read for DeadlineSocket {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if let Some(deadline) = self.read_deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(deadline_passed());
+            }
+            self.sock.set_read_timeout(Some(remaining))?;
+        }
+        self.sock.read(buf)
+    }
+}
+
+impl Write for DeadlineSocket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.sock.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.sock.flush()
+    }
+}
+
 trait Stream: Read + Write + Send {
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+    fn set_read_deadline(&mut self, deadline: Option<Instant>);
     /// Sends FIN (after TLS close_notify) without discarding unread input.
     fn close_write(&mut self);
 }
 
-impl Stream for TcpStream {
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        TcpStream::set_read_timeout(self, timeout)
-    }
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        TcpStream::set_write_timeout(self, timeout)
+impl Stream for DeadlineSocket {
+    fn set_read_deadline(&mut self, deadline: Option<Instant>) {
+        self.read_deadline = deadline;
     }
     fn close_write(&mut self) {
-        let _ = self.shutdown(std::net::Shutdown::Write);
+        let _ = self.sock.shutdown(std::net::Shutdown::Write);
     }
 }
 
-impl Stream for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
-    fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        self.sock.set_read_timeout(timeout)
-    }
-    fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
-        self.sock.set_write_timeout(timeout)
+impl Stream for rustls::StreamOwned<rustls::ServerConnection, DeadlineSocket> {
+    fn set_read_deadline(&mut self, deadline: Option<Instant>) {
+        self.sock.read_deadline = deadline;
     }
     fn close_write(&mut self) {
         self.conn.send_close_notify();
         let _ = self.flush();
-        let _ = self.sock.shutdown(std::net::Shutdown::Write);
+        let _ = self.sock.sock.shutdown(std::net::Shutdown::Write);
     }
+}
+
+/// Completes the TLS handshake under one total deadline. `StreamOwned` would
+/// otherwise run it lazily inside the first read, where only the per-receive
+/// timeout applies.
+fn complete_handshake(tls: &mut rustls::StreamOwned<rustls::ServerConnection, DeadlineSocket>, deadline: Instant) -> io::Result<()> {
+    tls.sock.read_deadline = Some(deadline);
+    while tls.conn.is_handshaking() {
+        tls.conn.complete_io(&mut tls.sock)?;
+    }
+    Ok(())
 }
 
 struct Conn {
@@ -71,8 +112,8 @@ impl Read for Conn {
 }
 
 impl BodySource for Conn {
-    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-        self.reader.get_ref().set_read_timeout(timeout)
+    fn set_read_deadline(&mut self, deadline: Option<Instant>) {
+        self.reader.get_mut().set_read_deadline(deadline);
     }
     fn send_continue(&mut self) -> io::Result<()> {
         let stream = self.reader.get_mut();
@@ -80,6 +121,9 @@ impl BodySource for Conn {
         stream.flush()
     }
 }
+
+/// All trailer lines of one chunked message, including their line breaks.
+const MAX_TRAILER_BYTES: usize = 8 << 10;
 
 #[derive(Clone, Debug, Default)]
 pub struct ChunkState {
@@ -125,7 +169,19 @@ pub(crate) fn read_chunked(source: &mut dyn BodySource, state: &mut ChunkState, 
         let size_text = line.split(';').next().unwrap_or("").trim();
         let size = u64::from_str_radix(size_text, 16).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid byte in chunk length"))?;
         if size == 0 {
-            while !read_line_from(source, 4096)?.is_empty() {}
+            // Trailers carry nothing the API uses; a peer may not keep the
+            // message open with an unbounded run of them.
+            let mut trailer_bytes = 0usize;
+            loop {
+                let line = read_line_from(source, 4096)?;
+                if line.is_empty() {
+                    break;
+                }
+                trailer_bytes += line.len() + 2;
+                if trailer_bytes > MAX_TRAILER_BYTES {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "http trailers too large"));
+                }
+            }
             state.done = true;
             return Ok(0);
         }
@@ -148,8 +204,14 @@ pub struct ServerOptions {
     pub read_timeout: Duration,
     pub idle_timeout: Duration,
     pub write_timeout: Option<Duration>,
+    /// The whole TLS handshake, from accept to the first request byte.
+    pub handshake_timeout: Duration,
     pub max_header_bytes: usize,
+    pub max_header_count: usize,
     pub max_connections: usize,
+    /// Concurrent connections from one source address. One client can no
+    /// longer occupy every worker; a client with many addresses still can.
+    pub max_connections_per_source: usize,
     pub shutdown_drain: Duration,
 }
 
@@ -160,8 +222,11 @@ impl Default for ServerOptions {
             read_timeout: Duration::from_secs(10),
             idle_timeout: Duration::from_secs(15),
             write_timeout: Some(Duration::from_secs(30)),
+            handshake_timeout: Duration::from_secs(10),
             max_header_bytes: 1 << 20,
+            max_header_count: 128,
             max_connections: 128,
+            max_connections_per_source: 32,
             shutdown_drain: Duration::from_secs(8),
         }
     }
@@ -172,29 +237,78 @@ impl Default for ServerOptions {
 pub fn serve(listener: TcpListener, tls: Option<Arc<rustls::ServerConfig>>, handler: Handler, options: ServerOptions, shutdown: &Shutdown) -> io::Result<()> {
     let acceptor = Acceptor::new(listener, shutdown)?;
     let active = Arc::new(InFlight::default());
+    let sources = Arc::new(SourceLimiter::default());
     while let Some((stream, peer)) = acceptor.next(shutdown)? {
         if active.len() >= options.max_connections {
             drop(stream);
             continue;
         }
+        let Some(source_slot) = sources.enter(peer.ip(), options.max_connections_per_source) else {
+            drop(stream);
+            continue;
+        };
         let _ = stream.set_nodelay(true);
         let in_flight = active.enter();
         let (handler, options, tls) = (handler.clone(), options.clone(), tls.clone());
         std::thread::spawn(move || {
+            // Both are released on unwind as well as on return.
+            let (_in_flight, _source_slot) = (in_flight, source_slot);
             let local = stream.local_addr().map(|a| a.to_string()).unwrap_or_default();
             let remote = peer.to_string();
+            let _ = stream.set_write_timeout(options.write_timeout);
+            let socket = DeadlineSocket { sock: stream, read_deadline: None };
             let boxed: Option<Box<dyn Stream>> = match tls {
-                Some(config) => rustls::ServerConnection::new(config).ok().map(|conn| Box::new(rustls::StreamOwned::new(conn, stream)) as Box<dyn Stream>),
-                None => Some(Box::new(stream)),
+                Some(config) => rustls::ServerConnection::new(config).ok().and_then(|conn| {
+                    let mut tls = rustls::StreamOwned::new(conn, socket);
+                    complete_handshake(&mut tls, Instant::now() + options.handshake_timeout).ok()?;
+                    Some(Box::new(tls) as Box<dyn Stream>)
+                }),
+                None => Some(Box::new(socket)),
             };
             if let Some(boxed) = boxed {
                 serve_connection(boxed, &remote, &local, &handler, &options);
             }
-            drop(in_flight);
         });
     }
     active.wait_idle(options.shutdown_drain);
     Ok(())
+}
+
+/// Concurrent connections per source address. An IPv4 peer on the dual-stack
+/// listener is counted under its IPv4 address.
+#[derive(Default)]
+struct SourceLimiter {
+    counts: std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, usize>>,
+}
+
+struct SourceSlot {
+    limiter: Arc<SourceLimiter>,
+    source: std::net::IpAddr,
+}
+
+impl SourceLimiter {
+    fn enter(self: &Arc<Self>, source: std::net::IpAddr, limit: usize) -> Option<SourceSlot> {
+        let source = source.to_canonical();
+        let mut counts = self.counts.lock().unwrap_or_else(|e| e.into_inner());
+        let count = counts.get(&source).copied().unwrap_or(0);
+        if count >= limit {
+            return None;
+        }
+        counts.insert(source, count + 1);
+        Some(SourceSlot { limiter: self.clone(), source })
+    }
+}
+
+impl Drop for SourceSlot {
+    fn drop(&mut self) {
+        let mut counts = self.limiter.counts.lock().unwrap_or_else(|e| e.into_inner());
+        match counts.get_mut(&self.source) {
+            Some(count) if *count > 1 => *count -= 1,
+            _ => {
+                counts.remove(&self.source);
+            }
+        }
+    }
 }
 
 /// Accepts connections until shutdown. Between connections the thread sleeps
@@ -277,19 +391,18 @@ struct Head {
 fn read_head(reader: &mut BufReader<Box<dyn Stream>>, options: &ServerOptions, first: bool) -> Result<Head, HeadError> {
     // Wait for the next request under the idle timeout, then bound the head.
     let wait = if first { options.read_header_timeout } else { options.idle_timeout };
-    reader.get_ref().set_read_timeout(Some(wait)).map_err(|_| HeadError::Closed)?;
+    reader.get_mut().set_read_deadline(Some(Instant::now() + wait));
     if reader.fill_buf().map(|b| b.is_empty()).unwrap_or(true) {
         return Err(HeadError::Closed);
     }
     let deadline = Instant::now() + options.read_header_timeout;
+    reader.get_mut().set_read_deadline(Some(deadline));
     let mut total = 0usize;
     let mut lines: Vec<String> = Vec::new();
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        if deadline.saturating_duration_since(Instant::now()).is_zero() {
             return Err(HeadError::Closed);
         }
-        reader.get_ref().set_read_timeout(Some(remaining)).map_err(|_| HeadError::Closed)?;
         let mut line = Vec::new();
         let n = reader.by_ref().take((options.max_header_bytes + 4096 - total) as u64 + 1).read_until(b'\n', &mut line).map_err(|_| HeadError::Closed)?;
         if n == 0 {
@@ -311,6 +424,10 @@ fn read_head(reader: &mut BufReader<Box<dyn Stream>>, options: &ServerOptions, f
                 continue; // tolerate leading blank lines
             }
             break;
+        }
+        // The request line plus the header fields.
+        if lines.len() > options.max_header_count {
+            return Err(HeadError::TooLarge);
         }
         lines.push(String::from_utf8_lossy(&line).into_owned());
     }
@@ -357,7 +474,6 @@ fn simple_error(stream: &mut dyn Write, status: u16, message: &str) {
 
 fn serve_connection(stream: Box<dyn Stream>, remote: &str, local: &str, handler: &Handler, options: &ServerOptions) {
     let mut conn = Conn { reader: BufReader::with_capacity(16 * 1024, stream) };
-    let _ = conn.reader.get_ref().set_write_timeout(options.write_timeout);
     let mut first = true;
     loop {
         let head = match read_head(&mut conn.reader, options, first) {
@@ -466,9 +582,9 @@ fn serve_connection(stream: Box<dyn Stream>, remote: &str, local: &str, handler:
 fn linger_close(conn: &mut Conn) {
     conn.reader.get_mut().close_write();
     let deadline = Instant::now() + Duration::from_millis(500);
+    conn.reader.get_mut().set_read_deadline(Some(deadline));
     let mut sink = [0u8; 4096];
     while Instant::now() < deadline {
-        let _ = conn.reader.get_ref().set_read_timeout(Some(deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1))));
         match conn.reader.get_mut().read(&mut sink) {
             Ok(0) | Err(_) => break,
             Ok(_) => {}
@@ -661,7 +777,8 @@ mod tests {
         let server = std::thread::spawn(move || {
             let handler: Handler = Arc::new(|_| Response::bytes(200, "application/octet-stream", vec![0; 32 << 20]));
             let options = ServerOptions { write_timeout: Some(Duration::from_millis(100)), ..Default::default() };
-            serve_connection(Box::new(stream), "127.0.0.1:1", "127.0.0.1:2", &handler, &options);
+            stream.set_write_timeout(options.write_timeout).unwrap();
+            serve_connection(Box::new(DeadlineSocket { sock: stream, read_deadline: None }), "127.0.0.1:1", "127.0.0.1:2", &handler, &options);
             let _ = done.send(());
         });
         peer.write_all(b"GET / HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n").unwrap();
@@ -670,6 +787,154 @@ mod tests {
         server.join().unwrap();
         assert!(result.is_ok(), "nonreading client retained its connection worker");
         assert_eq!(ServerOptions::default().write_timeout, Some(Duration::from_secs(30)));
+    }
+
+    fn serve_with(options: ServerOptions, tls: Option<Arc<rustls::ServerConfig>>) -> (std::net::SocketAddr, Shutdown, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Answers at once, like the API gate does for an unauthenticated request.
+        let handler: Handler = Arc::new(|_| Response::error("Unauthorized", 401));
+        let stop = Shutdown::new();
+        let stop_server = stop.clone();
+        let server = std::thread::spawn(move || serve(listener, tls, handler, options, &stop_server).unwrap());
+        (addr, stop, server)
+    }
+
+    /// Feeds `piece` every 200 ms and reports how long the server kept the
+    /// connection open, and everything it sent.
+    fn dribble(stream: &mut TcpStream, piece: &[u8], give_up: Duration) -> (Duration, String) {
+        stream.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        let started = Instant::now();
+        let mut received = Vec::new();
+        let mut buf = [0u8; 1024];
+        while started.elapsed() < give_up {
+            let _ = stream.write_all(piece);
+            match stream.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => received.extend_from_slice(&buf[..n]),
+                Err(err) if matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
+                Err(_) => break,
+            }
+        }
+        (started.elapsed(), String::from_utf8_lossy(&received).into_owned())
+    }
+
+    #[test]
+    fn dribbled_trailers_cannot_outlive_the_read_deadline() {
+        let options = ServerOptions { read_timeout: Duration::from_secs(1), shutdown_drain: Duration::from_millis(200), ..Default::default() };
+        let (addr, stop, server) = serve_with(options, None);
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(b"POST /api/v1/auth/login HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n").unwrap();
+        let (held, reply) = dribble(&mut stream, b"X-Pad: 1\r\n", Duration::from_secs(6));
+        stop.trigger();
+        server.join().unwrap();
+        assert!(held < Duration::from_secs(4), "a dribbling peer held its worker for {held:?} past a 1s read deadline");
+        assert!(reply.starts_with("HTTP/1.1 401") && reply.contains("Connection: close"), "unexpected reply ({} bytes)", reply.len());
+    }
+
+    #[test]
+    fn dribbled_chunk_size_line_cannot_outlive_the_read_deadline() {
+        let options = ServerOptions { read_timeout: Duration::from_secs(1), shutdown_drain: Duration::from_millis(200), ..Default::default() };
+        let (addr, stop, server) = serve_with(options, None);
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.write_all(b"POST /api/v1/auth/login HTTP/1.1\r\nHost: t\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
+        let (held, _) = dribble(&mut stream, b"0", Duration::from_secs(6));
+        stop.trigger();
+        server.join().unwrap();
+        assert!(held < Duration::from_secs(4), "a dribbled chunk-size line held its worker for {held:?}");
+    }
+
+    #[test]
+    fn trailer_block_is_bounded() {
+        let run = |trailers: usize| {
+            let mut wire = b"0\r\n".to_vec();
+            for _ in 0..trailers {
+                wire.extend_from_slice(b"X-Trailer: value\r\n");
+            }
+            wire.extend_from_slice(b"\r\n");
+            let mut source = io::Cursor::new(wire);
+            let mut state = ChunkState::default();
+            read_chunked(&mut source, &mut state, &mut [0u8; 16]).map(|n| (n, state.done))
+        };
+        assert_eq!(run(3).unwrap(), (0, true));
+        assert_eq!(run(MAX_TRAILER_BYTES / 18 + 1).unwrap_err().to_string(), "http trailers too large");
+    }
+
+    #[test]
+    fn dribbled_tls_handshake_is_cut_at_the_handshake_deadline() {
+        let dir = std::env::temp_dir().join(format!("mr-httpd-tls-{}-{}", std::process::id(), line!()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cert, key) = crate::tlsutil::CertManager::new(dir.to_str().unwrap()).ensure_certificate(&crate::config::default_config()).unwrap();
+        let tls = Arc::new(CertResolver::from_pem(&cert, &key).unwrap()).server_config().unwrap();
+        let options = ServerOptions { handshake_timeout: Duration::from_secs(1), shutdown_drain: Duration::from_millis(200), ..Default::default() };
+        let (addr, stop, server) = serve_with(options, Some(tls));
+        let mut stream = TcpStream::connect(addr).unwrap();
+        // A handshake record header announcing 512 bytes that then arrive one at a time.
+        stream.write_all(&[0x16, 0x03, 0x01, 0x02, 0x00]).unwrap();
+        let (held, _) = dribble(&mut stream, &[0x01], Duration::from_secs(6));
+        stop.trigger();
+        server.join().unwrap();
+        std::fs::remove_dir_all(dir).ok();
+        assert!(held < Duration::from_secs(4), "a dribbled TLS handshake held its worker for {held:?} past a 1s handshake deadline");
+    }
+
+    #[test]
+    fn one_source_cannot_take_every_worker() {
+        let options = ServerOptions { max_connections_per_source: 2, shutdown_drain: Duration::from_millis(200), ..Default::default() };
+        let (addr, stop, server) = serve_with(options, None);
+        let request = b"GET / HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n";
+        let answer = |stream: &mut TcpStream| {
+            let _ = stream.write_all(request);
+            let mut reply = String::new();
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+            let _ = stream.read_to_string(&mut reply);
+            reply
+        };
+        // Two idle connections hold both slots of this source.
+        let idle: Vec<TcpStream> = (0..2).map(|_| TcpStream::connect(addr).unwrap()).collect();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(answer(&mut TcpStream::connect(addr).unwrap()), "", "a third connection from the same source was served");
+        drop(idle);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut served = String::new();
+        while Instant::now() < deadline && !served.starts_with("HTTP/1.1 401") {
+            std::thread::sleep(Duration::from_millis(100));
+            served = answer(&mut TcpStream::connect(addr).unwrap());
+        }
+        stop.trigger();
+        server.join().unwrap();
+        assert!(served.starts_with("HTTP/1.1 401"), "released slots were not reusable");
+        let limiter = Arc::new(SourceLimiter::default());
+        let mapped: std::net::IpAddr = "::ffff:192.0.2.7".parse().unwrap();
+        let plain: std::net::IpAddr = "192.0.2.7".parse().unwrap();
+        let held = limiter.enter(mapped, 1).unwrap();
+        assert!(limiter.enter(plain, 1).is_none(), "an IPv4-mapped peer was counted separately from its IPv4 address");
+        drop(held);
+        assert!(limiter.enter(plain, 1).is_some());
+        assert!(limiter.counts.lock().unwrap().is_empty(), "released sources are forgotten");
+    }
+
+    #[test]
+    fn header_field_count_is_bounded() {
+        let options = ServerOptions { max_header_count: 8, shutdown_drain: Duration::from_millis(200), ..Default::default() };
+        let (addr, stop, server) = serve_with(options, None);
+        let exchange = |fields: usize| {
+            let mut stream = TcpStream::connect(addr).unwrap();
+            let mut request = String::from("GET / HTTP/1.1\r\nHost: t\r\nConnection: close\r\n");
+            for i in 0..fields {
+                request.push_str(&format!("X-Field-{i}: v\r\n"));
+            }
+            request.push_str("\r\n");
+            stream.write_all(request.as_bytes()).unwrap();
+            let mut reply = String::new();
+            let _ = stream.read_to_string(&mut reply);
+            reply
+        };
+        let (within, beyond) = (exchange(6), exchange(7));
+        stop.trigger();
+        server.join().unwrap();
+        assert!(within.starts_with("HTTP/1.1 401"), "eight header fields were refused");
+        assert!(beyond.starts_with("HTTP/1.1 431"), "nine header fields were accepted");
     }
 
     #[test]
@@ -757,12 +1022,7 @@ pub fn fuzz_http_connection(data: &[u8]) {
         }
     }
     impl Stream for MemoryStream {
-        fn set_read_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
-        fn set_write_timeout(&self, _: Option<Duration>) -> io::Result<()> {
-            Ok(())
-        }
+        fn set_read_deadline(&mut self, _: Option<Instant>) {}
         fn close_write(&mut self) {}
     }
     if data.len() > 64 * 1024 {

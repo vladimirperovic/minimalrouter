@@ -167,7 +167,9 @@ The rootfs builder:
 
 - seeds current official Alpine keys before target-root package operations;
 - installs packages into the target root;
-- runs MinimalRouter's distribution installer in image-build/offline mode;
+- runs MinimalRouter's distribution installer in image-build/offline mode, which
+  also enables `crond` (without starting it) and writes the 15-minute logrotate
+  job for the service logs;
 - removes build staging files;
 - enables the stock Alpine `sysinit` services (`devfs dmesg mdev hwdrivers`) and
   `shutdown` services (`killprocs mount-ro savecache`), which `apk --root --initdb`
@@ -358,7 +360,10 @@ Firstboot:
 1. verifies/expands the ext4 root filesystem with `resize2fs`;
 2. runs `router-setup collect` for WAN/LAN, optional PPPoE and Dashboard password;
 3. applies the reviewed config offline to canonical state;
-4. sets a separate recovery/root password;
+4. sets a separate recovery/root password: it is read twice without echo
+   (`New password:` / `Retype password:`, the prompts the E2E harness waits for),
+   must be at least 12 characters, and is hashed by `chpasswd -c sha512` from
+   stdin; firstboot stops with an error if echo cannot be switched off;
 5. generates unique SSH host keys;
 6. restores `tty1` and `ttyS0` recovery gettys and adds `ttyS0` to `securetty`;
 7. writes `/etc/minimalrouter/firstboot-complete`;
@@ -398,6 +403,10 @@ The v0.1.6 gate proves:
 - nftables trusted-LAN SSH accept rule;
 - SSH TCP/22 listener;
 - `sshd` enabled in OpenRC;
+- BusyBox `crond` enabled in OpenRC and the executable 15-minute
+  `/etc/periodic/15min/minimalrouter-logrotate` job, scheduled from
+  `/etc/crontabs/root`, which the distribution installer writes (the two
+  `CHECK_CROND_ENABLED` / `CHECK_LOGROTATE_JOB_OK` markers);
 - firstboot-complete marker and SQLite state DB;
 - kernel and `/lib/modules/$(uname -r)` match;
 - `routerd` service and readiness marker;

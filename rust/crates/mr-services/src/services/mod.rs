@@ -13,7 +13,7 @@ pub(crate) mod firewall_counter {
 
 pub use device_profiles::service_domains;
 pub use generators::*;
-pub use nftables::{ACCOUNTING_SET_RX, ACCOUNTING_SET_TX, generate_nftables};
+pub use nftables::{ACCOUNTING_SET_RX, ACCOUNTING_SET_TX, generate_nftables, trusted_ipv4_sources};
 pub use review::{
     FirewallExplanation, FirewallFlow, ProfileStatus, describe_firewall_changes, describe_network_changes, device_profile_statuses, explain_firewall_flow,
     firewall_rule_counter, firewall_warnings,

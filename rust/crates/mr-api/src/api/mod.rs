@@ -190,6 +190,7 @@ pub struct Server {
     pub(crate) subsystems: RwLock<Subsystems>,
     pub(crate) recovery_mu: Mutex<()>,
     audit_limiter: Mutex<audit::AuditThrottle>,
+    log_limiter: Mutex<audit::AuditThrottle>,
     pub(crate) ext: routes::Extensions,
 }
 
@@ -232,6 +233,7 @@ impl Server {
             subsystems: RwLock::new(Subsystems::default()),
             recovery_mu: Mutex::new(()),
             audit_limiter: Mutex::new(audit::AuditThrottle::default()),
+            log_limiter: Mutex::new(audit::AuditThrottle::default()),
             ext: routes::Extensions::default(),
         })
     }
@@ -326,7 +328,9 @@ impl Server {
         if self.engine.get_current_config().is_trusted_client_address(&r.remote_addr) {
             return None;
         }
-        log::info!("[ACCESS] Rejected untrusted source {} for {} {}", r.remote_addr, r.method, r.path);
+        if self.admit_pre_auth_log("access.rejected", &audit_actor(&r.remote_addr)) {
+            log::info!("[ACCESS] Rejected untrusted source {} for {} {}", r.remote_addr, audit::clip_for_log(&r.method), audit::clip_for_log(&r.path));
+        }
         self.audit_request("access.trusted_network_rejected", r, &[]);
         Some(Response::json(403, &json!({"error": "Source address is not within a trusted management network"})))
     }
@@ -337,7 +341,9 @@ impl Server {
         let session = match self.session_mgr.validate(&r.cookie(auth::SESSION_COOKIE_NAME).unwrap_or_default()) {
             Ok(session) => session,
             Err(_) => {
-                log::info!("[AUTH] Unauthorized request to {} from {}", r.path, r.remote_addr);
+                if self.admit_pre_auth_log("auth.unauthorized", &audit_actor(&r.remote_addr)) {
+                    log::info!("[AUTH] Unauthorized request to {} from {}", audit::clip_for_log(&r.path), r.remote_addr);
+                }
                 self.audit_request("auth.unauthorized", r, &[]);
                 return Response::json(401, &json!({"error": "Unauthorized or expired session"}));
             }
@@ -619,10 +625,14 @@ struct LoginRequest {
 impl Server {
     pub(crate) fn handle_login(&self, r: &mut Request<'_>) -> Response {
         let ip = remote_ip(&r.remote_addr);
-        log::info!("[AUTH] Login attempt from {}", ip);
+        if self.admit_pre_auth_log("login.attempt", &ip) {
+            log::info!("[AUTH] Login attempt from {}", ip);
+        }
         let global_ok = self.global_limiter.read().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|l| l.allow("all-login-sources"));
         if !self.rate_limiter.allow(&ip) || !global_ok {
-            log::info!("[AUTH] Rate limited login from {}", ip);
+            if self.admit_pre_auth_log("login.rate_limited", &ip) {
+                log::info!("[AUTH] Rate limited login from {}", ip);
+            }
             self.append_audit("auth.login_rate_limited", &ip, details(&[("result", "rejected")]));
             return Response::json(429, &json!({"error": "Too many login attempts. Try again later."}));
         }
@@ -653,7 +663,9 @@ impl Server {
             }
             Ok(true) => {}
             _ => {
-                log::info!("[AUTH] Failed login from {}", ip);
+                if self.admit_pre_auth_log("login.failed", &ip) {
+                    log::info!("[AUTH] Failed login from {}", ip);
+                }
                 self.append_audit("auth.login_failed", &ip, details(&[("result", "invalid_credentials")]));
                 return write_login_rejected();
             }
@@ -670,7 +682,9 @@ impl Server {
                         return write_login_rejected();
                     }
                     if !auth::validate_totp(&secret, &req.totp_code) || !self.consume_totp(&secret, &req.totp_code) {
-                        log::info!("[AUTH] Invalid TOTP code from {}", ip);
+                        if self.admit_pre_auth_log("login.invalid_totp", &ip) {
+                            log::info!("[AUTH] Invalid TOTP code from {}", ip);
+                        }
                         self.append_audit("auth.login_failed", &ip, details(&[("result", "invalid_totp")]));
                         return write_login_rejected();
                     }

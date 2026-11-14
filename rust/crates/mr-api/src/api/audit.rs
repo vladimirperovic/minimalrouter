@@ -66,7 +66,35 @@ impl AuditThrottle {
     }
 }
 
+/// The longest request path or method echoed in a pre-authentication log line.
+const LOG_ECHO_CHARS: usize = 128;
+
+/// A client-controlled value, cut to a short length at a character boundary,
+/// for a log line written before the client has authenticated.
+pub(crate) fn clip_for_log(value: &str) -> String {
+    match value.char_indices().nth(LOG_ECHO_CHARS) {
+        Some((end, _)) => format!("{}...", &value[..end]),
+        None => value.to_string(),
+    }
+}
+
 impl Server {
+    /// Whether a log line about an unauthenticated request may be written now.
+    /// Any LAN client can cause these lines, so they are admitted at a bounded
+    /// rate per event and source and in total, with one marker line per window
+    /// instead of silence. The audit trail has its own, separate throttle.
+    pub(crate) fn admit_pre_auth_log(&self, event: &str, source: &str) -> bool {
+        self.admit_pre_auth_log_at(event, source, Time::now())
+    }
+
+    fn admit_pre_auth_log_at(&self, event: &str, source: &str, now: Time) -> bool {
+        let decision = self.log_limiter.lock().unwrap_or_else(|e| e.into_inner()).admit(&format!("{}\0{}", event, source), now);
+        if decision.mark_suppression {
+            log::info!("[LOG] Pre-authentication log lines are rate limited; further lines are suppressed until the window ends");
+        }
+        decision.record
+    }
+
     pub(crate) fn append_audit(&self, event: &str, actor: &str, details: HashMap<String, String>) {
         if config::is_high_volume_audit_event(event) {
             self.append_throttled_audit(event, actor, details, Time::now());
@@ -171,5 +199,33 @@ mod tests {
         let next = throttle.admit("auth.unauthorized\x00192.0.2.1", start.add(Duration::MINUTE));
         assert!(next.record);
         assert_eq!((next.previous_suppressed, next.previous_window_start), (2, Some(start)));
+    }
+
+    #[test]
+    fn pre_auth_log_lines_are_bounded_per_source_and_in_total() {
+        let server = Server::new(Engine::new(config::default_config(), None));
+        let start = Time::from_unix(1_800_000_000, 0);
+
+        // One source flooding one event: only the per-source allowance is written.
+        let one_source = (0..1000).filter(|_| server.admit_pre_auth_log_at("auth.unauthorized", "192.0.2.1", start)).count();
+        assert_eq!(one_source, AUDIT_THROTTLE_PER_SOURCE);
+
+        // Many sources: the total stays under the global cap (which the single
+        // source above already used part of).
+        let many_sources = (0..1000).filter(|i| server.admit_pre_auth_log_at("auth.unauthorized", &format!("10.1.{}.{}", i / 250, i % 250), start)).count();
+        assert_eq!(one_source + many_sources, AUDIT_THROTTLE_GLOBAL);
+
+        // The next window admits lines again.
+        assert!(server.admit_pre_auth_log_at("auth.unauthorized", "192.0.2.1", start.add(Duration::MINUTE)));
+    }
+
+    #[test]
+    fn echoed_values_are_clipped_on_a_character_boundary() {
+        assert_eq!(clip_for_log("/api/v1/config"), "/api/v1/config");
+        let exact = "a".repeat(LOG_ECHO_CHARS);
+        assert_eq!(clip_for_log(&exact), exact);
+        let long = format!("{}\u{4e2d}tail", "\u{e9}".repeat(LOG_ECHO_CHARS - 1));
+        assert_eq!(clip_for_log(&long), format!("{}\u{4e2d}...", "\u{e9}".repeat(LOG_ECHO_CHARS - 1)));
+        assert_eq!(clip_for_log(&"/x".repeat(20_000)).chars().count(), LOG_ECHO_CHARS + 3);
     }
 }
