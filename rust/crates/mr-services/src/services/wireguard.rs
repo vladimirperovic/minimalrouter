@@ -70,6 +70,13 @@ pub fn generate_wireguard_client_runtime(wg: &WGClientConfig) -> Result<String> 
     Ok(buf)
 }
 
+/// A value that stays on its own configuration line. Validation is the
+/// admission check; this is the generator's own line of defence, because the
+/// output is loaded by root and one line break would start a new directive.
+fn single_line(value: &str) -> Option<&str> {
+    (!value.chars().any(|c| c.is_control() || c.is_whitespace())).then_some(value)
+}
+
 fn generate(wg: &WireGuardConfig, include_address: bool) -> Result<String> {
     let mut buf = String::new();
     let mut seen = HashSet::new();
@@ -112,7 +119,11 @@ fn generate(wg: &WireGuardConfig, include_address: bool) -> Result<String> {
         }
         let _ = writeln!(buf, "AllowedIPs = {}", host_route);
         if !peer.endpoint.is_empty() {
-            let _ = writeln!(buf, "Endpoint = {}", peer.endpoint);
+            let _ = writeln!(
+                buf,
+                "Endpoint = {}",
+                single_line(&peer.endpoint).ok_or_else(|| errorf!("WireGuard peer {} has an unsafe endpoint", quote(&peer.name)))?
+            );
         }
         buf.push_str("PersistentKeepalive = 25\n\n");
     }
@@ -246,6 +257,28 @@ pub fn generate_wireguard_preshared_key() -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generator_never_lets_an_endpoint_start_a_new_line() {
+        let peer = |endpoint: &str| crate::config::WireGuardPeer {
+            name: "phone".into(),
+            public_key: STANDARD.encode([2u8; 32]),
+            allowed_ips: vec!["10.8.0.2/32".to_string()].into(),
+            endpoint: endpoint.into(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut wg =
+            WireGuardConfig { enabled: true, private_key: STANDARD.encode([1u8; 32]), listen_port: 51820, address: "10.8.0.1/24".into(), ..Default::default() };
+        wg.peers.push(peer("203.0.113.5:51820"));
+        assert!(generate_wireguard_runtime(&wg).unwrap().contains("\nEndpoint = 203.0.113.5:51820\nPersistentKeepalive = 25\n"));
+        for unsafe_endpoint in ["203.0.113.5:51820\nAllowedIPs = 192.168.1.0/24", "203.0.113.5:51820\r", "203.0.113.5:51820 AllowedIPs"] {
+            wg.peers = vec![peer(unsafe_endpoint)].into();
+            for result in [generate_wireguard(&wg), generate_wireguard_runtime(&wg)] {
+                assert_eq!(result.unwrap_err().to_string(), "WireGuard peer \"phone\" has an unsafe endpoint", "{unsafe_endpoint:?}");
+            }
+        }
+    }
 
     #[test]
     fn rfc7748_public_key_matches_known_vector() {

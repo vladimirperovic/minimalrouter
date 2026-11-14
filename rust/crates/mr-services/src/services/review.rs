@@ -165,6 +165,14 @@ fn explain_verdict(cfg: &SystemConfig, flow: &FirewallFlow, result: &mut Firewal
             && (flow.port == 22 || flow.port == cfg.system.https_port)
             && (src == "wireguard" || cfg.system.management_access != "wireguard_only")
         {
+            // sshd cannot apply trusted networks itself, so the packet policy does.
+            let trusted = || {
+                let source = net::parse_ip(&flow.source_ip);
+                super::nftables::trusted_ipv4_sources(cfg).iter().filter_map(|n| net::parse_cidr(n)).any(|(_, n)| n.contains_opt(source.as_ref()))
+            };
+            if flow.port == 22 && !trusted() {
+                return ("deny", "SSH is accepted only from trusted management networks.");
+            }
             return ("allow", "Management port is allowed by packet policy; trusted networks and authentication still apply.");
         }
         if src == "lan" {

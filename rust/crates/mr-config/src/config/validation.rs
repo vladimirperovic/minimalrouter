@@ -52,6 +52,11 @@ pub(crate) fn networks_overlap(a: &IPNet, b: &IPNet) -> bool {
     a.contains(&b.ip) || b.contains(&a.ip)
 }
 
+/// A decimal port 1-65535 with nothing else: no sign, whitespace or padding.
+pub(crate) fn valid_port_text(value: &str) -> bool {
+    (1..=5).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_digit()) && value.parse::<u32>().is_ok_and(|port| (1..=65535).contains(&port))
+}
+
 pub(crate) fn valid_wireguard_key(value: &str) -> bool {
     crate::goish::base64::std_decode(value).is_some_and(|d| d.len() == 32)
 }
@@ -904,8 +909,11 @@ impl SystemConfig {
                 }
             }
             if !peer.endpoint.is_empty() {
-                // Endpointless peers are valid for a server: they dial in.
-                let valid = net::split_host_port(&peer.endpoint).ok().is_some_and(|(host, _)| net::parse_ip(&host).is_some());
+                // Endpointless peers are valid for a server: they dial in. The
+                // port is checked as strictly as the host: SplitHostPort returns
+                // whatever follows the last colon, line breaks included, and the
+                // endpoint is written verbatim into the file `wg setconf` loads.
+                let valid = net::split_host_port(&peer.endpoint).ok().is_some_and(|(host, port)| net::parse_ip(&host).is_some() && valid_port_text(&port));
                 if !valid {
                     errs.add(format!("wireguard.peers[{}].endpoint", i), "must be a static IPv4/IPv6 address in host:port form; hostnames are not resolved");
                 }
@@ -1054,6 +1062,47 @@ pub fn go_atoi(text: &str) -> Option<i64> {
 #[cfg(test)]
 mod trusted_boundary_tests {
     use super::*;
+
+    #[test]
+    fn wireguard_peer_endpoint_port_is_validated() {
+        let key = |byte: u8| {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode([byte; 32])
+        };
+        let with_endpoint = |endpoint: &str| {
+            let mut cfg = default_config();
+            cfg.wan.enabled = true;
+            cfg.wan.username = "user".into();
+            cfg.wan.password = "secret-password".into();
+            cfg.wireguard.enabled = true;
+            cfg.wireguard.private_key = key(1);
+            cfg.wireguard.peers.push(WireGuardPeer {
+                name: "phone".into(),
+                public_key: key(2),
+                allowed_ips: vec!["10.8.0.2/32".to_string()].into(),
+                endpoint: endpoint.into(),
+                enabled: true,
+                ..Default::default()
+            });
+            cfg.validate().map_err(|errs| errs.0.into_iter().map(|e| e.field).collect::<Vec<_>>())
+        };
+        for accepted in ["", "203.0.113.5:51820", "[2001:db8::1]:1", "203.0.113.5:65535"] {
+            assert_eq!(with_endpoint(accepted), Ok(()), "{accepted:?}");
+        }
+        for refused in [
+            "203.0.113.5:51820\nAllowedIPs = 192.168.1.0/24",
+            "203.0.113.5:51820\r",
+            "203.0.113.5:51820 ",
+            "203.0.113.5:+51820",
+            "203.0.113.5:0",
+            "203.0.113.5:65536",
+            "203.0.113.5:051820",
+            "203.0.113.5:",
+            "203.0.113.5:port",
+        ] {
+            assert_eq!(with_endpoint(refused), Err(vec!["wireguard.peers[0].endpoint".to_string()]), "{refused:?}");
+        }
+    }
 
     #[test]
     fn rejects_broad_and_masked_unspecified_trusted_ranges() {

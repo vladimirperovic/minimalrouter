@@ -184,8 +184,12 @@ Firstboot runs before network-facing services and asks for:
 3. **Dashboard administrator password.** Minimum 12 characters.
 4. **Review.** Confirms non-secret WAN/LAN/management choices.
 5. **Recovery / SSH root password.** Separate from the Dashboard password. It
-   allows root SSH from the trusted LAN, so use a long, unique password:
-   firstboot only warns about a short one and does not yet enforce a minimum.
+   allows root SSH from the trusted LAN, so use a long, unique password.
+   Firstboot asks for it twice without echo (`New password:` and
+   `Retype password:`) and refuses one shorter than 12 characters or one that
+   does not match; it enforces no other strength rule. If the console cannot
+   switch echo off, firstboot stops with an error rather than reading it in the
+   clear.
 
 Firstboot then saves canonical state, generates unique SSH host keys, enables
 recovery gettys, writes `/etc/minimalrouter/firstboot-complete` and allows normal

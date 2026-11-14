@@ -9,6 +9,49 @@
 - Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
   and recover operation bookkeeping after worker panics.
 - Validate archive roots/modes and checked revision arithmetic.
+- Bound the management HTTP server: every socket read has an absolute deadline
+  (a trickling client no longer extends it byte by byte), the TLS handshake has a
+  total deadline, chunked trailers and header counts are limited, and each source
+  address has a connection limit.
+- The static dashboard redirect from `.../index.html` is the relative `./`. It no
+  longer echoes the decoded request path, which could start with `//host` and
+  send a browser to another origin.
+- Validate the port of a WireGuard server peer endpoint and reject line breaks in
+  generated WireGuard configuration values.
+- **SSH follows `trusted_networks`.** The generated firewall accepts SSH on the
+  LAN and WireGuard interfaces only from the IPv4 members of `trusted_networks`,
+  and the firewall explanation reports other sources as denied. There is no
+  packet-level rate limit on new SSH connections, because scripted administration
+  opens one connection per command. New appliances start `sshd` with
+  `MaxAuthTries 4`, `LoginGraceTime 30` and `PerSourceMaxStartups 4` (OpenSSH's
+  default global `MaxStartups` and per-source penalties are kept).
+- **Firstboot enforces a recovery (root) password of at least 12 characters.** It
+  reads the password twice without echo (the prompts are still `New password: `
+  and `Retype password: `), refuses a shorter one or a mismatch, and sets the
+  hash with `chpasswd -c sha512` from stdin. If echo cannot be switched off,
+  firstboot stops with an error instead of reading the password in the clear.
+  Before this it called BusyBox `passwd`, which accepted very short passwords.
+- Service log lines are sanitised (control characters are escaped, so a request
+  path cannot forge a log line) and capped at 2 KiB. Log lines written for
+  unauthenticated requests are rate-limited per source and in total, with one
+  suppression line per minute, and echo at most 128 characters of the path.
+- Service logs are now rotated every 15 minutes: the installers enable BusyBox
+  `crond` and install `/etc/periodic/15min/minimalrouter-logrotate`, which
+  checks only the MinimalRouter logs against their 1 MiB limit. Before this,
+  rotation could only run from Alpine's daily job, and `crond` was not enabled.
+- Upgrade notes: SSH from the LAN or WireGuard is now refused for sources outside
+  `trusted_networks`. An appliance whose `trusted_networks` has no IPv4 network
+  has no SSH access until one is added (local console access is unchanged). The
+  `crond` and log-rotation job arrive with the full installer or a new Golden
+  image, not with an A/B web update; the sshd limits and the 12-character
+  recovery-password minimum apply to appliances installed or first booted after
+  this change.
+- Correct three statements in `SECURITY.md` that did not match the code: the
+  content-type check accepts an absent `Content-Type`; loopback passes only the
+  source gate while `routerd` serves only the management addresses, and an empty
+  `trusted_networks` is refused by validation; `router-applyd` bounds what kind
+  of configuration it applies but trusts `routerd` for which valid one is
+  canonical (and `RECONCILE` has no confirmation window).
 - Add targeted regressions and document every supplied audit finding in
   [SECURITY-REVIEW-0.4.1.md](docs/SECURITY-REVIEW-0.4.1.md).
 - Record the full signed installer requirement for v0.4.0 and earlier; retain

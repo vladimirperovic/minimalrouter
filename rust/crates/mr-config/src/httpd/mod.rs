@@ -157,11 +157,12 @@ impl Body<'_> {
             self.continue_pending = false;
             source.send_continue()?;
         }
-        let remaining = self.deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        if self.deadline.saturating_duration_since(Instant::now()).is_zero() {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "i/o timeout"));
         }
-        source.set_read_timeout(Some(remaining))?;
+        // The connection enforces this on every receive, including those made
+        // inside one framing loop (chunk sizes, trailers) and below TLS.
+        source.set_read_deadline(Some(self.deadline));
         match &mut self.chunked {
             Some(state) => server::read_chunked(source, state, buf),
             None => {

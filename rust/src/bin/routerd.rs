@@ -420,8 +420,10 @@ fn serve_static(root: &str, r: &Request<'_>) -> Response {
         return Response::error("Method not allowed", 405);
     }
     if r.path.ends_with("/index.html") {
-        let target = r.path.trim_end_matches("index.html").to_string();
-        return Response::new(301).with_header("Location", target);
+        // Relative, like net/http's localRedirect: the decoded path may begin
+        // with "//host" or "/\host" (sent as %2F or %5C), which a browser
+        // would follow to another origin if it were echoed into Location.
+        return Response::new(301).with_header("Location", "./");
     }
     let mut relative = minimalrouter::goish::filepath::clean(&format!("/{}", r.path)).trim_start_matches('/').to_string();
     if relative.is_empty() || relative == "." {
@@ -637,6 +639,23 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn index_redirect_cannot_leave_the_origin() {
+        let dir = std::env::temp_dir().join(format!("mr-static-redirect-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("index.html"), "<html></html>").unwrap();
+        let root = dir.to_string_lossy().into_owned();
+        let mut router = Router::new();
+        router.handle_fn("/", move |r| serve_static(&root, r));
+        for target in ["/index.html", "/sub/index.html", "/%2Fevil.example/index.html", "/%5Cevil.example/index.html", "/%2F%2Fevil.example/index.html"] {
+            let mut body = std::io::Cursor::new(Vec::new());
+            let mut request = Request::synthetic("GET", target, &mut body, 0);
+            let response = router.dispatch(&mut request);
+            assert_eq!((response.status, response.headers.get("Location")), (301, "./"), "{target}");
+        }
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     #[test]
     fn routing_guards() {

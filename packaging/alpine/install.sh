@@ -23,6 +23,13 @@ apk add --no-cache nftables ppp ppp-pppoe dnsmasq-dnssec-nftset iproute2 iputils
     wireguard-tools-wg squid hostapd hostapd-openrc iw inadyn inadyn-openrc \
     chrony chrony-openrc logrotate
 
+# Log rotation is driven by BusyBox crond (enabled in step 6). Without its
+# OpenRC service the service logs would grow without bound.
+if [ ! -x /etc/init.d/crond ]; then
+    echo "ERROR: /etc/init.d/crond is missing; the service logs could not be rotated." >&2
+    exit 1
+fi
+
 dnsmasq_options="$(dnsmasq --version)" || exit 1
 if ! printf '%s\n' "$dnsmasq_options" | grep -Eq '(^|[[:space:]])nftset([[:space:]]|$)'; then
     echo "ERROR: dnsmasq lacks required NFTSET support" >&2
@@ -118,6 +125,18 @@ cp packaging/alpine/minimalrouter.logrotate /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
+# Alpine runs logrotate only from /etc/periodic/daily, so a log could grow for a
+# day past its size limit. Check just the MinimalRouter logs every 15 minutes
+# instead, with a state file of their own.
+install -d -m 0755 -o root -g root /etc/periodic/15min
+cat > /etc/periodic/15min/minimalrouter-logrotate <<'LOGROTATE_JOB'
+#!/bin/sh
+# Managed by minimalrouter: rotate the service logs that exceed their size limit.
+exec /usr/sbin/logrotate -s /var/lib/minimalrouter-logrotate.status /etc/logrotate.d/minimalrouter
+LOGROTATE_JOB
+chown root:root /etc/periodic/15min/minimalrouter-logrotate
+chmod 0755 /etc/periodic/15min/minimalrouter-logrotate
+
 # Alpine's OpenRC modules service reads /etc/modules. Keep this fallback for
 # installed systems that do not process modules-load.d directly.
 while IFS= read -r kernel_module; do
@@ -199,6 +218,13 @@ for unused_service in dhcpcd networkmanager NetworkManager connman iwd wpa_suppl
     rc-update del "$unused_service" boot >/dev/null 2>&1 || true
     rc-update del "$unused_service" default >/dev/null 2>&1 || true
 done
+# crond runs the 15-minute log rotation job; make sure it is actually scheduled.
+if ! grep -qs '/etc/periodic/15min' /etc/crontabs/root; then
+    install -d -m 0700 -o root -g root /etc/crontabs
+    printf '%s\n' '*/15 * * * * run-parts /etc/periodic/15min' >> /etc/crontabs/root
+    chmod 0600 /etc/crontabs/root
+fi
+rc-update add crond default
 rc-update add chronyd default
 rc-update add sshd default
 rc-update add router-applyd default

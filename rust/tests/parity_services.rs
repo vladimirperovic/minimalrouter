@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use minimalrouter::config::SystemConfig;
-use minimalrouter::goish::{errors::Result, json, time::Time};
+use minimalrouter::goish::{errors::Result, json, net, time::Time};
 use minimalrouter::services::{self, FirewallFlow};
 use serde::Deserialize;
 
@@ -19,7 +19,7 @@ struct TextResult {
     error: String,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
 struct ExplainResult {
     verdict: String,
     reason: String,
@@ -94,6 +94,70 @@ fn flow_probes() -> Vec<FirewallFlow> {
     ]
 }
 
+// Deliberate deviations from Go v0.3.3. Everything else stays under strict
+// byte-for-byte parity, and the fixtures themselves are never edited. The
+// expected Go value is transformed here, never the Rust output. Listed in
+// `fixtures/README.md`.
+//
+// 1. SSH (tcp/22) from the LAN and WireGuard interfaces is no longer accepted
+//    from the whole interface. Go emitted `iifname "<if>" tcp dport 22 accept`;
+//    Rust emits that accept restricted to the IPv4 members of
+//    `trusted_networks`, or a comment when there are none. Mirrors
+//    `write_ssh_accept` in `mr-services/src/services/nftables.rs`.
+// 2. The firewall explanation of router-destined tcp/22 from a source outside
+//    those networks is a deny instead of the management allow (probe 3 only).
+
+const GO_MANAGEMENT_ALLOW: &str = "Management port is allowed by packet policy; trusted networks and authentication still apply.";
+const SSH_UNTRUSTED_DENY: &str = "SSH is accepted only from trusted management networks.";
+const SSH_PROBE: usize = 3;
+
+/// The interface of a Go `    iifname "<if>" tcp dport 22 accept` line.
+fn go_ssh_accept_interface(line: &str) -> Option<&str> {
+    let iface = line.strip_prefix("    iifname \"")?.strip_suffix("\" tcp dport 22 accept")?;
+    (!iface.contains('"')).then_some(iface)
+}
+
+/// Go's expected nftables text with each SSH accept line replaced by what the
+/// generator now writes. The SSH line is the one directly followed by that
+/// interface's DNS accept: with `https_port` 22 the HTTPS accept is textually
+/// identical and precedes it, so it is left alone. Only text Go emitted is
+/// transformed, so an interface shared by the WireGuard and LAN blocks, a
+/// bridge LAN or a missing LAN rule need no special case.
+fn with_ssh_deviation(cfg: &SystemConfig, go_text: &str) -> String {
+    let sources = services::trusted_ipv4_sources(cfg).join(", ");
+    let mut out = String::with_capacity(go_text.len());
+    let lines: Vec<&str> = go_text.split_inclusive('\n').collect();
+    for (i, line) in lines.iter().copied().enumerate() {
+        let Some(iface) = go_ssh_accept_interface(line.trim_end_matches('\n')) else {
+            out.push_str(line);
+            continue;
+        };
+        if !lines.get(i + 1).is_some_and(|next| next.starts_with(&format!("    iifname \"{iface}\" udp dport "))) {
+            out.push_str(line);
+            continue;
+        }
+        if sources.is_empty() {
+            out.push_str(&format!("    # SSH is closed on {iface}: trusted_networks lists no IPv4 network\n"));
+        } else {
+            out.push_str(&format!("    iifname \"{iface}\" ip saddr {{ {sources} }} tcp dport 22 accept\n"));
+        }
+    }
+    out
+}
+
+/// Go's expected explanation, with the SSH deviation applied to probe 3.
+fn with_explain_deviation(cfg: &SystemConfig, index: usize, want: ExplainResult) -> ExplainResult {
+    if index != SSH_PROBE || want.verdict != "allow" || want.reason != GO_MANAGEMENT_ALLOW {
+        return want;
+    }
+    let source = net::parse_ip(&flow_probes()[index].source_ip);
+    let trusted = services::trusted_ipv4_sources(cfg).iter().filter_map(|n| net::parse_cidr(n)).any(|(_, n)| n.contains_opt(source.as_ref()));
+    if trusted {
+        return want;
+    }
+    ExplainResult { verdict: "deny".into(), reason: SSH_UNTRUSTED_DENY.into(), ..want }
+}
+
 fn check(failures: &mut Vec<String>, case: &str, what: &str, got: Result<String>, want: &TextResult) {
     match got {
         Ok(text) if want.error.is_empty() && text == want.text => {}
@@ -120,7 +184,8 @@ fn services_match_go() {
         }
         let base = bases[if case.name.starts_with("default") { "default" } else { "full" }].clone();
         let n = &case.name;
-        check(&mut failures, n, "nftables", services::generate_nftables(&cfg), &case.nftables);
+        let want_nftables = TextResult { text: with_ssh_deviation(&cfg, &case.nftables.text), error: case.nftables.error.clone() };
+        check(&mut failures, n, "nftables", services::generate_nftables(&cfg), &want_nftables);
         check(&mut failures, n, "dnsmasq", services::generate_dnsmasq(&cfg), &case.dnsmasq);
         let bundle = services::generate_pppoe(&cfg).unwrap();
         if vec![bundle.peer_config, bundle.chap_secrets, bundle.pap_secrets] != case.pppoe {
@@ -164,8 +229,8 @@ fn services_match_go() {
                 destination_zone: explanation.destination_zone,
                 error,
             };
-            let want = &case.explain[&i.to_string()];
-            if &got != want {
+            let want = with_explain_deviation(&cfg, i, case.explain[&i.to_string()].clone());
+            if got != want {
                 failures.push(format!("{n}: explain[{i}] differs\n  rust: {:?}\n  go:   {:?}", got, want));
             }
         }
