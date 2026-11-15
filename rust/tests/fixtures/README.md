@@ -21,10 +21,14 @@ The tests fail, not skip, when a fixture is missing.
 
 ## Deliberate deviations from Go v0.3.3
 
-The fixtures stay frozen. Two behaviours differ from Go on purpose, and
+The fixtures stay frozen. These behaviours differ from Go on purpose, and
 `rust/tests/parity_services.rs` transforms the *expected Go value* for exactly
 these (everything else is compared byte for byte):
 
+- **WireGuard unsafe text.** Cases `default-582` (address is a single space)
+  and `full-1110` (peer public key contains a tab) are rejected by both server
+  renderers. The expectation adapter asserts those exact synthetic inputs and
+  expects the specific rejection instead of the old generated text.
 - **nftables SSH rules.** Go accepted `tcp dport 22` from the whole LAN and
   WireGuard interfaces. Rust accepts it only from the IPv4 members of
   `trusted_networks`, and writes a comment instead when there is no IPv4

@@ -173,6 +173,24 @@ fn check(failures: &mut Vec<String>, case: &str, what: &str, got: Result<String>
     }
 }
 
+// Keep frozen Go outputs intact; only these two known unsafe text mutations
+// deliberately change from generated text to rejection in 0.4.2.
+fn wireguard_text_expectation(name: &str, cfg: &SystemConfig, original: &TextResult) -> TextResult {
+    let error = match name {
+        "default-582" => {
+            assert_eq!(cfg.wireguard.address, " ");
+            "WireGuard interface contains unsafe configuration text"
+        }
+        "full-1110" => {
+            assert!(cfg.wireguard.peers.iter().any(|p| p.enabled && p.public_key == "tab\there"));
+            "WireGuard peer contains unsafe configuration text"
+        }
+        _ => return TextResult { text: original.text.clone(), error: original.error.clone() },
+    };
+    assert!(original.error.is_empty());
+    TextResult { text: String::new(), error: error.into() }
+}
+
 #[test]
 fn services_match_go() {
     let mut bases: BTreeMap<String, SystemConfig> = BTreeMap::new();
@@ -201,8 +219,14 @@ fn services_match_go() {
         check(&mut failures, n, "ddns", services::generate_dynamic_dns(&cfg), &case.ddns);
         check(&mut failures, n, "tunnel", services::generate_cloudflare_tunnel(&cfg), &case.tunnel);
         check(&mut failures, n, "doh", services::generate_doh_proxy(&cfg), &case.doh);
-        check(&mut failures, n, "wireguard", services::generate_wireguard(&cfg.wireguard), &case.wireguard);
-        check(&mut failures, n, "wireguard_runtime", services::generate_wireguard_runtime(&cfg.wireguard), &case.wireguard_runtime);
+        check(&mut failures, n, "wireguard", services::generate_wireguard(&cfg.wireguard), &wireguard_text_expectation(n, &cfg, &case.wireguard));
+        check(
+            &mut failures,
+            n,
+            "wireguard_runtime",
+            services::generate_wireguard_runtime(&cfg.wireguard),
+            &wireguard_text_expectation(n, &cfg, &case.wireguard_runtime),
+        );
         check(&mut failures, n, "wg_client_runtime", services::generate_wireguard_client_runtime(&cfg.wg_client), &case.wg_client_runtime);
         check(&mut failures, n, "adblock", services::generate_ad_block_conf(&cfg, ADBLOCK_HOSTS.as_bytes()), &case.adblock);
         let counters: Vec<String> = cfg.firewall.custom_rules.iter().map(services::firewall_rule_counter).collect();
@@ -264,5 +288,5 @@ fn services_match_go() {
     if !failures.is_empty() {
         panic!("{} differences across {} services cases:\n{}", failures.len(), total, failures.iter().take(8).cloned().collect::<Vec<_>>().join("\n"));
     }
-    eprintln!("{} services cases identical to Go ({} profile evaluations skipped where Go panics)", total, go_panics);
+    eprintln!("{} services cases match Go with documented security deviations ({} profile evaluations skipped where Go panics)", total, go_panics);
 }
