@@ -43,7 +43,13 @@ The final architecture review added confirmation for WAN edits under
 WireGuard-only management, constrained disabled tunnel cleanup and guarded
 WireGuard text rendering. Narrower library dependency boundaries are documented
 as follow-up work in `ARCHITECTURE.md`; the existing privileged IPC boundary is
-preserved. These later fixes still require final-commit validation.
+preserved. Targeted local checks passed: five audit regressions, disabled-tunnel
+cleanup, rejection of whitespace in keys, 502 configuration parity cases and
+1,401 service parity cases with the two documented unsafe-text deviations.
+Commit `02610c1` also passed the Rust/dashboard/fuzz/mutation checks, both
+CodeQL language analyses, both secret scans and the
+[Appliance ISO gate](https://github.com/vladimirperovic/minimalrouter/actions/runs/43696274245).
+These results do not replace the complete Lab on the final merged commit.
 
 Before publication, validate the final merged commit. All required PR workflows, parser fuzzing, safety mutation
 tests, Appliance ISO and the unfiltered QEMU Lab must pass on that exact commit.
