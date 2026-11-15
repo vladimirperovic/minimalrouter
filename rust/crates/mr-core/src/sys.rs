@@ -294,6 +294,20 @@ mod unix {
     /// component may be a symlink, and a concurrent FIFO substitution cannot
     /// block the caller. Parent traversal is intentionally unsupported.
     pub fn open_regular_nofollow(path: &str) -> io::Result<File> {
+        open_typed_nofollow(path, false)
+    }
+
+    pub fn open_directory_nofollow(path: &str) -> io::Result<File> {
+        open_typed_nofollow(path, true)
+    }
+
+    /// Ownership changes apply to the checked inode, never a replacement path.
+    pub fn set_file_owner(file: &File, uid: u32, gid: u32) -> io::Result<()> {
+        // SAFETY: file owns a live fd for the duration of fchown.
+        check(unsafe { libc::fchown(file.as_raw_fd(), uid, gid) })
+    }
+
+    fn open_typed_nofollow(path: &str, directory_only: bool) -> io::Result<File> {
         use std::os::unix::ffi::OsStrExt;
         use std::path::{Component, Path};
 
@@ -313,7 +327,7 @@ mod unix {
         for (index, name) in names.iter().enumerate() {
             let last = index + 1 == names.len();
             let name = CString::new(name.as_bytes()).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
-            let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK | if last { 0 } else { libc::O_DIRECTORY };
+            let flags = libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK | if last && !directory_only { 0 } else { libc::O_DIRECTORY };
             // SAFETY: directory owns a live fd and name is NUL-terminated.
             // No O_CREAT flag is used, so openat needs no mode argument.
             let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), flags) };
@@ -323,8 +337,9 @@ mod unix {
             // SAFETY: this newly opened fd has no other owner.
             let opened = unsafe { File::from_raw_fd(fd) };
             if last {
-                if !opened.metadata()?.is_file() {
-                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a regular file"));
+                let meta = opened.metadata()?;
+                if !(if directory_only { meta.is_dir() } else { meta.is_file() }) {
+                    return Err(io::Error::new(io::ErrorKind::InvalidInput, "unexpected file type"));
                 }
                 return Ok(opened);
             }

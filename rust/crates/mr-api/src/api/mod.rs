@@ -628,8 +628,10 @@ impl Server {
         if self.admit_pre_auth_log("login.attempt", &ip) {
             log::info!("[AUTH] Login attempt from {}", ip);
         }
-        let global_ok = self.global_limiter.read().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|l| l.allow("all-login-sources"));
-        if !self.rate_limiter.allow(&ip) || !global_ok {
+        // Source-rejected requests must not drain the router-wide budget.
+        let source_ok = self.rate_limiter.allow(&ip);
+        let admitted = source_ok && self.global_limiter.read().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|l| l.allow("all-login-sources"));
+        if !admitted {
             if self.admit_pre_auth_log("login.rate_limited", &ip) {
                 log::info!("[AUTH] Rate limited login from {}", ip);
             }

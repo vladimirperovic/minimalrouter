@@ -216,6 +216,15 @@ is not yet a finished release feature.
 
 ## Privileged persistence rules
 
+PPPoE passwords beginning with `@/` are refused at configuration admission and
+generation because pppd interprets that prefix as a secret-file reference even
+inside quotes. Such credentials must be changed at the provider before use.
+DHCP lease and DDNS cache ownership/mode repair uses checked open descriptors,
+not path-based changes after a separate check. Symlinks, special files and
+multiply linked state files are refused; recovery remains fail-closed.
+Firmware manifests are opened without following Unix symlinks and limited to
+1 MiB at the privileged read boundary, including a bounded read if they grow.
+
 Firmware staging directories are created atomically with mode `0700` and stay
 private until the copied payload passes signature, hash, architecture and runtime
 layout checks. Only verified content becomes readable with the published slot's

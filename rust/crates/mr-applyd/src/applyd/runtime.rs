@@ -1144,24 +1144,17 @@ pub(crate) fn secure_ddns_configuration() -> Result<()> {
 /// Repairs DDNS cache ownership without reading contents or following links.
 pub(crate) fn prepare_ddns_cache_state_at(dir: &str, uid: u32, gid: u32) -> Result<()> {
     std::fs::create_dir_all(dir).map_err(|e| wrapf("create DDNS cache directory", e))?;
-    let meta = std::fs::symlink_metadata(dir)?;
-    if !meta.is_dir() {
-        return Err(errorf!("DDNS cache directory is not a real directory"));
-    }
-    chown(dir, uid, gid).map_err(|e| wrapf("own DDNS cache directory", e))?;
-    crate::config::set_mode(dir, 0o755).map_err(|e| wrapf("secure DDNS cache directory", e))?;
+    let directory = open_service_state(dir, true)?;
+    secure_service_state(&directory, uid, gid, 0o755).map_err(|e| wrapf("secure DDNS cache directory", e))?;
     for entry in std::fs::read_dir(dir)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         if !name.ends_with(".cache") {
             continue;
         }
         let path = entry.path();
-        if !std::fs::symlink_metadata(&path)?.file_type().is_file() {
-            return Err(errorf!("DDNS cache entry is not a regular file"));
-        }
         let p = path.to_string_lossy();
-        chown(&p, uid, gid).map_err(|e| wrapf("own DDNS cache file", e))?;
-        crate::config::set_mode(&p, 0o600).map_err(|e| wrapf("secure DDNS cache file", e))?;
+        let file = open_service_state(&p, false)?;
+        secure_service_state(&file, uid, gid, 0o600).map_err(|e| wrapf("secure DDNS cache file", e))?;
     }
     Ok(())
 }
@@ -1177,24 +1170,30 @@ pub(crate) fn prepare_dnsmasq_lease_state() -> Result<()> {
 
 pub(crate) fn prepare_dnsmasq_lease_state_at(dir: &str, lease_file: &str, uid: u32, gid: u32) -> Result<()> {
     std::fs::create_dir_all(dir).map_err(|e| wrapf("create persistent DHCP lease directory", e))?;
-    chown(dir, uid, gid).map_err(|e| wrapf("own persistent DHCP lease directory", e))?;
-    crate::config::set_mode(dir, 0o750).map_err(|e| wrapf("secure persistent DHCP lease directory", e))?;
+    let directory = open_service_state(dir, true)?;
+    secure_service_state(&directory, uid, gid, 0o750).map_err(|e| wrapf("secure persistent DHCP lease directory", e))?;
     // Never follow an unexpected symlink at this privileged path.
     for _ in 0..2 {
-        match std::fs::symlink_metadata(lease_file) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => match std::fs::OpenOptions::new().write(true).create_new(true).open(lease_file) {
-                Ok(_) => break,
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(wrapf("create persistent DHCP lease file", e)),
-            },
+        match open_service_state(lease_file, false) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut options = std::fs::OpenOptions::new();
+                options.write(true).create_new(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.mode(0o600);
+                }
+                match options.open(lease_file) {
+                    Ok(file) => return secure_service_state(&file, uid, gid, 0o640).map_err(Into::into),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => return Err(wrapf("create persistent DHCP lease file", e)),
+                }
+            }
             Err(e) => return Err(wrapf("inspect persistent DHCP lease file", e)),
-            Ok(meta) if meta.file_type().is_symlink() => return Err(errorf!("persistent DHCP lease file is a symlink")),
-            Ok(meta) if !meta.file_type().is_file() => return Err(errorf!("persistent DHCP lease file is not regular")),
-            Ok(_) => break,
+            Ok(file) => return secure_service_state(&file, uid, gid, 0o640).map_err(Into::into),
         }
     }
-    chown(lease_file, uid, gid).map_err(|e| wrapf("own persistent DHCP lease file", e))?;
-    crate::config::set_mode(lease_file, 0o640).map_err(|e| wrapf("secure persistent DHCP lease file", e))
+    Err(errorf!("persistent DHCP lease file changed repeatedly"))
 }
 
 /// Compares the generated dnsmasq artifacts instead of a hand-written list of

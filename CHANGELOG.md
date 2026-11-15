@@ -9,6 +9,9 @@
 - Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
   and recover operation bookkeeping after worker panics.
 - Validate archive roots/modes and checked revision arithmetic.
+- Reject PPP secrets-file indirection in passwords; keep source-rejected login
+  attempts out of the global login budget; update service-state ownership and
+  modes through checked file descriptors; bound and protect manifest reads.
 - Keep firmware and baseline staging private until copied content is verified.
   Reject source symlinks in all path components, special files and oversized
   files through descriptor-based reads; reject size changes during reads.

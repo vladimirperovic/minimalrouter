@@ -233,6 +233,9 @@ impl SystemConfig {
         if has_unsafe_control(&c.wan.password) || c.wan.password.len() > 1024 {
             errs.add("wan.password", "contains forbidden control characters or is too long");
         }
+        if c.wan.password.starts_with("@/") {
+            errs.add("wan.password", "must not use PPP secret file indirection");
+        }
         if c.wan.enabled {
             if c.wan.username.trim().is_empty() {
                 errs.add("wan.username", "is required when PPPoE is enabled");

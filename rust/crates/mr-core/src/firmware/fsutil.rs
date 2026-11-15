@@ -50,13 +50,13 @@ pub(crate) fn sha256_file(path: &str) -> Result<String> {
 }
 
 #[cfg(unix)]
-fn open_regular_file(path: &str) -> std::io::Result<File> {
+pub(super) fn open_regular_file(path: &str) -> std::io::Result<File> {
     crate::sys::open_regular_nofollow(path)
 }
 
 // Developer hosts do not execute privileged appliance updates.
 #[cfg(not(unix))]
-fn open_regular_file(path: &str) -> std::io::Result<File> {
+pub(super) fn open_regular_file(path: &str) -> std::io::Result<File> {
     if !std::fs::symlink_metadata(path)?.is_file() {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file"));
     }
@@ -285,6 +285,7 @@ mod tests {
         std::thread::spawn(move || {
             for unsafe_path in [leaf, join(&parent, "file"), fifo, socket, dir] {
                 assert!(sha256_bytes(&unsafe_path).is_err());
+                assert!(super::super::load_manifest(&unsafe_path).is_err());
                 assert!(copy_regular_file(&unsafe_path, &destination).is_err());
                 assert!(!Path::new(&destination).exists());
             }

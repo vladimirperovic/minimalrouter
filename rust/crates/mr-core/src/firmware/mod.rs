@@ -202,7 +202,18 @@ pub fn load_trusted_public_key(path: &str) -> Result<Vec<u8>> {
 }
 
 pub fn load_manifest(path: &str) -> Result<FirmwareManifest> {
-    let data = std::fs::read(path)?;
+    use std::io::Read;
+    // Same cap as the download/upload boundary, enforced again as root.
+    const MAX_MANIFEST_BYTES: u64 = 1 << 20;
+    let file = fsutil::open_regular_file(path)?;
+    if file.metadata()?.len() > MAX_MANIFEST_BYTES {
+        return Err(errorf!("firmware manifest is too large"));
+    }
+    let mut data = Vec::new();
+    file.take(MAX_MANIFEST_BYTES + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(errorf!("firmware manifest is too large"));
+    }
     Ok(crate::goish::json::unmarshal(&data)?)
 }
 
