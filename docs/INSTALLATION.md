@@ -4,7 +4,7 @@ The preferred AMD64/x86-64 path is the Golden Appliance ISO described first. Adv
 
 This is the preferred AMD64/x86-64 first-install path for Proxmox/KVM.
 
-The v0.4.1 ISO is **not a traditional Alpine installer**. It contains a complete,
+The v0.4.2 ISO is **not a traditional Alpine installer**. It contains a complete,
 CI-built bootable MinimalRouter disk image plus a tiny live flasher. The user VM
 does not install packages, build an initramfs, partition a target filesystem or
 rerun the MinimalRouter installer.
@@ -12,17 +12,17 @@ rerun the MinimalRouter installer.
 For the architecture and rebuild rules, read
 [`GOLDEN-IMAGE.md`](GOLDEN-IMAGE.md).
 
-## Upgrading to v0.4.1
+## Upgrading to v0.4.2
 
-The shared validation and storage fixes change code used by the installed
-recovery/setup tools. Every v0.4.0-or-earlier installation requires the
-**full signed distribution installer once**; its
+The shared validation, storage and firmware-read fixes change code used by the
+installed updater and recovery/setup tools. Every v0.4.1-or-earlier installation
+requires the **full signed distribution installer once**; its
 bootstrap tools cannot be replaced by the dashboard A/B updater. Keep signature,
 architecture, version-floor and runtime-layout checks enabled.
 
 There are two separate changes: the application and the operating-system kernel.
 
-- **New Golden installation:** the v0.4.1 AMD64 ISO supplies Alpine 3.24 and
+- **New Golden installation:** the v0.4.2 AMD64 ISO supplies Alpine 3.24 and
   Linux 6.18 with the CVE-2026-98432 fix. Install on a blank replacement disk/VM,
   complete firstboot, then restore an encrypted configuration backup and verify
   networking before switching the production links. The flasher deliberately
@@ -56,17 +56,17 @@ References: [Linux CVE record](https://www.cve.org/CVERecord?id=CVE-2026-98432),
 
 ## Release assets
 
-From the v0.4.1 GitHub release download:
+After publication, download from the v0.4.2 GitHub release:
 
 ```text
-minimalrouter-0.4.1-amd64.iso
-minimalrouter-0.4.1-amd64.iso.sha256
+minimalrouter-0.4.2-amd64.iso
+minimalrouter-0.4.2-amd64.iso.sha256
 ```
 
 Verify before use:
 
 ```sh
-sha256sum -c minimalrouter-0.4.1-amd64.iso.sha256
+sha256sum -c minimalrouter-0.4.2-amd64.iso.sha256
 ```
 
 The release also publishes `SHA256SUMS`, signed AMD64/ARM64 manifests, SPDX SBOMs
@@ -76,7 +76,7 @@ and GitHub attestations for the tested artifacts.
 
 Use a QEMU/KVM VM, not LXC:
 
-- **Firmware:** SeaBIOS for the required v0.4.1 installed-disk CI qualification
+- **Firmware:** SeaBIOS for the required v0.4.2 installed-disk CI qualification
 - **CPU:** 1 vCPU or more
 - **RAM:** 1 GiB or more
 - **Disk:** one virtual disk, 8 GiB or larger; VirtIO Block is the exact CI target
@@ -97,7 +97,7 @@ Do not put the candidate LAN on the same broadcast domain as another active DHCP
 server.
 
 The ISO media itself contains BIOS and UEFI boot metadata. However, the Golden
-disk image installed by v0.4.1 requires end-to-end qualification as an MBR +
+disk image installed by v0.4.2 requires end-to-end qualification as an MBR +
 ExtLinux + SeaBIOS appliance. Do not treat installer-media UEFI bootability as
 proof of an installed UEFI target.
 
@@ -184,8 +184,12 @@ Firstboot runs before network-facing services and asks for:
 3. **Dashboard administrator password.** Minimum 12 characters.
 4. **Review.** Confirms non-secret WAN/LAN/management choices.
 5. **Recovery / SSH root password.** Separate from the Dashboard password. It
-   allows root SSH from the trusted LAN, so use a long, unique password:
-   firstboot only warns about a short one and does not yet enforce a minimum.
+   allows root SSH from the trusted LAN, so use a long, unique password.
+   Firstboot asks for it twice without echo (`New password:` and
+   `Retype password:`) and refuses one shorter than 12 characters or one that
+   does not match; it enforces no other strength rule. If the console cannot
+   switch echo off, firstboot stops with an error rather than reading it in the
+   clear.
 
 Firstboot then saves canonical state, generates unique SSH host keys, enables
 recovery gettys, writes `/etc/minimalrouter/firstboot-complete` and allows normal
@@ -347,7 +351,7 @@ Golden disk** currently uses an MBR partition table and ExtLinux and is qualifie
 end-to-end on SeaBIOS. UEFI installed-disk support must be tested separately
 before it is documented as supported.
 
-Minimal Router v0.4.1 remains a controlled Beta pilot, not an unattended
+Minimal Router v0.4.2 remains a controlled Beta pilot, not an unattended
 pfSense/OpenWrt replacement.
 
 ## Alternative: signed distribution archive on an existing Alpine system

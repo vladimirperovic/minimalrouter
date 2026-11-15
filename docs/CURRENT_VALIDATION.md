@@ -5,9 +5,61 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Release line: v0.4.1 candidate
+## Release line: v0.4.2 candidate
 
-Prepared 2026-10-31. The [release notes](releases/v0.4.1.md) and
+Prepared 2026-11-15. The [release notes](releases/v0.4.2.md) describe the
+candidate. This includes the unpublished v0.4.1 preparation plus the HTTP,
+SSH/logging, firmware-staging, service-state, PPPoE and login-limit audit fixes.
+No v0.4.2 release has been published. Earlier green commits do not qualify the
+final release commit.
+
+Evidence collected during this preparation:
+
+- Firmware staging candidate `d817f00` passed its 19 PR checks and the
+  [Appliance ISO gate](https://github.com/vladimirperovic/minimalrouter/actions/runs/43648317082).
+  This is evidence for that commit, not the later audit fixes or version bump.
+- Targeted Windows regressions passed for PPPoE indirection, login-budget
+  isolation and bounded manifest reads. The service-state race protections
+  require Unix execution; Windows checks and Linux cross-compilation alone
+  do not prove their runtime behavior.
+- The earlier complete [QEMU Lab](https://github.com/vladimirperovic/minimalrouter/actions/runs/43647770627)
+  failed: baseline networking and 3,000 API contracts passed, but nine chaos
+  cases failed after fuzzing. Inspection found a harness restore using redacted
+  credentials and ignoring restore errors. Snapshot-based restoration and a
+  replay seed (`1794696162`) were added; they are not yet proof that every
+  appliance failure is resolved. Six targeted Python harness regressions and
+  the Rust speed-test request-body regression passed locally.
+
+- Audit-fix commit `fe7a5e9` passed all 20 PR checks and its Appliance ISO gate.
+  Linux CI executed the file-descriptor inode replacement and symlink/special-file
+  regressions successfully.
+- The complete [Lab replay on `c10a18b`](https://github.com/vladimirperovic/minimalrouter/actions/runs/43685930114)
+  passed 3,000/3,000 contracts and all 17 chaos cases with no skipped cases,
+  using seed `1794696162`. The subsequent
+  [0.4.2 candidate Lab on `00b0ce8`](https://github.com/vladimirperovic/minimalrouter/actions/runs/43689319370)
+  also passed. Both used their exact successful Appliance ISO artifacts.
+
+The final architecture review added confirmation for WAN edits under
+WireGuard-only management, constrained disabled tunnel cleanup and guarded
+WireGuard text rendering. Narrower library dependency boundaries are documented
+as follow-up work in `ARCHITECTURE.md`; the existing privileged IPC boundary is
+preserved. Targeted local checks passed: five audit regressions, disabled-tunnel
+cleanup, rejection of whitespace in keys, 502 configuration parity cases and
+1,401 service parity cases with the two documented unsafe-text deviations.
+Commit `02610c1` also passed the Rust/dashboard/fuzz/mutation checks, both
+CodeQL language analyses, both secret scans and the
+[Appliance ISO gate](https://github.com/vladimirperovic/minimalrouter/actions/runs/43696274245).
+These results do not replace the complete Lab on the final merged commit.
+
+Before publication, validate the final merged commit. All required PR workflows, parser fuzzing, safety mutation
+tests, Appliance ISO and the unfiltered QEMU Lab must pass on that exact commit.
+The signed release must then repeat full installation against its signed ISO.
+No real ISP, physical NIC, power-cut or unattended-production validation is
+claimed for this candidate.
+
+## Historical v0.4.1 preparation evidence
+
+Prepared 2026-10-31. The [changelog](../CHANGELOG.md) and
 [finding-by-finding review](SECURITY-REVIEW-0.4.1.md) describe the changes.
 No v0.4.0 tag was present when the public remote was fetched for this review.
 
@@ -39,9 +91,8 @@ The initial sandbox refused TLS temporary-file operations; the Rust tests were
 rerun with normal local filesystem/loopback access. These environment failures
 were not bypassed by weakening production checks.
 
-The exact v0.4.1 commit still requires all seven PR workflows, an unfiltered
-installed QEMU Lab, and signed-release ISO E2E before publication. The historical
-runs below do not qualify these changes. No real-lab validation is claimed.
+This preparation was not published as v0.4.1. Its local results do not qualify
+the subsequent v0.4.2 candidate. No real-lab validation is claimed.
 
 ## Historical v0.4.0 preparation evidence
 

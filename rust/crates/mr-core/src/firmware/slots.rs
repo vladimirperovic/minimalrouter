@@ -102,13 +102,16 @@ impl SlotManager {
                 Err(_) => {}
             }
             let temp = TempDir(fsutil::mkdir_temp(&slots, ".staging-")?);
-            fsutil::chmod(&temp.0, 0o755)?;
+            // Keep unverified bytes private, including across source races.
+            #[cfg(all(test, unix))]
+            tests::before_copy(&temp.0);
             for relative in manifest.files().keys() {
                 let clean = filepath::clean(relative);
                 fsutil::copy_regular_file(&join(source_dir, &clean), &join(&temp.0, &clean))?;
                 normalize_copied_file(&temp.0, &clean)?;
             }
             validate_release_candidate(&temp.0, Some(manifest), &self.trusted_key).map_err(|e| wrapf("verify copied release slot", e))?;
+            fsutil::chmod(&temp.0, 0o755)?;
             sync_payload_tree(&temp.0).map_err(|e| wrapf("sync staged slot", e))?;
             std::fs::rename(&temp.0, &final_dir).map_err(|e| wrapf("commit staged slot", e))?;
             if let Err(err) = fsutil::sync_dir(&slots) {
@@ -469,7 +472,6 @@ impl SlotManager {
             let version = format!("0.0.0+bootstrap.{}", hex::encode(&sum[..16]));
             let slots = join(&self.root, "slots");
             let temp = TempDir(fsutil::mkdir_temp(&slots, ".install-")?);
-            fsutil::chmod(&temp.0, 0o755)?;
             for relative in inventory.files().keys() {
                 if !filepath::is_local(relative) || &filepath::clean(relative) != relative {
                     return Err(errorf!("unsafe installer path: {}", relative));
@@ -483,6 +485,7 @@ impl SlotManager {
                     return Err(errorf!("installer payload changed during copy: {}", path));
                 }
             }
+            fsutil::chmod(&temp.0, 0o755)?;
             sync_payload_tree(&temp.0).map_err(|e| wrapf("persist complete baseline", e))?;
             let final_dir = join(&slots, &version);
             match std::fs::metadata(&final_dir) {
@@ -623,6 +626,49 @@ mod journal_tests;
 mod tests {
     use super::*;
 
+    type CopyHook = Box<dyn FnOnce(&str)>;
+    thread_local! {
+        static BEFORE_COPY: std::cell::RefCell<Option<CopyHook>> = const { std::cell::RefCell::new(None) };
+    }
+
+    pub(super) fn before_copy(path: &str) {
+        BEFORE_COPY.with(|hook| {
+            if let Some(hook) = hook.borrow_mut().take() {
+                hook(path);
+            }
+        });
+    }
+
+    #[test]
+    fn staging_is_private_and_rejects_source_changes_after_preflight() {
+        for symlink in [false, true] {
+            let base = TempDir(fsutil::mkdir_temp(std::env::temp_dir().to_str().unwrap(), "mr-stage-race-").unwrap());
+            let source = join(&base.0, "source");
+            let (public, private) = generate_key_pair().unwrap();
+            let manager = SlotManager { root: join(&base.0, "root"), trusted_key: public };
+            let mut manifest = payload(&source);
+            manifest.version = "0.3.0".into();
+            sign_manifest(&mut manifest, &private).unwrap();
+            let victim = join(&source, manifest.files().keys().next().unwrap());
+            let replacement = join(&base.0, "synthetic-private-data");
+            fsutil::write_file(&replacement, b"synthetic data outside signed payload", 0o600).unwrap();
+            BEFORE_COPY.with(|hook| {
+                *hook.borrow_mut() = Some(Box::new(move |temp| {
+                    assert_eq!(fsutil::mode_bits(&std::fs::metadata(temp).unwrap()), 0o700);
+                    if symlink {
+                        std::fs::remove_file(&victim).unwrap();
+                        std::os::unix::fs::symlink(&replacement, &victim).unwrap();
+                    } else {
+                        std::fs::write(&victim, b"changed after verification").unwrap();
+                    }
+                }))
+            });
+            assert!(manager.stage(&source, Some(&manifest)).is_err());
+            assert!(manager.state().unwrap().pending.is_empty());
+            assert_eq!(std::fs::read_dir(join(&manager.root, "slots")).unwrap().count(), 0);
+        }
+    }
+
     fn payload(dir: &str) -> FirmwareManifest {
         let mut manifest = FirmwareManifest::default();
         for role in appliance_file_roles(host_arch()).unwrap() {
@@ -647,6 +693,7 @@ mod tests {
             manifest.version = version.into();
             sign_manifest(&mut manifest, &private).unwrap();
             manager.stage(&source, Some(&manifest)).unwrap();
+            assert_eq!(fsutil::mode_bits(&std::fs::metadata(join(&join(&manager.root, "slots"), version)).unwrap()), 0o755);
             manager.activate(version).unwrap();
         }
         let state = manager.state().unwrap();

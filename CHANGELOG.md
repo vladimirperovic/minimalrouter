@@ -1,6 +1,79 @@
 # Changelog
 
-## [0.4.1] — candidate
+## [0.4.2] — candidate
+
+- Require confirmation for WAN changes when management uses WireGuard only.
+  Constrain disabled tunnel cleanup to appliance-owned interface names, reject
+  line breaks in WireGuard keys and guard rendering of disabled sections.
+- Restore Lab fuzz mutations from a server-side snapshot including secrets,
+  check every restore and transaction identity, distinguish missing WAN
+  prerequisites, and allow deterministic seed replay. Reject unexpected bodies
+  on the bodyless speed-test action before it changes QoS or uses the network.
+- Reject PPP secrets-file indirection in passwords; keep source-rejected login
+  attempts out of the global login budget; update service-state ownership and
+  modes through checked file descriptors; bound and protect manifest reads.
+- Keep firmware and baseline staging private until copied content is verified.
+  Reject source symlinks in all path components, special files and oversized
+  files through descriptor-based reads; reject size changes during reads.
+- Bound the management HTTP server: every socket read has an absolute deadline
+  (a trickling client no longer extends it byte by byte), the TLS handshake has a
+  total deadline, chunked trailers and header counts are limited, and each source
+  address has a connection limit.
+- The static dashboard redirect from `.../index.html` is the relative `./`. It no
+  longer echoes the decoded request path, which could start with `//host` and
+  send a browser to another origin.
+- Validate the port of a WireGuard server peer endpoint and reject line breaks in
+  generated WireGuard configuration values.
+- **SSH follows `trusted_networks`.** The generated firewall accepts SSH on the
+  LAN and WireGuard interfaces only from the IPv4 members of `trusted_networks`,
+  and the firewall explanation reports other sources as denied. Each of those
+  accepts is followed by an explicit drop of new tcp/22 on the same interface,
+  placed before the custom input rules, so a custom firewall rule (tcp/22 or any
+  protocol) cannot widen SSH beyond `trusted_networks`; without it such a rule
+  reopened SSH to the whole LAN. There is no
+  packet-level rate limit on new SSH connections, because scripted administration
+  opens one connection per command. New appliances start `sshd` with
+  `MaxAuthTries 4`, `LoginGraceTime 30` and `PerSourceMaxStartups 4` (OpenSSH's
+  default global `MaxStartups` and per-source penalties are kept).
+- **Firstboot enforces a recovery (root) password of at least 12 characters.** It
+  reads the password twice without echo (the prompts are still `New password: `
+  and `Retype password: `), refuses a shorter one or a mismatch, and sets the
+  hash with `chpasswd -c sha512` from stdin. If echo cannot be switched off,
+  firstboot stops with an error instead of reading the password in the clear.
+  Before this it called BusyBox `passwd`, which accepted very short passwords.
+- Service log lines are sanitised (control characters are escaped, so a request
+  path cannot forge a log line) and capped at 2 KiB. Log lines written for
+  unauthenticated requests are rate-limited per source and in total, with one
+  suppression line per minute, and echo at most 128 characters of the path.
+- Service logs are now rotated every 15 minutes: the installers enable BusyBox
+  `crond` and install `/etc/periodic/15min/minimalrouter-logrotate`, which
+  checks only the MinimalRouter logs against their 1 MiB limit. Before this,
+  rotation could only run from Alpine's daily job, and `crond` was not enabled.
+- Two new integration test files check the generated and in-process surface, not
+  a running appliance: `rust/tests/exposure_invariants.rs` renders a matrix of
+  valid configurations and asserts network-exposure invariants on the generated
+  nftables text (including that custom input rules cannot widen SSH, with
+  mutation self-checks), and `rust/tests/preauth_surface.rs` asserts what the
+  management API serves without credentials, in-process.
+- Upgrade notes: SSH from the LAN or WireGuard is now refused for sources outside
+  `trusted_networks`. An appliance whose `trusted_networks` has no IPv4 network
+  has no SSH access until one is added (local console access is unchanged). The
+  `crond` and log-rotation job arrive with the full installer or a new Golden
+  image, not with an A/B web update; the sshd limits and the 12-character
+  recovery-password minimum apply to appliances installed or first booted after
+  this change.
+- Correct three statements in `SECURITY.md` that did not match the code: the
+  content-type check accepts an absent `Content-Type`; loopback passes only the
+  source gate while `routerd` serves only the management addresses, and an empty
+  `trusted_networks` is refused by validation; `router-applyd` bounds what kind
+  of configuration it applies but trusts `routerd` for which valid one is
+  canonical (and `RECONCILE` has no confirmation window).
+- Includes the earlier unpublished v0.4.1 preparation below. Publication still
+  requires all exact-commit checks, the complete QEMU Lab and signed ISO E2E.
+  Appliances at or below v0.4.1 require the full signed distribution installer
+  because bootstrap validation and firmware reads changed outside the A/B slot.
+
+## [0.4.1] — unpublished preparation
 
 - Require a new post-activation WireGuard client handshake and share confirmation
   freshness rules across routerd and router-applyd.

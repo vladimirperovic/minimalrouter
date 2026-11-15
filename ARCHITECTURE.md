@@ -24,8 +24,27 @@ flowchart LR
     Linux <--> WAN
 ```
 
-Packet forwarding is not implemented in Go. It remains in the Linux kernel and
+The control plane is implemented in the Rust workspace under `rust/`. Packet
+forwarding remains in the Linux kernel and
 standard services such as nftables, pppd, dnsmasq and WireGuard.
+
+The workspace currently has broad library boundaries: `mr-config` includes
+configuration, storage, authentication and HTTP/TLS; `mr-services` includes
+generators, the apply engine, telemetry and recovery. `mr-applyd` depends on
+both. These build dependencies are not evidence that the root helper serves
+HTTP, but they make its trusted dependency graph harder to review. Extracting
+pure configuration types/validation and generators into narrower crates is
+follow-up architectural work, requiring its own compatibility and rollback
+validation. The runtime privilege boundary remains the typed, allowlisted IPC
+interface; changing crate layout must not expand it.
+
+`routerd` remains the authority for which validated configuration is canonical;
+`RECONCILE` is not an independent administrator-approval boundary. Treat a
+compromised management process as able to change network policy within helper
+validation. For WireGuard-only management, WAN changes also require confirmation
+because the WAN carries the management tunnel. Disabled tunnel fields do not
+select arbitrary interfaces for privileged cleanup, and generated WireGuard
+text is checked for line injection even when the section is disabled.
 
 Interface ownership is exclusive: `router-applyd` assigns the LAN address, pppd
 owns the WAN, and wg(8) owns the tunnels. The installer therefore writes an
@@ -139,11 +158,12 @@ A stable signed installation/recovery-media workflow remains a release gate.
 ## Source layout
 
 ```text
-cmd/                  Go entry points
-internal/             control-plane packages
+rust/src/bin/         Rust executable entry points
+rust/crates/          control-plane workspace libraries
+rust/tests/           integration and regression tests
 web/                  React dashboard
 api/openapi.yaml      REST API contract
-migrations/           SQLite migrations
+rust/crates/mr-config/src/config/  configuration and SQLite storage
 packaging/alpine/     installer + OpenRC integration
 scripts/              CI/test helpers
 docs/                 guides, evidence and ADRs

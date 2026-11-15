@@ -29,6 +29,10 @@ on:
         description: "Length of the soak test in seconds (default 300)"
         required: false
         default: "300"
+      chaos_seed:
+        description: "Optional deterministic API fuzz seed"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -104,6 +108,7 @@ jobs:
           # Inputs reach the scripts as environment variables, never in the shell text.
           LAB_ONLY: ${{ inputs.only }}
           LAB_SOAK_SECONDS: ${{ inputs.soak_seconds || '300' }}
+          CHAOS_SEED: ${{ inputs.chaos_seed }}
         run: bash scripts/gh-lab/run.sh "$(cat iso-path.txt)"
 
       - name: Require every contract case to have executed and passed

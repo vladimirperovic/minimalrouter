@@ -4,7 +4,7 @@ Minimal Router OS is a network security boundary. Security defects can affect
 every device behind the router, so the project treats secure defaults, least
 privilege, recovery, and honest limitation reporting as core requirements.
 
-The project is currently **Beta (v0.4.1)**. v0.4.1 is intended for controlled
+The current candidate is **Beta v0.4.2**, not yet published. It is intended for controlled
 pilots with console access and a known-good rollback router. No version is
 supported as an unattended production firewall unless a future release
 explicitly states that it has reached that level and publishes the corresponding
@@ -16,7 +16,7 @@ There is no stable/LTS supported release yet.
 
 | Version | Security support |
 |---|---|
-| `v0.4.1` Beta | Best-effort security fixes for the current Beta line; controlled pilots only; no SLA |
+| `v0.4.2` Beta candidate | Unpublished development line; best-effort security fixes; controlled pilots only; no SLA |
 | `main` | Active development; may contain unreleased changes |
 | Unofficial forks or modified images | Not supported by this project |
 
@@ -63,7 +63,8 @@ The project aims to:
 - make ambiguous outcomes block later mutations instead of guessing commit or
   rollback;
 - snapshot and roll back disruptive changes;
-- avoid default credentials and require administrator/recovery passwords during setup;
+- avoid default credentials and require administrator/recovery passwords during
+  setup (firstboot refuses a recovery password shorter than 12 characters);
 - generate unique SSH host keys on first boot rather than cloning image-wide identity;
 - redact secrets from normal API responses, logs, diagnostics, audit events, and
   aggregate health telemetry;
@@ -98,7 +99,16 @@ The default and first-run configuration is intended to provide:
 - stateful firewalling and NAT only where generated policy permits it;
 - management HTTPS on the selected LAN address, not on WAN;
 - password-protected SSH recovery enabled only after firstboot and permitted by
-  generated policy from trusted management networks, never by a WAN accept rule;
+  generated policy only from the IPv4 members of `trusted_networks` on the LAN
+  (and WireGuard) interface, never by a WAN accept rule. The accept is followed by
+  an unconditional drop of new tcp/22 on the same interface, ahead of any custom
+  firewall rule, so a custom input rule (tcp/22 or any protocol) cannot widen SSH
+  beyond those networks. There is deliberately no
+  packet-level rate limit on new SSH connections, because scripted administration
+  opens one connection per command; `sshd` is configured with `MaxAuthTries 4`,
+  `LoginGraceTime 30` and `PerSourceMaxStartups 4` and keeps OpenSSH's default
+  global `MaxStartups` and its default per-source penalties. With no IPv4 trusted
+  network, SSH is closed;
 - UPnP, plaintext management, Cloudflare integrations, Wi-Fi AP, Squid, QoS, and
   WireGuard disabled until explicitly configured;
 - IPv6 disabled and blocked until it has policy parity with IPv4;
@@ -109,7 +119,7 @@ The default and first-run configuration is intended to provide:
 
 ## Golden ISO installation boundary
 
-The v0.4.1 Golden ISO is part of the security boundary.
+The v0.4.2 Golden ISO is part of the security boundary.
 
 - The user VM is a flasher target, not a package/build host.
 - The live flasher verifies the embedded Golden image before writing it.
@@ -139,16 +149,22 @@ The management plane uses:
 - idle and absolute session expiration;
 - per-source and global login rate limiting;
 - CSRF tokens for state-changing browser requests;
-- same-origin and JSON content-type checks;
+- same-origin checks, and a JSON content-type check on request bodies: a request
+  whose `Content-Type` is present and not `application/json` is refused, while an
+  absent `Content-Type` is accepted, so the content type is not a CSRF defence;
+  the CSRF token stays mandatory for every state-changing request;
 - optional TOTP two-factor authentication;
 - session revocation after password or TOTP changes;
 - restrictive security headers and host/destination validation;
-- source-network gating: the administrative Web UI/API is reachable only from
-  networks listed in `trusted_networks` (plus loopback); the check uses the real
-  TCP peer address, never forwarded headers, and is a first gate before
-  authentication, never a replacement for it. An empty list denies everything
-  except localhost, and applying a change that would remove the caller's own
-  source network is rejected to prevent operator lockout. WireGuard clients are
+- source-network gating: the administrative Web UI/API accepts requests only from
+  peers in `trusted_networks`; a loopback peer also passes this source gate. The
+  check uses the real TCP peer address, never forwarded headers, and is a first
+  gate before authentication, never a replacement for it. Separately,
+  `routerd` serves only requests addressed to the active LAN or WireGuard
+  management address (and a matching host name), so a request to a loopback
+  destination is answered with 404. Validation refuses an empty
+  `trusted_networks` list, and applying a change that would remove the caller's
+  own source network is rejected to prevent operator lockout. WireGuard clients are
   trusted only when the tunnel network is listed explicitly; WireGuard-only
   management is refused unless it is, because nobody could sign in afterwards.
 
@@ -200,6 +216,28 @@ is not yet a finished release feature.
 
 ## Privileged persistence rules
 
+PPPoE passwords beginning with `@/` are refused at configuration admission and
+generation because pppd interprets that prefix as a secret-file reference even
+inside quotes. Such credentials must be changed at the provider before use.
+DHCP lease and DDNS cache ownership/mode repair uses checked open descriptors,
+not path-based changes after a separate check. Symlinks, special files and
+multiply linked state files are refused; recovery remains fail-closed.
+Firmware manifests are opened without following Unix symlinks and limited to
+1 MiB at the privileged read boundary, including a bounded read if they grow.
+
+Firmware staging directories are created atomically with mode `0700` and stay
+private until the copied payload passes signature, hash, architecture and runtime
+layout checks. Only verified content becomes readable with the published slot's
+`0755` directory mode. Failed staging removes the private temporary tree.
+On Unix, firmware hashing and copying open each path component relative to a
+pinned directory descriptor, reject symlinks (including ancestor directories),
+and check the opened file is regular. Nonblocking opens reject FIFO substitutions
+without waiting for a writer. Each file is capped at 256 MiB, matching the
+management plane's expanded release limit; reads also reject size changes.
+Operator-supplied source paths must therefore use real directories rather than
+symlink aliases. Full-install baseline copies remain private until their copied
+inventory has been checked as well.
+
 The helper's transaction journal, pending-confirmation state, and `last-good`
 configuration are security-sensitive recovery metadata.
 
@@ -210,8 +248,13 @@ configuration are security-sensitive recovery metadata.
   configuration.
 - Corrupt, valid-but-empty, unreadable, or incomplete records fail closed.
 - Helper `last-good` must not advance before SQLite canonical commit.
-- Only `RECONCILE` may supersede unresolved journal state, and it may apply only
-  the canonical configuration generated by `routerd`.
+- Only `RECONCILE` may supersede unresolved journal state. `router-applyd`
+  re-validates and regenerates whatever configuration it is given, and applies
+  only artifacts it generated itself, so it bounds *what kind* of configuration
+  can be applied (a valid one, never arbitrary commands or files). It cannot
+  verify that the configuration is the SQLite canonical one: it trusts `routerd`
+  to decide *which* valid configuration is canonical, and `RECONCILE` is applied
+  without the confirmation window.
 - Recovery metadata must use restrictive permissions and atomic file replacement.
 
 ## Storage exhaustion and bounded persistence
@@ -235,6 +278,14 @@ normal application error.
   live probing and the in-memory gateway summary continue.
 - Configuration revisions, snapshots, audit events, gateway history, SQLite WAL
   growth, and router service logs are bounded by explicit retention/rotation policy.
+- Each service log call is one line: control characters in logged text are
+  escaped, so a request path cannot forge a line, and a line is capped at 2 KiB.
+  Log lines for unauthenticated requests are rate-limited per source and in
+  total, with a single suppression line per window, and echo a short path only.
+- The installers enable BusyBox `crond` and a 15-minute job that checks the four
+  service logs against their 1 MiB limit (four compressed generations are kept).
+  The job arrives with the full installer or a new Golden image; an A/B web update
+  does not install it.
 
 A full disk, inode exhaustion, or a read-only filesystem can still create failure
 modes beyond percentage-based pressure detection. Those remain destructive
@@ -343,8 +394,9 @@ The current project does not claim complete protection against:
 - LAN Layer-2 attacks such as rogue DHCP or ARP spoofing;
 - unsupported IPv6 traffic, VLAN topologies, multi-WAN, or high availability;
 - supply-chain compromise outside the project's verified build inputs;
-- weak administrator operational practices, including a short recovery/SSH root
-  password: firstboot warns about one but does not yet enforce a minimum;
+- weak administrator operational practices, including a weak recovery/SSH root
+  password: firstboot refuses one shorter than 12 characters but enforces no
+  other strength rule, and a later `passwd` is not checked at all;
 - undiscovered implementation defects.
 
 Disk encryption, Secure Boot enforcement, owner-qualified recovery media,

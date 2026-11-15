@@ -151,6 +151,14 @@ if [ "$OFFLINE_MODE" -eq 0 ]; then
     require_dnsmasq_nftset
 fi
 
+# Log rotation is driven by BusyBox crond (enabled in step 7). Without its
+# OpenRC service the service logs would grow without bound, so refuse to
+# install rather than finish with rotation silently absent.
+if [ ! -x /etc/init.d/crond ]; then
+    echo "ERROR: /etc/init.d/crond is missing; the service logs could not be rotated." >&2
+    exit 1
+fi
+
 # Fail before replacing appliance runtime files if the running kernel cannot
 # support a required router feature. Loading an already-available module is
 # harmless and avoids a half-installed system whose A/B pointer still claims a
@@ -304,6 +312,18 @@ cp logrotate/minimalrouter /etc/logrotate.d/minimalrouter
 chmod 0755 /etc/init.d/router-applyd /etc/init.d/routerd /etc/init.d/pppoe-wan
 chmod 0644 /etc/sysctl.d/99-minimalrouter.conf /etc/modules-load.d/minimalrouter.conf /etc/logrotate.d/minimalrouter
 
+# Alpine runs logrotate only from /etc/periodic/daily, so a log could grow for a
+# day past its size limit. Check just the MinimalRouter logs every 15 minutes
+# instead, with a state file of their own.
+install -d -m 0755 -o root -g root /etc/periodic/15min
+cat > /etc/periodic/15min/minimalrouter-logrotate <<'LOGROTATE_JOB'
+#!/bin/sh
+# Managed by minimalrouter: rotate the service logs that exceed their size limit.
+exec /usr/sbin/logrotate -s /var/lib/minimalrouter-logrotate.status /etc/logrotate.d/minimalrouter
+LOGROTATE_JOB
+chown root:root /etc/periodic/15min/minimalrouter-logrotate
+chmod 0755 /etc/periodic/15min/minimalrouter-logrotate
+
 echo "[6/7] Preparing kernel/module configuration..."
 if [ "$IMAGE_BUILD" != "1" ]; then
 while IFS= read -r module; do
@@ -385,6 +405,13 @@ done
 # modules service. Golden images built from a bare rootfs did not have it in
 # the boot runlevel, so ppp_generic was never loaded and /dev/ppp was missing.
 rc-update add modules boot
+# crond runs the 15-minute log rotation job; make sure it is actually scheduled.
+if ! grep -qs '/etc/periodic/15min' /etc/crontabs/root; then
+    install -d -m 0700 -o root -g root /etc/crontabs
+    printf '%s\n' '*/15 * * * * run-parts /etc/periodic/15min' >> /etc/crontabs/root
+    chmod 0600 /etc/crontabs/root
+fi
+rc-update add crond default
 rc-update add chronyd default
 rc-update add sshd default
 rc-update add router-applyd default

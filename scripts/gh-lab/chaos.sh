@@ -17,6 +17,16 @@ run() {
         return 0
     fi
     shift
+    # Distinguish a broken prerequisite from a new failure in each attack.
+    # BLOCKED cases remain a failing run and are never counted as passes.
+    case "$name" in
+        *"WAN link flaps"*|*"LAN link flaps"*|*"clock jumps"*|*"routerd frozen"*|*"every daemon killed"*|*"DNS flood"*|*"SYN flood"*|*"reboots and power"*)
+            if ! ppp_up; then
+                record BLOCKED "$name" "not executed: WAN missing before scenario"
+                return 1
+            fi
+            ;;
+    esac
     out=$("$@" 2>&1)
     rc=$?
     # Preserve tracebacks and every DNS/HTTP observation, including on PASS.
@@ -62,8 +72,9 @@ c_api_fuzz() {
     python3 "$HERE/fuzz.py" 500 "$seed" 2>&1 | tee "$LOGS/fuzz.txt" | tail -n 12
     [ "${PIPESTATUS[0]}" -eq 0 ] || return 1
     router_healthy || { echo "router unhealthy after the fuzz run"; return 1; }
+    wait_for 60 ppp_up || { echo "WAN not restored after fuzz; later WAN-dependent results are invalid"; return 1; }
     no_crashes || return 1
-    echo "500 hostile configurations and every mutating endpoint fuzzed (seed $seed): no 5xx, configuration restored"
+    echo "500 hostile configurations and eligible mutating endpoints fuzzed (seed $seed): no 5xx, snapshot restored, WAN up"
 }
 
 c_http_abuse() {
@@ -404,7 +415,7 @@ run "chaos: no crashes in the kernel log" no_crashes
 mkdir -p "$LOGS/router-chaos"
 rsh 'ip -d addr; nft list ruleset; ps w; free -m; df -h; dmesg | tail -n 200' > "$LOGS/router-chaos/state.txt" 2>&1
 for f in routerd.log routerd.err router-applyd.log router-applyd.err; do rsh "tail -n 400 /var/log/$f" > "$LOGS/router-chaos/$f" 2>&1; done
-fails=$(grep -c '^FAIL' "$RESULTS")
+fails=$(grep -Ec '^(FAIL|BLOCKED)' "$RESULTS")
 passes=$(grep -c '^PASS' "$RESULTS")
 skips=$(grep -c '^SKIP' "$RESULTS")
 log "chaos done: $passes passed, $fails failed, $skips skipped"

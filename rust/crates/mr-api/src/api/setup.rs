@@ -288,6 +288,11 @@ fn measure_upload(max_bytes: u64, budget: StdDuration) -> std::result::Result<f6
 impl Server {
     pub(crate) fn handle_speedtest(&self, r: &mut Request<'_>) -> Response {
         log::info!("[API] POST {} from {}", r.path, r.remote_addr);
+        // This action has no request body. Reject hostile JSON before QoS
+        // changes or external traffic rather than silently ignoring it.
+        if r.has_body() {
+            return Response::error("Speed test does not accept a request body", 400);
+        }
         let mode = r.query().get("mode");
         if !mode.is_empty() && mode != "estimate" {
             return Response::error("Unsupported speed test mode", 400);
@@ -321,5 +326,20 @@ impl Server {
                 estimate,
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod speedtest_body_tests {
+    use super::*;
+
+    #[test]
+    fn unexpected_body_is_rejected_before_external_measurement() {
+        let server = Server::new(crate::apply::Engine::new(crate::config::default_config(), None));
+        for body in ["null", "{}", "{", "[]", "\"\""] {
+            let mut cursor = std::io::Cursor::new(body.as_bytes().to_vec());
+            let mut request = Request::synthetic("POST", "/api/v1/qos/speedtest", &mut cursor, body.len() as u64);
+            assert_eq!(server.handle_speedtest(&mut request).status, 400);
+        }
     }
 }

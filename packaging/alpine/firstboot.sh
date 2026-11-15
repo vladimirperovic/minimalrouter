@@ -6,6 +6,9 @@ umask 077
 
 PROVISION=/run/minimalrouter-firstboot.json
 DONE=/etc/minimalrouter/firstboot-complete
+# Root can log in over SSH from every trusted LAN/Wi-Fi client, and BusyBox
+# passwd accepts very short passwords, so firstboot enforces its own minimum.
+MIN_ROOT_PASSWORD_LENGTH=12
 
 fail() {
     printf '\nERROR: %s\n' "$*" >&2
@@ -81,6 +84,55 @@ enable_recovery_gettys() {
     fi
 }
 
+# Reads one line from the console without echo: the prompt goes to stderr and
+# the line to stdout, so callers capture it with $(...). That subshell owns the
+# traps below, which therefore never replace a trap of this script. Status 2
+# means echo could not be switched off (no or failing stty); the line is then
+# never read, so a password cannot be typed in the clear.
+read_hidden() {
+    saved="$(stty -g 2>/dev/null)" || return 2
+    [ -n "$saved" ] || return 2
+    trap 'stty "$saved" >/dev/null 2>&1; exit 130' HUP INT TERM
+    trap 'stty "$saved" >/dev/null 2>&1' EXIT
+    stty -echo >/dev/null 2>&1 || return 2
+    printf '%s' "$1" >&2
+    line=
+    status=0
+    IFS= read -r line || status=1
+    stty "$saved" >/dev/null 2>&1 || true
+    printf '\n' >&2
+    [ "$status" -eq 0 ] || return 1
+    printf '%s' "$line"
+}
+
+# Sets root's password through chpasswd on stdin (printf is a builtin, so the
+# password is on no command line and in no exported variable) with SHA-512.
+set_root_password() {
+    while :; do
+        rc=0
+        first="$(read_hidden 'New password: ')" || rc=$?
+        if [ "$rc" -eq 0 ]; then
+            second="$(read_hidden 'Retype password: ')" || rc=$?
+        fi
+        case "$rc" in
+            0) ;;
+            2) unset first second; fail "Cannot read a password without echo (stty is unavailable); the recovery password was not set" ;;
+            *) unset first second; fail "Password entry ended before the recovery password was set" ;;
+        esac
+        if [ "${#first}" -lt "$MIN_ROOT_PASSWORD_LENGTH" ]; then
+            printf 'The password must be at least %s characters long. Try again.\n' "$MIN_ROOT_PASSWORD_LENGTH"
+        elif [ "$first" != "$second" ]; then
+            printf 'The passwords did not match. Try again.\n'
+        elif printf 'root:%s\n' "$first" | chpasswd -c sha512; then
+            unset first second
+            return 0
+        else
+            unset first second
+            fail "Could not set the recovery password"
+        fi
+    done
+}
+
 resize_root_filesystem() {
     part="$(root_partition)"
     [ -b "$part" ] || return 0
@@ -106,6 +158,9 @@ PermitEmptyPasswords no
 X11Forwarding no
 AllowTcpForwarding no
 PermitTunnel no
+MaxAuthTries 4
+LoginGraceTime 30
+PerSourceMaxStartups 4
 Subsystem sftp internal-sftp
 SSHD
     chmod 0600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
@@ -166,10 +221,9 @@ ART
     printf '\nRecovery / SSH root password\n'
     printf '%s\n' '----------------------------'
     printf 'Set the Linux root password for emergency console and trusted-LAN SSH recovery.\n'
-    printf 'It is separate from the Web Dashboard administrator password.\n\n'
-    while ! passwd; do
-        printf 'The passwords did not match or were rejected. Try again.\n'
-    done
+    printf 'It is separate from the Web Dashboard administrator password.\n'
+    printf 'It must be at least %s characters long.\n\n' "$MIN_ROOT_PASSWORD_LENGTH"
+    set_root_password
 
     configure_ssh
     enable_recovery_gettys

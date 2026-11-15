@@ -12,6 +12,47 @@ pub(crate) const SOCKET_DIR: &str = "/run/minimalrouter";
 pub(crate) const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long an idle peer may hold a connection before sending its request.
 pub(crate) const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(15);
+
+pub(crate) fn open_service_state(path: &str, directory: bool) -> std::io::Result<std::fs::File> {
+    #[cfg(unix)]
+    {
+        let file = if directory { mr_core::sys::open_directory_nofollow(path)? } else { mr_core::sys::open_regular_nofollow(path)? };
+        if !directory {
+            use std::os::unix::fs::MetadataExt;
+            if file.metadata()?.nlink() != 1 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "service state must not have hard links"));
+            }
+        }
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        let meta = std::fs::symlink_metadata(path)?;
+        if !(if directory { meta.is_dir() } else { meta.is_file() }) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "unexpected service state type"));
+        }
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        if directory {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x02000000); // FILE_FLAG_BACKUP_SEMANTICS
+        }
+        options.open(path)
+    }
+}
+
+pub(crate) fn secure_service_state(file: &std::fs::File, uid: u32, gid: u32, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        mr_core::sys::set_file_owner(file, uid, gid)?;
+        file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (file, uid, gid, mode);
+    Ok(())
+}
 /// Bounds only the delivery of a finished outcome, armed at write time.
 pub(crate) const RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -283,6 +324,39 @@ pub(crate) fn serve_bounded(listener: std::os::unix::net::UnixListener, limit: u
 mod tests {
     use super::*;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn service_metadata_updates_stay_on_the_opened_inode() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+        let mut nonce = [0u8; 16];
+        crate::goish::rand::fill(&mut nonce).unwrap();
+        let dir = std::env::temp_dir().join(format!("mr-service-inode-{}", hex::encode(nonce)));
+        std::fs::create_dir(&dir).unwrap();
+        let source = dir.join("state");
+        let saved = dir.join("saved");
+        let target = dir.join("unrelated");
+        std::fs::write(&source, b"service state").unwrap();
+        std::fs::write(&target, b"unrelated data").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let before = target.metadata().unwrap();
+        let file = open_service_state(source.to_str().unwrap(), false).unwrap();
+        let owner = file.metadata().unwrap();
+        std::fs::rename(&source, &saved).unwrap();
+        symlink(&target, &source).unwrap();
+        secure_service_state(&file, owner.uid(), owner.gid(), 0o600).unwrap();
+        let after = target.metadata().unwrap();
+        assert_eq!((before.uid(), before.gid(), before.mode()), (after.uid(), after.gid(), after.mode()));
+        assert_eq!(std::fs::read(&target).unwrap(), b"unrelated data");
+        assert_eq!(saved.metadata().unwrap().mode() & 0o777, 0o600);
+        assert!(open_service_state(source.to_str().unwrap(), false).is_err());
+        let alias = dir.join("directory-link");
+        symlink(&dir, &alias).unwrap();
+        assert!(open_service_state(alias.to_str().unwrap(), true).is_err());
+        let hardlink = dir.join("hardlink");
+        std::fs::hard_link(&target, &hardlink).unwrap();
+        assert!(open_service_state(hardlink.to_str().unwrap(), false).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn request_limit_requires_eof_and_rejects_valid_json_prefix() {
