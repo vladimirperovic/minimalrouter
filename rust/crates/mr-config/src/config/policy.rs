@@ -36,7 +36,7 @@ pub fn equal_section<A: serde::Serialize + ?Sized, B: serde::Serialize + ?Sized>
 /// independently validate the candidate and transition.
 pub fn requires_confirmation(current: &SystemConfig, candidate: &SystemConfig) -> bool {
     let wireguard_management_changed = (current.system.management_access == "wireguard_only" || candidate.system.management_access == "wireguard_only")
-        && !equal_section(&current.wireguard, &candidate.wireguard);
+        && (!equal_section(&current.wireguard, &candidate.wireguard) || !equal_section(&current.wan, &candidate.wan));
     let wifi_changed = !equal_section(&current.wifi, &candidate.wifi) && (current.wifi.enabled || candidate.wifi.enabled);
     current.lan.ip_address != candidate.lan.ip_address
         || current.lan.cidr != candidate.lan.cidr

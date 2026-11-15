@@ -4,7 +4,7 @@ Minimal Router OS is a focused Alpine Linux router appliance for home and
 small-office networks. It combines proven Linux networking components with a
 small Rust control plane, transactional configuration and a clear web UI.
 
-> **Status: Beta — v0.4.1.** The preferred AMD64/Proxmox install is the
+> **Status: Beta — v0.4.2 candidate, not yet published.** The preferred AMD64/Proxmox install is the
 > CI-built Golden Appliance ISO. Current evidence and remaining production gates
 > are tracked in [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
 
@@ -45,7 +45,7 @@ kernel/modules/initramfs, MinimalRouter runtime and bootable disk image. The liv
 ISO verifies and raw-copies that disk image, then the installed appliance collects
 WAN/LAN and credentials on first boot.
 
-v0.4.1 keeps that architecture and the same release gate: installed cold boot,
+v0.4.2 keeps that architecture and the same release gate: installed cold boot,
 firstboot non-reentry, service-supervision recovery, warm reboot and
 destructive installer-safety checks.
 
@@ -86,8 +86,9 @@ Advanced details remain available without dominating the default view.
 
 ## Platform direction
 
-Current evidence is centered on x86-64 in Proxmox/KVM. The v0.4.1 Golden target
-is fully exercised end-to-end on the SeaBIOS/MBR + VirtIO path. The installer
+Current evidence is centered on x86-64 in Proxmox/KVM. The v0.4.2 Golden target
+requires full end-to-end qualification on the SeaBIOS/MBR + VirtIO path; the
+exact release candidate is still awaiting its gates. The installer
 media retains BIOS/UEFI boot metadata, but UEFI installed-disk qualification is a
 separate future gate. ARM64 distribution builds and QEMU smoke tests remain
 available; there is no ARM64 Golden ISO yet.
@@ -111,7 +112,7 @@ See the [roadmap](#roadmap), [`docs/GOLDEN-IMAGE.md`](docs/GOLDEN-IMAGE.md) and
 
 ## Roadmap
 
-Minimal Router OS is currently **Beta (v0.4.1)**. The roadmap is organized around
+Minimal Router OS is currently **Beta (v0.4.2)**. The roadmap is organized around
 evidence and release gates rather than dates.
 
 Current evidence: [`docs/CURRENT_VALIDATION.md`](docs/CURRENT_VALIDATION.md).
@@ -203,7 +204,7 @@ outside the current small-router scope.
 This document is a scope and resource comparison, not a claim of security,
 feature, or support parity.
 
-Minimal Router OS is **Beta (v0.4.1)** software with limited deployment history.
+Minimal Router OS is **Beta (v0.4.2)** software with limited deployment history.
 pfSense and OpenWrt are mature projects used on a wide range of production
 networks. A smaller code and service footprint can reduce complexity, but it
 does not by itself prove that a system is safer, faster, or more reliable.
@@ -261,7 +262,7 @@ Official pfSense package references:
 
 ### Feature comparison
 
-| Capability | Minimal Router OS — v0.4.1 Beta | pfSense |
+| Capability | Minimal Router OS — v0.4.2 Beta | pfSense |
 |---|---|---|
 | Stateful firewall and NAT | Focused generated nftables policy | Comprehensive and mature |
 | PPPoE | Implemented; first real owner-Proxmox pilot passed, repeatability testing remains | Mature |

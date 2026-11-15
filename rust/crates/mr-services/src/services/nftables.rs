@@ -68,6 +68,54 @@ fn write_known_wg_peer_endpoint_input_rules(buf: &mut String, cfg: &SystemConfig
     let _ = writeln!(buf, "    iifname \"ppp*\" ip saddr {{ {sources} }} udp dport {port} accept\n");
 }
 
+/// The IPv4 members of `trusted_networks` as disjoint nftables prefixes.
+///
+/// routerd applies the trusted-network boundary itself, per request. sshd has
+/// no such gate, so for SSH the boundary has to be the packet policy: without
+/// it, narrowing `trusted_networks` to one management host would close the
+/// Dashboard to the rest of the LAN and leave root password login open to it.
+pub fn trusted_ipv4_sources(cfg: &SystemConfig) -> Vec<String> {
+    let networks: Vec<IPNet> =
+        cfg.trusted_networks.iter().filter_map(|entry| net::parse_cidr(entry)).map(|(_, n)| n).filter(|n| n.ip.to4().is_some()).collect();
+    let mut out: Vec<String> = Vec::new();
+    for (i, network) in networks.iter().enumerate() {
+        // A prefix inside another listed prefix adds nothing and would make
+        // the anonymous set overlap; of two equal prefixes the first is kept.
+        let covered = networks.iter().enumerate().any(|(j, other)| {
+            let (ones, other_ones) = (network.mask.size().0, other.mask.size().0);
+            j != i && other.contains(&network.ip) && (other_ones < ones || (other_ones == ones && j < i))
+        });
+        if !covered {
+            out.push(network.to_string());
+        }
+    }
+    out
+}
+
+/// SSH from one interface: accepted only from the IPv4 trusted networks. There
+/// is deliberately no packet-level rate limit on new connections: scripted
+/// administration opens one connection per command, so a cap generous enough
+/// not to break it would not limit guessing; sshd penalises failing sources
+/// itself (`MaxAuthTries`, `PerSourceMaxStartups`, `PerSourcePenalties`).
+///
+/// The accept is followed by an unconditional tcp/22 drop on the same
+/// interface. Custom `input allow` rules are written after the service blocks
+/// and match the whole LAN interface (`tcp dport 22`, or protocol `any`), so
+/// without the drop one of them would open SSH to every LAN source again. The
+/// drop sits after `ct state established,related accept`, so it only affects
+/// new tcp/22 connections to the router, and it matches nothing but tcp/22.
+fn write_ssh_accept(buf: &mut String, cfg: &SystemConfig, interface: &str) {
+    let trusted = trusted_ipv4_sources(cfg);
+    if trusted.is_empty() {
+        let _ = writeln!(buf, "    # SSH is closed on {}: trusted_networks lists no IPv4 network", interface);
+    } else {
+        let sources = trusted.join(", ");
+        let _ = writeln!(buf, "    iifname \"{interface}\" ip saddr {{ {sources} }} tcp dport 22 accept");
+    }
+    let _ = writeln!(buf, "    # No later rule, custom input allows included, may reopen SSH on {interface} for other sources");
+    let _ = writeln!(buf, "    iifname \"{interface}\" tcp dport 22 drop");
+}
+
 /// The IPv4 broadcast address of a CIDR, or "" when not a valid IPv4 network.
 pub(crate) fn lan_broadcast_address(cidr: &str) -> String {
     net::parse_cidr(cidr).and_then(|(_, n)| n.ip.to4().and_then(|_| n.ipv4_broadcast())).map(|b| b.to_string()).unwrap_or_default()
@@ -405,7 +453,7 @@ pub fn generate_nftables(cfg: &SystemConfig) -> Result<String> {
         buf.push_str("    # Authenticated tunnel services\n");
         let _ = writeln!(buf, "    iifname \"{wg}\" ip saddr != {wg_network} drop");
         let _ = writeln!(buf, "    iifname \"{wg}\" tcp dport {} accept", cfg.system.https_port);
-        let _ = writeln!(buf, "    iifname \"{wg}\" tcp dport 22 accept");
+        write_ssh_accept(&mut buf, cfg, wg);
         let _ = writeln!(buf, "    iifname \"{wg}\" udp dport 53 accept");
         let _ = writeln!(buf, "    iifname \"{wg}\" tcp dport 53 accept\n");
     }
@@ -425,7 +473,7 @@ pub fn generate_nftables(cfg: &SystemConfig) -> Result<String> {
         if cfg.system.management_access != "wireguard_only" {
             let _ = writeln!(buf, "    iifname \"{}\" tcp dport {} ct state new limit rate over 30/second burst 60 packets drop", lan, cfg.system.https_port);
             let _ = writeln!(buf, "    iifname \"{}\" tcp dport {} accept", lan, cfg.system.https_port);
-            let _ = writeln!(buf, "    iifname \"{}\" tcp dport 22 accept", lan);
+            write_ssh_accept(&mut buf, cfg, lan);
         } else {
             buf.push_str("    # Management HTTPS is intentionally unavailable on LAN; use WireGuard\n");
         }
@@ -612,4 +660,138 @@ fn write_wan_antispoof(buf: &mut String, wan: &str) {
     let _ = writeln!(buf, "    iifname \"ppp*\" ip saddr {} drop", RESERVED_WAN_SOURCES);
     buf.push_str("    iifname \"ppp*\" fib saddr . iif oif missing drop\n");
     buf.push_str("    iifname \"ppp*\" meta nfproto ipv6 drop\n\n");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ssh_lines(cfg: &SystemConfig) -> Vec<String> {
+        generate_nftables(cfg).unwrap().lines().filter(|l| l.contains("dport 22") || l.contains("SSH is closed")).map(|l| l.trim().to_string()).collect()
+    }
+
+    #[test]
+    fn ssh_follows_trusted_networks_without_a_packet_rate_limit() {
+        let mut cfg = crate::config::default_config();
+        assert_eq!(ssh_lines(&cfg), ["iifname \"eth1\" ip saddr { 192.168.1.0/24 } tcp dport 22 accept", "iifname \"eth1\" tcp dport 22 drop"]);
+        assert!(ssh_lines(&cfg).iter().all(|l| !l.contains("meter") && !l.contains("limit rate")), "scripted administration opens a connection per command");
+        // Narrowing the management boundary narrows SSH with it.
+        cfg.trusted_networks = vec!["192.168.1.10/32".to_string(), "fd00::/8".to_string()].into();
+        assert_eq!(ssh_lines(&cfg), ["iifname \"eth1\" ip saddr { 192.168.1.10/32 } tcp dport 22 accept", "iifname \"eth1\" tcp dport 22 drop"]);
+        cfg.trusted_networks = vec!["fd00::/8".to_string()].into();
+        assert_eq!(ssh_lines(&cfg), ["# SSH is closed on eth1: trusted_networks lists no IPv4 network", "iifname \"eth1\" tcp dport 22 drop"]);
+    }
+
+    fn custom_input_allow(id: &str, protocol: &str, dst_port: i64) -> crate::config::FirewallRule {
+        crate::config::FirewallRule {
+            id: id.into(),
+            name: id.into(),
+            action: "allow".into(),
+            direction: "input".into(),
+            protocol: protocol.into(),
+            dst_port,
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    /// The `input` chain rules (comments and blanks dropped), in order.
+    fn input_rules(nft: &str) -> Vec<String> {
+        let body = nft.split("  chain input {").nth(1).expect("input chain").split("\n  }").next().unwrap();
+        body.lines().map(|l| l.trim()).filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("type ")).map(str::to_string).collect()
+    }
+
+    #[test]
+    fn custom_input_allows_cannot_reopen_ssh_for_untrusted_lan_sources() {
+        let mut cfg = crate::config::default_config();
+        cfg.trusted_networks = vec!["192.168.1.10/32".to_string()].into();
+        cfg.firewall.custom_rules = vec![custom_input_allow("ssh", "tcp", 22), custom_input_allow("everything", "any", 0)].into();
+        let nft = generate_nftables(&cfg).unwrap();
+        let rules = input_rules(&nft);
+        // Both custom rules render exactly as an administrator would expect...
+        let custom_ssh = rules.iter().position(|r| r.starts_with("iifname \"eth1\" tcp dport 22 counter name mr_rule_") && r.ends_with(" accept"));
+        let custom_any = rules.iter().position(|r| r.starts_with("iifname \"eth1\" counter name mr_rule_") && r.ends_with(" accept"));
+        let (custom_ssh, custom_any) = (custom_ssh.expect("custom tcp/22 allow rendered"), custom_any.expect("custom any allow rendered"));
+        // ...but the explicit drop precedes them, after the trusted accept and the state rule.
+        let drop = rules.iter().position(|r| r == "iifname \"eth1\" tcp dport 22 drop").expect("SSH drop");
+        let accept = rules.iter().position(|r| r == "iifname \"eth1\" ip saddr { 192.168.1.10/32 } tcp dport 22 accept").expect("trusted SSH accept");
+        let est = rules.iter().position(|r| r == "ct state established,related accept").expect("established accept");
+        assert!(est < accept && accept < drop, "established accept, then trusted accept, then drop: {rules:?}");
+        assert!(drop < custom_ssh && drop < custom_any, "the SSH drop must precede every custom input allow: {rules:?}");
+        // Every accept that can match tcp/22 is either source-restricted to the trusted set
+        // or preceded by the drop for its interface.
+        let mut dropped: Vec<&str> = Vec::new();
+        for rule in &rules {
+            if let Some(iface) = rule.strip_suffix("\" tcp dport 22 drop").and_then(|r| r.strip_prefix("iifname \"")) {
+                dropped.push(iface);
+                continue;
+            }
+            let accepts = rule.ends_with(" accept") && !rule.starts_with("ct state established");
+            let non_ssh = rule.contains("udp ") || rule.contains("ip protocol") || (rule.contains("dport ") && !rule.contains("dport 22"));
+            if !accepts || non_ssh || rule.starts_with("iifname \"lo\"") {
+                continue;
+            }
+            let iface = rule.strip_prefix("iifname \"").and_then(|r| r.split('"').next()).unwrap_or_else(|| panic!("unqualified accept `{rule}`"));
+            let restricted = rule.contains("ip saddr { 192.168.1.10/32 }");
+            assert!(restricted || dropped.contains(&iface), "`{rule}` can accept tcp/22 from untrusted sources: {rules:?}");
+        }
+        // No trusted IPv4 network at all: still dropped ahead of the custom rules.
+        cfg.trusted_networks = vec!["fd00::/8".to_string()].into();
+        let rules = input_rules(&generate_nftables(&cfg).unwrap());
+        let drop = rules.iter().position(|r| r == "iifname \"eth1\" tcp dport 22 drop").expect("SSH drop without a trusted IPv4 network");
+        assert!(rules.iter().position(|r| r.starts_with("iifname \"eth1\" counter name mr_rule_")).unwrap() > drop);
+        assert!(!rules.iter().any(|r| r.contains("ip saddr") && r.contains("dport 22 accept")));
+    }
+
+    #[test]
+    fn ssh_drop_is_emitted_for_wireguard_and_never_matches_other_traffic() {
+        let mut cfg = crate::config::default_config();
+        cfg.wan.enabled = true;
+        cfg.wireguard.enabled = true;
+        cfg.trusted_networks.push("10.8.0.0/24".to_string());
+        let nft = generate_nftables(&cfg).unwrap();
+        let rules = input_rules(&nft);
+        for iface in ["eth1", "wg0"] {
+            let accept = rules.iter().position(|r| r.starts_with(&format!("iifname \"{iface}\" ip saddr {{")) && r.ends_with("tcp dport 22 accept")).unwrap();
+            assert_eq!(rules[accept + 1], format!("iifname \"{iface}\" tcp dport 22 drop"));
+        }
+        // The only drops that mention tcp/22 are the two interface-scoped SSH drops.
+        let drops: Vec<&String> = rules.iter().filter(|r| r.ends_with(" drop") && r.contains("dport 22")).collect();
+        assert_eq!(drops.len(), 2, "{drops:?}");
+        // wireguard_only management renders no LAN SSH block, hence no LAN SSH drop either.
+        cfg.system.management_access = "wireguard_only".into();
+        let rules = input_rules(&generate_nftables(&cfg).unwrap());
+        assert!(!rules.iter().any(|r| r.contains("\"eth1\"") && r.contains("dport 22")));
+    }
+
+    #[test]
+    fn trusted_sources_are_disjoint_ipv4_prefixes() {
+        let mut cfg = crate::config::default_config();
+        cfg.trusted_networks = vec![
+            "192.168.1.77/25".to_string(),
+            "192.168.1.0/24".to_string(),
+            "10.8.0.0/24".to_string(),
+            "::ffff:10.9.0.0/120".to_string(),
+            "192.168.1.128/25".to_string(),
+            "2001:db8::/32".to_string(),
+            "not-a-network".to_string(),
+        ]
+        .into();
+        assert_eq!(trusted_ipv4_sources(&cfg), ["192.168.1.0/24", "10.8.0.0/24", "10.9.0.0/24"]);
+        cfg.trusted_networks = vec!["10.0.0.5/8".to_string(), "10.0.0.0/8".to_string()].into();
+        assert_eq!(trusted_ipv4_sources(&cfg), ["10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn wireguard_ssh_requires_the_tunnel_network_to_be_trusted() {
+        let mut cfg = crate::config::default_config();
+        cfg.wan.enabled = true;
+        cfg.wireguard.enabled = true;
+        assert!(!ssh_lines(&cfg).iter().any(|l| l.contains("\"wg0\"") && l.ends_with("accept") && !l.contains("192.168.1.0/24")));
+        assert!(ssh_lines(&cfg).contains(&"iifname \"wg0\" ip saddr { 192.168.1.0/24 } tcp dport 22 accept".to_string()));
+        cfg.trusted_networks.push("10.8.0.0/24".to_string());
+        assert!(ssh_lines(&cfg).contains(&"iifname \"wg0\" ip saddr { 192.168.1.0/24, 10.8.0.0/24 } tcp dport 22 accept".to_string()));
+        cfg.system.management_access = "wireguard_only".into();
+        assert!(ssh_lines(&cfg).iter().all(|l| l.contains("\"wg0\"")), "LAN SSH stays closed in WireGuard-only management");
+    }
 }

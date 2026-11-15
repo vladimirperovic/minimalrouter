@@ -8,6 +8,9 @@ export WORK
 mkdir -p "$WORK/mock-bin" "$WORK/bin" "$WORK/etc/apk"
 echo 3.24.3 > "$WORK/etc/alpine-release"
 : > "$WORK/etc/apk/repositories"
+mkdir -p "$WORK/etc/init.d"
+printf '#!/bin/sh\n' > "$WORK/etc/init.d/crond"
+chmod 0755 "$WORK/etc/init.d/crond"
 export PATH="$WORK/mock-bin:$PATH"
 cat > "$WORK/mock-bin/id" <<'MOCK'
 #!/bin/sh
@@ -113,3 +116,26 @@ for module in ppp_generic pppox pppoe; do
     grep -qx "$module" "$SOURCE/minimalrouter.modules"
 done
 echo 'PASS kernel module list is loaded at boot through the modules service'
+
+# Rotation only happens if crond runs the 15-minute job: both installers must
+# enable crond, write the job themselves (root-owned 0755, only the MinimalRouter
+# logrotate config, its own state file) and refuse to finish without crond.
+for installer in install-dist.sh install.sh; do
+    grep -q '^rc-update add crond default$' "$SOURCE/$installer"
+    grep -q '^chown root:root /etc/periodic/15min/minimalrouter-logrotate$' "$SOURCE/$installer"
+    grep -q '^chmod 0755 /etc/periodic/15min/minimalrouter-logrotate$' "$SOURCE/$installer"
+    grep -q "run-parts /etc/periodic/15min" "$SOURCE/$installer"
+    grep -q 'crond is missing' "$SOURCE/$installer"
+    sed -n "/^cat > \/etc\/periodic\/15min\/minimalrouter-logrotate <<'LOGROTATE_JOB'\$/,/^LOGROTATE_JOB\$/p" "$SOURCE/$installer" |
+        sed '1d;$d' > "$WORK/logrotate-job"
+    sh -n "$WORK/logrotate-job"
+    [ "$(sed -n 1p "$WORK/logrotate-job")" = '#!/bin/sh' ]
+    grep -qx 'exec /usr/sbin/logrotate -s /var/lib/minimalrouter-logrotate.status /etc/logrotate.d/minimalrouter' "$WORK/logrotate-job"
+done
+echo 'PASS crond is enabled and the installers write the 15-minute logrotate job'
+
+# A system without BusyBox's crond service is refused, not finished without rotation.
+rm -f "$WORK/etc/init.d/crond"
+if sh "$WORK/install-dist.sh" --offline > "$WORK/output" 2>&1; then exit 1; fi
+grep -q '/etc/init.d/crond is missing' "$WORK/output"
+echo 'PASS missing crond refusal'

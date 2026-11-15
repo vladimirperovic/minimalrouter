@@ -160,8 +160,8 @@ jobs:
 
   arm64-emulation:
     name: ARM64 build and QEMU smoke test
-    # Pinned: on ubuntu-latest (26.04) qemu-user-static is only a virtual
-    # package and has no installation candidate.
+    # Pinned: on the 26.04 image `qemu-user-static` is only a virtual package
+    # with no installation candidate, and this job needs `qemu-aarch64-static`.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

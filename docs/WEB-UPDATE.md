@@ -95,16 +95,19 @@ byte-identity check in `router-update`.
 
 ## Current checkout and installation boundary
 
-v0.4.1 hardens shared validation and canonical storage used by the installed
-recovery/setup tools. These bootstrap programs live outside the A/B slot.
-The baseline metadata acknowledges the change for v0.4.1 and requires the full
-signed distribution installer for v0.4.0 and earlier. Do not bypass the
-runtime byte-identity check. A new Golden installation on a blank replacement
+v0.4.2 includes the unpublished v0.4.1 validation/storage changes and hardens
+firmware staging, manifest reads and shared PPPoE validation used by the
+installed updater and recovery/setup tools. These bootstrap programs live
+outside the A/B slot. The baseline metadata acknowledges the change for v0.4.2
+and requires the full signed distribution installer for v0.4.1 and earlier,
+including development installations of the unpublished candidates. Do not bypass
+the runtime byte-identity check. A new Golden installation on a blank replacement
 disk, followed by an encrypted configuration restore, is the complete OS path.
 
-The baseline remains v0.3.1 while the v0.4.1 candidate is unpublished (no v0.4.0
-tag was present when preparing this candidate). After signed publication, move
-the baseline to v0.4.1 before preparing a later web-compatible release.
+The baseline remains v0.3.1 while the v0.4.2 candidate is unpublished. Neither
+v0.4.0 nor v0.4.1 was published when preparing this candidate. After signed
+publication, move the baseline to v0.4.2 before preparing a later web-compatible
+release.
 
 Historical context: v0.4.0 introduced the Rust runtime and Alpine 3.24 Golden
 image; that already required a full installer transition from all Go releases.
