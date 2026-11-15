@@ -1,14 +1,7 @@
 # Changelog
 
-## [0.4.1] — candidate
+## [0.4.2] — candidate
 
-- Require a new post-activation WireGuard client handshake and share confirmation
-  freshness rules across routerd and router-applyd.
-- Harden trusted CIDRs, applyd panic capacity/IPC limits, HTTP writes and framing,
-  persisted session identifiers, sensitive buffers and private/durable writes.
-- Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
-  and recover operation bookkeeping after worker panics.
-- Validate archive roots/modes and checked revision arithmetic.
 - Restore Lab fuzz mutations from a server-side snapshot including secrets,
   check every restore and transaction identity, distinguish missing WAN
   prerequisites, and allow deterministic seed replay. Reject unexpected bodies
@@ -72,6 +65,20 @@
   `trusted_networks` is refused by validation; `router-applyd` bounds what kind
   of configuration it applies but trusts `routerd` for which valid one is
   canonical (and `RECONCILE` has no confirmation window).
+- Includes the earlier unpublished v0.4.1 preparation below. Publication still
+  requires all exact-commit checks, the complete QEMU Lab and signed ISO E2E.
+  Appliances at or below v0.4.1 require the full signed distribution installer
+  because bootstrap validation and firmware reads changed outside the A/B slot.
+
+## [0.4.1] — unpublished preparation
+
+- Require a new post-activation WireGuard client handshake and share confirmation
+  freshness rules across routerd and router-applyd.
+- Harden trusted CIDRs, applyd panic capacity/IPC limits, HTTP writes and framing,
+  persisted session identifiers, sensitive buffers and private/durable writes.
+- Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
+  and recover operation bookkeeping after worker panics.
+- Validate archive roots/modes and checked revision arithmetic.
 - Add targeted regressions and document every supplied audit finding in
   [SECURITY-REVIEW-0.4.1.md](docs/SECURITY-REVIEW-0.4.1.md).
 - Record the full signed installer requirement for v0.4.0 and earlier; retain
