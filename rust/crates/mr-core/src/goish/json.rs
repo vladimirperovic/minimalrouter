@@ -153,11 +153,12 @@ impl<F: Formatter> Formatter for GoFormatter<F> {
                 '\u{2029}' => "\\u2029",
                 _ => continue,
             };
-            writer.write_all(fragment[start..i].as_bytes())?;
+            // `start` and `i` come from char_indices, so they are char boundaries.
+            writer.write_all(&fragment.as_bytes()[start..i])?;
             writer.write_all(escape.as_bytes())?;
             start = i + ch.len_utf8();
         }
-        writer.write_all(fragment[start..].as_bytes())
+        writer.write_all(&fragment.as_bytes()[start..])
     }
 
     fn write_f64<W: ?Sized + io::Write>(&mut self, writer: &mut W, value: f64) -> io::Result<()> {
