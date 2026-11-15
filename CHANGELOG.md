@@ -9,6 +9,10 @@
 - Snapshot DNS risk feeds outside the publication lock; cache DNS filter catalogs
   and recover operation bookkeeping after worker panics.
 - Validate archive roots/modes and checked revision arithmetic.
+- Restore Lab fuzz mutations from a server-side snapshot including secrets,
+  check every restore and transaction identity, distinguish missing WAN
+  prerequisites, and allow deterministic seed replay. Reject unexpected bodies
+  on the bodyless speed-test action before it changes QoS or uses the network.
 - Reject PPP secrets-file indirection in passwords; keep source-rejected login
   attempts out of the global login budget; update service-state ownership and
   modes through checked file descriptors; bound and protect manifest reads.

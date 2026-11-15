@@ -3,9 +3,10 @@
   fuzz.py ITERATIONS [SEED]
 
 Phase 1 mutates the live configuration (PUT /config) with hostile values. Phase
-2 sends hostile JSON bodies to every mutating endpoint in api/openapi.yaml,
-except the ones that change credentials, restart the machine or install
-firmware. A mutation that the router accepts is undone straight away.
+2 sends hostile JSON bodies to eligible mutating endpoints in api/openapi.yaml,
+excluding recovery/credential operations, restarts, firmware and the snapshot
+machinery protecting this run. Accepted mutations are undone through a manual
+server-side snapshot, which retains secrets that a redacted GET cannot restore.
 
 Passing means: no 5xx response, no dropped connection, the health endpoint
 still answers, and the original configuration is back at the end. The seed is
@@ -29,7 +30,7 @@ CTX = ssl._create_unverified_context()
 
 # Paths that would cut off the lab, change credentials or leave the machine.
 SKIP_FIELDS = ("lan", "trusted_networks", "wifi", "wg_client")
-SKIP_ENDPOINTS = re.compile(r"firmware|update|reboot|factory|restore|password|totp|logout|login|import|backup|recovery|shutdown")
+SKIP_ENDPOINTS = re.compile(r"firmware|update|reboot|factory|restore|password|totp|logout|login|import|backup|recovery|shutdown|snapshots|transactions")
 
 HOSTILE = [
     None, "", " ", "A", "A" * 255, "A" * 4096, "A" * 70000, -1, 0, 1, 65535, 65536, 2**31, 2**63, -(2**63), 1e308, 1e-308,
@@ -129,7 +130,8 @@ def mutate(cfg, rnd):
 
 
 def endpoints():
-    text = open(os.path.join(os.path.dirname(__file__), "..", "..", "api", "openapi.yaml"), encoding="utf-8").read()
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "api", "openapi.yaml"), encoding="utf-8") as source:
+        text = source.read()
     found, current = [], None
     for line in text.splitlines():
         m = re.match(r"^  (/[^:\s]*):\s*$", line)
@@ -139,7 +141,48 @@ def endpoints():
         m = re.match(r"^    (post|put|patch|delete):\s*$", line)
         if m and current:
             found.append((m.group(1).upper(), re.sub(r"\{[^}]+\}", "x", current)))
-    return [(m, p) for m, p in found if not SKIP_ENDPOINTS.search(p)]
+    # PUT /config is exercised in phase 1 with revision handling and restoration.
+    # Never fuzz the snapshot/transaction machinery that protects this run.
+    return [(m, p) for m, p in found if p != "/config" and not SKIP_ENDPOINTS.search(p)]
+
+
+class SnapshotBoundary:
+    """Keep the baseline secrets on the server; a redacted GET is not a backup."""
+    def __init__(self, call):
+        self.call = call
+        status, _, body = call("POST", "/api/v1/snapshots", {"label": "Lab fuzz baseline"})
+        if status != 200:
+            raise RuntimeError(f"cannot create fuzz baseline: HTTP {status}")
+        self.snapshot = json.loads(body)["snapshot"]["id"]
+
+    def finish(self, status, body):
+        if status != 202:
+            return
+        result = json.loads(body)
+        tx = result.get("tx", result) if isinstance(result, dict) else None
+        if not isinstance(tx, dict) or tx.get("state") != "AwaitingConfirmation":
+            return  # An asynchronous non-configuration operation.
+        txid = tx["id"]
+        pending_status, _, pending_body = self.call("GET", "/api/v1/transactions/pending")
+        if pending_status != 200 or json.loads(pending_body).get("id") != txid:
+            raise RuntimeError("pending transaction differs from this request")
+        confirmed, _, _ = self.call("POST", f"/api/v1/transactions/{txid}/confirm", {})
+        if confirmed != 200:
+            raise RuntimeError(f"fuzz transaction confirmation failed: HTTP {confirmed}")
+
+    def restore(self):
+        status, _, body = self.call("GET", "/api/v1/transactions/pending")
+        if status != 200 or json.loads(body).get("id"):
+            raise RuntimeError("refusing restore with unknown pending transaction")
+        status, _, body = self.call("GET", f"/api/v1/snapshots/{self.snapshot}/preview")
+        if status != 200:
+            raise RuntimeError(f"fuzz baseline preview failed: HTTP {status}")
+        revision = json.loads(body)["base_revision"]
+        status, _, body = self.call("POST", f"/api/v1/snapshots/{self.snapshot}/restore", {"expected_revision": revision})
+        if status not in (200, 202):
+            raise RuntimeError(f"fuzz baseline restore failed: HTTP {status}")
+        self.finish(status, body)
+        return status, body
 
 
 def main():
@@ -149,7 +192,10 @@ def main():
     print(f"fuzz seed={seed} iterations={iterations}")
     cookie, csrf = login()
     status, _, body = request("GET", "/api/v1/config", cookie=cookie)
+    if status != 200:
+        raise RuntimeError(f"cannot read fuzz baseline: HTTP {status}")
     original = json.loads(body)
+    boundary = SnapshotBoundary(lambda method, path, body=None: request(method, path, body, cookie, csrf))
     counts, bad = {}, []
 
     def note(label, status):
@@ -164,30 +210,14 @@ def main():
         fresh = dict(cfg)
         if status == 200:
             fresh["revision"] = json.loads(body).get("revision", fresh.get("revision"))
+        else:
+            raise RuntimeError(f"cannot read current revision: HTTP {status}")
         return fresh
 
     def put(cfg):
         return request("PUT", "/api/v1/config", with_current_revision(cfg), cookie, csrf)
 
-    def confirm_pending():
-        status, _, body = request("GET", "/api/v1/transactions/pending", cookie=cookie)
-        if status == 200:
-            try:
-                tx = json.loads(body)
-            except ValueError:
-                return
-            if isinstance(tx, dict) and tx.get("id"):
-                request("POST", f"/api/v1/transactions/{tx['id']}/confirm", {}, cookie, csrf)
-
-    def restore():
-        # A change accepted by a hostile request on another endpoint can leave a
-        # provisional transaction open, which blocks the next configuration write.
-        confirm_pending()
-        status, _, body = put(original)
-        if status == 202:
-            pending = json.loads(request("GET", "/api/v1/transactions/pending", cookie=cookie)[2])
-            request("POST", f"/api/v1/transactions/{pending['id']}/confirm", {}, cookie, csrf)
-        return status, body
+    restore = boundary.restore
 
     # Phase 1: hostile configurations.
     for i in range(iterations):
@@ -201,9 +231,7 @@ def main():
             continue
         note(f"config #{i} seed={seed}", status)
         if status in (200, 202):
-            if status == 202:
-                pending = json.loads(request("GET", "/api/v1/transactions/pending", cookie=cookie)[2])
-                request("POST", f"/api/v1/transactions/{pending['id']}/confirm", {}, cookie, csrf)
+            boundary.finish(status, body)
             restore()
         if i % 50 == 49:
             if request("GET", "/api/v1/health", cookie=cookie)[0] != 200:
@@ -215,13 +243,16 @@ def main():
             body = rnd.choice(HOSTILE) if rnd.random() < 0.5 else mutate(original, rnd)
             raw = None if rnd.random() < 0.9 else rnd.choice(["{", "[1,2", '{"a":', "\x00\x01", "{" * 5000])
             try:
-                status, _, _ = request(method, "/api/v1" + path, None if raw else body, cookie, csrf, raw)
+                status, _, response_body = request(method, "/api/v1" + path, cookie=cookie, csrf=csrf, raw=raw if raw is not None else json.dumps(body))
             except (OSError, http.client.HTTPException) as err:
                 note(f"{method} {path} ({err.__class__.__name__})", 0)
                 time.sleep(2)
                 cookie, csrf = login()
                 continue
             note(f"{method} {path} seed={seed}", status)
+            if status in (200, 202, 204):
+                boundary.finish(status, response_body)
+                restore()
 
     # Whatever was accepted along the way, the configuration must be the original.
     status, restore_body = restore()
@@ -239,7 +270,7 @@ def main():
         shown = 0
         for path in sorted(set(before) | set(current)):
             if before.get(path) != current.get(path) and not isinstance(before.get(path, current.get(path)), (dict, list)):
-                bad.append(f"  at {'/'.join(map(str, path))}: {str(before.get(path, '<absent>'))[:60]} -> {str(current.get(path, '<absent>'))[:60]}")
+                bad.append(f"  changed field: {'/'.join(map(str, path))}")
                 shown += 1
                 if shown == 6:
                     break
@@ -248,8 +279,8 @@ def main():
 
     print("status counts:", json.dumps(counts, sort_keys=True))
     if bad:
-        print(f"{len(bad)} problems, first {min(len(bad), 8)}:")
-        for line in bad[:8]:
+        print(f"{len(bad)} problems:")
+        for line in bad:
             print("  " + line)
         sys.exit(1)
     print(f"no 5xx, no dropped connection, configuration restored ({sum(counts.values())} requests)")
