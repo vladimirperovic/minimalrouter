@@ -78,6 +78,10 @@
   of 0.4.2 it arrives with the full signed installer, not a web update. Documented in [DNS_FILTER.md](docs/DNS_FILTER.md#devices-outside-dns-protection);
   `adguard.exempt_devices` in the configuration API, `exempt_devices` in the
   DNS filter status, and a `device_exemption` layer in domain checks.
+- The Golden image and installer ISO are built from Alpine 3.24.4 (was 3.24.3),
+  whose release carries the fixed `openssh-server` 10.3_p1-r2; the installed
+  kernel stays `linux-lts` 6.18.63. New installations only: existing appliances
+  keep their Alpine packages.
 - Correct three statements in `SECURITY.md` that did not match the code: the
   content-type check accepts an absent `Content-Type`; loopback passes only the
   source gate while `routerd` serves only the management addresses, and an empty
