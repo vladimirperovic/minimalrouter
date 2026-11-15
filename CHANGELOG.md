@@ -2,6 +2,9 @@
 
 ## [0.4.2] — candidate
 
+- Require confirmation for WAN changes when management uses WireGuard only.
+  Constrain disabled tunnel cleanup to appliance-owned interface names, reject
+  line breaks in WireGuard keys and guard rendering of disabled sections.
 - Restore Lab fuzz mutations from a server-side snapshot including secrets,
   check every restore and transaction identity, distinguish missing WAN
   prerequisites, and allow deterministic seed replay. Reject unexpected bodies

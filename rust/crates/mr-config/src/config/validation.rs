@@ -58,7 +58,7 @@ pub(crate) fn valid_port_text(value: &str) -> bool {
 }
 
 pub(crate) fn valid_wireguard_key(value: &str) -> bool {
-    crate::goish::base64::std_decode(value).is_some_and(|d| d.len() == 32)
+    !value.bytes().any(|b| b.is_ascii_whitespace()) && crate::goish::base64::std_decode(value).is_some_and(|d| d.len() == 32)
 }
 
 /// A field-specific error message.
@@ -1065,6 +1065,16 @@ pub fn go_atoi(text: &str) -> Option<i64> {
 #[cfg(test)]
 mod trusted_boundary_tests {
     use super::*;
+
+    #[test]
+    fn wireguard_keys_cannot_hide_line_breaks() {
+        use base64::Engine;
+        let key = base64::engine::general_purpose::STANDARD.encode([7; 32]);
+        assert!(valid_wireguard_key(&key));
+        for separator in ["\n", "\r", "\r\n", " "] {
+            assert!(!valid_wireguard_key(&format!("{}{}{}", &key[..20], separator, &key[20..])));
+        }
+    }
 
     #[test]
     fn wireguard_peer_endpoint_port_is_validated() {

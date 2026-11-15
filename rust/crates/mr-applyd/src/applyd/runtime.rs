@@ -484,11 +484,11 @@ pub(crate) fn remove_wireguard(interface: &str) -> Result<()> {
 }
 
 pub(crate) fn wireguard_interface_name(cfg: &WireGuardConfig) -> String {
-    if cfg.interface.is_empty() { "wg0".into() } else { cfg.interface.clone() }
+    if !cfg.enabled || cfg.interface.is_empty() { "wg0".into() } else { cfg.interface.clone() }
 }
 
 pub(crate) fn wireguard_client_interface_name(cfg: &WGClientConfig) -> String {
-    if cfg.interface.is_empty() { "wg1".into() } else { cfg.interface.clone() }
+    if !cfg.enabled || cfg.interface.is_empty() { "wg1".into() } else { cfg.interface.clone() }
 }
 
 pub(crate) fn wireguard_mtu(cfg: &SystemConfig) -> i64 {
@@ -1504,6 +1504,19 @@ fn probe_wireguard_dns(target: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_tunnels_cannot_select_other_interfaces_for_cleanup() {
+        let mut cfg = crate::config::default_config();
+        cfg.wireguard.enabled = false;
+        cfg.wg_client.enabled = false;
+        for name in ["eth0", "br0", "arbitrary", "wg1"] {
+            cfg.wireguard.interface = name.into();
+            cfg.wg_client.interface = name.into();
+            assert_eq!(wireguard_interface_name(&cfg.wireguard), "wg0");
+            assert_eq!(wireguard_client_interface_name(&cfg.wg_client), "wg1");
+        }
+    }
 
     #[test]
     fn verification_plan_scopes_optional_checks() {

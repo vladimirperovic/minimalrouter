@@ -30,10 +30,22 @@ Evidence collected during this preparation:
   appliance failure is resolved. Six targeted Python harness regressions and
   the Rust speed-test request-body regression passed locally.
 
-Before publication, finish reviewing the remaining architecture questions
-(privileged-helper dependencies, disabled WireGuard configuration and WAN
-management continuity), resolve confirmed defects, and validate the final
-merged commit. All required PR workflows, parser fuzzing, safety mutation
+- Audit-fix commit `fe7a5e9` passed all 20 PR checks and its Appliance ISO gate.
+  Linux CI executed the file-descriptor inode replacement and symlink/special-file
+  regressions successfully.
+- The complete [Lab replay on `c10a18b`](https://github.com/vladimirperovic/minimalrouter/actions/runs/43685930114)
+  passed 3,000/3,000 contracts and all 17 chaos cases with no skipped cases,
+  using seed `1794696162`. The subsequent
+  [0.4.2 candidate Lab on `00b0ce8`](https://github.com/vladimirperovic/minimalrouter/actions/runs/43689319370)
+  also passed. Both used their exact successful Appliance ISO artifacts.
+
+The final architecture review added confirmation for WAN edits under
+WireGuard-only management, constrained disabled tunnel cleanup and guarded
+WireGuard text rendering. Narrower library dependency boundaries are documented
+as follow-up work in `ARCHITECTURE.md`; the existing privileged IPC boundary is
+preserved. These later fixes still require final-commit validation.
+
+Before publication, validate the final merged commit. All required PR workflows, parser fuzzing, safety mutation
 tests, Appliance ISO and the unfiltered QEMU Lab must pass on that exact commit.
 The signed release must then repeat full installation against its signed ISO.
 No real ISP, physical NIC, power-cut or unattended-production validation is

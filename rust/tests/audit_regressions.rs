@@ -1,5 +1,31 @@
 //! Regression tests for verified independent audit findings.
 
+#[test]
+fn wan_changes_require_confirmation_when_management_uses_wireguard() {
+    let mut current = minimalrouter::config::default_config();
+    let mut candidate = current.clone();
+    candidate.wan.mtu -= 8;
+    assert!(!minimalrouter::config::requires_confirmation(&current, &candidate));
+    current.system.management_access = "wireguard_only".into();
+    candidate.system.management_access = "wireguard_only".into();
+    assert!(minimalrouter::config::requires_confirmation(&current, &candidate));
+    candidate = current.clone();
+    candidate.wan.enabled = !current.wan.enabled;
+    assert!(minimalrouter::config::requires_confirmation(&current, &candidate));
+}
+
+#[test]
+fn disabled_wireguard_rendering_rejects_directive_injection() {
+    let mut cfg = minimalrouter::config::default_config();
+    cfg.wireguard.enabled = false;
+    cfg.wireguard.private_key = "key\nListenPort = 1".into();
+    assert!(minimalrouter::services::generate_wireguard(&cfg.wireguard).is_err());
+    assert!(minimalrouter::services::generate_wireguard_runtime(&cfg.wireguard).is_err());
+    cfg.wireguard.private_key.clear();
+    cfg.wireguard.address = "10.0.0.1/24\n[Peer]".into();
+    assert!(minimalrouter::services::generate_wireguard_runtime(&cfg.wireguard).is_err());
+}
+
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
