@@ -41,7 +41,7 @@ const CONFIG = {
       { id: "p1", name: "NAS web", protocol: "tcp", external_port: 18080, internal_ip: "192.168.1.30", internal_port: 80, enabled: true },
     ],
     custom_rules: [
-      { id: "c1", name: "Guest to printer", direction: "forward", action: "allow", protocol: "tcp", source: "192.168.1.0/24", destination: "192.168.1.21", port: 9100, enabled: true },
+      { id: "c1", name: "Guest to printer", direction: "forward", action: "allow", protocol: "tcp", src_ip: "192.168.1.0/24", dst_port: 9100, enabled: true },
     ],
   },
   wireguard: {
@@ -52,7 +52,7 @@ const CONFIG = {
     ],
   },
   wg_client: { enabled: false, interface: "wg1", address: "", public_key: "", endpoint: "", allowed_ips: [], persistent_keepalive: 25 },
-  cloudflare: { ddns_enabled: true, ddns_provider: "noip", domain: "router.example.com", ddns_user: "user@example.net", tunnel_enabled: false },
+  cloudflare: { ddns_enabled: true, ddns_provider: "noip", domain: "router.example.com", ddns_username: "user@example.net", tunnel_enabled: false },
   squid_proxy: { enabled: false, port: 3128, username: "proxyadmin", restricted_ips: [] },
   adguard: {
     enabled: true, blocklist_url: "https://example.com/blocklist.txt", last_updated: "2026-03-14 06:00",
@@ -88,7 +88,7 @@ const SYSTEM = {
       { public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", endpoint: "198.51.100.24:51820", allowed_ips: "10.8.0.2/32", last_handshake_epoch: Math.floor(NOW.getTime() / 1000) - 45, rx_bytes: 4_100_000, tx_bytes: 9_800_000, online: true },
       { public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI=", endpoint: "", allowed_ips: "10.8.0.3/32", last_handshake_epoch: 0, rx_bytes: 0, tx_bytes: 0, online: false },
     ],
-    ddns: { running: true, last_ip: "203.0.113.9", last_update_epoch: Math.floor(NOW.getTime() / 1000) - 1800, hostname: "router.example.com" },
+    ddns: { running: true, last_ip: "203.0.113.9", resolved_ip: "203.0.113.9", in_sync: true, last_update_epoch: Math.floor(NOW.getTime() / 1000) - 1800, hostname: "router.example.com" },
     dhcp_leases: [
       { hostname: "workstation", ip_address: "192.168.1.20", mac: "00:00:5e:00:53:11", expires_at: Math.floor(NOW.getTime() / 1000) + 38_000 },
       { hostname: "kids-tablet", ip_address: "192.168.1.60", mac: "00:00:5e:00:53:13", expires_at: Math.floor(NOW.getTime() / 1000) + 21_500 },
@@ -144,12 +144,12 @@ const ACCOUNTING = {
 
 const AUDIT = {
   events: [
-    { id: 6, event_type: "auth.login_succeeded", timestamp: new Date(NOW.getTime() - 300_000).toISOString(), actor: "admin", detail: { source: "192.168.1.20" } },
-    { id: 5, event_type: "config.applied", timestamp: new Date(NOW.getTime() - 3_600_000).toISOString(), actor: "admin", detail: { revision: "42" } },
-    { id: 4, event_type: "config.confirmed", timestamp: new Date(NOW.getTime() - 3_500_000).toISOString(), actor: "admin", detail: { revision: "42" } },
-    { id: 3, event_type: "snapshot.created", timestamp: new Date(NOW.getTime() - 86_400_000).toISOString(), actor: "system", detail: { revision: "41" } },
-    { id: 2, event_type: "auth.csrf_rejected", timestamp: new Date(NOW.getTime() - 172_800_000).toISOString(), actor: "unknown", detail: { source: "192.0.2.77" } },
-    { id: 1, event_type: "auth.login_succeeded", timestamp: new Date(NOW.getTime() - 259_200_000).toISOString(), actor: "admin", detail: { source: "192.168.1.20" } },
+    { id: "6", event_type: "auth.login_succeeded", timestamp: new Date(NOW.getTime() - 300_000).toISOString(), actor: "admin", details: { source: "192.168.1.20" } },
+    { id: "5", event_type: "config.applied", timestamp: new Date(NOW.getTime() - 3_600_000).toISOString(), actor: "admin", details: { revision: "42" } },
+    { id: "4", event_type: "config.confirmed", timestamp: new Date(NOW.getTime() - 3_500_000).toISOString(), actor: "admin", details: { revision: "42" } },
+    { id: "3", event_type: "snapshot.created", timestamp: new Date(NOW.getTime() - 86_400_000).toISOString(), actor: "system", details: { revision: "41" } },
+    { id: "2", event_type: "auth.csrf_rejected", timestamp: new Date(NOW.getTime() - 172_800_000).toISOString(), actor: "unknown", details: { source: "192.0.2.77" } },
+    { id: "1", event_type: "auth.login_succeeded", timestamp: new Date(NOW.getTime() - 259_200_000).toISOString(), actor: "admin", details: { source: "192.168.1.20" } },
   ],
 };
 
@@ -178,15 +178,18 @@ async function stub(page: Page) {
     link: { connected: true, interface: "ppp0", local_ip: "203.0.113.9", peer_ip: "203.0.113.1" },
     latency_ms: 18.4, jitter_ms: 2.1, packet_loss_percent: 0,
     pppoe_uptime_seconds: 691_200, reconnects_1h: 0, reconnects_24h: 0,
-    targets: ["1.1.1.1", "9.9.9.9"],
+    targets: [
+      { target: "1.1.1.1", reachable: true, packets_sent: 10, packets_received: 10, packet_loss_percent: 0, latency_ms: 18.4, jitter_ms: 2.1 },
+      { target: "9.9.9.9", reachable: true, packets_sent: 10, packets_received: 10, packet_loss_percent: 0, latency_ms: 19.1, jitter_ms: 2.4 },
+    ],
   }));
   await page.route("**/api/v1/gateway/settings", (r) => json(r, { enabled: true, targets: ["1.1.1.1", "9.9.9.9"], interval_seconds: 30 }));
   await page.route("**/api/v1/gateway/history**", (r) => json(r, { window: "1h", points: historyPoints(110) }));
-  await page.route("**/api/v1/snapshots", (r) => json(r, SNAPSHOTS));
+  await page.route("**/api/v1/snapshots", (r) => json(r, { snapshots: SNAPSHOTS }));
   await page.route("**/api/v1/transactions/pending", (r) => json(r, {}));
   await page.route("**/api/v1/audit/events**", (r) => json(r, AUDIT));
   await page.route("**/api/v1/accounting**", (r) => json(r, ACCOUNTING));
-  await page.route("**/api/v1/wireguard/provisioning-preview**", (r) => json(r, { next_address: "10.8.0.4/32", listen_port: 51820 }));
+  await page.route("**/api/v1/wireguard/provisioning-preview**", (r) => json(r, { client_ip: "10.8.0.4/32", server_endpoint: "router.example.com:51820", ddns_configured: true, wireguard_enabled: true }));
   // No catch-all: Playwright runs the most recently registered matching handler,
   // so a broad pattern here would shadow every specific stub above it. Anything
   // unstubbed simply fails, which the dashboard already degrades gracefully.

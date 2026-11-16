@@ -76,6 +76,32 @@ The firewall permits the root-run verification and the `inadyn` daemon to make
 the HTTPS connection required by DDNS. Dynamic DNS does not open a management
 port on WAN.
 
+## Running is not the same as in sync
+
+`inadyn` decides whether to contact the provider by comparing the current WAN
+address with its **own cache file** only. It never asks the provider what is
+published. If an update is lost, rejected or overwritten elsewhere (another
+client, a manual change at the provider), the cache stays "correct" while
+public DNS serves an old address. That happened in production: the daemon was
+healthy, its cache matched the WAN address, and a WireGuard client kept dialling
+the previous PPPoE address.
+
+The appliance limits and reports this drift:
+
+- the generated configuration sets `forced-update = 604800`, so the address is
+  re-sent at least weekly even when nothing changed locally;
+- `routerd` resolves the configured hostname at most once a minute, off the
+  request path, and reports `resolved_ip` and `in_sync` in the `ddns` runtime
+  status. `in_sync` is true only when the published address equals the last
+  address sent. The Dynamic DNS page shows **In sync**, **Public DNS differs**
+  or, while no lookup has answered, **Service running**. A failed lookup is
+  "not verified yet", never a mismatch.
+
+The lookup uses the router's own resolver, so it can return a cached answer for
+up to the record's TTL after an update. If the page keeps showing a difference,
+compare from another network (`nslookup <hostname> 1.1.1.1`) and run the
+foreground forced update below.
+
 ## Safe diagnostics on the router console
 
 Never paste output that contains a provider username, password, API token, or

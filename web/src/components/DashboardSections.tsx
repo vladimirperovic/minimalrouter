@@ -17,6 +17,7 @@ import type { ApplianceHealth, GatewaySettings, GatewaySummary, RouterConfig, Sy
 import "./DNSFilterPanel.css";
 import { confirmAction } from "../lib/confirmAction";
 import { breakable } from "../lib/breakable";
+import { ddnsState, ddnsStateLabel, ddnsHeroTone, ddnsPublicNote } from "../lib/ddnsStatus";
 
 const DNSFilterPanel = lazy(() => import("./DNSFilterPanel"));
 
@@ -472,30 +473,25 @@ export default function DashboardSections({
     <div className="form-actions"><button className="button primary" disabled={busy} type="submit">Save settings</button></div>
   </form>
 
-  {config.qos.enabled ? (
-    <div className="speedtest-note" role="status">
-      <strong>Speed test unavailable</strong>
-      <span>Disable QoS first. The configured shaper ( {config.qos.download_limit_mbps}/{config.qos.upload_limit_mbps} Mbps) would report its own limit — not your real line speed — and suggested limits would be wrong.</span>
-    </div>
-  ) : (
-    <div className="speedtest-block">
-      <div className="speedtest-heading">
-        <div>
-          <strong>Measure your line speed</strong>
-          <small>Run with QoS off, then apply the suggested 90% limits below.</small>
-        </div>
-        <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Measuring…" : "Run speed test"}</button>
+  <div className="speedtest-block">
+    <div className="speedtest-heading">
+      <div>
+        <strong>Measure your line speed</strong>
+        <small>{config.qos.enabled
+          ? `QoS (${config.qos.download_limit_mbps}/${config.qos.upload_limit_mbps} Mbps) is paused for the test and restored afterwards, so the result is your real line speed.`
+          : "Run the test, then apply the suggested 90% limits below."}</small>
       </div>
-      {speedTest && (
-        <div className="metric-grid compact">
-          <article><span>Measured download</span><strong>{speedTest.download_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
-          <article><span>Measured upload</span><strong>{speedTest.upload_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
-          <article><span>Suggested download</span><strong>{speedTest.suggested_download_mbps} Mbps</strong><small>90% of measured</small></article>
-          <article><span>Suggested upload</span><strong>{speedTest.suggested_upload_mbps} Mbps</strong><small>90% of measured</small></article>
-        </div>
-      )}
+      <button className="button secondary" disabled={busy || speedTesting} onClick={() => void runSpeedTest()} type="button">{speedTesting ? "Measuring…" : "Run speed test"}</button>
     </div>
-  )}
+    {speedTest && (
+      <div className="metric-grid compact">
+        <article><span>Measured download</span><strong>{speedTest.download_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
+        <article><span>Measured upload</span><strong>{speedTest.upload_mbps.toFixed(1)} Mbps</strong><small>peak during test</small></article>
+        <article><span>Suggested download</span><strong>{speedTest.suggested_download_mbps} Mbps</strong><small>90% of measured</small></article>
+        <article><span>Suggested upload</span><strong>{speedTest.suggested_upload_mbps} Mbps</strong><small>90% of measured</small></article>
+      </div>
+    )}
+  </div>
 </section>}
 
 {active === "wireguard" && <section className="dashboard-section wireguard-workspace" id="wireguard">
@@ -643,8 +639,8 @@ export default function DashboardSections({
 
 {active === "cloudflare" && <section className="dashboard-section" id="cloudflare">
   <div className="dashboard-section-heading ddns-heading has-facts">
-    <div className="subpage-hero-head"><div><p className="eyebrow">Optional integration</p><h2>Dynamic DNS</h2><p className="ddns-lead">Keep a hostname pointing at your router, even when your public IP changes.</p></div><span className={`classic-status-chip ${runtime.ddns?.running ? "" : "is-off"}`}>{!config.cloudflare.ddns_enabled ? "Disabled" : runtime.ddns?.running ? "Service running" : runtime.ddns ? "Stopped" : "Unknown"}</span></div>
-    <dl className="subpage-hero-facts"><div><dt>Provider</dt><dd>{configuredProviderLabel}</dd><small>{config.cloudflare.ddns_enabled ? "updates enabled" : "updates disabled"}</small></div><div><dt>Hostname</dt><dd>{breakable(runtime.ddns?.hostname || config.cloudflare.domain || "Not set")}</dd><small>public update target</small></div><div><dt>Registered IP</dt><dd>{runtime.ddns?.last_ip || "—"}</dd><small>last observed address</small></div><div><dt>Last update</dt><dd>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Never"}</dd><small>refresh every 5 minutes</small></div></dl>
+    <div className="subpage-hero-head"><div><p className="eyebrow">Optional integration</p><h2>Dynamic DNS</h2><p className="ddns-lead">Keep a hostname pointing at your router, even when your public IP changes.</p></div><span className={`classic-status-chip ${ddnsHeroTone(ddnsState(config.cloudflare.ddns_enabled, runtime.ddns))}`}>{ddnsStateLabel[ddnsState(config.cloudflare.ddns_enabled, runtime.ddns)]}</span></div>
+    <dl className="subpage-hero-facts"><div><dt>Provider</dt><dd>{configuredProviderLabel}</dd><small>{config.cloudflare.ddns_enabled ? "updates enabled" : "updates disabled"}</small></div><div><dt>Hostname</dt><dd>{breakable(runtime.ddns?.hostname || config.cloudflare.domain || "Not set")}</dd><small>public update target</small></div><div><dt>Registered IP</dt><dd>{runtime.ddns?.last_ip || "—"}</dd><small>{ddnsPublicNote(runtime.ddns)}</small></div><div><dt>Last update</dt><dd>{runtime.ddns?.last_update_epoch ? new Date(runtime.ddns.last_update_epoch * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Never"}</dd><small>refresh every 5 minutes</small></div></dl>
   </div>
 
   <div className="ddns-provider" role="tablist" aria-label="Dynamic DNS provider">

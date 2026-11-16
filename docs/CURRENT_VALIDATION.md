@@ -53,7 +53,7 @@ These results do not replace the complete Lab on the final merged commit.
 
 Merged commit `5374e94` then passed CI, Appliance ISO, CodeQL, Secret scan,
 Deep validation, Performance, Service supervision, parser fuzzing, safety
-mutation tests and a complete QEMU Lab. The final candidate adds four changes
+mutation tests and a complete QEMU Lab. The final candidate adds five changes
 on top of it, so that evidence no longer qualifies the release commit:
 
 - SSH is limited to `root` against the OpenSSH musl password bypass (Alpine
@@ -62,6 +62,8 @@ on top of it, so that evidence no longer qualifies the release commit:
   `linux-lts` 6.18.63, because the builder resolves current 3.24 packages.
 - DNS Filter devices outside DNS protection (`adguard.exempt_devices`).
 - The Golden image and installer ISO are built from Alpine 3.24.4.
+- Dynamic DNS drift reporting (`resolved_ip`, `in_sync`) and a weekly forced
+  update, ported from the unmerged Go change; the speed test with QoS enabled.
 - Dashboard tooling, pinned Actions and the `mr-core` clippy cleanup (with
   `rustix` 1.1.6 for RUSTSEC-2026-0486).
 
@@ -69,10 +71,20 @@ Checked locally on Windows: the Rust workspace tests, `cargo fmt --check`, a
 `-D warnings` x86_64-musl build, `cargo audit` (no advisories in 216 crates), the
 firstboot, OpenSSH floor, kernel floor and installer shell tests (the
 installer's NTFS-incompatible `0750` mode assertion skipped), the dashboard
-type-check, lint, 91 unit tests, build and 269 chromium Playwright tests. The
+type-check, lint, 95 unit tests, build and 269 chromium Playwright tests. The
 exemption check previously crashed the DNS Filter page when the router sent
-`device_profiles` as `null`; a regression test now covers it. None of this
-replaces the exact-commit workflows and Lab.
+`device_profiles` as `null`; a regression test now covers it. The DDNS lookup
+cache is unit-tested on Windows (interval, one lookup at a time, stale results
+discarded on a hostname change, unsafe names never resolved) and the services
+parity test applies the weekly forced update as a documented deviation; the
+lookup against a real resolver on the appliance is not proven locally.
+
+The first four changes, as PR #209 head `92bb18d`, passed all 25 PR checks,
+its [Appliance ISO run](https://github.com/vladimirperovic/minimalrouter/actions/runs/43777712800)
+and a complete [QEMU Lab](https://github.com/vladimirperovic/minimalrouter/actions/runs/43780236461):
+suite 39/39, 3,000/3,000 API contracts and 17/17 chaos cases, none skipped.
+The DDNS and QoS-page change came after it. None of this replaces the
+exact-commit workflows and Lab.
 
 Before publication, validate the final merged commit. All required PR workflows, parser fuzzing, safety mutation
 tests, Appliance ISO and the unfiltered QEMU Lab must pass on that exact commit.
