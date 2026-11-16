@@ -51,6 +51,29 @@ CodeQL language analyses, both secret scans and the
 [Appliance ISO gate](https://github.com/vladimirperovic/minimalrouter/actions/runs/43696274245).
 These results do not replace the complete Lab on the final merged commit.
 
+Merged commit `5374e94` then passed CI, Appliance ISO, CodeQL, Secret scan,
+Deep validation, Performance, Service supervision, parser fuzzing, safety
+mutation tests and a complete QEMU Lab. The final candidate adds four changes
+on top of it, so that evidence no longer qualifies the release commit:
+
+- SSH is limited to `root` against the OpenSSH musl password bypass (Alpine
+  advisory of 2026-11-05), and the rootfs build refuses an `openssh-server`
+  below `10.3_p1-r2`. The `5374e94` image already shipped `10.3_p1-r2` with
+  `linux-lts` 6.18.63, because the builder resolves current 3.24 packages.
+- DNS Filter devices outside DNS protection (`adguard.exempt_devices`).
+- The Golden image and installer ISO are built from Alpine 3.24.4.
+- Dashboard tooling, pinned Actions and the `mr-core` clippy cleanup (with
+  `rustix` 1.1.6 for RUSTSEC-2026-0486).
+
+Checked locally on Windows: the Rust workspace tests, `cargo fmt --check`, a
+`-D warnings` x86_64-musl build, `cargo audit` (no advisories in 216 crates), the
+firstboot, OpenSSH floor, kernel floor and installer shell tests (the
+installer's NTFS-incompatible `0750` mode assertion skipped), the dashboard
+type-check, lint, 91 unit tests, build and 269 chromium Playwright tests. The
+exemption check previously crashed the DNS Filter page when the router sent
+`device_profiles` as `null`; a regression test now covers it. None of this
+replaces the exact-commit workflows and Lab.
+
 Before publication, validate the final merged commit. All required PR workflows, parser fuzzing, safety mutation
 tests, Appliance ISO and the unfiltered QEMU Lab must pass on that exact commit.
 The signed release must then repeat full installation against its signed ISO.

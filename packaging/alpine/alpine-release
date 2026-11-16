@@ -6,5 +6,5 @@
 #   sh scripts/alpine-bump.sh <version>
 # It checks that every package, the installer ISO and the builder image exist
 # for that release before changing anything. See docs/GOLDEN-IMAGE.md.
-ALPINE_VERSION=3.24.3
+ALPINE_VERSION=3.24.4
 ALPINE_BRANCH="v${ALPINE_VERSION%.*}"

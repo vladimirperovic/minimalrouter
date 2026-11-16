@@ -221,6 +221,7 @@ components:
         blockers: {type: array, items: {type: string}}
         profiles: {type: array, items: {$ref: '#/components/schemas/DNSProfileStatus'}}
         devices: {type: array, items: {type: object, properties: {ip: {type: string}, name: {type: string}, reserved: {type: boolean}}}}
+        exempt_devices: {type: array, items: {type: string}, description: Addresses whose lookups skip the network DNS categories; omitted when none}
         operation: {$ref: '#/components/schemas/DNSOperation'}
         generated_at: {type: string, format: date-time}
         health_checked_at: {type: integer, format: int64, description: Unix seconds of the bounded resolver-generation probe; zero means unchecked}
@@ -673,6 +674,20 @@ components:
           maxItems: 64
           items:
             $ref: '#/components/schemas/DeviceProfile'
+        exempt_devices:
+          type: array
+          maxItems: 32
+          description: >-
+            Reserved LAN devices that skip the network DNS categories. dnsmasq blocks globally, so the
+            router redirects these devices' DNS lookups to the first upstream resolver and leaves them out
+            of the DNS enforcement presets. Each address needs a DHCP reservation, must not belong to a
+            device profile, and is omitted from saved configuration when the list is empty.
+          items:
+            type: object
+            required: [ip_address]
+            properties:
+              ip_address: {type: string, example: 192.168.1.14}
+              hostname: {type: string, description: Display name only}
 
     SystemConfig:
       type: object
@@ -960,6 +975,7 @@ paths:
                   bundled_enabled: {type: boolean}
                   profiles: {type: array, items: {$ref: '#/components/schemas/DNSProfileStatus'}}
                   devices: {type: array, items: {type: object, properties: {ip: {type: string}, name: {type: string}, reserved: {type: boolean}}}}
+                  exempt_devices: {type: array, items: {type: string}}
                   blockers: {type: array, items: {type: string}}
   /dns-filter/operations:
     get:

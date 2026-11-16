@@ -262,6 +262,7 @@ set checks {
     {rc-update show default | grep -Eq '(^|[[:space:]])sshd([[:space:]]|$)' && echo CHECK_SSHD_ENABLED}
     {rc-update show default | grep -Eq '(^|[[:space:]])crond([[:space:]]|$)' && echo CHECK_CROND_ENABLED}
     {test -x /etc/periodic/15min/minimalrouter-logrotate && grep -q '/etc/periodic/15min' /etc/crontabs/root && echo CHECK_LOGROTATE_JOB_OK}
+    {test "$(/usr/sbin/sshd -T | grep -E '^allow(users|groups) ')" = 'allowusers root' && echo CHECK_SSH_ROOT_ONLY_OK}
     {grep -q '^ttyS0::respawn:' /etc/inittab && echo CHECK_SERIAL_GETTY_OK}
     {grep -q '@ALPINE_BRANCH@/main' /etc/apk/repositories && grep -q '@ALPINE_BRANCH@/community' /etc/apk/repositories && echo CHECK_APK_REPOS_OK}
     {ip -4 addr | grep -q '192.168.1.1/24' && echo CHECK_LAN_IP_OK}
@@ -295,6 +296,7 @@ foreach marker {
     CHECK_SSHD_ENABLED
     CHECK_CROND_ENABLED
     CHECK_LOGROTATE_JOB_OK
+    CHECK_SSH_ROOT_ONLY_OK
     CHECK_SERIAL_GETTY_OK
     CHECK_APK_REPOS_OK
     CHECK_LAN_IP_OK

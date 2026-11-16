@@ -113,6 +113,8 @@ Typical setup:
 
 DNS Filter blocks configured domains and can apply scheduled service policies to groups of devices. Device Profiles are preferable to many one-off rules because a named policy can cover multiple static IPs and time windows. Schedules use router local time, so correct time synchronization matters.
 
+To keep one device out of the network categories (adult, gambling, ads, threats, bypass), give it a DHCP reservation and switch it on under **Devices outside DNS protection**. Its lookups then go straight to the first upstream resolver, so local names and DNS Activity no longer cover it. See [DNS_FILTER.md](DNS_FILTER.md#devices-outside-dns-protection).
+
 The overview shows applied categories, scheduled devices, the last successful
 apply and router clock. Category and blocking-exception edits remain drafts
 until **Apply protection**. Drafts survive dashboard navigation in the current

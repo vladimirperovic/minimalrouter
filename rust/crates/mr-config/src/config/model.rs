@@ -194,6 +194,16 @@ pub struct FilterDeviceRule {
     pub enabled: bool,
 }
 
+/// A reserved LAN device that is not subject to the network DNS categories.
+/// dnsmasq applies its block rules to every client, so the router sends this
+/// device's lookups straight to the first upstream resolver instead.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DNSFilterExemption {
+    pub ip_address: String,
+    pub hostname: String,
+}
+
 /// The global DNS sinkhole and per-device access profiles.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -204,6 +214,10 @@ pub struct DNSFilterConfig {
     #[serde(skip_serializing_if = "List::is_empty")]
     pub filter_devices: List<FilterDeviceRule>,
     pub device_profiles: List<DeviceProfile>,
+    /// Devices whose DNS lookups bypass the network DNS categories. Empty by
+    /// default and omitted from saved configuration when empty.
+    #[serde(skip_serializing_if = "List::is_empty")]
+    pub exempt_devices: List<DNSFilterExemption>,
 }
 
 pub type AdGuardConfig = DNSFilterConfig;

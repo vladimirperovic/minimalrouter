@@ -191,9 +191,10 @@ Firstboot runs before network-facing services and asks for:
    switch echo off, firstboot stops with an error rather than reading it in the
    clear.
 
-Firstboot then saves canonical state, generates unique SSH host keys, enables
-recovery gettys, writes `/etc/minimalrouter/firstboot-complete` and allows normal
-services to start.
+Firstboot then saves canonical state, generates unique SSH host keys, limits SSH
+logins to `root` (`AllowUsers root`), enables recovery gettys, writes
+`/etc/minimalrouter/firstboot-complete` and allows normal services to start.
+Other Linux accounts cannot log in over SSH; use `root` for recovery.
 
 ## What should work after firstboot
 

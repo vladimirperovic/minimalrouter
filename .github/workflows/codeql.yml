@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
@@ -45,7 +45,7 @@ jobs:
 
       - name: Set up pnpm
         if: matrix.language == 'javascript-typescript'
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 11.9.0
 
@@ -63,10 +63,10 @@ jobs:
 
       - name: Build analyzed language
         if: matrix.language != 'rust'
-        uses: github/codeql-action/autobuild@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           category: "/language:${{ matrix.language }}"
           # GitHub Code Scanning cannot accept SARIF uploads from a private

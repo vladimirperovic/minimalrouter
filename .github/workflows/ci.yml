@@ -77,6 +77,8 @@ jobs:
           sh -n packaging/alpine/prune-kernel-modules_test.sh
           sh -n packaging/alpine/check-kernel-security.sh
           sh -n packaging/alpine/check-kernel-security_test.sh
+          sh -n packaging/alpine/check-openssh-security.sh
+          sh -n packaging/alpine/check-openssh-security_test.sh
           sh -n scripts/alpine-bump.sh
           sh -n scripts/ci/alpine-release_test.sh
           sh -n scripts/ci/bootstrap-determinism.sh
@@ -90,6 +92,7 @@ jobs:
           sh packaging/alpine/slot-exec_test.sh
           sh packaging/alpine/prune-kernel-modules_test.sh
           sh packaging/alpine/check-kernel-security_test.sh
+          sh packaging/alpine/check-openssh-security_test.sh
           tclsh scripts/ci/iso-kernel-release_test.tcl
           sh scripts/ci/alpine-release_test.sh
           sh scripts/ci/iso-validate_test.sh
@@ -279,7 +282,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 11.9.0
       - name: Set up Node.js
@@ -332,7 +335,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 11.9.0
       - name: Set up Node.js
@@ -382,7 +385,7 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
       - name: Set up pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 11.9.0
       - name: Set up Node.js

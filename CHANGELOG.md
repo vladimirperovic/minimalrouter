@@ -62,6 +62,26 @@
   image, not with an A/B web update; the sshd limits and the 12-character
   recovery-password minimum apply to appliances installed or first booted after
   this change.
+- Close the OpenSSH musl password bypass (Alpine advisory of 2026-11-05,
+  OpenSSH 10.6p2): firstboot limits SSH logins to `root`, the full installer
+  adds `AllowUsers root` to already provisioned appliances, and the rootfs
+  build fails unless `openssh-server` is at least Alpine's `10.3_p1-r2`.
+- DNS Filter: **Devices outside DNS protection**. A reserved LAN device can be
+  exempted from the network DNS categories (adult, gambling, ads, threats and
+  bypass). dnsmasq blocks globally, so the router redirects that device's DNS
+  lookups to the first upstream resolver and leaves it out of the DNS
+  enforcement presets; every other firewall rule still applies. Applies and
+  rolls back like any network change. Exempt devices lose router-only names
+  and DNS Activity coverage. The shared configuration model changes, so the
+  installed `router-recovery` and `router-setup` differ from v0.4.1 (amd64
+  checked with `scripts/ci/bootstrap-compatibility.sh bc79bce`); like the rest
+  of 0.4.2 it arrives with the full signed installer, not a web update. Documented in [DNS_FILTER.md](docs/DNS_FILTER.md#devices-outside-dns-protection);
+  `adguard.exempt_devices` in the configuration API, `exempt_devices` in the
+  DNS filter status, and a `device_exemption` layer in domain checks.
+- The Golden image and installer ISO are built from Alpine 3.24.4 (was 3.24.3),
+  whose release carries the fixed `openssh-server` 10.3_p1-r2; the installed
+  kernel stays `linux-lts` 6.18.63. New installations only: existing appliances
+  keep their Alpine packages.
 - Correct three statements in `SECURITY.md` that did not match the code: the
   content-type check accepts an absent `Content-Type`; loopback passes only the
   source gate while `routerd` serves only the management addresses, and an empty
