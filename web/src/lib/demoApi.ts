@@ -174,7 +174,7 @@ function liveSystem() {
         { public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", endpoint: "198.51.100.24:51820", allowed_ips: "10.8.0.2/32", last_handshake_epoch: Math.floor(Date.now() / 1000) - 45, rx_bytes: 48100000, tx_bytes: 129800000, online: true },
         { public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI=", endpoint: "192.0.2.88:59214", allowed_ips: "10.8.0.3/32", last_handshake_epoch: Math.floor(Date.now() / 1000) - 118, rx_bytes: 17600000, tx_bytes: 62400000, online: true },
       ],
-      ddns: { running: true, last_ip: "203.0.113.9", last_update_epoch: Math.floor(Date.now() / 1000) - 1800, hostname: "router.example.com" },
+      ddns: { running: true, last_ip: "203.0.113.9", resolved_ip: "203.0.113.9", in_sync: true, last_update_epoch: Math.floor(Date.now() / 1000) - 1800, hostname: "router.example.com" },
     },
   };
 }
@@ -258,7 +258,7 @@ export async function demoApiFetch(input: RequestInfo | URL, init: RequestInit =
     config.revision += 1;
     return json({ tx: { state: "Committed" } });
   }
-  if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", provisioning_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
+  if (path === "/api/v1/auth/totp/enroll" && method === "POST") return json({ secret: "DEMOONLYSECRET", qr_uri: "otpauth://totp/MinimalRouter:demo?secret=DEMOONLYSECRET&issuer=MinimalRouter" });
   const dnsResponse = demoDNSRequest(url, init, config);
   if (dnsResponse) return dnsResponse;
   if (path === "/api/v1/system/diagnostics" && method === "GET") return download(JSON.stringify({ mode: "public-demo", secrets: "redacted", revision: config.revision }, null, 2), "application/json");

@@ -82,6 +82,17 @@
   whose release carries the fixed `openssh-server` 10.3_p1-r2; the installed
   kernel stays `linux-lts` 6.18.63. New installations only: existing appliances
   keep their Alpine packages.
+- **Dynamic DNS reports drift instead of trusting inadyn's cache.** inadyn only
+  compares the WAN address with its own cache file, so a lost or overwritten
+  update could leave public DNS on an old address while the service looked
+  healthy. `routerd` now resolves the hostname at most once a minute on a
+  background thread and reports `resolved_ip` and `in_sync`; the dashboard shows
+  **In sync** only when they agree and **Public DNS differs** when they do not.
+  The generated `forced-update` interval drops from 30 days to 7.
+- The QoS page offers the speed test while QoS is enabled: the router already
+  pauses the shaper for the measurement and restores it through a canonical
+  reconcile. The demo dashboard's TOTP enrolment uses the real `qr_uri` field,
+  and the documentation-screenshot mocks use the current API shapes.
 - Correct three statements in `SECURITY.md` that did not match the code: the
   content-type check accepts an absent `Content-Type`; loopback passes only the
   source gate while `routerd` serves only the management addresses, and an empty

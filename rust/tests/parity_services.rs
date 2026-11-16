@@ -149,6 +149,22 @@ fn with_ssh_deviation(cfg: &SystemConfig, go_text: &str) -> String {
     out
 }
 
+/// Go's expected inadyn configuration with the 30-day forced update replaced
+/// by the weekly one. Each enabled configuration carries the line exactly once.
+fn with_ddns_deviation(go: &TextResult) -> TextResult {
+    const GO_FORCED: &str = "forced-update = 2592000
+";
+    assert!(go.text.matches(GO_FORCED).count() <= 1, "unexpected Go inadyn text: {}", go.text);
+    TextResult {
+        text: go.text.replace(
+            GO_FORCED,
+            "forced-update = 604800
+",
+        ),
+        error: go.error.clone(),
+    }
+}
+
 /// Go's expected explanation, with the SSH deviation applied to probe 3.
 fn with_explain_deviation(cfg: &SystemConfig, index: usize, want: ExplainResult) -> ExplainResult {
     if index != SSH_PROBE || want.verdict != "allow" || want.reason != GO_MANAGEMENT_ALLOW {
@@ -216,7 +232,7 @@ fn services_match_go() {
         check(&mut failures, n, "hostapd", services::generate_hostapd(&cfg), &case.hostapd);
         check(&mut failures, n, "qos", services::generate_qos(&cfg), &case.qos);
         check(&mut failures, n, "squid", services::generate_squid_config(&cfg), &case.squid);
-        check(&mut failures, n, "ddns", services::generate_dynamic_dns(&cfg), &case.ddns);
+        check(&mut failures, n, "ddns", services::generate_dynamic_dns(&cfg), &with_ddns_deviation(&case.ddns));
         check(&mut failures, n, "tunnel", services::generate_cloudflare_tunnel(&cfg), &case.tunnel);
         check(&mut failures, n, "doh", services::generate_doh_proxy(&cfg), &case.doh);
         check(&mut failures, n, "wireguard", services::generate_wireguard(&cfg.wireguard), &wireguard_text_expectation(n, &cfg, &case.wireguard));

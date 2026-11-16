@@ -1,3 +1,4 @@
+import type { DDNSRuntime } from "./lib/ddnsStatus";
 export type Snapshot = { id: string; revision: number; created_at: string; checksum: string; kind?: "manual" | "automatic"; label?: string };
 
 // Older backends omit the capability flag; omission is unknown, never a key-presence signal.
@@ -214,7 +215,7 @@ export type SystemStatus = {
       tx_bytes?: number;
       online: boolean;
     };
-    ddns?: { running: boolean; hostname?: string; last_update_epoch?: number; last_ip?: string };
+    ddns?: DDNSRuntime;
   };
 };
 

@@ -103,6 +103,118 @@ pub struct DDNSStatus {
     pub last_update: i64,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub last_ip: String,
+    /// What public DNS currently answers for `hostname`. Empty while no lookup
+    /// has succeeded: that is "unknown", never a mismatch.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub resolved_ip: String,
+    /// True only when `resolved_ip` equals `last_ip`. inadyn compares the WAN
+    /// address with its own cache file and never with what the provider
+    /// publishes, so a running daemon alone does not mean the name is right.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub in_sync: bool,
+}
+
+/// Whether the published address equals the one inadyn last sent. Missing or
+/// unparsable input is not in sync.
+pub fn ddns_in_sync(last_ip: &str, resolved_ip: &str) -> bool {
+    let parse = |value: &str| value.trim().parse::<std::net::IpAddr>().ok().map(|ip| ip.to_canonical());
+    matches!((parse(last_ip), parse(resolved_ip)), (Some(last), Some(resolved)) if last == resolved)
+}
+
+/// Minimum time between two lookups of the DDNS hostname.
+pub const DDNS_LOOKUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The last published IPv4 address of the DDNS hostname, looked up on a
+/// background thread so a slow or hanging resolver never delays a telemetry
+/// snapshot. At most one lookup runs at a time, and a hostname change discards
+/// the result of a lookup started for the previous name.
+pub struct PublishedAddressCache {
+    state: std::sync::Mutex<LookupState>,
+}
+
+#[derive(Default)]
+struct LookupState {
+    hostname: String,
+    address: Option<String>,
+    checked_at: Option<std::time::Instant>,
+    generation: u64,
+    in_flight: bool,
+}
+
+impl PublishedAddressCache {
+    pub const fn new() -> Self {
+        Self { state: std::sync::Mutex::new(LookupState { hostname: String::new(), address: None, checked_at: None, generation: 0, in_flight: false }) }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, LookupState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The address from the last finished lookup of `hostname`, if any; starts
+    /// a new lookup when the last one is older than [`DDNS_LOOKUP_INTERVAL`].
+    pub fn get(&'static self, hostname: &str, now: std::time::Instant, resolve: fn(&str) -> Option<String>) -> Option<String> {
+        if !valid_lookup_name(hostname) {
+            return None;
+        }
+        let mut st = self.lock();
+        if st.hostname != hostname {
+            st.hostname = hostname.to_string();
+            st.address = None;
+            st.checked_at = None;
+            st.generation += 1;
+        }
+        let due = st.checked_at.is_none_or(|at| now.saturating_duration_since(at) >= DDNS_LOOKUP_INTERVAL);
+        if due && !st.in_flight {
+            st.in_flight = true;
+            let generation = st.generation;
+            let host = hostname.to_string();
+            let spawned = std::thread::Builder::new().name("ddns-lookup".into()).spawn(move || {
+                let address = resolve(&host);
+                self.finish(generation, address);
+            });
+            if spawned.is_err() {
+                st.in_flight = false;
+            }
+        }
+        st.address.clone()
+    }
+
+    fn finish(&self, generation: u64, address: Option<String>) {
+        let mut st = self.lock();
+        st.in_flight = false;
+        if st.generation == generation {
+            st.address = address;
+            st.checked_at = Some(std::time::Instant::now());
+        }
+    }
+}
+
+impl Default for PublishedAddressCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A DNS name the resolver may be asked about: letters, digits, hyphens and
+/// dots only, as inadyn's own hostname setting allows.
+fn valid_lookup_name(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 253 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+}
+
+/// The first IPv4 address the system resolver returns for `hostname`.
+pub fn resolve_ipv4(hostname: &str) -> Option<String> {
+    use std::net::ToSocketAddrs;
+    (hostname, 0).to_socket_addrs().ok()?.find(|addr| addr.is_ipv4()).map(|addr| addr.ip().to_string())
+}
+
+static DDNS_PUBLISHED: PublishedAddressCache = PublishedAddressCache::new();
+
+/// Adds the published address and the sync verdict to an inspected status.
+pub fn verify_ddns(status: &mut DDNSStatus) {
+    if let Some(address) = DDNS_PUBLISHED.get(&status.hostname, std::time::Instant::now(), resolve_ipv4) {
+        status.in_sync = ddns_in_sync(&status.last_ip, &address);
+        status.resolved_ip = address;
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -417,6 +529,9 @@ mod linux {
             break;
         }
         st.hostname = inadyn_hostname();
+        if st.running {
+            super::verify_ddns(&mut st);
+        }
         st
     }
 
@@ -551,5 +666,105 @@ mod linux {
             }
         }
         total
+    }
+}
+
+#[cfg(test)]
+mod ddns_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    fn wait_idle(cache: &PublishedAddressCache) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while cache.lock().in_flight {
+            assert!(Instant::now() < deadline, "lookup did not finish");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn in_sync_only_for_equal_parsable_addresses() {
+        assert!(ddns_in_sync("93.86.125.80", "93.86.125.80"));
+        assert!(ddns_in_sync(" 93.86.125.80 ", "93.86.125.80"));
+        assert!(ddns_in_sync("::ffff:93.86.125.80", "93.86.125.80"));
+        assert!(!ddns_in_sync("93.86.125.80", "109.92.0.162"), "provider drift is a mismatch");
+        assert!(!ddns_in_sync("", "93.86.125.80"));
+        assert!(!ddns_in_sync("93.86.125.80", ""), "a failed lookup is unknown, not in sync");
+        assert!(!ddns_in_sync("not-an-ip", "93.86.125.80"));
+    }
+
+    #[test]
+    fn status_omits_unknown_lookup() {
+        let unknown = serde_json::to_value(DDNSStatus { running: true, last_ip: "192.0.2.1".into(), ..Default::default() }).unwrap();
+        assert!(unknown.get("resolved_ip").is_none() && unknown.get("in_sync").is_none());
+        let synced = serde_json::to_value(DDNSStatus {
+            running: true,
+            last_ip: "192.0.2.1".into(),
+            resolved_ip: "192.0.2.1".into(),
+            in_sync: true,
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(synced["resolved_ip"], "192.0.2.1");
+        assert_eq!(synced["in_sync"], true);
+    }
+
+    static CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn counting(host: &str) -> Option<String> {
+        CALLS.fetch_add(1, Ordering::SeqCst);
+        (host == "router.example.net").then(|| "198.51.100.7".to_string())
+    }
+    static CACHE: PublishedAddressCache = PublishedAddressCache::new();
+
+    #[test]
+    fn lookups_run_off_the_snapshot_and_respect_the_interval() {
+        let start = Instant::now();
+        assert_eq!(CACHE.get("router.example.net", start, counting), None, "the first snapshot does not wait");
+        wait_idle(&CACHE);
+        assert_eq!(CACHE.get("router.example.net", start, counting).as_deref(), Some("198.51.100.7"));
+        assert_eq!(CALLS.load(Ordering::SeqCst), 1, "a fresh answer is reused");
+        let later = Instant::now() + DDNS_LOOKUP_INTERVAL;
+        assert_eq!(CACHE.get("router.example.net", later, counting).as_deref(), Some("198.51.100.7"), "the old answer serves while refreshing");
+        wait_idle(&CACHE);
+        assert_eq!(CALLS.load(Ordering::SeqCst), 2);
+        // A different name starts empty; the failed lookup stays unknown.
+        assert_eq!(CACHE.get("other.example.net", later, counting), None);
+        wait_idle(&CACHE);
+        assert_eq!(CACHE.get("other.example.net", later, counting), None);
+        assert_eq!(CALLS.load(Ordering::SeqCst), 3);
+    }
+
+    static SLOW_CACHE: PublishedAddressCache = PublishedAddressCache::new();
+    static RELEASE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
+    fn slow(_: &str) -> Option<String> {
+        while !*RELEASE.lock().unwrap() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Some("203.0.113.9".into())
+    }
+
+    #[test]
+    fn a_stale_lookup_never_labels_a_new_hostname() {
+        let now = Instant::now();
+        assert_eq!(SLOW_CACHE.get("old.example.net", now, slow), None);
+        // The old lookup is still running, so none is started for the new name.
+        assert_eq!(SLOW_CACHE.get("new.example.net", now, slow), None);
+        *RELEASE.lock().unwrap() = true;
+        wait_idle(&SLOW_CACHE);
+        assert_eq!(SLOW_CACHE.lock().address, None, "the old name's answer was discarded");
+        assert_eq!(SLOW_CACHE.lock().hostname, "new.example.net");
+    }
+
+    #[test]
+    fn unsafe_names_are_never_looked_up() {
+        static GUARD: PublishedAddressCache = PublishedAddressCache::new();
+        for name in ["", "host name", "a/b", "evil:80", &"a".repeat(254)] {
+            assert_eq!(GUARD.get(name, Instant::now(), counting_never), None);
+        }
+        assert!(!GUARD.lock().in_flight);
+    }
+    fn counting_never(_: &str) -> Option<String> {
+        panic!("must not resolve")
     }
 }

@@ -35,6 +35,10 @@ these (everything else is compared byte for byte):
   trusted network. Each of these is followed by a comment line and an explicit
   `iifname "<if>" tcp dport 22 drop`, so a custom firewall rule written later
   in the `input` chain cannot widen SSH (`with_ssh_deviation`).
+- **Dynamic DNS forced update.** Go wrote `forced-update = 2592000` (30 days);
+  Rust writes `604800` (7 days), because inadyn only compares the WAN address
+  with its own cache and a lost or overwritten update otherwise stays in
+  public DNS for weeks (`with_ddns_deviation`).
 - **Firewall explanation, probe 3** (`192.168.1.50 -> 192.168.1.1 tcp 22`). Go's
   management `allow` becomes `deny` with reason "SSH is accepted only from
   trusted management networks." when the source is outside those networks
