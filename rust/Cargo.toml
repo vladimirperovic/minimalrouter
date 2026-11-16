@@ -27,7 +27,7 @@ pem = "3"
 png = "0.17"
 psl = "2"
 qrcode = { version = "0.14", default-features = false }
-rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
 # Only the Unicode tables the patterns use (\pL \pN, (?i), \s \d \b) and the
 # literal prefilter; without perf-literal redacting a 2 MB blob took 390 ms, not 2 ms.
 regex = { version = "1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-gencat", "unicode-perl", "perf-literal"] }
