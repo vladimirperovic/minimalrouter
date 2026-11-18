@@ -17,6 +17,8 @@
   after the target build is serving HTTPS and rejects stale confirmations.
 - Appliances running v0.4.2 or earlier need the full signed distribution
   installer once because the updater and recovery tools changed.
+- Update the dashboard lint tooling to the patched `minimatch` dependency
+  for [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
 
 ## [0.4.2] — unpublished preparation
 
