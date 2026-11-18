@@ -11,11 +11,32 @@ const DEFAULT_RETENTION_MONTHS: i64 = 13;
 /// Matches the nftables set size so neither side can outgrow the other.
 pub(crate) const MAX_TRACKED_DEVICES: i64 = 512;
 const RECENT_DAYS: i64 = 32;
+const MARK_HISTORY_LIVE: &str = "INSERT INTO accounting_state(id, history_cleared) VALUES (1, 0) ON CONFLICT(id) DO UPDATE SET history_cleared = 0";
+
+// Telemetry uses NORMAL WAL writes. Acknowledging a privacy setting or
+// erasure must sync its own database before another database records completion.
+pub(crate) fn durable_transaction<T>(db: &mut Connection, write: impl FnOnce(&Transaction<'_>) -> Result<T>) -> Result<T> {
+    let previous: i64 = db.pragma_query_value(None, "synchronous", |row| row.get(0))?;
+    if previous < 2 {
+        db.pragma_update(None, "synchronous", "FULL")?;
+    }
+    let result: Result<T> = (|| {
+        let tx = db.transaction()?;
+        let value = write(&tx)?;
+        tx.commit()?;
+        Ok(value)
+    })();
+    let restored = if previous < 2 { db.pragma_update(None, "synchronous", previous) } else { Ok(()) };
+    let value = result?;
+    restored?;
+    Ok(value)
+}
 
 /// Monthly per-device totals plus the last raw kernel counter for each host,
 /// so a routerd restart cannot double-count traffic already recorded.
 pub struct Store {
     conn: Mutex<Connection>,
+    config: Option<Arc<crate::config::SQLiteStore>>,
 }
 
 impl Store {
@@ -27,11 +48,33 @@ impl Store {
             .map_err(|e| wrapf("initialize accounting store", e))?;
         crate::config::set_mode(&path.to_string_lossy(), 0o600).map_err(|e| wrapf("secure accounting store", e))?;
         migrate(&conn)?;
-        Ok(Store { conn: Mutex::new(conn) })
+        Ok(Store { conn: Mutex::new(conn), config: None })
+    }
+
+    pub fn open_with_config(data_dir: &str, config: Arc<crate::config::SQLiteStore>) -> Result<Store> {
+        let mut store = Store::open(data_dir)?;
+        store.config = Some(config);
+        Ok(store)
     }
 
     pub(crate) fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    // Check under the same lock as the read or write that follows. If a
+    // deletion fails, callers retry without exposing any pre-disable history.
+    fn device_history(&self) -> Result<(MutexGuard<'_, Connection>, u64)> {
+        let mut conn = self.lock();
+        let Some(config) = &self.config else { return Ok((conn, 0)) };
+        let disabled = config.accounting_disabled_revision()?;
+        let cleared: u64 = conn.query_row("SELECT COALESCE((SELECT revision FROM accounting_reset WHERE id=1),0)", [], |r| r.get(0))?;
+        if disabled != cleared {
+            let tx = conn.transaction()?;
+            clear_devices(&tx)?;
+            tx.execute("INSERT INTO accounting_reset(id,revision) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision", [disabled])?;
+            tx.commit()?;
+        }
+        Ok((conn, disabled))
     }
 
     /// Folds one collection round into the monthly buckets. `generation`
@@ -39,10 +82,13 @@ impl Store {
     pub fn record(&self, now: Time, rx: &[Counter], tx: &[Counter], retention_months: i64, generation: u64) -> Result<()> {
         let retention_months = if retention_months <= 0 { DEFAULT_RETENTION_MONTHS } else { retention_months };
         let month = month_key(now);
-        let mut conn = self.lock();
+        let (mut conn, disabled) = self.device_history()?;
+        if disabled != 0 && generation <= disabled {
+            return Ok(());
+        }
         let txn = conn.transaction()?;
         let mut recent: HashMap<String, DeviceUsage> = HashMap::new();
-        let mut apply = |direction: &str, counters: &[Counter]| -> rusqlite::Result<()> {
+        let mut apply = |direction: &str, counters: &[Counter]| -> Result<()> {
             for counter in counters {
                 let cursor: Option<(u64, u64)> = txn
                     .query_row("SELECT last_raw, generation FROM device_cursor WHERE address = ? AND direction = ?", params![counter.address, direction], |r| {
@@ -71,20 +117,29 @@ impl Store {
                     params![counter.address, month, added, now.utc().unix()],
                 )?;
             }
+            // An absent element in a complete set has expired. Its next
+            // appearance starts at zero even if its new count is already larger.
+            let addresses: Vec<_> = counters.iter().map(|counter| &counter.address).collect();
+            txn.execute(
+                "DELETE FROM device_cursor WHERE direction = ? AND address NOT IN (SELECT value FROM json_each(?))",
+                params![direction, serde_json::to_string(&addresses)?],
+            )?;
             Ok(())
         };
         apply("rx", rx).map_err(|e| wrapf("record download counters", e))?;
         apply("tx", tx).map_err(|e| wrapf("record upload counters", e))?;
         record_insights(&txn, now, &recent).map_err(|e| wrapf("record recent traffic", e))?;
-        let cutoff = now.utc().add_date(0, -retention_months, 0).format("%Y-%m");
-        txn.execute("DELETE FROM device_month WHERE month < ?", params![cutoff]).map_err(|e| wrapf("prune accounting history", e))?;
-        txn.execute("DELETE FROM device_cursor WHERE address NOT IN (SELECT address FROM device_month)", [])
-            .map_err(|e| wrapf("prune accounting cursors", e))?;
+        let utc = now.utc();
+        let first = Time::date_utc(utc.year(), utc.month(), 1);
+        let months_back = (retention_months - 1).min(((utc.year() - 1) * 12 + utc.month() - 1).max(0));
+        let cutoff = first.add_date(0, -months_back, 0).format("%Y-%m");
+        txn.execute("DELETE FROM device_month WHERE month < ? OR month > ?", params![cutoff, month]).map_err(|e| wrapf("prune accounting history", e))?;
         txn.execute(
             "DELETE FROM device_month WHERE rowid NOT IN (SELECT rowid FROM device_month ORDER BY month DESC, rx_bytes + tx_bytes DESC LIMIT ?)",
-            params![MAX_TRACKED_DEVICES * retention_months],
+            params![MAX_TRACKED_DEVICES.saturating_mul(retention_months)],
         )
         .map_err(|e| wrapf("bound accounting rows", e))?;
+        txn.execute(MARK_HISTORY_LIVE, [])?;
         txn.commit()?;
         Ok(())
     }
@@ -92,7 +147,7 @@ impl Store {
     /// The newest `limit` calendar months, devices sorted by total descending.
     pub fn months(&self, limit: i64) -> Result<List<MonthUsage>> {
         let limit = if limit <= 0 { 3 } else { limit };
-        let conn = self.lock();
+        let (conn, _) = self.device_history()?;
         let mut stmt = conn.prepare(
             "SELECT address, month, rx_bytes, tx_bytes, last_seen FROM device_month WHERE month IN (SELECT DISTINCT month FROM device_month ORDER BY month DESC LIMIT ?) ORDER BY month DESC",
         )?;
@@ -132,10 +187,7 @@ impl Store {
     pub fn clear_history(&self) -> Result<()> {
         let mut conn = self.lock();
         let txn = conn.transaction()?;
-        for table in ["traffic_hour", "device_day", "traffic_clock", "device_month", "device_cursor"] {
-            txn.execute(&format!("DELETE FROM {}", table), [])?;
-        }
-        txn.execute("INSERT INTO accounting_state(id, history_cleared) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET history_cleared = 1", [])?;
+        clear_devices(&txn)?;
         txn.commit()?;
         Ok(())
     }
@@ -143,7 +195,7 @@ impl Store {
     /// Whether a disable has already been honored, so a restarted collector
     /// does not have to guess.
     pub fn history_cleared(&self) -> Result<bool> {
-        let conn = self.lock();
+        let (conn, _) = self.device_history()?;
         match conn.query_row("SELECT history_cleared FROM accounting_state WHERE id = 1", [], |r| r.get::<_, i64>(0)).optional()? {
             Some(cleared) => Ok(cleared != 0),
             // A store carrying rows from a release that predates the flag
@@ -153,7 +205,7 @@ impl Store {
     }
 
     pub fn mark_history_live(&self) -> Result<()> {
-        self.lock().execute("INSERT INTO accounting_state(id, history_cleared) VALUES (1, 0) ON CONFLICT(id) DO UPDATE SET history_cleared = 0", [])?;
+        self.lock().execute(MARK_HISTORY_LIVE, [])?;
         Ok(())
     }
 
@@ -162,7 +214,7 @@ impl Store {
         let now = now.utc();
         let month = now.format("%Y-%m");
         let previous = Time::date_utc(now.year(), now.month(), 1).add_date(0, -1, 0).format("%Y-%m");
-        let conn = self.lock();
+        let (conn, _) = self.device_history()?;
         let mut stmt = conn.prepare(
             "SELECT address, MAX(last_seen), SUM(CASE WHEN month = ? THEN rx_bytes + tx_bytes ELSE 0 END), MAX(CASE WHEN month = ? THEN 1 ELSE 0 END)
              FROM device_month WHERE month >= ? AND month <= ? GROUP BY address ORDER BY MAX(last_seen) DESC, address LIMIT ?",
@@ -243,7 +295,7 @@ impl Store {
         result.from = from;
         result.until = until;
         // One transaction, so panels agree during collection.
-        let mut conn = self.lock();
+        let (mut conn, _) = self.device_history()?;
         let txn = conn.transaction()?;
         let clock: Option<(i64, i64)> =
             txn.query_row("SELECT started_at,last_at FROM traffic_clock WHERE id=1", [], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
@@ -421,6 +473,13 @@ fn record_insights(txn: &Transaction<'_>, now: Time, devices: &HashMap<String, D
     Ok(())
 }
 
+fn clear_devices(txn: &Transaction<'_>) -> rusqlite::Result<()> {
+    txn.execute_batch(
+        "DELETE FROM traffic_hour; DELETE FROM device_day; DELETE FROM traffic_clock; DELETE FROM device_month; DELETE FROM device_cursor;
+        INSERT INTO accounting_state(id, history_cleared) VALUES (1, 1) ON CONFLICT(id) DO UPDATE SET history_cleared = 1;",
+    )
+}
+
 fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "
@@ -432,6 +491,7 @@ fn migrate(conn: &Connection) -> Result<()> {
         address TEXT NOT NULL, direction TEXT NOT NULL CHECK(direction IN ('rx','tx')), last_raw INTEGER NOT NULL DEFAULT 0,
         generation INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (address, direction));
     CREATE TABLE IF NOT EXISTS accounting_state (id INTEGER PRIMARY KEY CHECK(id = 1), history_cleared INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS accounting_reset (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL);
     ",
     )
     .map_err(|e| wrapf("migrate accounting store", e))?;
@@ -454,4 +514,119 @@ fn migrate(conn: &Connection) -> Result<()> {
     ",
     )?;
     super::dns::migrate_dns(conn)
+}
+
+#[cfg(test)]
+impl Store {
+    pub(super) fn in_memory() -> Store {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        Store { conn: Mutex::new(conn), config: None }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_durable_writes_roll_back_and_restore_the_telemetry_sync_mode() {
+        let store = Store::in_memory();
+        let mut db = store.lock();
+        db.pragma_update(None, "synchronous", "NORMAL").unwrap();
+        let outcome: Result<()> = durable_transaction(&mut db, |tx| {
+            assert_eq!(tx.pragma_query_value(None, "synchronous", |r| r.get::<_, i64>(0))?, 2);
+            tx.execute("UPDATE dns_cleanup SET pending=1 WHERE id=1", [])?;
+            Err(errorf!("interrupted before commit"))
+        });
+        assert!(outcome.is_err());
+        assert_eq!(db.pragma_query_value(None, "synchronous", |r| r.get::<_, i64>(0)).unwrap(), 1);
+        assert!(!db.query_row("SELECT pending FROM dns_cleanup WHERE id=1", [], |r| r.get::<_, bool>(0)).unwrap());
+    }
+
+    #[test]
+    fn monthly_retention_counts_calendar_months_including_the_current_one() {
+        let store = Store::in_memory();
+        for (month, day, bytes) in [(1, 31, 10), (2, 28, 20), (3, 1, 30), (3, 31, 40)] {
+            store.record(Time::date_utc(2026, month, day), &[Counter { address: "192.0.2.1".into(), bytes }], &[], 2, 1).unwrap();
+            if month == 3 {
+                let months = store.months(12).unwrap();
+                assert_eq!(months.iter().map(|m| m.month.as_str()).collect::<Vec<_>>(), ["2026-03", "2026-02"]);
+            }
+        }
+    }
+
+    #[test]
+    fn reappearing_device_counter_starts_fresh_in_each_direction() {
+        let store = Store::in_memory();
+        let now = Time::date_utc(2026, 3, 15);
+        let counter = |bytes| [Counter { address: "192.0.2.1".into(), bytes }];
+        store.record(now, &counter(100), &counter(50), 13, 1).unwrap();
+        store.record(now.add(Duration::minutes(5)), &[], &counter(70), 13, 1).unwrap();
+        store.record(now.add(Duration::minutes(10)), &counter(180), &counter(90), 13, 1).unwrap();
+        let months = store.months(1).unwrap();
+        let device = &months[0].devices[0];
+        assert_eq!((device.rx_bytes, device.tx_bytes), (280, 90));
+    }
+
+    #[test]
+    fn expiring_a_month_does_not_recount_an_idle_kernel_counter() {
+        let store = Store::in_memory();
+        let at = Time::date_utc(2026, 3, 1);
+        let counter = |bytes| [Counter { address: "192.0.2.4".into(), bytes }];
+        store.record(at.add(Duration::minutes(-1)), &counter(100), &[], 1, 4).unwrap();
+        store.record(at, &counter(100), &[], 1, 4).unwrap();
+        assert!(store.months(1).unwrap().is_empty());
+        store.record(at.add(Duration::minutes(5)), &counter(107), &[], 1, 4).unwrap();
+        assert_eq!(store.months(1).unwrap()[0].total_bytes, 7);
+    }
+
+    #[test]
+    fn disabling_between_polls_forgets_old_devices_even_after_restart() {
+        let dir = std::env::temp_dir().join(format!("mr-traffic-disable-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let path = dir.to_str().unwrap();
+        let configs = Arc::new(crate::config::SQLiteStore::new_file_store(path).unwrap());
+        let mut config = configs.get_latest_config().unwrap();
+        config.revision += 1;
+        config.accounting.enabled = true;
+        configs.save_config(config.clone()).unwrap();
+        let old_revision = config.revision;
+        let now = Time::date_utc(2026, 3, 2).add(Duration::hours(12));
+        let counter = |bytes| [Counter { address: "192.0.2.6".into(), bytes }];
+        {
+            let store = Store::open_with_config(path, configs.clone()).unwrap();
+            store.record(now, &counter(100), &[], 13, old_revision).unwrap();
+            store.record(now.add(Duration::minutes(1)), &counter(120), &[], 13, old_revision).unwrap();
+            assert_eq!(store.months(1).unwrap()[0].total_bytes, 120);
+            assert_eq!(store.insights(now.add(Duration::minutes(2)), "today").unwrap().total_bytes, 20);
+            store.record_firewall(now, "test", 10, 5).unwrap();
+            store.record_firewall(now.add(Duration::minutes(1)), "test", 20, 9).unwrap();
+        }
+        for enabled in [false, true] {
+            config.revision += 1;
+            config.accounting.enabled = enabled;
+            configs.save_config(config.clone()).unwrap();
+        }
+        drop(configs);
+        let configs = Arc::new(crate::config::SQLiteStore::new_file_store(path).unwrap());
+        let store = Store::open_with_config(path, configs.clone()).unwrap();
+        let at = now.add(Duration::minutes(3));
+        store
+            .lock()
+            .execute_batch("CREATE TEMP TRIGGER fail_clear BEFORE DELETE ON device_month BEGIN SELECT RAISE(ABORT, 'temporary write failure'); END")
+            .unwrap();
+        assert!(store.months(1).is_err());
+        store.lock().execute_batch("DROP TRIGGER fail_clear").unwrap();
+        assert!(store.device_activity(at).unwrap().is_empty());
+        assert!(store.months(1).unwrap().is_empty());
+        assert_eq!(store.insights(at, "today").unwrap().total_bytes, 0);
+        store.record(at, &counter(135), &[], 13, old_revision).unwrap();
+        assert!(store.months(1).unwrap().is_empty());
+        store.record(at, &counter(9), &[], 13, config.revision).unwrap();
+        assert_eq!(store.months(1).unwrap()[0].total_bytes, 9);
+        assert_eq!(store.firewall_activity(at).unwrap().allowed, 4);
+        drop(store);
+        drop(configs);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

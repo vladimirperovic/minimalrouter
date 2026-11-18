@@ -26,9 +26,9 @@
     "amd64",
     "arm64"
   ],
-  "bootstrap_change_acknowledged_version": "0.4.2",
-  "bootstrap_change_reason": "v0.4.2 includes the unpublished v0.4.1 validation/storage changes and hardens firmware staging, manifest reads and shared PPPoE validation used by the installed updater and recovery/setup tools. Bootstrap bytes differ outside the A/B slot; appliances at or below v0.4.1 require the full signed installer. The runtime byte-identity check remains mandatory. Move the baseline to v0.4.2 only after its signed publication.",
-  "requires_full_installer_from": "0.4.1",
+  "bootstrap_change_acknowledged_version": "0.4.3",
+  "bootstrap_change_reason": "v0.4.3 changes signed firmware staging recovery and configuration snapshot recovery in bootstrap tools installed outside the A/B slots. Appliances running v0.4.2 or earlier require the full signed installer. The updater enforces byte identity at activation. Move the baseline to v0.4.3 after its signed publication.",
+  "requires_full_installer_from": "0.4.2",
   "deterministic_bootstrap_since": "0.1.7",
   "deterministic_bootstrap_note": [
     "Releases up to and including v0.1.6 were built without -buildvcs=false, so Go stamped the",

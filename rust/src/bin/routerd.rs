@@ -148,8 +148,8 @@ impl DNSSource for DNSActivitySource {
 
 /// Optional: a store that cannot be opened makes accounting "unavailable",
 /// never a failed management plane.
-fn configure_accounting(server: &Arc<Server>, engine: &Arc<Engine>, data_dir: &str, workers: &mut Workers) {
-    let store = match accounting::Store::open(data_dir) {
+fn configure_accounting(server: &Arc<Server>, engine: &Arc<Engine>, config: Arc<SQLiteStore>, data_dir: &str, workers: &mut Workers) {
+    let store = match accounting::Store::open_with_config(data_dir, config) {
         Ok(store) => Arc::new(store),
         Err(err) => return log::info!("[ACCOUNTING] Per-device traffic accounting unavailable: {}", err),
     };
@@ -187,23 +187,10 @@ fn configure_accounting(server: &Arc<Server>, engine: &Arc<Engine>, data_dir: &s
     });
     log::info!("[ACCOUNTING] Per-device byte accounting collector started");
 
-    // A failed settings read keeps the last known setting: "disabled" would
-    // delete the history on a transient database error.
-    let last_settings = Arc::new(Mutex::new(accounting::DNSSettings::default()));
-    let (settings_store, dir_for_writes) = (store.clone(), data_dir.to_string());
-    let dns_collector = Arc::new(accounting::DNSCollector::new(
+    let dir_for_writes = data_dir.to_string();
+    let dns_collector = Arc::new(accounting::DNSCollector::from_store(
         store.clone(),
         Arc::new(DNSActivitySource(dnsactivity::Client::default())),
-        Box::new(move || match settings_store.dns_settings() {
-            Ok(settings) => {
-                *last_settings.lock().unwrap_or_else(|e| e.into_inner()) = settings.clone();
-                settings
-            }
-            Err(err) => {
-                log::info!("[DNS] could not read DNS activity setting: {}", err);
-                last_settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
-            }
-        }),
         Some(Box::new(move || storage::allow_nonessential_write(&dir_for_writes))),
     ));
     server.configure_dns_activity(Some(dns_collector.clone()));
@@ -214,7 +201,11 @@ fn configure_accounting(server: &Arc<Server>, engine: &Arc<Engine>, data_dir: &s
         Some(Box::new(move || storage::allow_nonessential_write(&risk_dir))),
     );
     match risk {
-        Err(err) => log::info!("[DNS] Risk monitor unavailable: {}", err),
+        Err(err) => {
+            log::info!("[DNS] Risk monitor unavailable: {}", err);
+            let dir = data_dir.to_string();
+            dns_collector.set_risk_observer(Box::new(|_| {}), Box::new(move || dnsrisk::clear_stored_history(&dir)));
+        }
         Ok(service) => {
             let service = Arc::new(service);
             server.configure_dns_risk(Some(service.clone()));
@@ -551,7 +542,7 @@ fn main() {
     let server = Server::with_auth(engine.clone(), session_mgr, rate_limiter, &admin_hash, Some(store.clone()));
     server.configure_global_login_limiter(Some(global_limiter));
     configure_gateway(&server, &abs_dir, &mut workers);
-    configure_accounting(&server, &engine, &abs_dir, &mut workers);
+    configure_accounting(&server, &engine, store.clone(), &abs_dir, &mut workers);
     let dns_filter = configure_dns_filter(&server, &abs_dir);
     match firmware::load_trusted_public_key(FIRMWARE_KEY_PATH) {
         Ok(key) => {
@@ -560,10 +551,6 @@ fn main() {
         }
         Err(err) => log::info!("[SECURITY] Firmware updates disabled: trusted key unavailable: {}", err),
     }
-    // Discovery is a convenience, never part of the boot path.
-    let checker = server.configure_updates(release::Catalog::default(), firmware::host_arch());
-    workers.spawn(move |stop| checker.run(&stop));
-
     let mut router = Router::new();
     server.register_routes(&mut router);
     if let Some(web_dir) = std::env::var("MINIMALROUTER_WEB_DIR").ok().filter(|d| !d.is_empty()) {
@@ -605,6 +592,9 @@ fn main() {
     if let Err(err) = signal_routerd_ready(initial.revision) {
         fatal(format!("Refusing startup because OpenRC readiness could not be published: {}", err));
     }
+    // Reconcile the recorded activation only after this build is ready to serve.
+    let checker = server.configure_updates(release::Catalog::default(), firmware::host_arch());
+    workers.spawn(move |stop| checker.run(&stop));
     log::info!("routerd listening on firewall-confined management endpoint https://{}:{}/api/v1/", initial.lan.ip_address, port);
     log::info!("Certificate fingerprint displayed above - verify on first connect");
     server.start_startup_capture(stop.clone());

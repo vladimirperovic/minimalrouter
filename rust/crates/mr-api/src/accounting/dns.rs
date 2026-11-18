@@ -154,6 +154,8 @@ pub(super) fn migrate_dns(conn: &Connection) -> Result<()> {
     CREATE TABLE IF NOT EXISTS dns_clock (id INTEGER PRIMARY KEY CHECK(id = 1), started_at INTEGER NOT NULL, last_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS dns_observed (hour INTEGER PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS dns_settings (id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL, retention_days INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS dns_cleanup (id INTEGER PRIMARY KEY CHECK(id = 1), pending INTEGER NOT NULL);
+    INSERT OR IGNORE INTO dns_cleanup(id, pending) VALUES (1, COALESCE((SELECT enabled = 0 FROM dns_settings WHERE id = 1), 0));
     ",
     )
     .map_err(|e| wrapf("migrate DNS activity store", e))
@@ -171,14 +173,30 @@ impl Store {
     }
 
     pub fn set_dns_settings(&self, settings: &DNSSettings) -> Result<()> {
-        if settings.retention_days < 1 || settings.retention_days > MAX_DNS_RETENTION_DAYS {
-            return Err(errorf!("retention_days must be between 1 and {}", MAX_DNS_RETENTION_DAYS));
-        }
-        self.lock().execute(
-            "INSERT INTO dns_settings(id, enabled, retention_days) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, retention_days = excluded.retention_days",
-            params![settings.enabled as i64, settings.retention_days],
-        )?;
-        Ok(())
+        settings.validate()?;
+        durable_transaction(&mut self.lock(), |tx| {
+            if !settings.enabled {
+                tx.execute("UPDATE dns_cleanup SET pending = 1 WHERE id = 1", [])?;
+            } else if tx.query_row("SELECT pending FROM dns_cleanup WHERE id = 1", [], |r| r.get::<_, bool>(0))? {
+                return Err(errorf!("DNS history cleanup is still pending"));
+            }
+            tx.execute(
+                "INSERT INTO dns_settings(id, enabled, retention_days) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled, retention_days = excluded.retention_days",
+                params![settings.enabled as i64, settings.retention_days],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub(super) fn dns_cleanup_pending(&self) -> Result<bool> {
+        Ok(self.lock().query_row("SELECT pending FROM dns_cleanup WHERE id = 1", [], |r| r.get(0))?)
+    }
+
+    pub(super) fn set_dns_cleanup_pending(&self, pending: bool) -> Result<()> {
+        durable_transaction(&mut self.lock(), |tx| {
+            tx.execute("UPDATE dns_cleanup SET pending = ? WHERE id = 1", params![pending])?;
+            Ok(())
+        })
     }
 
     /// Writes one flush in a single transaction. A day at MAX_DNS_DAILY_ROWS
@@ -288,7 +306,7 @@ impl Store {
 
     pub fn has_dns_history(&self) -> Result<bool> {
         let exists: i64 = self.lock().query_row(
-            "SELECT EXISTS(SELECT 1 FROM dns_daily) OR EXISTS(SELECT 1 FROM dns_hourly) OR EXISTS(SELECT 1 FROM dns_unitemized) OR EXISTS(SELECT 1 FROM dns_clock)",
+            "SELECT EXISTS(SELECT 1 FROM dns_daily) OR EXISTS(SELECT 1 FROM dns_hourly) OR EXISTS(SELECT 1 FROM dns_unitemized) OR EXISTS(SELECT 1 FROM dns_clock) OR EXISTS(SELECT 1 FROM dns_observed)",
             [],
             |r| r.get(0),
         )?;

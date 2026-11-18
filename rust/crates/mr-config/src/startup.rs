@@ -95,11 +95,11 @@ fn kernel_boot_identity(now: Time) -> (String, Time) {
         let id = id.trim().to_string();
         if valid_boot_id(&id) {
             if let Some(seconds) = uptime.split_whitespace().next().and_then(|f| f.parse::<f64>().ok()).filter(|s| *s >= 0.0) {
-                return (id, now.add(Duration(-(seconds * 1e9) as i64)).utc());
+                return (id, now.add(Duration(-(seconds * 1e9) as i64)));
             }
         }
     }
-    (now.0.format("%Y%m%dT%H%M%S%.9fZ").to_string(), now)
+    (now.utc().format("%Y%m%dT%H%M%S%.9fZ"), now)
 }
 
 impl Recorder {
@@ -107,14 +107,16 @@ impl Recorder {
         let dir = std::path::Path::new(data_dir).join("startup");
         std::fs::create_dir_all(&dir)?;
         crate::config::set_mode(&dir.to_string_lossy(), 0o700)?;
-        let now = Time::now_utc();
-        let (boot_id, mut started_at) = kernel_boot_identity(now);
-        let mut boot = Boot { id: boot_id.clone(), started_at, events: List::empty(), samples: List::empty(), ..Default::default() };
+        let (boot_id, started_at) = kernel_boot_identity(Time::now());
+        Self::for_boot(dir, boot_id, started_at)
+    }
+
+    fn for_boot(dir: std::path::PathBuf, boot_id: String, started_at: Time) -> Result<Arc<Recorder>> {
+        let mut boot = Boot { id: boot_id.clone(), started_at: started_at.utc(), events: List::empty(), samples: List::empty(), ..Default::default() };
         let mut reused = false;
         if let Ok(data) = std::fs::read(dir.join(format!("{}.json", boot_id))) {
             if let Ok(existing) = json::unmarshal::<Boot>(&data) {
                 if existing.id == boot_id && !existing.started_at.is_zero() {
-                    started_at = existing.started_at;
                     boot = existing;
                     reused = true;
                 }
@@ -310,7 +312,11 @@ impl Recorder {
     }
 
     fn persist_locked(&self, st: &mut State) -> Result<()> {
-        st.boot.updated_at = Time::now_utc();
+        // Keep elapsed time anchored to kernel uptime. If NTP corrected the
+        // RTC, put the persisted timeline on the same wall clock as updated_at.
+        let now = Time::now();
+        st.boot.started_at = now.add(Duration(-now.sub(&self.started).0)).utc();
+        st.boot.updated_at = now.utc();
         let data = json::marshal_indent(&st.boot, "  ")?;
         let tmp = self.dir.join(format!("{}.json.tmp", st.boot.id));
         let dst = self.dir.join(format!("{}.json", st.boot.id));
@@ -481,5 +487,31 @@ mod tests {
         assert_eq!(boot.capture_status(Time::now()), "unknown");
         boot.completion_reason = "ready".into();
         assert_eq!(boot.capture_status(Time::now()), "ready");
+    }
+
+    #[test]
+    fn a_corrected_clock_does_not_end_a_resumed_boot_capture() {
+        let dir = std::env::temp_dir().join(format!("mr-boot-clock-{}-{}", std::process::id(), Time::now().unix_nano()));
+        std::fs::create_dir(&dir).unwrap();
+        let previous = Boot {
+            id: "same-boot".into(),
+            started_at: Time::from_unix(1000, 0),
+            completed: true,
+            completion_reason: "interrupted".into(),
+            readiness: Readiness { management_seconds: Some(5), ..Default::default() },
+            ..Default::default()
+        };
+        std::fs::write(dir.join("same-boot.json"), json::marshal(&previous).unwrap()).unwrap();
+        // The kernel reports thirty seconds of uptime. Its monotonic origin
+        // survives the wall clock correction between these two observations.
+        let mut origin = Time::now().add(Duration::secs(-30));
+        origin.0 = previous.started_at.0;
+        let recorder = Recorder::for_boot(dir.clone(), previous.id, origin).unwrap();
+        assert!(!recorder.boot().completed);
+        assert_eq!(recorder.boot().readiness.management_seconds, Some(5));
+        assert!((30..60).contains(&recorder.offset_seconds()));
+        assert_eq!(recorder.boot().capture_status(Time::now()), "capturing");
+        assert!(Time::now().sub(&recorder.boot().started_at) < Duration::secs(60));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

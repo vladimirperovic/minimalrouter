@@ -373,12 +373,7 @@ impl Service {
     pub fn clear(&self) -> Result<()> {
         let _history = self.history.lock().unwrap_or_else(|e| e.into_inner());
         self.generation.fetch_add(1, Ordering::SeqCst);
-        {
-            let mut db = self.lock_db();
-            let tx = db.transaction()?;
-            tx.execute_batch("DELETE FROM alerts; UPDATE state SET removed_alerts=0 WHERE id=1")?;
-            tx.commit()?;
-        }
+        clear_alerts(&mut self.lock_db())?;
         self.dropped.store(0, Ordering::SeqCst);
         let mut state = self.run_state();
         state.last_checked = 0;
@@ -414,6 +409,24 @@ impl Service {
         out.removed_alerts = db.query_row("SELECT removed_alerts FROM state WHERE id=1", [], |r| r.get(0))?;
         Ok(out)
     }
+}
+
+fn clear_alerts(db: &mut Connection) -> Result<()> {
+    crate::accounting::durable_transaction(db, |tx| {
+        tx.execute_batch("DELETE FROM alerts; UPDATE state SET removed_alerts=0 WHERE id=1 AND removed_alerts!=0")?;
+        Ok(())
+    })
+}
+
+/// Erase existing alerts even when the optional classifier could not start.
+pub fn clear_stored_history(data_dir: &str) -> Result<()> {
+    let path = std::path::Path::new(data_dir).join("dns-risk").join("alerts.db");
+    if path.try_exists()? {
+        let mut db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+        db.execute_batch("PRAGMA busy_timeout=3000; PRAGMA trusted_schema=OFF; PRAGMA secure_delete=ON")?;
+        clear_alerts(&mut db)?;
+    }
+    Ok(())
 }
 
 fn trim_alerts(tx: &rusqlite::Transaction<'_>, now: Time, days: i64) -> rusqlite::Result<()> {
@@ -482,6 +495,11 @@ mod tests {
         assert_eq!(service.summary(Time::now()).unwrap().new_count, 0);
         assert!(crate::goish::errors::is::<crate::config::ErrNoRows>(&service.acknowledge(999).unwrap_err()));
         drop(service);
+        clear_stored_history(dir.to_str().unwrap()).unwrap();
+        let reopened = Service::open(dir.to_str().unwrap(), Box::new(|| Ok((true, 30))), None).unwrap();
+        assert_eq!(reopened.summary(Time::now()).unwrap().total, 0);
+        assert_eq!(reopened.exceptions().unwrap().len(), 1);
+        drop(reopened);
         std::fs::remove_dir_all(dir).ok();
     }
 }

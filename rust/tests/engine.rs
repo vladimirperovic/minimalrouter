@@ -104,6 +104,67 @@ fn gateway_move(cfg: &SystemConfig) -> SystemConfig {
 }
 
 #[test]
+fn initial_setup_persists_the_exact_verified_configuration() {
+    let (store, dir) = temp_store();
+    let initial = store.get_latest_config().unwrap();
+    let client = ScriptedClient::ok();
+    let engine = Engine::with_client(initial.clone(), Some(store.clone()), client.clone());
+    let (tx, result) = engine.process_initial_setup("first-setup", initial, &|cfg| store.commit_initial_setup(cfg.clone(), "test-hash"));
+    result.unwrap();
+    assert_eq!(tx.current_state, State::Committed);
+    let durable = store.get_latest_config().unwrap();
+    assert_eq!(durable.updated_at, tx.config.updated_at);
+    assert_eq!(durable, client.requests.lock().unwrap().last().unwrap().config);
+    drop(engine);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn failed_runtime_confirmation_keeps_the_previous_revision_and_allows_retry() {
+    let (store, dir) = temp_store();
+    let initial = store.get_latest_config().unwrap();
+    let client = ScriptedClient::new(vec![ok(), Ok(ApplyResponse { error: "runtime unavailable".into(), ..Default::default() }), ok()]);
+    let engine = Engine::with_client(initial.clone(), Some(store.clone()), client.clone());
+    let (pending, result) = engine.process_transaction("tx-runtime-check", gateway_move(&initial));
+    result.unwrap();
+    let (_, result) = engine.confirm_transaction(&pending.id);
+    assert!(result.is_err());
+    assert_eq!(store.get_latest_config().unwrap(), initial);
+    assert_eq!(engine.get_current_config(), initial);
+    assert_eq!(client.ops(), ["APPLY_ALL", "CONFIRM"]);
+    assert!(engine.get_pending_transaction().is_some());
+
+    let (confirmed, result) = engine.confirm_transaction(&pending.id);
+    result.unwrap();
+    let confirmed = confirmed.unwrap();
+    assert_eq!(confirmed.current_state, State::Committed);
+    assert!(confirmed.error.is_empty());
+    assert!(confirmed.confirmation_deadline.is_none());
+    assert_eq!(store.get_latest_config().unwrap(), confirmed.config);
+    let requests = client.requests.lock().unwrap();
+    assert_ne!(requests[1].id, requests[2].id, "an explicit retry must recheck the runtime");
+    drop(requests);
+    drop(engine);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_rejected_save_keeps_the_pending_transaction_visible() {
+    let initial = default_config();
+    let engine = Engine::with_client(initial.clone(), None, ScriptedClient::ok());
+    let (pending, result) = engine.process_transaction("tx-pending", gateway_move(&initial));
+    result.unwrap();
+    let (refused, result) = engine.process_transaction("tx-other", initial);
+    assert!(result.is_err());
+    assert_eq!(refused.current_state, State::Rejected);
+    let status = engine.get_status();
+    assert_eq!(status.active_transaction_id, pending.id);
+    assert_eq!(status.active_state, Some(State::AwaitingConfirmation));
+}
+
+#[test]
 fn transaction_lifecycle_requires_confirmation_then_commits() {
     let (store, dir) = temp_store();
     let mut initial = default_config();
@@ -120,12 +181,54 @@ fn transaction_lifecycle_requires_confirmation_then_commits() {
     let (tx, result) = engine.confirm_transaction("tx-test-1");
     result.unwrap();
     assert_eq!(tx.unwrap().current_state, State::Committed);
-    assert_eq!(client.ops(), vec!["APPLY_ALL", "COMMIT_CONFIRMED", "RECONCILE"]);
+    assert_eq!(client.ops(), vec!["APPLY_ALL", "CONFIRM", "COMMIT_CONFIRMED", "RECONCILE"]);
     let requests = client.requests.lock().unwrap();
     assert!(requests.iter().all(|r| r.config.revision == initial.revision + 1));
-    assert!(requests[1].skip_wan_verify);
+    assert!(requests[2].skip_wan_verify);
     assert_eq!(engine.get_current_config().lan.ip_address, "192.168.1.2");
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn retrying_lan_finalization_keeps_the_already_acknowledged_commit() {
+    let (store, dir) = temp_store();
+    let initial = store.get_latest_config().unwrap();
+    let client = ScriptedClient::new(vec![ok(), ok(), ok(), Ok(ApplyResponse { error: "LAN temporarily unavailable".into(), ..Default::default() }), ok()]);
+    let engine = Engine::with_client(initial.clone(), Some(store.clone()), client.clone());
+    let (tx, result) = engine.process_transaction("tx-finalize", gateway_move(&initial));
+    result.unwrap();
+    assert!(engine.confirm_transaction(&tx.id).1.is_err());
+    assert_eq!(store.get_latest_config().unwrap(), tx.config);
+    assert!(engine.get_status().recovery_required);
+    let (finished, result) = engine.confirm_transaction(&tx.id);
+    result.unwrap();
+    assert_eq!(finished.unwrap().current_state, State::Committed);
+    assert_eq!(client.ops(), ["APPLY_ALL", "CONFIRM", "COMMIT_CONFIRMED", "RECONCILE", "RECONCILE"]);
+    let requests = client.requests.lock().unwrap();
+    assert_ne!(requests[3].id, requests[4].id);
+    drop(requests);
+    assert!(!engine.get_status().recovery_required);
+    drop(engine);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn lost_last_good_replies_retry_the_same_commit_id() {
+    let initial = default_config();
+    let client = ScriptedClient::new(vec![ok(), ok(), Err("lost reply".into()), Err("lost reply".into()), ok(), ok()]);
+    let engine = Engine::with_client(initial.clone(), None, client.clone());
+    let (tx, result) = engine.process_transaction("tx-lost-ack", gateway_move(&initial));
+    result.unwrap();
+    assert!(engine.confirm_transaction(&tx.id).1.is_err());
+    assert_eq!(engine.get_current_config(), tx.config);
+    engine.confirm_transaction(&tx.id).1.unwrap();
+    let requests = client.requests.lock().unwrap();
+    assert_eq!(requests.len(), 6);
+    assert_eq!(requests[2].op, op::commit_confirmed());
+    assert_eq!(requests[2], requests[3]);
+    assert_eq!(requests[2], requests[4]);
+    assert_eq!(requests[5].op, op::reconcile());
 }
 
 #[test]
@@ -237,9 +340,36 @@ fn config_store_failure_with_verified_rollback_reports_rolled_back() {
     assert!(result.is_err());
     assert_eq!(tx.current_state, State::RolledBack);
     assert!(tx.error.ends_with("previous configuration was verified restored"));
-    assert_eq!(client.ops(), vec!["APPLY_ALL", "APPLY_ALL"]);
-    assert_eq!(client.requests.lock().unwrap()[1].id, "setup-fail-rollback");
+    assert_eq!(client.ops(), vec!["APPLY_ALL", "RECONCILE"]);
+    let rollback = &client.requests.lock().unwrap()[1];
+    assert_eq!(rollback.id, "setup-fail-rollback");
+    assert_eq!(rollback.config, initial);
     assert_eq!(engine.get_current_config().system.hostname, initial.system.hostname);
+}
+
+#[test]
+fn concurrent_console_save_remains_the_target_for_reconciliation() {
+    let (store, dir) = temp_store();
+    let initial = store.get_latest_config().unwrap();
+    let client = ScriptedClient::ok();
+    let engine = Engine::with_client(initial.clone(), Some(store.clone()), client.clone());
+    let mut console = initial.clone();
+    console.revision += 1;
+    console.system.hostname = "console-recovery".into();
+    let (_, result) = engine.process_initial_setup("setup-conflict", initial, &|_| {
+        store.save_config(console.clone())?;
+        Err(errorf!("configuration revision changed"))
+    });
+    assert!(result.is_err());
+    assert!(engine.get_status().recovery_required);
+    assert_eq!(client.ops(), ["APPLY_ALL"], "an older revision must not overwrite the console recovery");
+    engine.reconcile(Instant::now() + Duration::from_secs(5)).unwrap();
+    assert_eq!(client.ops(), ["APPLY_ALL", "RECONCILE"]);
+    assert_eq!(client.requests.lock().unwrap()[1].config, console);
+    assert_eq!(engine.get_current_config(), store.get_latest_config().unwrap());
+    drop(engine);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

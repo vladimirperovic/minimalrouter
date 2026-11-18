@@ -50,6 +50,88 @@ fn cookie(reply: &Reply) -> String {
     line.split_once(':').unwrap().1.trim().split(';').next().unwrap().to_string()
 }
 
+fn verify_dns_history_controls(addr: std::net::SocketAddr, server: &Server, dir: &std::path::Path, session: &str, csrf: &str) {
+    use minimalrouter::accounting::{DNSCollector, DNSDrain, DNSLookup, DNSSource, Store};
+    use minimalrouter::goish::time::Time;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct Source(AtomicBool);
+    impl DNSSource for Source {
+        fn drain(&self, _: Instant, enabled: bool) -> Result<DNSDrain> {
+            if self.0.load(Ordering::SeqCst) {
+                return Err(minimalrouter::errorf!("helper temporarily unavailable"));
+            }
+            Ok(DNSDrain { enabled, ..Default::default() })
+        }
+    }
+    let store = Arc::new(Store::open(dir.to_str().unwrap()).unwrap());
+    let source = Arc::new(Source(AtomicBool::new(false)));
+    let collector = Arc::new(DNSCollector::from_store(store.clone(), source.clone(), None));
+    server.configure_dns_activity(Some(collector.clone()));
+    let headers = [("Cookie", session), ("X-CSRF-Token", csrf), ("Content-Type", "application/json")];
+    let change = |enabled| exchange(addr, "PUT", "/api/v1/dns-activity/settings", &headers, &format!(r#"{{"enabled":{enabled},"retention_days":30}}"#)).status;
+    let recent = || {
+        let response = exchange(addr, "GET", "/api/v1/dns-activity/recent", &headers, "");
+        assert_eq!(response.status, 200);
+        serde_json::from_str::<serde_json::Value>(&response.body).unwrap()
+    };
+    assert_eq!(change(true), 503);
+    server.configure_accounting_store(Some(store));
+    assert_eq!(change(true), 200);
+    let page = DNSDrain {
+        enabled: true,
+        lookups: vec![DNSLookup { client: "192.0.2.1".into(), name: "before.example".into(), count: 1, last_seen: 0 }],
+        ..Default::default()
+    };
+    collector.add(Time::now(), &page);
+    assert_eq!(recent()["entries"][0]["name"], "before.example");
+    assert_eq!(exchange(addr, "POST", "/api/v1/dns-activity/clear", &headers, "").status, 200);
+    assert_eq!(recent()["entries"], serde_json::json!([]));
+    collector.add(Time::now(), &page);
+    source.0.store(true, Ordering::SeqCst);
+    assert_eq!(change(false), 200);
+    assert_eq!(recent()["enabled"], false);
+    assert_eq!(change(true), 503);
+    source.0.store(false, Ordering::SeqCst);
+    assert_eq!(change(true), 200);
+    assert_eq!(recent()["entries"], serde_json::json!([]));
+}
+
+fn verify_portable_backup_restore(addr: std::net::SocketAddr, session: &str, csrf: &str, store: &SQLiteStore) {
+    let previous = store.get_latest_config().unwrap();
+    let mut headers = [("Cookie", session), ("X-CSRF-Token", csrf), ("Content-Type", "application/json")];
+    let export = exchange(addr, "POST", "/api/v1/backup/export", &headers, r#"{"current_password":"correct horse battery"}"#);
+    assert_eq!(export.status, 200);
+    let envelope: serde_json::Value = serde_json::from_str(&export.body).unwrap();
+    assert_eq!(envelope["format_version"], 2);
+    assert!(store.last_backup_export().unwrap().is_some());
+
+    headers[2].1 = "multipart/form-data; boundary=mr-backup-boundary";
+    let upload = format!(
+        "--mr-backup-boundary\r\nContent-Disposition: form-data; name=\"current_password\"\r\n\r\ncorrect horse battery\r\n\
+         --mr-backup-boundary\r\nContent-Disposition: form-data; name=\"backup\"; filename=\"backup.mrbak\"\r\nContent-Type: application/json\r\n\r\n{}\r\n\
+         --mr-backup-boundary--\r\n",
+        export.body
+    );
+    let preview = exchange(addr, "POST", "/api/v1/backup/import/preview", &headers, &upload);
+    assert_eq!(preview.status, 200);
+    let preview: serde_json::Value = serde_json::from_str(&preview.body).unwrap();
+    assert_eq!(preview["assessment"]["can_apply"], true);
+    assert_eq!(store.get_latest_config().unwrap(), previous);
+    headers[2].1 = "application/json";
+    let path = format!("/api/v1/import/backup/{}/apply", preview["import_id"].as_str().unwrap());
+    assert_eq!(exchange(addr, "POST", &path, &headers, "").status, 200);
+    assert_eq!(exchange(addr, "POST", &path, &headers, "").status, 404);
+    let restored = store.get_latest_config().unwrap();
+    let mut expected = previous;
+    expected.revision += 1;
+    expected.updated_at = restored.updated_at;
+    assert_eq!(restored, expected);
+    let status = exchange(addr, "GET", "/api/v1/recovery/status", &[("Cookie", session)], "");
+    let status: serde_json::Value = serde_json::from_str(&status.body).unwrap();
+    assert_eq!(status["operation"]["state"], "completed");
+}
+
 #[test]
 fn setup_login_and_csrf_over_http() {
     let dir = std::env::temp_dir().join(format!("mr-api-e2e-{}", std::process::id()));
@@ -122,6 +204,8 @@ fn setup_login_and_csrf_over_http() {
     let listed = exchange(addr, "GET", "/api/v1/snapshots", &[("Cookie", &session)], "");
     assert!(listed.body.contains("before change"));
     assert_eq!(exchange(addr, "DELETE", "/api/v1/config", &[("Cookie", &session)], "").status, 405);
+    verify_portable_backup_restore(addr, &session, &csrf, &store);
+    verify_dns_history_controls(addr, &server, &dir, &session, &csrf);
 
     let observer = exchange(addr, "POST", "/api/v1/auth/login", &json, r#"{"password":"correct horse battery","read_only":true}"#);
     let observer_cookie = cookie(&observer);

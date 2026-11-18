@@ -250,9 +250,10 @@ totals and daily per-address totals. The existing five-minute collector records
 positive counter deltas and successful idle samples. The first sample and long
 collection gaps establish a baseline rather than assigning unknown traffic to a
 recent interval. Monthly totals keep their existing retention configuration.
-Disabling accounting hides device history immediately and clears it durably on
-the next collector round. Migrations only add tables and indexes; older readers
-can ignore them when rolling back the application.
+Disabling accounting hides device history immediately. The configuration database
+records the disable in the same transaction. The next collection or history read
+erases earlier per-device records, even after a restart or a quick re-enable.
+Older readers can ignore the additional tables when rolling back the application.
 
 A fixed FIREWALL_COUNTERS Unix RPC extends the existing authenticated helper
 allowlist. router-applyd runs a fixed nft command, retains only two aggregate
