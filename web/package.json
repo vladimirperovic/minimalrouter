@@ -17,7 +17,7 @@
     "test:visual": "vite build && playwright test --project=chromium e2e/theme-visual.spec.ts"
   },
   "dependencies": {
-    "react": "19.2.6",
+    "react": "19.3.1",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     "@playwright/test": "1.62.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "26.6.6",
-    "@types/react": "19.2.14",
+    "@types/react": "19.3.0",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "eslint": "10.14.0",
