@@ -26,8 +26,9 @@ from routed traffic every five minutes. Monthly totals follow the configured
 retention; recent hourly totals and per-address daily totals are retained for
 32 days. Device names and MAC labels are resolved from current DHCP leases and
 reservations, rather than copied into this usage database. Disabling accounting
-immediately hides this history from the API and deletes it on the next collector
-round. Overview activity means a positive byte delta recorded within ten minutes;
+hides this history immediately. The next history read or collection clears the
+old totals and counter baselines, even after a quick re-enable or a restart.
+Overview activity means a positive byte delta recorded within ten minutes;
 it is not a live presence scan and may omit quiet or local-only devices.
 
 The firewall also retains aggregate allowed/blocked input and forwarded packet
@@ -64,9 +65,11 @@ client looks up through the router's DNS resolver.
 - History is retained for the configured number of days (at most 90, 30 by
   default), bounded to 20,000 device/site rows per day and 1,000,000 rows in
   total. Lookups beyond a bound are counted without a device or site.
-- Turning recording off removes the tmpfs log and in-memory data, hides the
-  history from the API immediately and deletes it on the next collection round.
-  The page's **Delete history** action deletes it at once and is audited.
+- Turning recording off hides history immediately and starts clearing stored
+  lookups, buffered resolver queries, in-memory data and risk alerts. An
+  interrupted cleanup resumes after restart and must finish before recording
+  can be enabled again. **Delete history** runs the same cleanup while keeping
+  the recording preference and records the action in the audit log.
 
 Starting with v0.2.0, enabling DNS activity also enables local **DNS risk alerts**:
 
@@ -81,8 +84,8 @@ Starting with v0.2.0, enabling DNS activity also enables local **DNS risk alerts
   and review state. One row covers a domain/category/UTC day across all devices.
   It records no URL paths, page content, DNS answers or persistent child identity.
 - Alerts share the DNS retention setting (up to 90 days) and a 10,000-row bound.
-  They are hidden immediately when recording is disabled and deleted by the
-  collector; **Delete history** also clears alerts and invalidates queued checks.
+  Disabling recording and **Delete history** both clear alerts and invalidate
+  queued checks before they can recreate old alerts.
   Classification can lose queued requests on restart or overload. Missing lists,
   collection failures and drops are surfaced as incomplete coverage.
 - Operator-created domain/category notification exceptions are retained until

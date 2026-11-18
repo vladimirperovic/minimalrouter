@@ -104,15 +104,9 @@ impl Manager {
     /// Returns (undo snapshot, restored snapshot ID).
     pub fn restore_latest_snapshot(&self) -> Result<(Snapshot, String)> {
         let snapshots = self.list_snapshots()?;
-        let Some(first) = snapshots.first() else {
+        let Some(latest) = snapshots.first() else {
             return Err(errorf!("no recovery snapshots are available"));
         };
-        let mut latest = first;
-        for candidate in &snapshots[1..] {
-            if snapshot_newer(&candidate.created_at, &latest.created_at) {
-                latest = candidate;
-            }
-        }
         let id = latest.id.clone();
         let undo = self.restore_snapshot(&id)?;
         Ok((undo, id))
@@ -141,15 +135,6 @@ impl Manager {
 
     fn latest(&self) -> Result<SystemConfig> {
         self.store()?.get_latest_config().map_err(|e| wrapf("read canonical configuration", e))
-    }
-}
-
-/// Compares snapshot timestamps as instants: older releases wrote local-offset
-/// RFC3339 values while recovery wrote UTC.
-fn snapshot_newer(candidate: &str, current: &str) -> bool {
-    match (Time::parse_rfc3339(candidate), Time::parse_rfc3339(current)) {
-        (Some(c), Some(d)) => c.after(&d),
-        _ => candidate > current,
     }
 }
 
@@ -192,12 +177,13 @@ fn uint32_ip(value: u32) -> IP {
 /// Drops static assignments colliding with the new gateway or recovery pool
 /// instead of failing the whole recovery action.
 fn filter_static_leases_for_recovery(leases: &[StaticLease], network: &IPNet, gateway: &IP, start: u32, end: u32) -> Vec<StaticLease> {
+    let broadcast = network.ipv4_broadcast();
     leases
         .iter()
         .filter(|lease| {
             let Some(ip) = net::parse_ipv4(lease.ip_address.trim()) else { return false };
             let in_pool = ipv4_uint(&ip).is_some_and(|v| v >= start && v <= end);
-            network.contains(&ip) && !ip.equal(gateway) && !in_pool
+            network.contains(&ip) && !ip.equal(&network.ip) && !ip.equal_opt(broadcast.as_ref()) && !ip.equal(gateway) && !in_pool
         })
         .cloned()
         .collect()
@@ -231,6 +217,64 @@ fn dhcp_range(network: &IPNet, gateway: &IP) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_manager(name: &str) -> (Manager, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mr-recovery-{name}-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let store = Arc::new(SQLiteStore::new(dir.to_str().unwrap()).unwrap());
+        (Manager { store: Some(store) }, dir)
+    }
+
+    #[test]
+    fn restore_latest_prefers_the_newer_revision_after_a_clock_correction() {
+        let (manager, dir) = test_manager("snapshot");
+        let store = manager.store().unwrap();
+        let mut cfg = manager.latest().unwrap();
+        let old = store.create_snapshot(&cfg).unwrap();
+        cfg.revision += 1;
+        cfg.system.hostname = "later-revision".into();
+        store.save_config(cfg.clone()).unwrap();
+        let latest = store.create_manual_snapshot(&cfg, "before maintenance").unwrap();
+        let same_revision = store.create_snapshot(&cfg).unwrap();
+        cfg.revision += 1;
+        cfg.system.hostname = "after-maintenance".into();
+        store.save_config(cfg).unwrap();
+        let db = rusqlite::Connection::open(dir.join("minimalrouter.db")).unwrap();
+        db.execute("UPDATE snapshots SET created_at='2099-01-01T00:00:00Z' WHERE id=?", [&old.id]).unwrap();
+        db.execute("UPDATE snapshots SET created_at='2026-01-01T10:00:00Z' WHERE id=?", [&latest.id]).unwrap();
+        db.execute("UPDATE snapshots SET created_at='2026-01-01T12:30:00+03:00' WHERE id=?", [&same_revision.id]).unwrap();
+        drop(db);
+
+        assert_eq!(manager.list_snapshots().unwrap()[0].id, latest.id);
+        let (undo, id) = manager.restore_latest_snapshot().unwrap();
+        assert_eq!(id, latest.id);
+        assert_eq!(manager.latest().unwrap().system.hostname, "later-revision");
+        assert_eq!(undo.revision, 3);
+        drop(manager);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn narrowing_the_recovery_lan_retains_only_usable_static_leases() {
+        let (manager, dir) = test_manager("lan");
+        let iface = manager.latest().unwrap().lan.interface;
+        manager.set_lan(&iface, "192.168.1.1/16").unwrap();
+        let mut cfg = manager.latest().unwrap();
+        cfg.revision += 1;
+        cfg.dhcp.static_leases = [0_u8, 9, 150, 255]
+            .into_iter()
+            .map(|octet| StaticLease { mac: format!("02:00:00:00:01:{octet:02x}"), ip_address: format!("192.168.5.{octet}"), ..Default::default() })
+            .collect::<Vec<_>>()
+            .into();
+        manager.store().unwrap().save_config(cfg).unwrap();
+        let undo = manager.set_lan(&iface, "192.168.5.1/24").unwrap();
+        let restored = manager.latest().unwrap();
+        assert_eq!(restored.dhcp.static_leases.len(), 1);
+        assert_eq!(restored.dhcp.static_leases[0].ip_address, "192.168.5.9");
+        manager.restore_snapshot(&undo.id).unwrap();
+        assert_eq!(manager.latest().unwrap().dhcp.static_leases.len(), 4);
+        drop(manager);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn dhcp_range_avoids_gateway() {

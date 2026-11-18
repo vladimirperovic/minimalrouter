@@ -239,14 +239,17 @@ impl Store {
                 continue;
             }
             let n = samples as f64;
-            raw.push(HistoryPoint {
-                timestamp: Time::from_unix(hour, 0),
-                state: worst,
-                latency_ms: latency / n,
-                jitter_ms: jitter / n,
-                packet_loss_percent: loss / n,
-                pppoe_uptime: uptime,
-            });
+            raw.push((
+                HistoryPoint {
+                    timestamp: Time::from_unix(hour, 0),
+                    state: worst,
+                    latency_ms: latency / n,
+                    jitter_ms: jitter / n,
+                    packet_loss_percent: loss / n,
+                    pppoe_uptime: uptime,
+                },
+                samples,
+            ));
         }
         Ok(aggregate_history(raw, since, max_points))
     }
@@ -259,16 +262,19 @@ impl Store {
         let conn = self.lock();
         let mut stmt = conn.prepare("SELECT timestamp, state, latency_ms, jitter_ms, packet_loss_percent, pppoe_uptime_seconds FROM gateway_samples WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC")?;
         let rows = stmt.query_map(params![since.unix(), not_after()], |r| {
-            Ok(HistoryPoint {
-                timestamp: Time::from_unix(r.get(0)?, 0),
-                state: r.get(1)?,
-                latency_ms: r.get(2)?,
-                jitter_ms: r.get(3)?,
-                packet_loss_percent: r.get(4)?,
-                pppoe_uptime: r.get(5)?,
-            })
+            Ok((
+                HistoryPoint {
+                    timestamp: Time::from_unix(r.get(0)?, 0),
+                    state: r.get(1)?,
+                    latency_ms: r.get(2)?,
+                    jitter_ms: r.get(3)?,
+                    packet_loss_percent: r.get(4)?,
+                    pppoe_uptime: r.get(5)?,
+                },
+                1,
+            ))
         })?;
-        let raw: Vec<HistoryPoint> = rows.collect::<rusqlite::Result<_>>()?;
+        let raw = rows.collect::<rusqlite::Result<_>>()?;
         Ok(aggregate_history(raw, since, max_points))
     }
 
@@ -401,17 +407,17 @@ fn migrate(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn aggregate_history(raw: Vec<HistoryPoint>, since: Time, max_points: usize) -> Vec<HistoryPoint> {
+fn aggregate_history(raw: Vec<(HistoryPoint, i64)>, since: Time, max_points: usize) -> Vec<HistoryPoint> {
     if raw.len() <= max_points {
-        return raw;
+        return raw.into_iter().map(|(point, _)| point).collect();
     }
-    let mut window = raw.last().map(|p| p.timestamp.sub(&since)).unwrap_or_default();
+    let mut window = raw.last().map(|(p, _)| p.timestamp.sub(&since)).unwrap_or_default();
     if window.0 <= 0 {
         window = Duration::HOUR;
     }
     let step = Duration((window.0 / max_points as i64).max(Duration::SECOND.0));
     struct Bucket {
-        count: usize,
+        count: i64,
         latency: f64,
         jitter: f64,
         loss: f64,
@@ -422,16 +428,16 @@ pub(crate) fn aggregate_history(raw: Vec<HistoryPoint>, since: Time, max_points:
     let mut buckets: HashMap<i64, Bucket> = HashMap::new();
     let mut order = Vec::new();
     let base = since.utc();
-    for point in raw {
-        let key = (point.timestamp.sub(&base).0 / step.0).min(max_points as i64 - 1);
+    for (point, samples) in raw {
+        let key = (point.timestamp.sub(&base).0 / step.0).clamp(0, max_points as i64 - 1);
         let item = buckets.entry(key).or_insert_with(|| {
             order.push(key);
             Bucket { count: 0, latency: 0.0, jitter: 0.0, loss: 0.0, uptime: 0, state: point.state.clone(), timestamp: base.add(Duration(key * step.0)) }
         });
-        item.count += 1;
-        item.latency += point.latency_ms;
-        item.jitter += point.jitter_ms;
-        item.loss += point.packet_loss_percent;
+        item.count += samples;
+        item.latency += point.latency_ms * samples as f64;
+        item.jitter += point.jitter_ms * samples as f64;
+        item.loss += point.packet_loss_percent * samples as f64;
         item.uptime = point.pppoe_uptime;
         if state_severity(&point.state) > state_severity(&item.state) {
             item.state = point.state.clone();
@@ -452,4 +458,36 @@ pub(crate) fn aggregate_history(raw: Vec<HistoryPoint>, since: Time, max_points:
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_and_short_history_weight_the_same_observations_equally() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let store = Store { conn: Mutex::new(conn) };
+        let start = Time::now_utc().truncate(Duration::HOUR).add(Duration::hours(-4));
+        for (minute, latency) in [(1, 10.0), (2, 10.0), (3, 10.0), (65, 90.0)] {
+            store
+                .save_sample(&Sample {
+                    timestamp: start.add(Duration::minutes(minute)),
+                    state: if minute == 65 { STATE_OFFLINE } else { STATE_HEALTHY }.into(),
+                    latency_ms: latency,
+                    jitter_ms: latency / 2.0,
+                    packet_loss_percent: latency,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let raw = store.history(start, 1).unwrap();
+        let hourly = store.history(start.add(Duration::hours(-7 * 24)), 1).unwrap();
+        assert_eq!((raw.len(), hourly.len()), (1, 1));
+        for point in [&raw[0], &hourly[0]] {
+            assert_eq!((point.latency_ms, point.jitter_ms, point.packet_loss_percent), (30.0, 15.0, 30.0));
+            assert_eq!(point.state, STATE_OFFLINE);
+        }
+    }
 }

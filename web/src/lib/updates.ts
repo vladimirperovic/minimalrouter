@@ -232,7 +232,10 @@ export function useUpdates(enabled: boolean) {
         body: JSON.stringify({
           candidate_id: status.candidate_id,
           target_version: status.target_version,
-          idempotency_key: `${status.candidate_id}:${status.current_version ?? ""}`,
+          previous_operation_id: status.operation?.id ?? "",
+          // Tabs confirming the same observed state share a request. Seeing a
+          // completed attempt lets the operator explicitly start a fresh one.
+          idempotency_key: JSON.stringify([status.candidate_id, status.current_version ?? "", status.operation?.id ?? ""]),
         }),
       });
       const body = (await response.json().catch(() => ({}))) as {

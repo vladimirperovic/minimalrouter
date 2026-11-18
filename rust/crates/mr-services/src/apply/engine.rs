@@ -114,8 +114,10 @@ struct PendingChange {
     previous: SystemConfig,
     timer: Option<Timer>,
     rollback_attempts: u32,
+    confirmation_attempts: u32,
     commit_attempts: u32,
     canonical_committed: bool,
+    helper_committed: bool,
 }
 
 /// An immutable management-plane snapshot, readable during a mutation.
@@ -142,6 +144,25 @@ struct EngineState {
 }
 
 impl EngineState {
+    fn status(&self) -> EngineStatus {
+        let mut status = EngineStatus {
+            applying: self.applying,
+            recovery_required: self.recovery_required,
+            recovery_reason: self.recovery_reason.clone(),
+            ..Default::default()
+        };
+        if let Some(tx) = &self.active_tx {
+            let t = lock(tx);
+            status.active_transaction_id = t.id.clone();
+            status.active_state = Some(t.current_state);
+        }
+        status
+    }
+
+    fn pending_transaction(&self) -> Option<Transaction> {
+        self.pending.as_ref().map(|p| lock(&p.tx).clone())
+    }
+
     fn require_recovery(&mut self, reason: String) {
         self.recovery_required = true;
         self.recovery_reason = reason;
@@ -241,7 +262,7 @@ impl Engine {
 
     fn process(&self, tx_id: &str, new_cfg: SystemConfig, allow_interface_change: bool, commit: Option<CommitFn<'_>>) -> (Transaction, Result<()>) {
         let _op = lock(&self.operation);
-        let mut st = lock(&self.state);
+        let st = lock(&self.state);
         let tx: TxRef = Arc::new(Mutex::new(Transaction {
             id: tx_id.into(),
             current_state: State::Received,
@@ -251,7 +272,6 @@ impl Engine {
             ..Default::default()
         }));
         let previous_revision = st.current_config.revision;
-        st.active_tx = Some(tx.clone());
         let (st, result) = self.process_locked(st, &tx, tx_id, new_cfg, allow_interface_change, commit);
         self.audit_transaction(&lock(&tx), previous_revision, "apply");
         drop(st);
@@ -261,7 +281,7 @@ impl Engine {
 
     fn process_locked<'a>(
         &'a self,
-        st: MutexGuard<'a, EngineState>,
+        mut st: MutexGuard<'a, EngineState>,
         tx: &TxRef,
         tx_id: &str,
         mut new_cfg: SystemConfig,
@@ -293,6 +313,7 @@ impl Engine {
         if st.pending.is_some() {
             reject!(State::Rejected, "another configuration is awaiting confirmation".into());
         }
+        st.active_tx = Some(tx.clone());
         let current = st.current_config.clone();
         if new_cfg.revision != current.revision {
             reject!(State::Rejected, format!("stale revision: expected {}, received {}", current.revision, new_cfg.revision));
@@ -420,30 +441,23 @@ impl Engine {
                 previous: current,
                 timer: Some(timer),
                 rollback_attempts: 0,
+                confirmation_attempts: 0,
                 commit_attempts: 0,
                 canonical_committed: false,
+                helper_committed: false,
             });
             return (st, Ok(()));
         }
         if let Some(commit_config) = commit_config {
             faultinject::run(faultinject::PRE_SQLITE_COMMIT);
             if let Err(err) = commit_config(&new_cfg) {
-                let mut msg = format!("failed to commit config store: {}", err);
-                let mut state = State::RecoveryRequired;
-                match build_apply_request(&format!("{}-rollback", tx_id), &st.current_config) {
-                    Ok(rollback_req) => {
-                        let (next, rollback) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &rollback_req);
-                        st = next;
-                        match rollback {
-                            Ok(r) if r.success && r.verified && !r.recovery_required => {
-                                state = State::RolledBack;
-                                msg.push_str("; previous configuration was verified restored");
-                            }
-                            _ => msg.push_str("; rollback could not be verified and recovery is required"),
-                        }
-                    }
-                    Err(_) => msg.push_str("; rollback request could not be generated and recovery is required"),
-                }
+                let (next, rollback) = self.restore_previous(st, &format!("{}-rollback", tx_id), &current);
+                st = next;
+                let (state, detail) = match rollback {
+                    Ok(()) => (State::RolledBack, "previous configuration was verified restored".to_string()),
+                    Err(e) => (State::RecoveryRequired, format!("rollback requires canonical reconciliation: {}", e)),
+                };
+                let msg = format!("failed to commit config store: {}; {}", err, detail);
                 set(state, Some(msg.clone()));
                 if state == State::RecoveryRequired {
                     st.require_recovery(msg);
@@ -485,9 +499,34 @@ impl Engine {
         (st, Ok(()))
     }
 
+    fn restore_previous<'a>(&'a self, st: MutexGuard<'a, EngineState>, id: &str, previous: &SystemConfig) -> (MutexGuard<'a, EngineState>, Result<()>) {
+        // Honour a known console change. If storage is temporarily unreadable,
+        // still try to restore access, then verify the durable outcome below.
+        if self.store.as_ref().is_some_and(|store| store.get_latest_config().is_ok_and(|cfg| cfg != *previous)) {
+            return (st, Err(errorf!("the stored configuration changed during the transaction")));
+        }
+        let mut req = match build_apply_request(id, previous) {
+            Ok(req) => req,
+            Err((_, err)) => return (st, Err(err)),
+        };
+        req.op = op::reconcile();
+        let (st, result) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &req);
+        let verified = result.and_then(|r| {
+            if !r.success || !r.verified {
+                return Err(errorf!("helper could not verify rollback: {}", r.error));
+            }
+            if let Some(store) = &self.store
+                && store.get_latest_config()? != *previous
+            {
+                return Err(errorf!("the stored configuration changed during rollback"));
+            }
+            Ok(())
+        });
+        (st, verified)
+    }
+
     pub fn get_pending_transaction(&self) -> Option<Transaction> {
-        let st = lock(&self.state);
-        st.pending.as_ref().map(|p| lock(&p.tx).clone())
+        lock(&self.state).pending_transaction()
     }
 
     pub fn confirm_transaction(&self, tx_id: &str) -> (Option<Transaction>, Result<()>) {
@@ -515,6 +554,22 @@ impl Engine {
         };
         let candidate = lock(tx).config.clone();
         if !canonical_committed {
+            if st.recovery_required {
+                let err = errorf!("{}", st.recovery_reason);
+                return (st, Err(err));
+            }
+            let check_deadline = || {
+                let mut t = lock(tx);
+                if t.confirmation_deadline.is_some_and(|deadline| Time::now().before(&deadline)) {
+                    Ok(())
+                } else {
+                    t.error = "confirmation deadline expired; waiting for verified rollback".into();
+                    Err(errorf!("{}", t.error))
+                }
+            };
+            if let Err(err) = check_deadline() {
+                return (st, Err(err));
+            }
             if !equal_section(&previous.wg_client, &candidate.wg_client) && candidate.wg_client.enabled {
                 let status_req = ApplyRequest {
                     id: format!("{}-wg1-status", tx_id),
@@ -544,6 +599,35 @@ impl Engine {
                     return (st, Err(err));
                 }
             }
+            let p = st.pending.as_mut().expect("pending");
+            p.confirmation_attempts += 1;
+            let check = ApplyRequest {
+                id: format!("{}-confirm-runtime-{}", tx_id, p.confirmation_attempts),
+                op: op::confirm(),
+                revision: candidate.revision,
+                config: candidate.clone(),
+                ..Default::default()
+            };
+            let (next, result) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &check);
+            st = next;
+            let failure = match result {
+                Ok(r) if r.success && r.verified => None,
+                Ok(r) => Some((r.error, r.recovery_required || r.rolled_back)),
+                Err(e) => Some((e.to_string(), true)),
+            };
+            if let Some((reason, recovery_required)) = failure {
+                let msg = format!("runtime confirmation failed: {}", reason);
+                let mut t = lock(tx);
+                t.error = msg.clone();
+                if recovery_required {
+                    t.current_state = State::RecoveryRequired;
+                    st.require_recovery(msg.clone());
+                }
+                return (st, Err(errorf!("{}", msg)));
+            }
+            if let Err(err) = check_deadline() {
+                return (st, Err(err));
+            }
             if let Some(store) = &self.store {
                 faultinject::run(faultinject::PRE_SQLITE_COMMIT);
                 if let Err(err) = store.save_config(candidate.clone()) {
@@ -556,49 +640,54 @@ impl Engine {
             }
             let p = st.pending.as_mut().expect("pending");
             p.canonical_committed = true;
+            lock(tx).confirmation_deadline = None;
             if let Some(timer) = &p.timer {
                 timer.stop();
             }
             st.current_config = candidate.clone();
         }
 
-        let attempt = {
-            let p = st.pending.as_mut().expect("pending");
-            p.commit_attempts += 1;
-            p.commit_attempts
-        };
-        let commit_req = ApplyRequest {
-            id: format!("{}-commit-confirmed-{}", tx_id, attempt),
-            op: op::commit_confirmed(),
-            revision: candidate.revision,
-            config: candidate.clone(),
-            skip_wan_verify: true,
-            ..Default::default()
-        };
-        let (next, commit) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &commit_req);
-        st = next;
-        let failure = match &commit {
-            Err(e) => Some(format!("canonical configuration was committed but helper last-good acknowledgement is unknown: {}", e)),
-            Ok(r) if !r.success || !r.verified => {
-                Some(format!("canonical configuration was committed but helper last-good acknowledgement failed: {}", r.error))
+        // Only a definite negative acknowledgement needs a fresh ID. After
+        // a lost reply the helper may have committed and cleared its pending
+        // file, so retry the same ID to retrieve its durable result.
+        let p = st.pending.as_ref().expect("pending");
+        let attempt = p.commit_attempts + 1;
+        if !p.helper_committed {
+            let commit_req = ApplyRequest {
+                id: format!("{}-commit-confirmed-{}", tx_id, attempt),
+                op: op::commit_confirmed(),
+                revision: candidate.revision,
+                config: candidate.clone(),
+                skip_wan_verify: true,
+                ..Default::default()
+            };
+            let (next, commit) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &commit_req);
+            st = next;
+            let failure = match &commit {
+                Err(e) => Some(format!("canonical configuration was committed but helper last-good acknowledgement is unknown: {}", e)),
+                Ok(r) if !r.success || !r.verified => {
+                    st.pending.as_mut().expect("pending").commit_attempts = attempt;
+                    Some(format!("canonical configuration was committed but helper last-good acknowledgement failed: {}", r.error))
+                }
+                Ok(_) => None,
+            };
+            if let Some(msg) = failure {
+                let mut t = lock(tx);
+                t.current_state = State::RecoveryRequired;
+                t.error = msg.clone();
+                drop(t);
+                st.require_recovery(msg);
+                return (st, Err(errorf!("confirmed helper commit failed")));
             }
-            Ok(_) => None,
-        };
-        if let Some(msg) = failure {
-            let mut t = lock(tx);
-            t.current_state = State::RecoveryRequired;
-            t.error = msg.clone();
-            drop(t);
-            st.require_recovery(msg);
-            return (st, Err(errorf!("confirmed helper commit failed")));
+            st.pending.as_mut().expect("pending").helper_committed = true;
         }
 
         let lan_changed = previous.lan.ip_address != candidate.lan.ip_address || previous.lan.cidr != candidate.lan.cidr;
         if lan_changed {
-            let mut finalize = match build_apply_request(&format!("{}-finalize-lan", tx_id), &candidate) {
+            let mut finalize = match build_apply_request(&format!("{}-finalize-lan-{}", tx_id, attempt), &candidate) {
                 Ok(req) => req,
                 Err((_, err)) => {
-                    let msg = format!("canonical LAN configuration was committed but final federation request could not be generated: {}", err);
+                    let msg = format!("canonical LAN configuration was committed but final reconciliation request could not be generated: {}", err);
                     let mut t = lock(tx);
                     t.current_state = State::RecoveryRequired;
                     t.error = msg.clone();
@@ -613,6 +702,7 @@ impl Engine {
             let failure = match &result {
                 Err(e) => Some(format!("canonical LAN configuration was committed but final runtime reconciliation is unknown: {}", e)),
                 Ok(r) if !r.success || !r.verified => {
+                    st.pending.as_mut().expect("pending").commit_attempts = attempt;
                     Some(format!("canonical LAN configuration was committed but final runtime reconciliation failed: {}", r.error))
                 }
                 Ok(_) => None,
@@ -631,6 +721,7 @@ impl Engine {
             let mut t = lock(tx);
             t.confirmed_at = Some(Time::now());
             t.current_state = State::Committed;
+            t.error.clear();
         }
         st.current_config = candidate;
         st.pending = None;
@@ -664,33 +755,30 @@ impl Engine {
             return;
         }
         let rollback_id = format!("{}-timeout-rollback-{}", tx_id, attempts);
-        match build_apply_request(&rollback_id, &previous) {
-            Ok(req) => {
-                let (next, result) = self.privileged(st, PRIVILEGED_APPLY_TIMEOUT, &req);
-                st = next;
-                if matches!(&result, Ok(r) if r.success && r.verified) {
-                    {
-                        let mut t = lock(&tx);
-                        t.current_state = State::RolledBack;
-                        t.error = "confirmation deadline expired; previous configuration restored".into();
-                    }
-                    if let Some(timer) = st.pending.as_ref().and_then(|p| p.timer.as_ref()) {
-                        timer.stop();
-                    }
-                    st.pending = None;
-                    st.recovery_required = false;
-                    st.recovery_reason.clear();
-                    self.audit_transaction(&lock(&tx), previous.revision, "timeout_rollback");
-                    return;
+        let (mut st, result) = self.restore_previous(st, &rollback_id, &previous);
+        match result {
+            Ok(()) => {
+                {
+                    let mut t = lock(&tx);
+                    t.current_state = State::RolledBack;
+                    t.error = "confirmation deadline expired; previous configuration restored".into();
+                    t.confirmation_deadline = None;
                 }
-                let mut t = lock(&tx);
-                t.current_state = State::RecoveryRequired;
-                t.error = "confirmation deadline expired and privileged rollback failed; retry scheduled while candidate access remains available".into();
+                if let Some(timer) = st.pending.as_ref().and_then(|p| p.timer.as_ref()) {
+                    timer.stop();
+                }
+                st.pending = None;
+                st.recovery_required = false;
+                st.recovery_reason.clear();
+                self.audit_transaction(&lock(&tx), previous.revision, "timeout_rollback");
+                return;
             }
-            Err(_) => {
+            Err(err) => {
+                let msg = format!("confirmation deadline expired and rollback could not be verified: {}; retry scheduled", err);
                 let mut t = lock(&tx);
                 t.current_state = State::RecoveryRequired;
-                t.error = "confirmation deadline expired and rollback generation failed; retry scheduled while candidate access remains available".into();
+                t.error = msg.clone();
+                st.require_recovery(msg);
             }
         }
         let delay = ROLLBACK_RETRY_DELAY * (1u32 << (attempts - 1));
@@ -709,7 +797,15 @@ impl Engine {
     pub fn reconcile(&self, deadline: Instant) -> Result<()> {
         let _op = lock(&self.operation);
         let mut st = lock(&self.state);
-        let mut req = build_apply_request(&format!("boot-reconcile-{}", Time::now().unix_nano()), &st.current_config).map_err(|(_, e)| e)?;
+        let canonical = match self.store.as_ref().map(|store| store.get_latest_config()).transpose() {
+            Ok(Some(cfg)) => cfg,
+            Ok(None) => st.current_config.clone(),
+            Err(err) => {
+                st.require_recovery(format!("could not read canonical configuration: {}", err));
+                return Err(err);
+            }
+        };
+        let mut req = build_apply_request(&format!("boot-reconcile-{}", Time::now().unix_nano()), &canonical).map_err(|(_, e)| e)?;
         req.op = op::reconcile();
         st.applying = true;
         drop(st);
@@ -729,6 +825,14 @@ impl Engine {
             st.require_recovery(reason.clone());
             return Err(errorf!("{}", reason));
         }
+        if let Some(store) = &self.store
+            && !matches!(store.get_latest_config(), Ok(cfg) if cfg == canonical)
+        {
+            let reason = "could not verify that the stored configuration still matches the reconciled runtime";
+            st.require_recovery(reason.into());
+            return Err(errorf!("{}", reason));
+        }
+        st.current_config = canonical;
         // A verified reconcile completes an already committed candidate, or
         // restores the canonical state when the candidate was unconfirmed.
         if let Some(pending) = st.pending.take() {
@@ -738,13 +842,16 @@ impl Engine {
             {
                 let mut t = lock(&pending.tx);
                 t.confirmation_deadline = None;
-                if pending.canonical_committed {
+                if st.current_config == t.config {
                     t.confirmed_at = Some(Time::now());
                     t.current_state = State::Committed;
                     t.error.clear();
-                } else {
+                } else if st.current_config == pending.previous {
                     t.current_state = State::RolledBack;
                     t.error = "unconfirmed candidate discarded; canonical configuration restored".into();
+                } else {
+                    t.current_state = State::RecoveryRequired;
+                    t.error = "another stored revision superseded this transaction before its outcome could be verified".into();
                 }
             }
             st.active_tx = Some(pending.tx.clone());
@@ -760,15 +867,19 @@ impl Engine {
     }
 
     pub fn get_status(&self) -> EngineStatus {
+        lock(&self.state).status()
+    }
+
+    /// Observe one transaction boundary before recording a restore outcome.
+    pub fn recovery_snapshot(&self) -> (SystemConfig, EngineStatus, Option<Transaction>) {
         let st = lock(&self.state);
-        let mut status =
-            EngineStatus { applying: st.applying, recovery_required: st.recovery_required, recovery_reason: st.recovery_reason.clone(), ..Default::default() };
-        if let Some(tx) = &st.active_tx {
-            let t = lock(tx);
-            status.active_transaction_id = t.id.clone();
-            status.active_state = Some(t.current_state);
-        }
-        status
+        (st.current_config.clone(), st.status(), st.pending_transaction())
+    }
+
+    /// Keep the network revision stable while submitting its DNS continuation.
+    pub fn with_confirmed_config<T>(&self, submit: impl FnOnce(&SystemConfig) -> T) -> Option<T> {
+        let _op = self.operation_lock();
+        self.action_allowed().then(|| submit(&self.get_current_config()))
     }
 
     pub(crate) fn action_allowed(&self) -> bool {
@@ -914,6 +1025,45 @@ pub fn verify_wg_client_handshake(last_handshake: i64, keepalive: i64, not_befor
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod confirmation_tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct RecordingClient(Mutex<Vec<ApplyRequest>>);
+
+    impl Client for RecordingClient {
+        fn apply(&self, _deadline: Instant, req: &ApplyRequest) -> Result<ApplyResponse> {
+            lock(&self.0).push(req.clone());
+            Ok(ApplyResponse { id: req.id.clone(), success: true, verified: true, ..Default::default() })
+        }
+    }
+
+    #[test]
+    fn an_expired_confirmation_cannot_win_the_race_with_the_rollback_worker() {
+        let initial = config::default_config();
+        let mut candidate = initial.clone();
+        candidate.lan.ip_address = "192.168.1.5".into();
+        candidate.lan.cidr = "192.168.1.5/24".into();
+        let client = Arc::new(RecordingClient::default());
+        let engine = Engine::with_client(initial.clone(), None, client.clone());
+        let (tx, result) = engine.process_transaction("pending", candidate);
+        result.unwrap();
+        let pending_tx = lock(&engine.state).pending.as_ref().unwrap().tx.clone();
+        lock(&pending_tx).confirmation_deadline = Some(Time::now());
+
+        assert!(engine.confirm_transaction(&tx.id).1.unwrap_err().to_string().contains("deadline expired"));
+        assert_eq!(lock(&client.0).len(), 1);
+        engine.rollback_expired(&tx.id);
+        let requests = lock(&client.0);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].op, op::reconcile());
+        assert_eq!(requests[1].config, initial);
+        assert_eq!(engine.get_status().active_state, Some(State::RolledBack));
+        assert!(engine.get_pending_transaction().is_none());
+    }
 }
 
 #[cfg(test)]

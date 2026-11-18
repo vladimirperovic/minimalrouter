@@ -60,7 +60,7 @@ pub(crate) const RESTORE_ARTIFACTS: [&str; 17] = [
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct VerificationPlan {
+pub(crate) struct ServicePlan {
     pub wan: bool,
     pub wireguard: bool,
     pub extra_lan: bool,
@@ -70,29 +70,34 @@ pub(crate) struct VerificationPlan {
     pub wg_client: bool,
 }
 
-pub(crate) fn verification_plan(operation: &OperationType, previous: Option<&SystemConfig>, candidate: &SystemConfig) -> VerificationPlan {
-    let mut plan = VerificationPlan { wireguard: candidate.wireguard.enabled && candidate.system.management_access == "wireguard_only", ..Default::default() };
-    if *operation == op::reconcile() || *operation == op::commit_confirmed() || *operation == op::confirm() {
-        return plan;
+impl ServicePlan {
+    /// Select services once so that activation and its checks agree. With no
+    /// previous configuration, also stop any services the candidate disables.
+    pub(crate) fn changes(previous: Option<&SystemConfig>, candidate: &SystemConfig, squid_config: &[u8]) -> Result<Self> {
+        let Some(previous) = previous else {
+            return Ok(Self { wan: true, wireguard: true, extra_lan: true, wifi: true, ddns: true, squid: true, wg_client: true });
+        };
+        let mtu_changed = wireguard_mtu(candidate) != wireguard_mtu(previous);
+        Ok(Self {
+            wan: candidate.wan != previous.wan,
+            wireguard: candidate.wireguard != previous.wireguard || (candidate.wireguard.enabled && mtu_changed),
+            wg_client: candidate.wg_client != previous.wg_client || (candidate.wg_client.enabled && mtu_changed),
+            extra_lan: candidate.firewall.extra_lans != previous.firewall.extra_lans,
+            wifi: candidate.wifi != previous.wifi,
+            ddns: candidate.cloudflare != previous.cloudflare,
+            squid: candidate.squid_proxy != previous.squid_proxy
+                || (candidate.squid_proxy.enabled && services::generate_squid_config(previous)?.as_bytes() != squid_config),
+        })
     }
-    let Some(previous) = previous else {
-        plan.wan = candidate.wan.enabled;
-        plan.wireguard = candidate.wireguard.enabled;
-        plan.extra_lan = !candidate.firewall.extra_lans.is_empty();
-        plan.wifi = candidate.wifi.enabled;
-        plan.ddns = candidate.cloudflare.ddns_enabled;
-        plan.squid = candidate.squid_proxy.enabled;
-        plan.wg_client = candidate.wg_client.enabled;
-        return plan;
-    };
-    plan.wan = candidate.wan.enabled && candidate.wan != previous.wan;
-    plan.wireguard = plan.wireguard || candidate.wireguard != previous.wireguard;
-    plan.extra_lan = candidate.firewall.extra_lans != previous.firewall.extra_lans;
-    plan.wifi = candidate.wifi != previous.wifi;
-    plan.ddns = candidate.cloudflare != previous.cloudflare;
-    plan.squid = candidate.squid_proxy != previous.squid_proxy;
-    plan.wg_client = candidate.wg_client != previous.wg_client;
-    plan
+
+    pub(crate) fn core(cfg: &SystemConfig) -> Self {
+        Self { wireguard: cfg.wireguard.enabled && cfg.system.management_access == "wireguard_only", ..Default::default() }
+    }
+
+    pub(crate) fn verification(self, operation: &OperationType, cfg: &SystemConfig) -> Self {
+        let core = Self::core(cfg);
+        if *operation == op::apply_all() { Self { wireguard: self.wireguard || core.wireguard, ..self } } else { core }
+    }
 }
 
 pub(crate) fn reject_unimplemented_features(cfg: &SystemConfig) -> Result<()> {
@@ -223,7 +228,7 @@ pub(crate) fn ensure_router_kernel_modules() {
     }
 }
 
-pub(crate) fn preflight(cfg: &SystemConfig, candidates: &BTreeMap<&'static str, String>, plan: VerificationPlan) -> Result<()> {
+pub(crate) fn preflight(cfg: &SystemConfig, candidates: &BTreeMap<&'static str, String>, plan: ServicePlan) -> Result<()> {
     ensure_router_kernel_modules();
     run_nft_file(&candidates["nftables"], true).map_err(|e| wrapf("nftables", e))?;
     run_fixed("/usr/sbin/dnsmasq", &["--test", &format!("--conf-file={}", candidates["dnsmasq"])]).map_err(|e| wrapf("dnsmasq", e))?;
@@ -298,24 +303,21 @@ pub(crate) fn install_artifacts(cfg: &SystemConfig, generated: &Artifacts) -> Re
     Ok(())
 }
 
-pub(crate) fn install_and_activate(cfg: &SystemConfig, generated: &Artifacts, previous: Option<&SystemConfig>, provisional: bool) -> Result<()> {
+pub(crate) fn install_and_activate(
+    cfg: &SystemConfig,
+    generated: &Artifacts,
+    previous: Option<&SystemConfig>,
+    provisional: bool,
+    changes: ServicePlan,
+) -> Result<()> {
     let dnsmasq_changed = dnsmasq_artifacts_changed(generated, previous)?;
     prepare_dnsmasq_lease_state().map_err(|e| wrapf("prepare DHCP lease state", e))?;
     install_artifacts(cfg, generated)?;
     apply_kernel_hardening(cfg)?;
     // Unchanged subsystems are never torn down: an unrelated save must not
     // drop wg0/wg1 sessions or restart Squid/DDNS.
-    let changed = |f: &dyn Fn(&SystemConfig) -> bool| previous.is_none_or(|p| f(p));
-    let wifi_changed = changed(&|p| cfg.wifi != p.wifi);
-    let wan_changed = changed(&|p| cfg.wan != p.wan);
-    let wg_changed = changed(&|p| cfg.wireguard != p.wireguard);
-    let wg_client_changed = changed(&|p| cfg.wg_client != p.wg_client);
-    let ddns_changed = changed(&|p| cfg.cloudflare != p.cloudflare);
-    let squid_changed = changed(&|p| cfg.squid_proxy != p.squid_proxy);
-    let extra_lan_changed = changed(&|p| cfg.firewall.extra_lans != p.firewall.extra_lans);
-
     // A running AP owns the bridge membership; stop it before LAN changes.
-    if wifi_changed {
+    if changes.wifi {
         let _ = run_fixed("/sbin/rc-service", &["hostapd", "stop"]);
     }
     if provisional {
@@ -323,41 +325,41 @@ pub(crate) fn install_and_activate(cfg: &SystemConfig, generated: &Artifacts, pr
     } else {
         configure_runtime_lan(cfg)?;
     }
-    if extra_lan_changed {
+    if changes.extra_lan {
         configure_extra_lans(cfg)?;
     }
     // A removed segment keeps its address and route unless explicitly flushed.
-    if let Some(previous) = previous.filter(|_| extra_lan_changed) {
+    if let Some(previous) = previous.filter(|_| changes.extra_lan) {
         clean_extra_lan_state(&extra_lan_interfaces(previous), &extra_lan_interfaces(cfg))?;
     }
     run_nft_file(NFT_RUNTIME_PATH, false).map_err(|e| wrapf("load nftables", e))?;
     // Only now, with the policy proven loaded, is routing switched on.
     enable_ip_forwarding()?;
     // Management tunnels come up before dnsmasq restarts.
-    if wg_changed {
+    if changes.wireguard {
         sync_or_activate_wireguard(cfg, previous)?;
     }
-    if wg_client_changed {
+    if changes.wg_client {
         sync_or_activate_wireguard_client(cfg, previous)?;
     }
     if dnsmasq_changed {
         run_fixed("/sbin/rc-service", &["dnsmasq", "restart"]).map_err(|e| wrapf("restart dnsmasq", e))?;
     }
     if cfg.wan.enabled {
-        if wan_changed {
+        if changes.wan {
             run_fixed("/sbin/rc-service", &["pppoe-wan", "restart"]).map_err(|e| wrapf("restart PPPoE", e))?;
         }
-    } else if wan_changed {
+    } else if changes.wan {
         let _ = run_fixed("/sbin/rc-service", &["pppoe-wan", "stop"]);
     }
     if cfg.wifi.enabled {
-        if wifi_changed {
+        if changes.wifi {
             run_fixed("/sbin/rc-service", &["hostapd", "restart"]).map_err(|e| wrapf("restart hostapd", e))?;
         }
-    } else if wifi_changed {
+    } else if changes.wifi {
         let _ = run_fixed("/sbin/rc-service", &["hostapd", "stop"]);
     }
-    if ddns_changed {
+    if changes.ddns {
         if cfg.cloudflare.ddns_enabled {
             run_fixed("/sbin/rc-service", &["inadyn", "restart"]).map_err(|e| wrapf("restart Cloudflare DDNS", e))?;
         } else {
@@ -379,7 +381,7 @@ pub(crate) fn install_and_activate(cfg: &SystemConfig, generated: &Artifacts, pr
     } else {
         clear_qos(cfg);
     }
-    if squid_changed {
+    if changes.squid {
         if cfg.squid_proxy.enabled {
             run_fixed("/sbin/rc-service", &["squid", "restart"]).map_err(|e| wrapf("restart Squid", e))?;
         } else {
@@ -389,42 +391,40 @@ pub(crate) fn install_and_activate(cfg: &SystemConfig, generated: &Artifacts, pr
     Ok(())
 }
 
-fn address_prefix(cidr: &str) -> &str {
-    cidr.split('/').next().unwrap_or(cidr)
+fn has_inet(output: &str, cidr: &str) -> bool {
+    let Some((expected_ip, expected_network)) = net::parse_cidr(cidr) else { return false };
+    output.lines().any(|line| {
+        let mut fields = line.split_ascii_whitespace();
+        fields.next() == Some("inet")
+            && fields.next().and_then(net::parse_cidr).is_some_and(|(ip, network)| ip.equal(&expected_ip) && network.mask == expected_network.mask)
+    })
 }
 
-fn has_inet(output: &str, address: &str) -> bool {
-    output.contains(&format!("inet {}/", address))
+pub(crate) fn verify_interface_address(interface: &str, cidr: &str) -> Result<()> {
+    let output = run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", interface])?;
+    if !has_inet(&output, cidr) {
+        return Err(errorf!("configured IPv4 address and prefix are not active on {}", interface));
+    }
+    Ok(())
 }
 
-pub(crate) fn verify_active(cfg: &SystemConfig, plan: VerificationPlan) -> Result<()> {
+pub(crate) fn verify_active(cfg: &SystemConfig, plan: ServicePlan) -> Result<()> {
     run_fixed("/usr/sbin/nft", &["list", "table", "inet", "minimalrouter"]).map_err(|e| wrapf("nftables table unavailable", e))?;
     run_fixed("/sbin/rc-service", &["dnsmasq", "status"]).map_err(|e| wrapf("dnsmasq unhealthy", e))?;
-    let output =
-        run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", cfg.runtime_lan_interface()]).map_err(|e| wrapf("LAN interface unavailable", e))?;
-    if !has_inet(&output, address_prefix(&cfg.lan.cidr)) {
-        return Err(errorf!("configured LAN address is not active"));
-    }
+    verify_interface_address(cfg.runtime_lan_interface(), &cfg.lan.cidr).map_err(|e| wrapf("LAN address unavailable", e))?;
     if cfg.wan.enabled && plan.wan {
         verify_wan()?;
     }
     if cfg.wireguard.enabled && plan.wireguard {
         let iface = wireguard_interface_name(&cfg.wireguard);
         run_fixed("/usr/bin/wg", &["show", &iface]).map_err(|e| wrapf("WireGuard interface unhealthy", e))?;
-        let out = run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", &iface]).map_err(|e| wrapf("WireGuard address unavailable", e))?;
-        let expected = address_prefix(&cfg.wireguard.address);
-        if expected.is_empty() || !has_inet(&out, expected) {
-            return Err(errorf!("configured WireGuard address is not active"));
-        }
+        verify_interface_address(&iface, &cfg.wireguard.address).map_err(|e| wrapf("WireGuard address unavailable", e))?;
     }
     if cfg.wg_client.enabled && plan.wg_client {
         let iface = wireguard_client_interface_name(&cfg.wg_client);
         run_fixed("/usr/bin/wg", &["show", &iface]).map_err(|e| wrapf("WireGuard client interface unhealthy", e))?;
         if !cfg.wg_client.address.is_empty() {
-            let out = run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", &iface]).map_err(|e| wrapf("WireGuard client address unavailable", e))?;
-            if !has_inet(&out, address_prefix(&cfg.wg_client.address)) {
-                return Err(errorf!("configured WireGuard client address is not active"));
-            }
+            verify_interface_address(&iface, &cfg.wg_client.address).map_err(|e| wrapf("WireGuard client address unavailable", e))?;
         }
     }
     if plan.extra_lan {
@@ -432,11 +432,7 @@ pub(crate) fn verify_active(cfg: &SystemConfig, plan: VerificationPlan) -> Resul
             if !lan.enabled || lan.interface.is_empty() || lan.router_address.is_empty() {
                 continue;
             }
-            let out = run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", &lan.interface])
-                .map_err(|e| wrapf(format!("extra LAN {} interface unavailable", lan.interface), e))?;
-            if !has_inet(&out, address_prefix(&lan.router_address)) {
-                return Err(errorf!("extra LAN {} router address is not active", lan.interface));
-            }
+            verify_interface_address(&lan.interface, &lan.router_address).map_err(|e| wrapf(format!("extra LAN {} address unavailable", lan.interface), e))?;
         }
     }
     if cfg.wifi.enabled && plan.wifi {
@@ -718,7 +714,13 @@ pub(crate) fn rollback_wireguard_cleanup_interfaces(previous: Option<&SystemConf
     candidates.into_iter().filter(|i| !keep.contains(i) && seen.insert(i.clone())).collect()
 }
 
-pub(crate) fn rollback(previous: Option<&SystemConfig>, candidate: Option<&SystemConfig>, files: &[PreviousFile]) -> Result<()> {
+fn rollback_lan_alias<'a>(last_good: Option<&'a SystemConfig>, pending: Option<&SystemConfig>) -> Option<&'a SystemConfig> {
+    let active = pending?;
+    last_good.filter(|old| old.lan.interface == active.lan.interface && old.lan.cidr != active.lan.cidr)
+}
+
+pub(crate) fn rollback(last_good: Option<&SystemConfig>, pending: Option<&SystemConfig>, candidate: &SystemConfig, files: &[PreviousFile]) -> Result<()> {
+    let previous = pending.or(last_good);
     let mut errs: Vec<String> = Vec::new();
     let mut had_previous_nft = false;
     for file in files {
@@ -747,19 +749,23 @@ pub(crate) fn rollback(previous: Option<&SystemConfig>, candidate: Option<&Syste
             errs.push(safe_error(&e));
         }
         let _ = run_fixed("/sbin/rc-service", &["hostapd", "stop"]);
-        if let Err(e) = configure_runtime_lan(prev) {
+        // A failed attempt to restore last-good must leave both addresses
+        // reachable for the next attempt, just as on the provisional LAN.
+        let lan = match rollback_lan_alias(last_good, pending) {
+            Some(confirmed) => configure_provisional_runtime_lan(prev, confirmed),
+            None => configure_runtime_lan(prev),
+        };
+        if let Err(e) = lan {
             errs.push(safe_error(&e));
         }
         if let Err(e) = configure_extra_lans(prev) {
             log::warn!("rollback optional ExtraLAN restore degraded: {}", e);
         }
-        if let Some(cand) = candidate {
-            if let Err(e) = clean_extra_lan_state(&extra_lan_interfaces(cand), &extra_lan_interfaces(prev)) {
-                errs.push(safe_error(&e));
-            }
+        if let Err(e) = clean_extra_lan_state(&extra_lan_interfaces(candidate), &extra_lan_interfaces(prev)) {
+            errs.push(safe_error(&e));
         }
     }
-    for iface in rollback_wireguard_cleanup_interfaces(previous, candidate) {
+    for iface in rollback_wireguard_cleanup_interfaces(previous, Some(candidate)) {
         if let Err(e) = remove_wireguard(&iface) {
             errs.push(format!("remove failed candidate WireGuard interface {}: {}", iface, safe_error(&e)));
         }
@@ -858,11 +864,14 @@ pub(crate) fn rollback(previous: Option<&SystemConfig>, candidate: Option<&Syste
     match previous {
         // Structural verification only: an ISP or optional-service outage must
         // never turn a successful local rollback into RecoveryRequired.
-        Some(prev) => verify_active(prev, verification_plan(&op::reconcile(), None, prev))?,
+        Some(prev) => verify_active(prev, ServicePlan::core(prev))?,
         // Failed first-run transactions return to the setup-only LAN.
         None => super::startup::restore_first_run_runtime()?,
     }
-    clear_pending_confirmation().map_err(|e| wrapf("clear pending state after verified rollback", e))
+    if pending.is_none() {
+        clear_pending_confirmation().map_err(|e| wrapf("clear pending state after verified rollback", e))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn extra_lan_interfaces(cfg: &SystemConfig) -> HashSet<String> {
@@ -1506,6 +1515,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ipv4_readiness_requires_the_configured_host_and_prefix_on_the_interface() {
+        let shown = "2: eth1: <UP,LOWER_UP> mtu 1500\n    inet 192.168.7.1/25 brd 192.168.7.127 scope global eth1\n    inet 192.168.7.2/32 scope global secondary eth1\n";
+        assert!(has_inet(shown, "192.168.7.1/25"));
+        assert!(has_inet(shown, "192.168.7.2/32"));
+        assert!(!has_inet(shown, "192.168.7.1/24"));
+        assert!(!has_inet(shown, "192.168.7.11/25"));
+        assert!(!has_inet("3: wg0: <UP,LOWER_UP> mtu 1420\n", "10.8.0.1/24"));
+        assert!(!has_inet("    inet6 ::1/128 scope host\n", "127.0.0.1/8"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires /sbin/ip and a configured Linux IPv4 loopback"]
+    fn verifies_the_live_loopback_prefix() {
+        verify_interface_address("lo", "127.0.0.1/8").unwrap();
+        assert!(verify_interface_address("lo", "127.0.0.1/24").is_err());
+    }
+
+    #[test]
     fn disabled_tunnels_cannot_select_other_interfaces_for_cleanup() {
         let mut cfg = crate::config::default_config();
         cfg.wireguard.enabled = false;
@@ -1523,10 +1551,62 @@ mod tests {
         let base = crate::config::default_config();
         let mut candidate = base.clone();
         candidate.system.hostname = "edge".into();
-        assert_eq!(verification_plan(&op::apply_all(), Some(&base), &candidate), VerificationPlan::default());
+        assert_eq!(service_changes(&base, &candidate).verification(&op::apply_all(), &candidate), ServicePlan::default());
         candidate.squid_proxy.port = 3129;
-        assert!(verification_plan(&op::apply_all(), Some(&base), &candidate).squid);
-        assert!(!verification_plan(&op::reconcile(), Some(&base), &candidate).squid);
+        let changes = service_changes(&base, &candidate);
+        assert!(changes.verification(&op::apply_all(), &candidate).squid);
+        assert!(!changes.verification(&op::reconcile(), &candidate).squid);
+    }
+
+    fn service_changes(previous: &SystemConfig, next: &SystemConfig) -> ServicePlan {
+        ServicePlan::changes(Some(previous), next, services::generate_squid_config(next).unwrap().as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn wan_mtu_changes_reach_both_enabled_wireguard_interfaces() {
+        let mut previous = crate::config::default_config();
+        previous.wireguard.enabled = true;
+        previous.wg_client.enabled = true;
+        let mut next = previous.clone();
+        next.wan.mtu = 1400;
+        let plan = service_changes(&previous, &next);
+        assert!(plan.wireguard && plan.wg_client);
+        next.wireguard.enabled = false;
+        next.wg_client.enabled = false;
+        previous.wireguard.enabled = false;
+        previous.wg_client.enabled = false;
+        let plan = service_changes(&previous, &next);
+        assert!(!plan.wireguard && !plan.wg_client);
+    }
+
+    #[test]
+    fn proxy_follows_its_lan_listener_and_generated_network_rules() {
+        let mut previous = crate::config::default_config();
+        previous.squid_proxy.enabled = true;
+        let mut next = previous.clone();
+        next.lan.ip_address = "192.168.1.2".into();
+        next.lan.cidr = "192.168.1.2/24".into();
+        assert!(service_changes(&previous, &next).squid);
+        let mut next = previous.clone();
+        next.wg_client.allowed_ips = crate::list!["10.70.0.0/24".into()];
+        assert!(service_changes(&previous, &next).squid);
+        let mut next = previous.clone();
+        next.system.hostname = "kitchen".into();
+        assert!(!service_changes(&previous, &next).squid);
+    }
+
+    #[test]
+    fn failed_rollback_of_a_pending_lan_move_keeps_the_confirmed_address() {
+        let old = crate::config::default_config();
+        let mut pending = old.clone();
+        pending.lan.ip_address = "192.168.1.9".into();
+        pending.lan.cidr = "192.168.1.9/24".into();
+        assert_eq!(rollback_lan_alias(Some(&old), Some(&pending)), Some(&old));
+        assert!(rollback_lan_alias(None, Some(&pending)).is_none());
+        assert!(rollback_lan_alias(Some(&old), None).is_none());
+        assert!(rollback_lan_alias(Some(&old), Some(&old)).is_none());
+        pending.lan.interface = "eth2".into();
+        assert!(rollback_lan_alias(Some(&old), Some(&pending)).is_none());
     }
 
     #[test]

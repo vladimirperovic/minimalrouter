@@ -59,15 +59,17 @@ fn quoted_sql_list(values: &[&str]) -> String {
 // Snapshots are ordered by the revision they captured, which only grows, and
 // only then by wall-clock time: after NTP steps a wrong RTC back, created_at
 // alone would put stale snapshots ahead of the real newest ones.
+// Convert legacy RFC3339 offsets to instants before comparing equal revisions.
+const SNAPSHOT_ORDER: &str = "revision DESC, julianday(created_at) DESC, id DESC";
 pub(crate) static PRUNE_AUTOMATIC_SNAPSHOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "\n\t\tDELETE FROM snapshots\n\t\tWHERE kind <> '{0}' AND id NOT IN (\n\t\t\tSELECT id FROM snapshots WHERE kind <> '{0}' ORDER BY revision DESC, created_at DESC, id DESC LIMIT {1}\n\t\t)",
+        "DELETE FROM snapshots WHERE kind <> '{0}' AND id NOT IN (SELECT id FROM snapshots WHERE kind <> '{0}' ORDER BY {SNAPSHOT_ORDER} LIMIT {1})",
         SNAPSHOT_KIND_MANUAL, SNAPSHOT_RETENTION_PER_KIND
     )
 });
 pub(crate) static PRUNE_MANUAL_SNAPSHOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "\n\t\tDELETE FROM snapshots\n\t\tWHERE kind = '{0}' AND id NOT IN (\n\t\t\tSELECT id FROM snapshots WHERE kind = '{0}' ORDER BY revision DESC, created_at DESC, id DESC LIMIT {1}\n\t\t)",
+        "DELETE FROM snapshots WHERE kind = '{0}' AND id NOT IN (SELECT id FROM snapshots WHERE kind = '{0}' ORDER BY {SNAPSHOT_ORDER} LIMIT {1})",
         SNAPSHOT_KIND_MANUAL, SNAPSHOT_RETENTION_PER_KIND
     )
 });
@@ -177,6 +179,11 @@ impl SQLiteStore {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The most recent committed revision that required per-device history to be erased.
+    pub fn accounting_disabled_revision(&self) -> Result<Revision> {
+        Ok(self.lock().query_row("SELECT COALESCE((SELECT revision FROM accounting_disabled WHERE id=1),0)", [], |r| r.get(0))?)
+    }
+
     /// Reads the most recent canonical configuration.
     pub fn get_latest_config(&self) -> Result<SystemConfig> {
         let config_json: String = self
@@ -193,9 +200,13 @@ impl SQLiteStore {
     /// The engine sends this exact configuration to the privileged helper and
     /// retains it in memory; changing metadata here would make a reload differ.
     pub fn save_config(&self, cfg: SystemConfig) -> Result<()> {
-        let conn = self.lock();
         cfg.validate().map_err(|e| wrapf("refusing to persist invalid configuration", e))?;
-        let current: Option<String> = conn
+        let data = json::marshal_string(&cfg).map_err(|e| wrapf("failed to serialize config", e))?;
+        // Recovery and live management can open separate SQLite connections.
+        // Reserve the writer before deciding which revision may be inserted.
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| wrapf("failed to begin transaction", e))?;
+        let current: Option<String> = tx
             .query_row("SELECT config_json FROM config_revisions ORDER BY revision DESC LIMIT 1", [], |r| r.get(0))
             .optional()
             .map_err(|e| wrapf("failed to inspect current revision", e))?;
@@ -211,15 +222,9 @@ impl SQLiteStore {
             None => {}
         }
 
-        let data = json::marshal_string(&cfg).map_err(|e| wrapf("failed to serialize config", e))?;
-        let mut conn = conn;
-        let tx = conn.transaction().map_err(|e| wrapf("failed to begin transaction", e))?;
         tx.execute("INSERT INTO config_revisions (updated_at, config_json) VALUES (?, ?)", params![cfg.updated_at.rfc3339(), data])
             .map_err(|e| wrapf("failed to insert config revision", e))?;
-        tx.execute_batch(
-            "\n\t\tDELETE FROM config_revisions\n\t\tWHERE revision NOT IN (\n\t\t\tSELECT revision FROM config_revisions ORDER BY revision DESC LIMIT 100\n\t\t)\n\t",
-        )
-        .map_err(|e| wrapf("failed to prune config revisions", e))?;
+        tx.execute_batch(PRUNE_CONFIG_REVISIONS_SQL).map_err(|e| wrapf("failed to prune config revisions", e))?;
         tx.commit().map_err(|e| wrapf("failed to commit config transaction", e))?;
         Ok(())
     }
@@ -263,7 +268,7 @@ impl SQLiteStore {
     pub fn list_snapshots(&self) -> Result<Vec<Snapshot>> {
         let conn = self.lock();
         let mut stmt = conn
-            .prepare("SELECT id, revision, created_at, checksum, kind, label FROM snapshots ORDER BY revision DESC, created_at DESC, id DESC")
+            .prepare(&format!("SELECT id, revision, created_at, checksum, kind, label FROM snapshots ORDER BY {SNAPSHOT_ORDER}"))
             .map_err(|e| wrapf("failed to query snapshots", e))?;
         let rows = stmt
             .query_map([], |r| {
@@ -476,7 +481,7 @@ impl SQLiteStore {
 
     /// Atomically stores the first network revision and the administrator
     /// credential, after the runtime configuration has been verified.
-    pub fn commit_initial_setup(&self, mut cfg: SystemConfig, password_hash: &str) -> Result<()> {
+    pub fn commit_initial_setup(&self, cfg: SystemConfig, password_hash: &str) -> Result<()> {
         cfg.validate().map_err(|e| wrapf("refusing invalid initial configuration", e))?;
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(sql_err)?;
@@ -490,7 +495,6 @@ impl SQLiteStore {
         if Some(cfg.revision) != current.revision.checked_add(1) {
             return Err(errorf!("initial configuration revision must advance exactly once"));
         }
-        cfg.updated_at = Time::now_utc();
         let data = json::marshal_string(&cfg)?;
         let stamp = cfg.updated_at.rfc3339();
         tx.execute("INSERT INTO config_revisions (updated_at, config_json) VALUES (?, ?)", params![stamp, data]).map_err(sql_err)?;
@@ -670,6 +674,18 @@ fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
 	CREATE TABLE IF NOT EXISTS recovery_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 	CREATE TABLE IF NOT EXISTS backup_export_status (id INTEGER PRIMARY KEY CHECK(id=1), exported_at DATETIME NOT NULL);
 
+	-- A disable must survive re-enabling between collector runs and pruning
+	-- the config history. The trigger covers setup, normal and offline commits.
+	CREATE TABLE IF NOT EXISTS accounting_disabled (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+	CREATE TRIGGER IF NOT EXISTS remember_disabled_accounting AFTER INSERT ON config_revisions
+	WHEN CASE WHEN json_valid(NEW.config_json) THEN COALESCE(json_extract(NEW.config_json,'$.accounting.enabled'),0)=0 ELSE 0 END
+	BEGIN
+		INSERT INTO accounting_disabled(id,revision) VALUES(1,NEW.revision) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision;
+	END;
+	INSERT OR IGNORE INTO accounting_disabled(id,revision)
+	SELECT 1,revision FROM (SELECT revision,config_json FROM config_revisions ORDER BY revision DESC LIMIT 1)
+	WHERE CASE WHEN json_valid(config_json) THEN COALESCE(json_extract(config_json,'$.accounting.enabled'),0)=0 ELSE 0 END;
+
 	-- Every audit append prunes by recency; without these indexes each write
 	-- sorted the whole retained log.
 	CREATE INDEX IF NOT EXISTS idx_audit_events_time ON audit_events(timestamp, id);
@@ -726,6 +742,56 @@ pub fn set_mode(path: &str, mode: u32) -> std::io::Result<()> {
 #[cfg(not(unix))]
 pub fn set_mode(_path: &str, _mode: u32) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::*;
+    use std::sync::{OnceLock, mpsc};
+    use std::time::Duration;
+
+    #[test]
+    fn a_waiting_writer_rechecks_the_revision_after_the_other_writer_commits() {
+        let dir = std::env::temp_dir().join(format!("mr-save-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let first = SQLiteStore::new(dir.to_str().unwrap()).unwrap();
+        let second = SQLiteStore::new(dir.to_str().unwrap()).unwrap();
+        let mut next = first.get_latest_config().unwrap();
+        next.revision += 1;
+        let mut stale = next.clone();
+        stale.system.hostname = "other-router".into();
+
+        let mut conn = first.lock();
+        let tx = conn.transaction().unwrap();
+        tx.execute(
+            "INSERT INTO config_revisions (updated_at,config_json) VALUES (?,?)",
+            params![next.updated_at.rfc3339(), json::marshal_string(&next).unwrap()],
+        )
+        .unwrap();
+        // Wait until the other SQLite connection actually needs the write
+        // lock. A sleep before COMMIT would make the race timing-dependent.
+        static WAITING: OnceLock<mpsc::Sender<()>> = OnceLock::new();
+        let (waiting_tx, waiting_rx) = mpsc::channel();
+        WAITING.set(waiting_tx).unwrap();
+        second
+            .lock()
+            .busy_handler(Some(|attempt| {
+                if attempt == 0 {
+                    let _ = WAITING.get().unwrap().send(());
+                }
+                std::thread::sleep(Duration::from_millis(2));
+                attempt < 2000
+            }))
+            .unwrap();
+        let writer = std::thread::spawn(move || second.save_config(stale));
+        waiting_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        tx.commit().unwrap();
+        let result = writer.join().unwrap();
+        drop(conn);
+        assert!(result.unwrap_err().to_string().contains("revision must advance"));
+        assert_eq!(first.get_latest_config().unwrap(), next);
+        drop(first);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[cfg(test)]

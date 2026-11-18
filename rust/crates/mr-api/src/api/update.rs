@@ -98,26 +98,74 @@ pub struct UpdateOperation {
 }
 
 crate::sentinel!(ErrUpdateInProgress, "another update is already running");
+crate::sentinel!(ErrUpdateKeyConflict, "the request key already identifies a different confirmed release");
 
-fn write_private_atomic(path: &str, pattern: &str, data: &[u8], sync: bool) -> Result<()> {
+impl UpdateOperation {
+    fn replays(&self, key: &str, candidate: &str, target: &str) -> Result<bool> {
+        if key.is_empty() || key != self.idempotency_key {
+            return Ok(false);
+        }
+        if self.candidate_id != candidate || self.target_version != target {
+            return Err(ErrUpdateKeyConflict.into());
+        }
+        Ok(true)
+    }
+
+    fn restart_outcome(&self, slots: Option<&SlotState>, running: &str) -> (UpdateState, &'static str, &'static str) {
+        if !self.state.past_activation() {
+            return (UpdateState::Failed, "interrupted", "The update was interrupted before activation. Check the pending release before retrying.");
+        }
+        if let Some(slots) = slots.filter(|s| !s.installation_pending && !s.current.is_empty()) {
+            if same_release(&slots.current, &self.target_version) && same_release(running, &self.target_version) {
+                return (UpdateState::Succeeded, "", "");
+            }
+            if same_release(&slots.previous, &self.target_version) && slots.pending.is_empty() && self.source_is_running(slots, running) {
+                return (UpdateState::RolledBack, "activation_rolled_back", "The previous version is running again after rollback.");
+            }
+        }
+        (
+            UpdateState::RecoveryRequired,
+            "interrupted_during_activation",
+            "The running release and slot state could not confirm the activation outcome. Check the local updater before retrying.",
+        )
+    }
+
+    fn source_is_running(&self, slots: &SlotState, running: &str) -> bool {
+        same_release(running, &self.from_version) && (same_release(&slots.current, &self.from_version) || is_bootstrap_slot(&slots.current))
+    }
+
+    fn complete(&mut self, state: UpdateState, code: &str, message: &str, now: Time) {
+        self.state = state;
+        self.error_code = code.into();
+        self.error = message.into();
+        self.completed_at = Some(now);
+        self.updated_at = now;
+    }
+}
+
+fn same_release(left: &str, right: &str) -> bool {
+    crate::firmware::is_release_version(left) && left.strip_prefix('v').unwrap_or(left) == right.strip_prefix('v').unwrap_or(right)
+}
+
+fn is_bootstrap_slot(version: &str) -> bool {
+    version.strip_prefix('v').unwrap_or(version).starts_with("0.0.0+bootstrap.")
+}
+
+fn write_private_atomic(path: &str, pattern: &str, data: &[u8]) -> Result<()> {
     let dir = std::path::Path::new(path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| ".".into());
     std::fs::create_dir_all(&dir)?;
-    let mut suffix = [0u8; 4];
-    let _ = crate::goish::rand::fill(&mut suffix);
-    let temp = format!("{}/{}{}", dir, pattern, u32::from_le_bytes(suffix));
+    let temp = format!("{}/{}{}", dir, pattern, auth::generate_random_hex(8)?);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temp)?;
     let result = (|| -> Result<()> {
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&temp)?;
         file.write_all(data)?;
-        if sync {
-            file.sync_all()?;
-        }
+        file.sync_all()?;
         drop(file);
         std::fs::rename(&temp, path)?;
         Ok(())
@@ -125,89 +173,62 @@ fn write_private_atomic(path: &str, pattern: &str, data: &[u8], sync: bool) -> R
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
     }
-    result
+    result?;
+    #[cfg(unix)]
+    std::fs::File::open(dir)?.sync_all()?;
+    Ok(())
 }
 
 /// Exactly one record: two concurrent updates are never valid, so the file
 /// is the mutual exclusion that survives a restart.
 pub(crate) struct UpdateOperationStore {
     path: String,
-    state: StdMutex<(bool, Option<UpdateOperation>)>,
+    writer: StdMutex<()>,
 }
 
 impl UpdateOperationStore {
     pub(crate) fn new(path: &str) -> UpdateOperationStore {
-        UpdateOperationStore { path: path.into(), state: StdMutex::new((false, None)) }
+        UpdateOperationStore { path: path.into(), writer: StdMutex::new(()) }
     }
 
-    fn with<T>(&self, f: impl FnOnce(&mut Option<UpdateOperation>, &dyn Fn(&Option<UpdateOperation>) -> Result<()>) -> Result<T>) -> Result<T> {
-        let mut guard = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if !guard.0 {
-            match std::fs::read(&self.path) {
-                Ok(data) => {
-                    // An unreadable record must not silently unlock an update.
-                    let op: UpdateOperation =
-                        crate::goish::json::unmarshal(&data).map_err(|e| crate::errorf!("update operation state is unreadable: {}", e))?;
-                    guard.1 = Some(op);
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => return Err(err.into()),
-            }
-            guard.0 = true;
-        }
-        let path = self.path.clone();
-        let save = move |current: &Option<UpdateOperation>| -> Result<()> {
-            match current {
-                None => match std::fs::remove_file(&path) {
-                    Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err.into()),
-                    _ => Ok(()),
-                },
-                Some(op) => {
-                    let mut data = crate::goish::json::marshal_indent(op, "  ")?;
-                    data.push(b'\n');
-                    write_private_atomic(&path, ".update-operation-", &data, true)
-                }
-            }
-        };
-        f(&mut guard.1, &save)
+    fn save(&self, op: &UpdateOperation) -> Result<()> {
+        let mut data = crate::goish::json::marshal_indent(op, "  ")?;
+        data.push(b'\n');
+        write_private_atomic(&self.path, ".update-operation-", &data)
     }
 
     pub(crate) fn current(&self) -> Result<Option<UpdateOperation>> {
-        self.with(|current, _| Ok(current.clone()))
+        match std::fs::read(&self.path) {
+            Ok(data) => crate::goish::json::unmarshal(&data).map(Some).map_err(|e| crate::errorf!("update operation state is unreadable: {}", e)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 
-    /// An identical idempotency key returns the existing operation, so a
-    /// retried request cannot install twice.
-    pub(crate) fn begin(&self, mut operation: UpdateOperation) -> Result<UpdateOperation> {
-        self.with(|current, save| {
-            if let Some(existing) = current.as_ref() {
-                let same_key = !operation.idempotency_key.is_empty() && operation.idempotency_key == existing.idempotency_key;
-                if same_key {
-                    return Ok(existing.clone());
-                }
-                if !existing.state.terminal() {
-                    return Err(ErrUpdateInProgress.into());
-                }
+    /// Only the caller that created the record may start a worker.
+    fn begin(&self, mut operation: UpdateOperation) -> Result<(UpdateOperation, bool)> {
+        let _guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(existing) = self.current()? {
+            if existing.replays(&operation.idempotency_key, &operation.candidate_id, &operation.target_version)? {
+                return Ok((existing, false));
             }
-            operation.updated_at = operation.started_at;
-            let previous = current.replace(operation.clone());
-            if let Err(err) = save(current) {
-                *current = previous;
-                return Err(err);
+            if !existing.state.terminal() {
+                return Err(ErrUpdateInProgress.into());
             }
-            Ok(operation)
-        })
+        }
+        operation.updated_at = operation.started_at;
+        self.save(&operation)?;
+        Ok((operation, true))
     }
 
     fn update(&self, id: &str, now: Time, mutate: impl FnOnce(&mut UpdateOperation)) -> Result<()> {
-        self.with(|current, save| {
-            let Some(op) = current.as_mut().filter(|op| op.id == id) else {
-                return Err(crate::errorf!("update operation {:?} is not the recorded operation", id));
-            };
-            mutate(op);
-            op.updated_at = now;
-            save(current)
-        })
+        let _guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut op) = self.current()?.filter(|op| op.id == id && !op.state.terminal()) else {
+            return Err(crate::errorf!("update operation {:?} is no longer active", id));
+        };
+        mutate(&mut op);
+        op.updated_at = now;
+        self.save(&op)
     }
 
     pub(crate) fn advance(&self, id: &str, state: UpdateState, now: Time) -> Result<()> {
@@ -215,34 +236,41 @@ impl UpdateOperationStore {
     }
 
     pub(crate) fn finish(&self, id: &str, state: UpdateState, code: &str, message: &str, now: Time) -> Result<()> {
-        self.update(id, now, |op| {
-            op.state = state;
-            op.error_code = code.into();
-            op.error = message.into();
-            op.completed_at = Some(now);
-        })
+        self.update(id, now, |op| op.complete(state, code, message, now))
     }
 
     /// A restart means this process no longer runs the operation. Before
     /// activation nothing was installed; after it the updater's journal is
     /// authoritative and the operator verifies the running version.
-    pub(crate) fn recover_interrupted(&self, now: Time) -> Result<Option<UpdateOperation>> {
-        self.with(|current, save| {
-            let Some(op) = current.as_mut().filter(|op| !op.state.terminal()) else { return Ok(None) };
-            if op.state.past_activation() {
-                op.state = UpdateState::RecoveryRequired;
-                op.error_code = "interrupted_during_activation".into();
-                op.error = "The management service restarted while the new release was being activated. The privileged updater's slot journal holds the authoritative result; verify the running version before retrying.".into();
+    fn recover_interrupted(&self, slots: Option<&SlotState>, running: &str, now: Time) -> Result<Option<UpdateOperation>> {
+        let _guard = self.writer.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(mut op) = self.current()?.filter(|op| !op.state.terminal()) else { return Ok(None) };
+        let (state, code, message) = op.restart_outcome(slots, running);
+        op.complete(state, code, message, now);
+        self.save(&op)?;
+        Ok(Some(op))
+    }
+
+    fn activation_helper_failed(&self, id: &str, slots: Option<&SlotState>, running: &str, now: Time) -> Result<()> {
+        self.update(id, now, |op| {
+            let unchanged = slots.is_some_and(|s| !s.installation_pending && same_release(&s.pending, &op.target_version) && op.source_is_running(s, running));
+            let observed = op.restart_outcome(slots, running);
+            let (state, code, message) = if unchanged {
+                (
+                    UpdateState::Failed,
+                    "activation_failed",
+                    "The updater stopped before switching releases. The verified release is still staged. Check the local update log.",
+                )
+            } else if observed.0 == UpdateState::RolledBack {
+                observed
             } else {
-                op.state = UpdateState::Failed;
-                op.error_code = "interrupted".into();
-                op.error = "The management service restarted before the release was activated. Nothing was installed; the update can be started again.".into();
-            }
-            op.completed_at = Some(now);
-            op.updated_at = now;
-            let copy = op.clone();
-            save(current)?;
-            Ok(Some(copy))
+                (
+                    UpdateState::RecoveryRequired,
+                    "activation_unconfirmed",
+                    "The updater exited without confirming a healthy release. Check the local updater before retrying.",
+                )
+            };
+            op.complete(state, code, message, now);
         })
     }
 }
@@ -277,12 +305,12 @@ impl UpdatePreferences {
     }
 
     pub(crate) fn set_channel(&self, channel: Channel) -> Result<()> {
-        let _ = self.channel();
+        let mut channel_cache = self.channel.lock().unwrap_or_else(|e| e.into_inner());
         let mut data = crate::goish::json::marshal_indent(&json!({"channel": channel.as_str()}), "  ")?;
         data.push(b'\n');
-        write_private_atomic(&self.path, ".update-preferences-", &data, true)?;
-        *self.channel.lock().unwrap_or_else(|e| e.into_inner()) = Some(channel);
-        Ok(())
+        let written = write_private_atomic(&self.path, ".update-preferences-", &data);
+        *channel_cache = written.as_ref().ok().map(|_| channel);
+        written
     }
 }
 
@@ -368,7 +396,7 @@ fn available_update_bytes() -> Result<u64> {
 
 /// A bootstrap directory is a content identity, not the running release.
 fn current_appliance_version(state: &SlotState) -> String {
-    if !state.current.is_empty() && !state.current.strip_prefix('v').unwrap_or(&state.current).starts_with("0.0.0+bootstrap.") {
+    if !state.current.is_empty() && !is_bootstrap_slot(&state.current) {
         return state.current.clone();
     }
     crate::buildinfo::display_version()
@@ -398,14 +426,13 @@ fn run_update_stage() -> std::result::Result<String, (String, String)> {
 
 /// Activation restarts routerd, so it runs in its own session and must not
 /// die with the process that started it.
-fn activate_pending_update_detached() -> Result<()> {
+fn activate_pending_update_detached() -> Result<std::process::Child> {
     let log_file = std::fs::OpenOptions::new().create(true).truncate(true).write(true).open(UPDATE_ACTIVATION_LOG)?;
     let mut command = std::process::Command::new("/usr/bin/doas");
     command.args([UPDATE_PRIVILEGE_HELPER, "activate"]).stdin(std::process::Stdio::null()).stdout(log_file.try_clone()?).stderr(log_file);
     #[cfg(unix)]
     crate::sys::new_session_on_exec(&mut command);
-    command.spawn()?;
-    Ok(())
+    Ok(command.spawn()?)
 }
 
 fn expected_update_paths() -> (String, String) {
@@ -456,36 +483,17 @@ impl Server {
     /// The activation restart is the normal successful path: slot state and
     /// the running version decide the outcome.
     fn reconcile_interrupted_update(&self, operations: &UpdateOperationStore, now: Time) {
-        let operation = match operations.current() {
-            Ok(Some(op)) if !op.state.terminal() => op,
-            Ok(_) => return,
-            Err(err) => {
-                log::info!("[UPDATE] Could not read the recorded update operation: {}", err);
-                return;
+        let running = crate::buildinfo::display_version();
+        match operations.recover_interrupted(appliance_update_state().ok().as_ref(), &running, now) {
+            Ok(Some(op)) => {
+                log::info!("[UPDATE] Operation {} marked {:?} after a restart", op.id, op.state);
+                let event = match op.state {
+                    UpdateState::Succeeded => "firmware.update_succeeded",
+                    UpdateState::RolledBack => "firmware.update_rolled_back",
+                    _ => return,
+                };
+                self.append_audit(event, "local", details(&[("operation", &op.id), ("version", &running)]));
             }
-        };
-        if let (Ok(state), true) = (appliance_update_state(), operation.state.past_activation()) {
-            if state.current == operation.target_version {
-                let _ = operations.finish(&operation.id, UpdateState::Succeeded, "", "", now);
-                log::info!("[UPDATE] Operation {} completed: running {}", operation.id, state.current);
-                self.append_audit("firmware.update_succeeded", "local", details(&[("operation", &operation.id), ("version", &operation.target_version)]));
-                return;
-            }
-            if state.current == operation.from_version {
-                let _ = operations.finish(
-                    &operation.id,
-                    UpdateState::RolledBack,
-                    "activation_rolled_back",
-                    "The new release did not become healthy and the previous version was restored.",
-                    now,
-                );
-                log::info!("[UPDATE] Operation {} rolled back to {}", operation.id, state.current);
-                self.append_audit("firmware.update_rolled_back", "local", details(&[("operation", &operation.id), ("version", &state.current)]));
-                return;
-            }
-        }
-        match operations.recover_interrupted(now) {
-            Ok(Some(recovered)) => log::info!("[UPDATE] Operation {} marked {:?} after a restart", recovered.id, recovered.state),
             Ok(None) => {}
             Err(err) => log::info!("[UPDATE] Could not reconcile the interrupted update: {}", err),
         }
@@ -523,12 +531,13 @@ impl Server {
 
     fn fail_operation(&self, id: &str, code: &str, message: &str) -> crate::goish::errors::Error {
         let Ok(store) = self.operations_store() else { return crate::errorf!("update operations are not configured") };
+        if let Err(err) = store.finish(id, UpdateState::Failed, code, message, Time::now()) {
+            log::warn!("[UPDATE] Could not record the failure for {}: {}", id, err);
+            return err;
+        }
         log::info!("[UPDATE] Operation {} failed ({}): {}", id, code, message);
         self.append_audit("firmware.update_failed", "local", details(&[("operation", id), ("reason", code)]));
-        match store.finish(id, UpdateState::Failed, code, message, Time::now()) {
-            Err(err) => err,
-            Ok(()) => crate::errorf!("{}", message),
-        }
+        crate::errorf!("{}", message)
     }
 
     /// A UI aid from local state only: every condition is checked again at
@@ -552,6 +561,9 @@ impl Server {
         let Ok(state) = state else { return Err(BLOCK_LOCAL_STATE_UNKNOWN) };
         if state.current.is_empty() {
             return Err(BLOCK_MISSING_BASELINE);
+        }
+        if state.installation_pending {
+            return Err(BLOCK_RECOVERY_REQUIRED);
         }
         let Ok(floor) = state.upgrade_floor() else { return Err(BLOCK_UNKNOWN_INSTALLED_VERSION) };
         if !state.pending.is_empty() {
@@ -604,7 +616,8 @@ impl Server {
             }
         }
         let operation = self.current_update_operation();
-        if operation.is_err() && status.check_error.is_empty() {
+        let record_unavailable = operation.is_err();
+        if record_unavailable && status.check_error.is_empty() {
             status.check_error = "Update operation state is unavailable.".into();
         }
         status.operation = operation.ok().flatten();
@@ -630,6 +643,10 @@ impl Server {
             status.release_url = candidate.url.clone();
             status.release_notes = candidate.notes.clone();
             status.update_available = release::is_newer_version(&candidate.version, &status.current_version);
+        }
+        if record_unavailable {
+            status.blocked_reason = BLOCK_LOCAL_STATE_UNKNOWN.into();
+            return status;
         }
         match self.assess_update_capability(&state, &snapshot, status.operation.as_ref(), now) {
             Ok(()) => status.can_install = true,
@@ -724,10 +741,22 @@ impl Server {
         self.append_audit("firmware.update_staged", "local", details(&[("from", current), ("to", version)]));
         // Activation restarts routerd; the durable record plus the updater's
         // slot journal are what the next process reconciles.
-        if activate_pending_update_detached().is_err() {
+        let store = self.operations_store()?;
+        let mut child = activate_pending_update_detached().map_err(|_| {
             self.append_audit("firmware.activation_start_failed", "local", details(&[("version", version)]));
-            return Err(self.fail_operation(id, "activation_start_failed", "The verified release was staged, but activation could not be started."));
-        }
+            self.fail_operation(id, "activation_start_failed", "The verified release was staged, but activation could not be started.")
+        })?;
+        let id = id.to_owned();
+        // A layout or service preflight can fail before routerd is stopped.
+        // In that case this process is still responsible for the outcome.
+        std::thread::spawn(move || {
+            if !child.wait().is_ok_and(|status| status.success()) {
+                let slots = appliance_update_state().ok();
+                if let Err(err) = store.activation_helper_failed(&id, slots.as_ref(), &crate::buildinfo::display_version(), Time::now()) {
+                    log::warn!("[UPDATE] Could not record the activation helper failure for {}: {}", id, err);
+                }
+            }
+        });
         Ok(())
     }
 
@@ -741,17 +770,39 @@ impl Server {
             candidate_id: String,
             target_version: String,
             idempotency_key: String,
+            previous_operation_id: Option<String>,
         }
         let Ok(req) = decode_json::<Req>(r) else { return write_json(400, &json!({"error": "Invalid JSON."})) };
         // The confirmation must name what was confirmed.
         if req.candidate_id.trim().is_empty() || req.target_version.trim().is_empty() {
             return write_json(400, &json!({"error": "The update request must name the confirmed candidate.", "blocked_reason": BLOCK_CANDIDATE_SUPERSEDED}));
         }
-        let Ok(_guard) = FIRMWARE_UPDATE.try_lock() else { return write_json(409, &json!({"error": "Another firmware operation is already in progress."})) };
+        let guard = FIRMWARE_UPDATE.try_lock();
         let now = Time::now();
+        let Ok(operation) = self.current_update_operation() else {
+            return write_json(503, &json!({"error": "Update operation state is unavailable.", "blocked_reason": BLOCK_LOCAL_STATE_UNKNOWN}));
+        };
+        if let Some(existing) = &operation {
+            match existing.replays(req.idempotency_key.trim(), &req.candidate_id, &req.target_version) {
+                Ok(true) => return write_json(202, &json!({"success": true, "operation": existing, "status": self.firmware_status(now)})),
+                Err(_) => {
+                    return write_json(
+                        409,
+                        &json!({"error": "This request key identifies a different confirmed release.", "blocked_reason": BLOCK_CANDIDATE_SUPERSEDED}),
+                    );
+                }
+                Ok(false) => {}
+            }
+        }
+        if req.previous_operation_id.as_deref().is_some_and(|seen| seen != operation.as_ref().map_or("", |op| op.id.as_str())) {
+            return write_json(
+                409,
+                &json!({"error": "A different update was recorded. Review its outcome before confirming again.", "status": self.firmware_status(now)}),
+            );
+        }
+        let Ok(_guard) = guard else { return write_json(409, &json!({"error": "Another firmware operation is already in progress."})) };
         let state = appliance_update_state();
         let snapshot = self.update_snapshot();
-        let operation = self.current_update_operation().ok().flatten();
         if let Err(reason) = self.assess_update_capability(&state, &snapshot, operation.as_ref(), now) {
             return write_json(
                 409,
@@ -769,7 +820,7 @@ impl Server {
         let current = state.as_ref().map(current_appliance_version).unwrap_or_default();
         let begun = self.operations_store().and_then(|store| {
             store.begin(UpdateOperation {
-                id: format!("upd-{}", now.unix_nano()),
+                id: format!("upd-{}", auth::generate_random_hex(16)?),
                 state: UpdateState::Queued,
                 from_version: current.clone(),
                 target_version: candidate.version.clone(),
@@ -780,7 +831,7 @@ impl Server {
                 ..Default::default()
             })
         });
-        let accepted = match begun {
+        let (accepted, created) = match begun {
             Ok(accepted) => accepted,
             Err(err) if is::<ErrUpdateInProgress>(&err) => {
                 return write_json(
@@ -790,7 +841,7 @@ impl Server {
             }
             Err(_) => return write_json(500, &json!({"error": "Could not record the update operation."})),
         };
-        if accepted.state != UpdateState::Queued {
+        if !created {
             // A retry of an accepted request reports the existing outcome.
             return write_json(202, &json!({"success": true, "operation": accepted, "status": self.firmware_status(now)}));
         }
@@ -828,18 +879,21 @@ impl Server {
         if self.session_is_read_only(r) {
             return write_json(403, &json!({"error": "This session is read-only."}));
         }
-        let Ok(_guard) = FIRMWARE_UPDATE.try_lock() else { return write_json(409, &json!({"error": "Another firmware operation is already in progress."})) };
+        let guard = FIRMWARE_UPDATE.try_lock();
         let now = Time::now();
         let state = appliance_update_state();
-        let operation = self.current_update_operation().ok().flatten();
+        let Ok(operation) = self.current_update_operation() else {
+            return write_json(503, &json!({"error": "Update operation state is unavailable.", "blocked_reason": BLOCK_LOCAL_STATE_UNKNOWN}));
+        };
+        let Ok(_guard) = guard else { return write_json(409, &json!({"error": "Another firmware operation is already in progress."})) };
         // An upload carries its own payload: check freshness is irrelevant.
         let mut snapshot = self.update_snapshot();
         snapshot.last_success_at = now;
         snapshot.candidate = None;
-        if let Err(reason) = self.assess_update_capability(&state, &snapshot, operation.as_ref(), now) {
-            if reason != BLOCK_NO_CANDIDATE {
-                return write_json(409, &json!({"error": "This appliance cannot install an update right now.", "blocked_reason": reason}));
-            }
+        if let Err(reason) = self.assess_update_capability(&state, &snapshot, operation.as_ref(), now)
+            && reason != BLOCK_NO_CANDIDATE
+        {
+            return write_json(409, &json!({"error": "This appliance cannot install an update right now.", "blocked_reason": reason}));
         }
         let current = state.as_ref().map(current_appliance_version).unwrap_or_default();
         extend_upload_read_deadline(r, FIRMWARE_UPLOAD_READ_TIMEOUT);
@@ -895,7 +949,7 @@ impl Server {
         }
         let begun = self.operations_store().and_then(|store| {
             store.begin(UpdateOperation {
-                id: format!("upd-{}", now.unix_nano()),
+                id: format!("upd-{}", auth::generate_random_hex(16)?),
                 state: UpdateState::Queued,
                 from_version: current.clone(),
                 target_version: version.clone(),
@@ -904,7 +958,11 @@ impl Server {
                 ..Default::default()
             })
         });
-        let Ok(accepted) = begun else { return write_json(409, &json!({"error": "Another update is already running."})) };
+        let accepted = match begun {
+            Ok((accepted, _)) => accepted,
+            Err(err) if is::<ErrUpdateInProgress>(&err) => return write_json(409, &json!({"error": "Another update is already running."})),
+            Err(_) => return write_json(500, &json!({"error": "Could not record the update operation."})),
+        };
         self.append_audit(
             "firmware.update_accepted",
             &audit_actor(&r.remote_addr),
@@ -954,6 +1012,191 @@ fn tempdir_in(dir: &str, pattern: &str) -> std::io::Result<TempDir> {
 mod tests {
     use super::*;
 
+    fn operation_fixture() -> (TempDir, Arc<UpdateOperationStore>, UpdateOperation) {
+        let dir = tempdir_in(std::env::temp_dir().to_str().unwrap(), "mr-update-record-").unwrap();
+        let store = Arc::new(UpdateOperationStore::new(&format!("{}/operation.json", dir.0)));
+        let op = store
+            .begin(UpdateOperation {
+                id: "upd-first".into(),
+                idempotency_key: "request-1".into(),
+                source: "published_release".into(),
+                candidate_id: "tag-2".into(),
+                from_version: "v1.0.0".into(),
+                target_version: "2.0.0".into(),
+                started_at: Time::from_unix(1_800_000_000, 0),
+                ..Default::default()
+            })
+            .unwrap()
+            .0;
+        (dir, store, op)
+    }
+
+    #[test]
+    fn failed_record_write_does_not_publish_progress_or_a_terminal_result() {
+        let (dir, store, op) = operation_fixture();
+        let backup = format!("{}/saved", dir.0);
+        let later = op.started_at.add(crate::goish::time::Duration::secs(1));
+        assert!(
+            store
+                .update(&op.id, later, |pending| {
+                    pending.state = UpdateState::CheckingHealth;
+                    std::fs::rename(&store.path, &backup).unwrap();
+                    std::fs::create_dir(&store.path).unwrap();
+                })
+                .is_err()
+        );
+        std::fs::remove_dir(&store.path).unwrap();
+        std::fs::rename(&backup, &store.path).unwrap();
+        assert_eq!(store.current().unwrap(), Some(op.clone()));
+        for step in 0..3 {
+            std::fs::rename(&store.path, &backup).unwrap();
+            std::fs::create_dir(&store.path).unwrap();
+            let result = match step {
+                0 => store.advance(&op.id, UpdateState::Activating, later),
+                1 => store.finish(&op.id, UpdateState::Succeeded, "", "", later),
+                _ => store.recover_interrupted(None, "v1.0.0", later).map(|_| ()),
+            };
+            assert!(result.is_err());
+            std::fs::remove_dir(&store.path).unwrap();
+            std::fs::rename(&backup, &store.path).unwrap();
+            assert_eq!(store.current().unwrap(), Some(op.clone()));
+            assert_eq!(UpdateOperationStore::new(&store.path).current().unwrap(), Some(op.clone()));
+        }
+        assert_eq!(store.recover_interrupted(None, "v1.0.0", later).unwrap().unwrap().state, UpdateState::Failed);
+    }
+
+    #[test]
+    fn restart_needs_the_ready_build_and_the_slot_history() {
+        use UpdateState::{RecoveryRequired, RolledBack, Succeeded};
+        for (current, previous, pending, running, fenced, expected) in [
+            ("2.0.0", "1.0.0", "", "v2.0.0", false, Succeeded),
+            ("2.0.0", "1.0.0", "", "v1.0.0", false, RecoveryRequired),
+            ("2.0.0", "1.0.0", "", "v2.0.0+other", false, RecoveryRequired),
+            ("2.0.0", "1.0.0", "", "dev", false, RecoveryRequired),
+            ("2.0.0", "1.0.0", "", "v2.0.0", true, RecoveryRequired),
+            ("1.0.0", "2.0.0", "", "v1.0.0", false, RolledBack),
+            ("0.0.0+bootstrap.abc", "2.0.0", "", "v1.0.0", false, RolledBack),
+            ("0.0.0+bootstrap.abc", "2.0.0", "", "v1.0.1", false, RecoveryRequired),
+            ("1.0.0", "0.9.0", "2.0.0", "v1.0.0", false, RecoveryRequired),
+            ("1.0.0", "0.9.0", "", "v1.0.0", false, RecoveryRequired),
+        ] {
+            let (_dir, store, op) = operation_fixture();
+            store.advance(&op.id, UpdateState::Activating, op.started_at).unwrap();
+            let slots =
+                SlotState { current: current.into(), previous: previous.into(), pending: pending.into(), installation_pending: fenced, ..Default::default() };
+            let recovered = store.recover_interrupted(Some(&slots), running, op.started_at).unwrap().unwrap();
+            assert_eq!(recovered.state, expected, "{slots:?} running {running}");
+            let reopened = UpdateOperationStore::new(&store.path);
+            assert_eq!(reopened.current().unwrap(), Some(recovered));
+            assert!(reopened.recover_interrupted(Some(&slots), running, op.started_at).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn failed_activation_helper_records_only_proven_outcomes() {
+        for (current, previous, pending, running, expected) in [
+            ("1.0.0", "0.9.0", "2.0.0", "v1.0.0", UpdateState::Failed),
+            ("0.0.0+bootstrap.abc", "2.0.0", "", "v1.0.0", UpdateState::RolledBack),
+            ("2.0.0", "1.0.0", "", "v2.0.0", UpdateState::RecoveryRequired),
+        ] {
+            let (_dir, store, op) = operation_fixture();
+            store.advance(&op.id, UpdateState::Activating, op.started_at).unwrap();
+            let slots = SlotState { current: current.into(), previous: previous.into(), pending: pending.into(), ..Default::default() };
+            store.activation_helper_failed(&op.id, Some(&slots), running, op.started_at).unwrap();
+            let recorded = store.current().unwrap().unwrap();
+            assert_eq!(recorded.state, expected);
+            assert!(recorded.completed_at.is_some());
+            assert!(store.advance(&op.id, UpdateState::Activating, op.started_at).is_err());
+            assert!(store.activation_helper_failed(&op.id, None, "", op.started_at).is_err());
+            assert_eq!(UpdateOperationStore::new(&store.path).current().unwrap(), Some(recorded));
+        }
+    }
+
+    #[test]
+    fn unreadable_record_blocks_status_and_both_update_entry_points() {
+        let (_dir, store, _op) = operation_fixture();
+        std::fs::write(&store.path, b"partial").unwrap();
+        let server = Server::new(crate::apply::Engine::new(crate::config::default_config(), None));
+        server.ext.updates.write().unwrap().operations = Some(store);
+        let status = server.firmware_status(Time::now());
+        assert!(!status.can_install);
+        assert_eq!(status.blocked_reason, BLOCK_LOCAL_STATE_UNKNOWN);
+        let bytes = br#"{"candidate_id":"tag-2","target_version":"2.0.0"}"#;
+        let mut body = std::io::Cursor::new(bytes.to_vec());
+        let mut req = Request::synthetic("POST", "/api/v1/firmware/update", &mut body, bytes.len() as u64);
+        req.session = Some(Session::default());
+        assert_eq!(server.handle_firmware_update(&mut req).status, 503);
+        let mut body = std::io::Cursor::new(Vec::new());
+        let mut req = Request::synthetic("POST", "/api/v1/firmware/upload", &mut body, 0);
+        req.session = Some(Session::default());
+        assert_eq!(server.handle_firmware_upload(&mut req).status, 503);
+    }
+
+    #[test]
+    fn confirmed_request_replays_its_record_after_a_lost_response() {
+        let (_dir, store, op) = operation_fixture();
+        let server = Server::new(crate::apply::Engine::new(crate::config::default_config(), None));
+        server.ext.updates.write().unwrap().operations = Some(store.clone());
+        let submit = |candidate: &str, target: &str, read_only: bool| {
+            let data =
+                serde_json::to_vec(&json!({"candidate_id":candidate,"target_version":target,"idempotency_key":op.idempotency_key,"previous_operation_id":""}))
+                    .unwrap();
+            let length = data.len() as u64;
+            let mut body = std::io::Cursor::new(data);
+            let mut request = Request::synthetic("POST", "/api/v1/firmware/update", &mut body, length);
+            request.session = Some(Session { read_only, ..Default::default() });
+            server.handle_firmware_update(&mut request)
+        };
+        for state in [UpdateState::Queued, UpdateState::Activating, UpdateState::Succeeded] {
+            store.advance(&op.id, state, op.started_at).unwrap();
+            let expected = store.current().unwrap().unwrap();
+            let response = submit(&op.candidate_id, &op.target_version, false);
+            assert_eq!(response.status, 202, "{state:?}");
+            let body: serde_json::Value = serde_json::from_slice(response.body_bytes()).unwrap();
+            assert_eq!(body["operation"]["id"], op.id);
+            assert_eq!(body["operation"]["state"], serde_json::to_value(state).unwrap());
+            assert_eq!(submit("another", &op.target_version, false).status, 409);
+            assert_eq!(submit(&op.candidate_id, "3.0.0", false).status, 409);
+            assert_eq!(submit(&op.candidate_id, &op.target_version, true).status, 403);
+            assert_eq!(store.current().unwrap(), Some(expected));
+        }
+        let newer = UpdateOperation { id: "upd-second".into(), idempotency_key: "request-2".into(), ..op.clone() };
+        store.begin(newer.clone()).unwrap();
+        store.finish(&newer.id, UpdateState::Failed, "download_failed", "interrupted", op.started_at).unwrap();
+        let response = submit(&op.candidate_id, &op.target_version, false);
+        assert_eq!(response.status, 409);
+        let body: serde_json::Value = serde_json::from_slice(response.body_bytes()).unwrap();
+        assert_eq!(body["status"]["operation"]["id"], newer.id);
+        assert!(body["error"].as_str().unwrap().contains("different update was recorded"));
+    }
+
+    #[test]
+    fn channel_preferences_match_disk_after_competing_writes_and_failed_saves() {
+        let dir = tempdir_in(std::env::temp_dir().to_str().unwrap(), "mr-update-channel-").unwrap();
+        let path = format!("{}/preferences.json", dir.0);
+        let prefs = UpdatePreferences::new(&path);
+        let start = std::sync::Barrier::new(2);
+        std::thread::scope(|threads| {
+            for channel in [Channel::Stable, Channel::Beta] {
+                let (start, prefs) = (&start, &prefs);
+                threads.spawn(move || {
+                    start.wait();
+                    for _ in 0..8 {
+                        prefs.set_channel(channel).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(prefs.channel(), UpdatePreferences::new(&path).channel());
+        let backup = format!("{}/saved", dir.0);
+        std::fs::rename(&path, &backup).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(prefs.set_channel(Channel::Stable).is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&backup, &path).unwrap();
+        assert_eq!(prefs.channel(), UpdatePreferences::new(&path).channel());
+    }
+
     #[test]
     fn operation_store_is_idempotent_and_recovers_interruptions() {
         let path = std::env::temp_dir().join(format!("mr-update-op-{}.json", std::process::id()));
@@ -962,11 +1205,11 @@ mod tests {
         let now = Time::from_unix(1_800_000_000, 0);
         let op = UpdateOperation { id: "upd-1".into(), idempotency_key: "k".into(), started_at: now, ..Default::default() };
         store.begin(op.clone()).unwrap();
-        assert_eq!(store.begin(op.clone()).unwrap().id, "upd-1");
+        assert_eq!(store.begin(op.clone()).unwrap(), (store.current().unwrap().unwrap(), false));
         assert!(is::<ErrUpdateInProgress>(&store.begin(UpdateOperation { id: "upd-2".into(), ..Default::default() }).unwrap_err()));
         store.advance("upd-1", UpdateState::Activating, now).unwrap();
         let fresh = UpdateOperationStore::new(path.to_str().unwrap());
-        let recovered = fresh.recover_interrupted(now).unwrap().unwrap();
+        let recovered = fresh.recover_interrupted(None, "dev", now).unwrap().unwrap();
         assert_eq!((recovered.state, recovered.error_code.as_str()), (UpdateState::RecoveryRequired, "interrupted_during_activation"));
         std::fs::remove_file(path).ok();
     }

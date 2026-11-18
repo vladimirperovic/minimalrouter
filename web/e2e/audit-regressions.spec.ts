@@ -118,7 +118,7 @@ async function pauseBrowserClock(page: Page) {
 
 async function openUpdates(page: Page) {
   await page.getByTitle("Account", { exact: true }).click();
-  await page.getByRole("button", { name: "Software update", exact: true }).click();
+  await page.getByRole("button", { name: /^Software update\b/ }).click();
   await expect(page.getByRole("dialog", { name: "Software update" })).toBeVisible();
 }
 
@@ -135,6 +135,50 @@ async function advanceFirmwarePoll(page: Page, r: Awaited<ReturnType<typeof rout
   // assert the exact reload count; its transient dialog need not still exist.
   if (!options.expectReload) await expect(page.locator(".update-dialog-versions div").filter({ hasText: "Running now" }).locator("dd")).toHaveText(status.running_version!);
 }
+
+test("firmware retries a lost response and starts a fresh attempt after a reported failure", async ({ page }) => {
+  const status: FirmwareStatus = {
+    current_version: "1.0.0", running_version: "v1.0.0", candidate_id: "tag-2", target_version: "2.0.0",
+    enabled: true, update_available: true, can_install: true, last_successful_check_at: "2026-01-01T00:00:00Z",
+  };
+  const r = await router(page, { firmwareStatus: status });
+  const keys: string[] = [];
+  const previousAttempts: string[] = [];
+  let releaseFirst!: () => void;
+  const first = new Promise<void>(resolve => { releaseFirst = resolve; });
+  await page.route("**/api/v1/firmware/update", async route => {
+    const request = route.request().postDataJSON();
+    keys.push(request.idempotency_key);
+    previousAttempts.push(request.previous_operation_id);
+    if (keys.length === 1) {
+      await first;
+      return route.abort();
+    }
+    const operation = {
+      id: keys.length === 2 ? "attempt-1" : "attempt-2", state: keys.length === 2 ? "failed" as const : "queued" as const,
+      from_version: "1.0.0", target_version: "2.0.0", error: keys.length === 2 ? "Download interrupted" : "",
+    };
+    r.firmware.status = { ...status, operation };
+    await route.fulfill({ status: 202, json: { operation, status: r.firmware.status } });
+  });
+  await page.goto("/#network");
+  await openUpdates(page);
+  const update = page.getByRole("button", { name: "Update to v2.0.0" });
+  await update.click();
+  try {
+    await expect.poll(() => keys.length).toBe(1);
+    await expect(update).toBeDisabled();
+  } finally { releaseFirst(); }
+  await update.click();
+  await expect(page.getByText("Download interrupted", { exact: true })).toBeVisible();
+  await update.click();
+  await expect(page.getByText("Preparing", { exact: true })).toBeVisible();
+  expect(keys).toHaveLength(3);
+  expect(keys[0]).toBeTruthy();
+  expect(keys[1]).toBe(keys[0]);
+  expect(keys[2]).not.toBe(keys[1]);
+  expect(previousAttempts).toEqual(["", "", "attempt-1"]);
+});
 
 test("firmware initial historical success never reloads or clears a new upload draft", async ({ page }) => {
   await pauseBrowserClock(page);

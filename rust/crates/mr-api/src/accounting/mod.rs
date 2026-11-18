@@ -73,36 +73,53 @@ pub struct Snapshot {
 /// exist yet simply yields no counters; unknown keys are ignored so an nft
 /// version bump cannot break accounting.
 pub fn parse_counters(raw: &str) -> Result<Vec<Counter>> {
+    parse_set(raw, None)
+}
+
+fn parse_set(raw: &str, expected: Option<&str>) -> Result<Vec<Counter>> {
     let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-    let document: Value = serde_json::from_str(trimmed).map_err(|e| errorf!("decode nft set output: {}", e))?;
-    let entries = match &document {
-        Value::Null => return Ok(Vec::new()),
+    let document: Value = if trimmed.is_empty() { Value::Null } else { serde_json::from_str(trimmed).map_err(|e| errorf!("decode nft set output: {}", e))? };
+    let entries: &[Value] = match &document {
+        Value::Null => &[],
         Value::Object(map) => match map.get("nftables") {
-            None | Some(Value::Null) => return Ok(Vec::new()),
+            None | Some(Value::Null) => &[],
             Some(Value::Array(entries)) => entries,
             Some(_) => return Err(errorf!("decode nft set output: nftables is not an array")),
         },
         _ => return Err(errorf!("decode nft set output: document is not an object")),
     };
     let mut counters = Vec::new();
+    let mut found = false;
     for entry in entries {
         let elements = match entry {
             Value::Null => continue,
             Value::Object(map) => match map.get("set") {
                 None | Some(Value::Null) => continue,
-                Some(Value::Object(set)) => match set.get("elem") {
-                    None | Some(Value::Null) => continue,
-                    Some(Value::Array(elements)) => elements,
-                    Some(_) => return Err(errorf!("decode nft set output: elem is not an array")),
-                },
+                Some(Value::Object(set)) => {
+                    if expected.is_some_and(|name| set.get("name").and_then(Value::as_str) != Some(name)) {
+                        continue;
+                    }
+                    found = true;
+                    match set.get("elem") {
+                        None | Some(Value::Null) => continue,
+                        Some(Value::Array(elements)) => elements,
+                        Some(_) => return Err(errorf!("decode nft set output: elem is not an array")),
+                    }
+                }
                 Some(_) => return Err(errorf!("decode nft set output: set is not an object")),
             },
             _ => return Err(errorf!("decode nft set output: entry is not an object")),
         };
-        counters.extend(elements.iter().filter_map(parse_element).map(|(address, bytes)| Counter { address, bytes }));
+        for element in elements {
+            if let Some((address, bytes)) = parse_element(element) {
+                counters.push(Counter { address, bytes });
+            } else if expected.is_some() {
+                return Err(errorf!("decode nft set output: incomplete accounting element"));
+            }
+        }
+    }
+    if expected.is_some() && !found {
+        return Err(errorf!("requested accounting set is missing"));
     }
     Ok(counters)
 }
@@ -229,12 +246,11 @@ impl Collector {
             }
             return;
         }
-        if let Err(err) = self.store.mark_history_live() {
-            log::info!("[ACCOUNTING] could not record active accounting state: {}", err);
-            return;
-        }
         let Some(rx) = self.read_counters(ACCOUNTING_SET_RX_NAME) else { return };
         let Some(tx) = self.read_counters(ACCOUNTING_SET_TX_NAME) else { return };
+        if (self.settings)() != settings {
+            return;
+        }
         if let Err(err) = self.store.record(Time::now(), &rx, &tx, settings.retention_months, settings.generation) {
             log::info!("[ACCOUNTING] could not record counters: {}", err);
         }
@@ -244,7 +260,7 @@ impl Collector {
     // not exist yet; a failed read leaves a gap in recent history.
     fn read_counters(&self, name: &str) -> Option<Vec<Counter>> {
         let raw = self.reader.read_set(Instant::now() + COMMAND_TIMEOUT, name).ok()?;
-        match parse_counters(&raw) {
+        match parse_set(&raw, Some(name)) {
             Ok(counters) => Some(counters),
             Err(err) => {
                 log::info!("[ACCOUNTING] could not parse {}: {}", name, err);
@@ -285,5 +301,46 @@ mod tests {
         assert_eq!(delta_across_generations(1, 2, 100, 200), 200);
         assert_eq!(delta_across_generations(2, 2, 100, 200), 100);
         assert_eq!(month_key(Time::from_unix(1_798_761_599, 0)), "2026-12");
+    }
+
+    #[test]
+    fn incomplete_reads_and_concurrent_settings_changes_preserve_the_last_complete_sample() {
+        use std::sync::atomic::{AtomicU8, Ordering};
+        struct Source {
+            mode: AtomicU8,
+            generation: AtomicU8,
+        }
+        impl Reader for Source {
+            fn read_set(&self, _: Instant, name: &str) -> Result<String> {
+                let mode = self.mode.load(Ordering::SeqCst);
+                if name == ACCOUNTING_SET_TX_NAME && mode == 1 {
+                    self.generation.store(2, Ordering::SeqCst);
+                }
+                if name == ACCOUNTING_SET_RX_NAME && mode == 2 {
+                    return Ok(r#"{"nftables":[{"metainfo":{}}]}"#.into());
+                }
+                let bytes = if mode == 0 { 100 } else { 130 };
+                Ok(serde_json::json!({"nftables":[{"set":{"name":name,"elem":[{"elem":{"val":"192.0.2.9","counter":{"bytes":bytes}}}]}}]}).to_string())
+            }
+        }
+        let source = Arc::new(Source { mode: AtomicU8::new(0), generation: AtomicU8::new(1) });
+        let settings = source.clone();
+        let store = Arc::new(Store::in_memory());
+        let collector = Collector::new(
+            store.clone(),
+            source.clone(),
+            Box::new(move || Settings { enabled: true, retention_months: 13, generation: u64::from(settings.generation.load(Ordering::SeqCst)) }),
+        );
+        collector.collect_once();
+        for mode in [1, 2] {
+            source.mode.store(mode, Ordering::SeqCst);
+            collector.collect_once();
+            assert_eq!(store.months(1).unwrap()[0].total_bytes, 200);
+        }
+        source.mode.store(3, Ordering::SeqCst);
+        collector.collect_once();
+        assert_eq!(store.months(1).unwrap()[0].total_bytes, 460);
+        assert!(parse_set(r#"{"nftables":[{"set":{"name":"acct_rx"}}]}"#, Some(ACCOUNTING_SET_RX_NAME)).unwrap().is_empty());
+        assert!(parse_set(r#"{"nftables":[{"set":{"name":"acct_rx","elem":[{}]}}]}"#, Some(ACCOUNTING_SET_RX_NAME)).is_err());
     }
 }

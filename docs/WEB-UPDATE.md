@@ -95,19 +95,16 @@ byte-identity check in `router-update`.
 
 ## Current checkout and installation boundary
 
-v0.4.2 includes the unpublished v0.4.1 validation/storage changes and hardens
-firmware staging, manifest reads and shared PPPoE validation used by the
-installed updater and recovery/setup tools. These bootstrap programs live
-outside the A/B slot. The baseline metadata acknowledges the change for v0.4.2
-and requires the full signed distribution installer for v0.4.1 and earlier,
-including development installations of the unpublished candidates. Do not bypass
-the runtime byte-identity check. A new Golden installation on a blank replacement
-disk, followed by an encrypted configuration restore, is the complete OS path.
+v0.4.3 changes firmware slot recovery and configuration restore in the
+installed bootstrap tools. These programs live outside the A/B slots. Appliances
+running v0.4.2 or earlier, including development installations, need the full
+signed distribution installer once. The updater enforces byte identity at
+activation. To replace the OS as well, install the Golden image on a blank
+replacement disk and restore an encrypted configuration backup.
 
-The baseline remains v0.3.1 while the v0.4.2 candidate is unpublished. Neither
-v0.4.0 nor v0.4.1 was published when preparing this candidate. After signed
-publication, move the baseline to v0.4.2 before preparing a later web-compatible
-release.
+The recorded bootstrap baseline remains v0.3.1, whose bootstrap binaries also
+shipped in v0.3.3. The v0.4.0, v0.4.1 and v0.4.2 candidates were unpublished.
+Move the baseline to v0.4.3 after its signed publication.
 
 Historical context: v0.4.0 introduced the Rust runtime and Alpine 3.24 Golden
 image; that already required a full installer transition from all Go releases.
@@ -183,6 +180,12 @@ refuses web staging; build-info display values never establish update trust.
 Normal stage/activate requires a strictly newer version. Explicit rollback keeps
 the high-water mark and also verifies the previous slot's installed integration.
 
+If a restart interrupts staging after the slot directory reaches disk, the
+operator can repeat the same signed stage command. The updater checks the
+existing slot's inventory, hashes and permissions before recording it as
+pending. A different pending release keeps its place. Conflicting contents
+leave the slot available for inspection.
+
 The root-operated full installer verifies its pinned key, signed manifest,
 architecture, complete inventory and modes before package/runtime writes. Signed
 distributions include `release-manifest.json`; VERSION and all payload files are
@@ -225,7 +228,7 @@ dashboard
   ├─ one dialog (sidebar and profile menu open the same one)
   └─ one confirmation, naming the exact candidate
 
-POST /api/v1/firmware/update {candidate_id, target_version, idempotency_key}
+POST /api/v1/firmware/update {candidate_id, target_version, idempotency_key, previous_operation_id}
   └─ 202 + operation id; the work continues without the browser
        queued → downloading → verifying → staging → activating → checking_health → succeeded
                                                               ↘ failed / rolled_back / recovery_required
@@ -246,14 +249,14 @@ POST /api/v1/firmware/update {candidate_id, target_version, idempotency_key}
 - **A failed or stale check is never shown as "up to date".** Not knowing and knowing there is nothing new are different states, and only a check that actually succeeded may claim the latter.
 - **The confirmation is pinned.** A release published between rendering and confirming cannot take the confirmed one's place; the server answers `candidate_superseded` and asks for a fresh confirmation.
 - **The work outlives the browser.** After the 202 the appliance owns the update; closing the dialog or the tab changes nothing. The record is durable, so a `routerd` restart cannot lose it.
-- **Restart is the normal path, not a failure.** Activation restarts `routerd`; on the next start the slot state decides the outcome — running the target means succeeded, running the previous version means rolled back, anything else means recovery required.
+- **Activation restarts `routerd`.** After TLS and listener readiness, the daemon compares its own build version with the active slot. It records a rollback when the source version is serving again and the slot history identifies the target as the previous slot. An inconclusive result requires local verification.
 - **Success means the new version is serving.** A moved symlink is not success; the dashboard reloads only after the appliance reports the target version running.
 - **Only one update at a time**, and never while a configuration change is applying or awaiting confirmation.
-- **A retried request cannot install twice.** The idempotency key returns the existing operation or its outcome.
+- **A retried request cannot install twice.** The same key and confirmed candidate return the recorded operation, including after a lost response. Once the dashboard shows a completed attempt, confirming again creates a new request. The dashboard sends the last operation ID it saw, so an older tab cannot start another attempt after a later one has finished.
 - **Read-only sessions may watch, not act**, and the privilege boundary — not the disabled button — is what enforces it.
 
 ## What is still missing
 
-1. **A real appliance N → N+1 proof.** Everything above is covered by Go and frontend tests, but installing a signed release over a previous one on hardware, with configuration preserved, and a deliberately broken candidate rolling back, has not been run. `docs/GOLDEN-IMAGE.md` defines that evidence.
+1. **A real appliance N → N+1 proof.** Rust, dashboard and isolated Alpine VM tests cover staging and rollback. Hardware qualification still requires installing a signed release over its predecessor, preserving configuration and observing rollback after a failed activation. See [the Golden image requirements](GOLDEN-IMAGE.md).
 2. **Crash and power-cut coverage in the activation window**, beyond the restart reconciliation that is unit-tested here.
 3. **Compatibility reporting per candidate.** The status exposes local capability; it does not yet say "v0.1.9 exists but needs the full installer" before the download.

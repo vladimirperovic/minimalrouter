@@ -395,19 +395,21 @@ impl Server {
     }
 
     pub(crate) fn handle_put_dns_activity_settings(&self, r: &mut Request<'_>) -> Response {
-        let Ok((Some(store), Some(collector), previous)) = self.dns_activity_settings() else { return Response::error("DNS activity is unavailable", 503) };
+        let Ok((Some(_), Some(collector), _)) = self.dns_activity_settings() else { return Response::error("DNS activity is unavailable", 503) };
         let Ok(next) = decode_json::<DNSSettings>(r) else { return Response::error("Invalid DNS activity settings", 400) };
-        if let Err(err) = store.set_dns_settings(&next) {
+        if let Err(err) = next.validate() {
             return Response::error(&err.to_string(), 400);
         }
-        if next != previous {
+        let Ok(changed) = collector.update_settings(&next) else {
+            return Response::error("DNS activity settings or history cleanup could not be completed", 503);
+        };
+        if changed {
             self.append_audit(
                 "dns_activity.settings_changed",
                 &audit_actor(&r.remote_addr),
                 details(&[("enabled", &next.enabled.to_string()), ("retention_days", &next.retention_days.to_string())]),
             );
         }
-        collector.wake();
         write_json(200, &json!({"available": true, "enabled": next.enabled, "retention_days": next.retention_days}))
     }
 

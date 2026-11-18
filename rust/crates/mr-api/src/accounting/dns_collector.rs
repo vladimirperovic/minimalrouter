@@ -33,6 +33,15 @@ pub struct DNSSettings {
     pub retention_days: i64,
 }
 
+impl DNSSettings {
+    pub fn validate(&self) -> Result<()> {
+        if !(1..=MAX_DNS_RETENTION_DAYS).contains(&self.retention_days) {
+            return Err(errorf!("retention_days must be between 1 and {}", MAX_DNS_RETENTION_DAYS));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DNSRecentLookup {
@@ -73,7 +82,6 @@ type ClearObserver = Box<dyn Fn() -> Result<()> + Send + Sync>;
 
 #[derive(Default)]
 struct Inner {
-    generation: u64,
     status: DNSCollectionStatus,
     write_error: String,
     dropped: u64,
@@ -88,11 +96,11 @@ struct Inner {
 pub struct DNSCollector {
     store: Arc<Store>,
     source: Arc<dyn DNSSource>,
-    settings: Box<dyn Fn() -> DNSSettings + Send + Sync>,
+    settings_override: Option<Box<dyn Fn() -> DNSSettings + Send + Sync>>,
     allow_write: Box<dyn Fn() -> bool + Send + Sync>,
     wake: crate::shutdown::Wake,
     inner: Mutex<Inner>,
-    write: Mutex<()>,
+    operation: Mutex<()>,
     on_lookups: Mutex<Option<LookupObserver>>,
     on_clear: Mutex<Option<ClearObserver>>,
 }
@@ -104,14 +112,20 @@ impl DNSCollector {
         settings: Box<dyn Fn() -> DNSSettings + Send + Sync>,
         allow_write: Option<Box<dyn Fn() -> bool + Send + Sync>>,
     ) -> DNSCollector {
+        let mut collector = Self::from_store(store, source, allow_write);
+        collector.settings_override = Some(settings);
+        collector
+    }
+
+    pub fn from_store(store: Arc<Store>, source: Arc<dyn DNSSource>, allow_write: Option<Box<dyn Fn() -> bool + Send + Sync>>) -> DNSCollector {
         DNSCollector {
             store,
             source,
-            settings,
+            settings_override: None,
             allow_write: allow_write.unwrap_or_else(|| Box::new(|| true)),
             wake: crate::shutdown::Wake::new(),
             inner: Mutex::new(Inner::default()),
-            write: Mutex::new(()),
+            operation: Mutex::new(()),
             on_lookups: Mutex::new(None),
             on_clear: Mutex::new(None),
         }
@@ -119,6 +133,13 @@ impl DNSCollector {
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn settings(&self) -> Result<DNSSettings> {
+        match &self.settings_override {
+            Some(settings) => Ok(settings()),
+            None => self.store.dns_settings(),
+        }
     }
 
     /// Configured once, before `run`. The observer only receives validated
@@ -160,71 +181,74 @@ impl DNSCollector {
 
     pub fn run(&self, stop: &crate::shutdown::Shutdown) {
         let mut rounds = 0u64;
-        loop {
-            let settings = (self.settings)();
-            if settings.enabled {
-                self.collect(stop, Time::now());
-                rounds += 1;
-                if rounds % DNS_FLUSH_EVERY == 0 || self.pending_pairs() >= DNS_MAX_PENDING_PAIRS {
-                    self.flush(Time::now(), &settings);
-                }
-            } else {
-                // Tell the helper every round, so query logging is switched
-                // off even if a previous attempt or routerd itself failed.
-                if let Err(err) = self.source.drain(Instant::now() + DNS_DRAIN_TIMEOUT, false) {
-                    if !stop.is_triggered() {
-                        log::info!("[DNS] could not disable query logging: {}", err);
-                    }
-                }
-                self.disable();
-                rounds = 0;
+        while !stop.is_triggered() {
+            if let Err(err) = self.round(&mut rounds) {
+                self.collection_error("DNS activity is unavailable; collection will retry");
+                log::info!("[DNS] could not complete collection: {}", err);
             }
             self.wake.wait(DNS_COLLECT_INTERVAL, stop);
-            if stop.is_triggered() {
-                let settings = (self.settings)();
-                if settings.enabled {
-                    self.flush(Time::now(), &settings);
-                }
-                return;
-            }
+        }
+        let _operation = self.operation.lock().unwrap_or_else(|e| e.into_inner());
+        if let (Ok(settings), Ok(false)) = (self.settings(), self.store.dns_cleanup_pending())
+            && settings.enabled
+        {
+            self.flush(Time::now(), &settings);
         }
     }
 
-    fn collect(&self, stop: &crate::shutdown::Shutdown, now: Time) {
-        let generation = self.inner().generation;
+    fn round(&self, rounds: &mut u64) -> Result<()> {
+        let _operation = self.operation.lock().unwrap_or_else(|e| e.into_inner());
+        let settings = self.settings()?;
+        let pending = self.store.dns_cleanup_pending()?;
+        if !settings.enabled || pending {
+            *rounds = 0;
+            self.purge(settings.enabled, pending)?;
+            return Ok(());
+        }
+        let now = Time::now();
+        let result = self.collect(now);
+        *rounds += 1;
+        if rounds.is_multiple_of(DNS_FLUSH_EVERY) || self.pending_pairs() >= DNS_MAX_PENDING_PAIRS {
+            self.flush(now, &settings);
+        }
+        result
+    }
+
+    // Both collection and erasure consume the helper's entire bounded queue.
+    // One deadline covers all pages so a settings change cannot wait indefinitely.
+    fn drain_pages(&self, enabled: bool, mut on_page: impl FnMut(&DNSDrain)) -> Result<()> {
+        let deadline = Instant::now() + DNS_DRAIN_TIMEOUT;
         for _ in 0..DNS_MAX_DRAIN_PAGES {
-            let drain = match self.source.drain(Instant::now() + DNS_DRAIN_TIMEOUT, true) {
-                Ok(drain) => drain,
-                Err(err) => {
-                    self.collection_error("DNS collection failed; activity may be missing");
-                    if !stop.is_triggered() {
-                        log::info!("[DNS] could not collect DNS activity: {}", err);
-                    }
-                    return;
-                }
-            };
-            if !drain.enabled {
-                self.collection_error("DNS query logging is not active");
-                return;
+            if Instant::now() >= deadline {
+                break;
             }
-            let mut inner = self.inner();
-            if generation != inner.generation {
-                return;
+            let drain = self.source.drain(deadline, enabled)?;
+            if drain.enabled != enabled {
+                return Err(errorf!("DNS query logging did not reach the requested state"));
             }
-            add_locked(&mut inner, now, &drain);
+            on_page(&drain);
+            if !drain.more {
+                return Ok(());
+            }
+        }
+        Err(errorf!("DNS collection backlog exceeded the round limit"))
+    }
+
+    fn collect(&self, now: Time) -> Result<()> {
+        self.drain_pages(true, |drain| {
+            add_locked(&mut self.inner(), now, drain);
             if let Some(observer) = self.on_lookups.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 observer(&drain.lookups);
             }
-            if !drain.more {
-                inner.status = DNSCollectionStatus { state: "active".into(), last_success: Some(now.utc()), ..Default::default() };
-                inner.pending.observed_hours.insert(now.utc().truncate(Duration::HOUR).unix(), true);
-                return;
-            }
-        }
-        self.collection_error("DNS collection backlog exceeded the round limit");
+        })?;
+        let mut inner = self.inner();
+        inner.status = DNSCollectionStatus { state: "active".into(), last_success: Some(now.utc()), ..Default::default() };
+        inner.pending.observed_hours.insert(now.utc().truncate(Duration::HOUR).unix(), true);
+        Ok(())
     }
 
     pub fn add(&self, now: Time, drain: &DNSDrain) {
+        let _operation = self.operation.lock().unwrap_or_else(|e| e.into_inner());
         add_locked(&mut self.inner(), now, drain);
     }
 
@@ -233,14 +257,10 @@ impl DNSCollector {
     }
 
     fn flush(&self, now: Time, settings: &DNSSettings) {
-        let _write = self.write.lock().unwrap_or_else(|e| e.into_inner());
         let (batch, prune) = {
             let mut inner = self.inner();
             let batch = std::mem::take(&mut inner.pending);
             let prune = inner.last_prune.is_none_or(|last| now.sub(&last) >= DNS_PRUNE_INTERVAL);
-            if prune {
-                inner.last_prune = Some(now);
-            }
             (batch, prune)
         };
         // Statistics are nonessential: under critical disk pressure the batch
@@ -260,23 +280,17 @@ impl DNSCollector {
             }
         }
         if prune {
-            if let Err(err) = self.store.prune_dns(now, settings.retention_days) {
-                log::info!("[DNS] could not prune DNS activity: {}", err);
+            match self.store.prune_dns(now, settings.retention_days) {
+                Ok(()) => self.inner().last_prune = Some(now),
+                Err(err) => log::info!("[DNS] could not prune DNS activity: {}", err),
             }
         }
     }
 
-    fn reset_memory(&self, status: Option<DNSCollectionStatus>) {
+    fn reset_memory(&self, enabled: bool) {
         let mut inner = self.inner();
-        inner.generation += 1;
-        inner.pending = DNSFlush::default();
-        if let Some(status) = status {
-            inner.status = status;
-        }
-        inner.write_error.clear();
-        inner.dropped = 0;
-        inner.recent.clear();
-        inner.recent_next = 0;
+        *inner = Inner::default();
+        inner.status.state = if enabled { "starting" } else { "disabled" }.into();
     }
 
     fn notify_clear(&self) -> Result<()> {
@@ -286,31 +300,51 @@ impl DNSCollector {
         }
     }
 
-    /// Drops everything held in memory and deletes stored history. It runs
-    /// every round while the feature is off, so a failed delete is retried.
-    fn disable(&self) {
-        let _write = self.write.lock().unwrap_or_else(|e| e.into_inner());
-        self.reset_memory(Some(DNSCollectionStatus { state: "disabled".into(), ..Default::default() }));
-        if let Err(err) = self.notify_clear() {
-            log::info!("[DNS] could not clear risk alerts: {}", err);
+    fn purge(&self, enabled: bool, pending: bool) -> Result<()> {
+        let helper = self.drain_pages(enabled, |_| {});
+        self.reset_memory(enabled);
+        let risk = self.notify_clear();
+        if self.store.has_dns_history()? {
+            self.store.clear_dns()?;
         }
-        match self.store.has_dns_history() {
-            Err(err) => log::info!("[DNS] could not read DNS activity state: {}", err),
-            Ok(true) => {
-                if let Err(err) = self.store.clear_dns() {
-                    log::info!("[DNS] could not delete DNS activity after disable: {}", err);
-                }
+        helper?;
+        risk?;
+        if pending {
+            self.store.set_dns_cleanup_pending(false)?;
+        }
+        Ok(())
+    }
+
+    pub fn update_settings(&self, next: &DNSSettings) -> Result<bool> {
+        next.validate()?;
+        let _operation = self.operation.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = self.store.dns_settings()?;
+        if next.enabled && self.store.dns_cleanup_pending()? {
+            self.purge(previous.enabled, true)?;
+        }
+        self.store.set_dns_settings(next)?;
+        if next.retention_days != previous.retention_days {
+            self.inner().last_prune = None;
+        }
+        self.wake();
+        if !next.enabled {
+            // The disabled setting has committed. Cleanup failures remain
+            // durable and are retried before the next enable.
+            if let Err(err) = self.purge(false, true) {
+                self.collection_error("DNS activity is disabled; history cleanup is pending");
+                log::info!("[DNS] disabled history cleanup will retry: {}", err);
             }
-            Ok(false) => {}
         }
+        Ok(previous != *next)
     }
 
     /// Deletes stored and in-memory DNS activity at the operator's request.
     pub fn clear(&self) -> Result<()> {
-        let _write = self.write.lock().unwrap_or_else(|e| e.into_inner());
-        self.reset_memory(None);
-        self.notify_clear()?;
-        self.store.clear_dns()
+        let _operation = self.operation.lock().unwrap_or_else(|e| e.into_inner());
+        let settings = self.settings()?;
+        self.store.set_dns_cleanup_pending(true)?;
+        self.wake();
+        self.purge(settings.enabled, true)
     }
 
     /// The newest in-memory lookups, optionally for one device.
@@ -372,6 +406,168 @@ fn remember(inner: &mut Inner, entry: DNSRecentLookup) {
 mod tests {
     use super::*;
 
+    struct EmptySource;
+    impl DNSSource for EmptySource {
+        fn drain(&self, _: Instant, enabled: bool) -> Result<DNSDrain> {
+            Ok(DNSDrain { enabled, ..Default::default() })
+        }
+    }
+
+    #[test]
+    fn clearing_while_a_collection_page_is_in_flight_leaves_no_old_lookups() {
+        use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+        struct SlowPage(Mutex<Option<(SyncSender<()>, Receiver<()>)>>);
+        impl DNSSource for SlowPage {
+            fn drain(&self, _: Instant, enabled: bool) -> Result<DNSDrain> {
+                let gate = self.0.lock().unwrap().take();
+                let mut page = DNSDrain { enabled, ..Default::default() };
+                if let Some((started, release)) = gate {
+                    started.send(()).unwrap();
+                    release.recv_timeout(StdDuration::from_secs(5)).unwrap();
+                    page.lookups.push(DNSLookup { client: "192.0.2.1".into(), name: "earlier.example".into(), count: 1, last_seen: 0 });
+                }
+                Ok(page)
+            }
+        }
+        let (started, in_flight) = sync_channel(0);
+        let (release, ready) = sync_channel(0);
+        let (clear_started, clearing) = sync_channel(0);
+        let store = Arc::new(Store::in_memory());
+        store.set_dns_settings(&DNSSettings { enabled: true, retention_days: 30 }).unwrap();
+        let collector = DNSCollector::from_store(store.clone(), Arc::new(SlowPage(Mutex::new(Some((started, ready))))), None);
+        std::thread::scope(|scope| {
+            let read = scope.spawn(|| collector.round(&mut 4));
+            in_flight.recv_timeout(StdDuration::from_secs(5)).unwrap();
+            let clear = scope.spawn(|| {
+                clear_started.send(()).unwrap();
+                collector.clear()
+            });
+            clearing.recv_timeout(StdDuration::from_secs(5)).unwrap();
+            release.send(()).unwrap();
+            read.join().unwrap().unwrap();
+            clear.join().unwrap().unwrap();
+        });
+        assert!(collector.recent("", 10).is_empty());
+        assert!(!store.has_dns_history().unwrap());
+    }
+
+    #[test]
+    fn a_failed_retention_prune_is_retried_on_the_next_flush() {
+        let store = Arc::new(Store::in_memory());
+        let collector = DNSCollector::from_store(store.clone(), Arc::new(EmptySource), None);
+        store.lock().execute_batch("INSERT INTO dns_unitemized VALUES(0, 7); CREATE TEMP TRIGGER fail_prune BEFORE DELETE ON dns_unitemized BEGIN SELECT RAISE(ABORT, 'interrupted'); END").unwrap();
+        let now = Time::date_utc(2026, 3, 1);
+        let settings = DNSSettings { enabled: true, retention_days: 1 };
+        collector.flush(now, &settings);
+        assert!(store.has_dns_history().unwrap());
+        store.lock().execute_batch("DROP TRIGGER fail_prune").unwrap();
+        collector.flush(now.add(Duration::minutes(5)), &settings);
+        assert!(!store.has_dns_history().unwrap());
+    }
+
+    #[test]
+    fn unreadable_settings_do_not_clear_history_or_toggle_the_helper() {
+        struct UnexpectedSource;
+        impl DNSSource for UnexpectedSource {
+            fn drain(&self, _: Instant, _: bool) -> Result<DNSDrain> {
+                panic!("settings are unknown")
+            }
+        }
+        let store = Arc::new(Store::in_memory());
+        let settings = DNSSettings { enabled: true, retention_days: 30 };
+        store.set_dns_settings(&settings).unwrap();
+        let collector = DNSCollector::from_store(store.clone(), Arc::new(UnexpectedSource), None);
+        let now = Time::date_utc(2026, 3, 1).add(Duration::hours(12));
+        collector.add(
+            now,
+            &DNSDrain { lookups: vec![DNSLookup { client: "192.0.2.1".into(), name: "kept.example".into(), count: 2, last_seen: 0 }], ..Default::default() },
+        );
+        collector.flush(now, &settings);
+        store.lock().execute_batch("ALTER TABLE dns_settings RENAME TO unreadable_settings").unwrap();
+        assert!(collector.round(&mut 0).is_err());
+        store.lock().execute_batch("ALTER TABLE unreadable_settings RENAME TO dns_settings").unwrap();
+        assert_eq!(collector.recent("", 5).len(), 1);
+        assert_eq!(store.dns_activity(now.add(Duration::SECOND), &DNSQuery { period: "today".into(), ..Default::default() }).unwrap().total_lookups, 2);
+    }
+
+    #[test]
+    fn an_older_disabled_database_finishes_cleanup_before_reenabling() {
+        let store = Arc::new(Store::in_memory());
+        {
+            let conn = store.lock();
+            conn.execute_batch("DROP TABLE dns_cleanup; INSERT INTO dns_settings VALUES(1, 0, 30); INSERT INTO dns_observed VALUES(3600)").unwrap();
+            super::super::dns::migrate_dns(&conn).unwrap();
+        }
+        assert!(store.dns_cleanup_pending().unwrap());
+        let settings = DNSSettings { enabled: true, retention_days: 30 };
+        assert!(store.set_dns_settings(&settings).is_err());
+        let collector = DNSCollector::from_store(store.clone(), Arc::new(EmptySource), None);
+        collector.update_settings(&settings).unwrap();
+        assert!(!store.has_dns_history().unwrap());
+        assert!(store.dns_settings().unwrap().enabled);
+    }
+
+    #[test]
+    fn interrupted_disable_stays_off_across_restart_until_alert_cleanup_succeeds() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = std::env::temp_dir().join(format!("mr-dns-purge-{}-{}", std::process::id(), Time::now().unix_nano()));
+        let settings = DNSSettings { enabled: true, retention_days: 30 };
+        let off = DNSSettings { enabled: false, ..settings.clone() };
+        {
+            let store = Arc::new(Store::open(dir.to_str().unwrap()).unwrap());
+            let collector = DNSCollector::from_store(store.clone(), Arc::new(EmptySource), None);
+            collector.update_settings(&settings).unwrap();
+            collector.round(&mut 4).unwrap();
+            assert!(store.has_dns_history().unwrap());
+            collector.set_risk_observer(Box::new(|_| {}), Box::new(|| Err(errorf!("temporary write failure"))));
+            assert!(collector.update_settings(&off).unwrap());
+            assert!(!store.has_dns_history().unwrap());
+            assert!(!store.dns_settings().unwrap().enabled);
+        }
+        let store = Arc::new(Store::open(dir.to_str().unwrap()).unwrap());
+        let collector = DNSCollector::from_store(store.clone(), Arc::new(EmptySource), None);
+        let unavailable = Arc::new(AtomicBool::new(true));
+        let flag = unavailable.clone();
+        collector.set_risk_observer(Box::new(|_| {}), Box::new(move || if flag.load(Ordering::SeqCst) { Err(errorf!("unavailable")) } else { Ok(()) }));
+        assert!(collector.update_settings(&settings).is_err());
+        assert!(!store.dns_settings().unwrap().enabled);
+        assert!(store.dns_cleanup_pending().unwrap());
+        unavailable.store(false, Ordering::SeqCst);
+        assert!(collector.update_settings(&settings).unwrap());
+        assert!(store.dns_settings().unwrap().enabled);
+        assert!(!store.dns_cleanup_pending().unwrap());
+        drop(collector);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clearing_history_discards_every_page_already_waiting_at_the_helper() {
+        use std::collections::VecDeque;
+        struct Queued(Mutex<VecDeque<DNSDrain>>);
+        impl DNSSource for Queued {
+            fn drain(&self, _: Instant, enabled: bool) -> Result<DNSDrain> {
+                Ok(self.0.lock().unwrap().pop_front().unwrap_or(DNSDrain { enabled, ..Default::default() }))
+            }
+        }
+        let store = Arc::new(Store::in_memory());
+        let settings = DNSSettings { enabled: true, retention_days: 30 };
+        store.set_dns_settings(&settings).unwrap();
+        let page = |name: &str, more| DNSDrain {
+            enabled: true,
+            more,
+            lookups: vec![DNSLookup { client: "192.0.2.1".into(), name: name.into(), count: 1, last_seen: 0 }],
+            ..Default::default()
+        };
+        let source = Arc::new(Queued(Mutex::new(VecDeque::from([page("first.example", true), page("second.example", false)]))));
+        let collector = DNSCollector::from_store(store.clone(), source.clone(), None);
+        collector.clear().unwrap();
+        source.0.lock().unwrap().push_back(page("new.example", false));
+        collector.round(&mut 0).unwrap();
+        let recent = collector.recent("", 10);
+        assert_eq!(recent.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["new.example"]);
+    }
+
     #[test]
     fn site_grouping_and_dns_round_trip() {
         assert_eq!(site_of("rr3---sn-abc.googlevideo.com"), "googlevideo.com");
@@ -380,13 +576,7 @@ mod tests {
 
         let dir = std::env::temp_dir().join(format!("mr-acct-{}", std::process::id()));
         let store = Arc::new(Store::open(dir.to_str().unwrap()).unwrap());
-        struct Never;
-        impl DNSSource for Never {
-            fn drain(&self, _: Instant, enabled: bool) -> Result<DNSDrain> {
-                Ok(DNSDrain { enabled, ..Default::default() })
-            }
-        }
-        let collector = DNSCollector::new(store.clone(), Arc::new(Never), Box::new(|| DNSSettings { enabled: true, retention_days: 30 }), None);
+        let collector = DNSCollector::new(store.clone(), Arc::new(EmptySource), Box::new(|| DNSSettings { enabled: true, retention_days: 30 }), None);
         let now = Time::now_utc();
         collector.add(
             now,

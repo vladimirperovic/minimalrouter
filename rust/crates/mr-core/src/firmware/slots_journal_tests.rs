@@ -182,6 +182,14 @@ mod unix {
     }
 
     #[test]
+    fn repeating_activation_preserves_another_pending_update() {
+        let fixture = Fixture::activation();
+        fixture.persist_old();
+        fixture.manager.activate(&fixture.operation.old.current).unwrap();
+        assert_recovered(&fixture.manager, &fixture.operation.old);
+    }
+
+    #[test]
     fn interrupted_activation_recovers_at_every_persisted_boundary() {
         // Journal persisted; previous changed; current changed; state saved.
         // The current pointer alone selects which complete state survives.

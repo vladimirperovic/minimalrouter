@@ -165,11 +165,7 @@ fn verify_first_run_runtime(cfg: &SystemConfig) -> Result<()> {
     }
     run_fixed("/usr/sbin/nft", &["list", "table", "inet", "minimalrouter"]).map_err(|e| wrapf("first-run nftables table unavailable", e))?;
     run_fixed("/sbin/rc-service", &["dnsmasq", "status"]).map_err(|e| wrapf("first-run dnsmasq unhealthy", e))?;
-    let output = run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", cfg.runtime_lan_interface()]);
-    if !output.is_ok_and(|o| o.contains(&format!("inet {}/", cfg.lan.ip_address))) {
-        return Err(errorf!("first-run LAN address is not active"));
-    }
-    Ok(())
+    verify_interface_address(cfg.runtime_lan_interface(), &cfg.lan.cidr).map_err(|e| wrapf("first-run LAN address unavailable", e))
 }
 
 /// Only security/core configuration must be proven before routing starts.
@@ -293,48 +289,33 @@ fn verify_startup_local(cfg: &SystemConfig) -> Result<()> {
     }
     run_fixed("/usr/sbin/nft", &["list", "table", "inet", "minimalrouter"]).map_err(|e| wrapf("startup nftables table unavailable", e))?;
     run_fixed("/sbin/rc-service", &["dnsmasq", "status"]).map_err(|e| wrapf("startup dnsmasq unhealthy", e))?;
-    let output =
-        run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", cfg.runtime_lan_interface()]).map_err(|e| wrapf("startup LAN interface unavailable", e))?;
-    let prefix = cfg.lan.cidr.split('/').next().unwrap_or("");
-    if !output.contains(&format!("inet {}/", prefix)) {
-        return Err(errorf!("startup LAN address is not active"));
-    }
+    verify_interface_address(cfg.runtime_lan_interface(), &cfg.lan.cidr).map_err(|e| wrapf("startup LAN address unavailable", e))?;
     if cfg.wireguard.enabled {
         let iface = wireguard_interface_name(&cfg.wireguard);
-        let wg = run_fixed("/usr/bin/wg", &["show", &iface]);
-        let addr = run_fixed("/sbin/ip", &["-4", "addr", "show", "dev", &iface]);
-        if wg.is_err() || addr.is_err() {
+        let ready = run_fixed("/usr/bin/wg", &["show", &iface]).and_then(|()| verify_interface_address(&iface, &cfg.wireguard.address));
+        if let Err(err) = ready {
             if cfg.system.management_access == "wireguard_only" {
-                return Err(errorf!("startup management WireGuard is unavailable"));
+                return Err(wrapf("startup management WireGuard is unavailable", err));
             }
-            log::warn!(
-                "startup WireGuard server degraded (non-fatal): wg={:?} address={:?}",
-                wg.err().map(|e| e.to_string()),
-                addr.err().map(|e| e.to_string())
-            );
+            log::warn!("startup WireGuard server degraded (non-fatal): {}", err);
         }
     }
     if cfg.wg_client.enabled {
         let iface = wireguard_client_interface_name(&cfg.wg_client);
         if let Err(err) = run_fixed("/usr/bin/wg", &["show", &iface]) {
             log::warn!("startup WireGuard client interface not available (non-fatal): {}", err);
-        } else if !cfg.wg_client.address.is_empty() {
-            if let Err(err) = run_fixed("/sbin/ip", &["-4", "addr", "show", "dev", &iface]) {
-                log::warn!("startup WireGuard client address unavailable (non-fatal): {}", err);
-            }
+        } else if !cfg.wg_client.address.is_empty()
+            && let Err(err) = verify_interface_address(&iface, &cfg.wg_client.address)
+        {
+            log::warn!("startup WireGuard client address unavailable (non-fatal): {}", err);
         }
     }
     for lan in cfg.firewall.extra_lans.iter() {
         if !lan.enabled || lan.interface.is_empty() || lan.router_address.is_empty() {
             continue;
         }
-        match run_fixed_output("/sbin/ip", &["-4", "addr", "show", "dev", &lan.interface]) {
-            Err(err) => log::warn!("startup extra LAN {} unavailable (non-fatal): {}", lan.interface, err),
-            Ok(out) => {
-                if !out.contains(&format!("inet {}/", lan.router_address.split('/').next().unwrap_or(""))) {
-                    log::warn!("startup extra LAN {} router address unavailable (non-fatal)", lan.interface);
-                }
-            }
+        if let Err(err) = verify_interface_address(&lan.interface, &lan.router_address) {
+            log::warn!("startup extra LAN {} router address unavailable (non-fatal): {}", lan.interface, err);
         }
     }
     if cfg.wifi.enabled {

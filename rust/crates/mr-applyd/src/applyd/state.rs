@@ -197,7 +197,7 @@ fn validate_pending_confirmation(pending: &PendingConfirmation) -> Result<()> {
     if pending.handshake_not_before <= 0 {
         return Err(errorf!("pending configuration activation timestamp is missing"));
     }
-    pending.config.validate().map_err(|e| wrapf("pending configuration is invalid", e))?;
+    crate::config::validate_live_candidate(&pending.config, None).map_err(|e| wrapf("pending configuration is invalid", e))?;
     let expected = hash_config(&pending.config)?;
     if pending.config_hash.is_empty() || pending.config_hash != expected {
         return Err(errorf!("pending configuration fingerprint does not match"));

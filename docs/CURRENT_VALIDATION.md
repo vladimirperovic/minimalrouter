@@ -5,9 +5,28 @@ evidence, lab evidence and real owner-Proxmox/ISP evidence are kept separate.
 Per-release history is in [`CHANGELOG.md`](../CHANGELOG.md); older dated reports
 are in the git history.
 
-## Release line: v0.4.2 candidate
+## v0.4.3 candidate
 
-Prepared 2026-11-15. The [release notes](releases/v0.4.2.md) describe the
+Prepared 2026-11-18. The [release notes](releases/v0.4.3.md) describe network
+recovery, history cleanup and signed firmware staging changes.
+
+- The audit passed 247 Rust tests on Windows and 265 Rust tests across 16
+  suites on an isolated Alpine VM. Coverage included the HTTPS API contracts
+  and a live Linux loopback prefix check.
+- In the VM, the real signing and updater commands staged a fixture signed with
+  test keys. A simulated OpenRC service failure triggered rollback and preserved
+  the version floor. An unprivileged `routerd` with an occupied HTTPS port
+  could not complete the update. The ready target build completed it.
+- The dashboard passed 95 unit tests, 36 desktop and mobile browser cases
+  across Chromium and WebKit, and a Linux asset precompression test.
+
+These results cover the audit changes. The publication gates apply to the exact
+release commit, including the full QEMU Lab and installation of the signed ISO.
+Physical router operation and a power cut during activation remain untested.
+
+## Historical v0.4.2 preparation evidence
+
+Prepared 2026-11-15. The [archived release notes](https://github.com/vladimirperovic/minimalrouter/blob/28c7af3d389516f7f91377d19ae2e96b9213d6cd/docs/releases/v0.4.2.md) describe the
 candidate. This includes the unpublished v0.4.1 preparation plus the HTTP,
 SSH/logging, firmware-staging, service-state, PPPoE and login-limit audit fixes.
 No v0.4.2 release has been published. Earlier green commits do not qualify the

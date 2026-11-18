@@ -61,6 +61,9 @@ fn confirmation_mode_allowed(previous: Option<&SystemConfig>, candidate: &System
 /// Validates the requested mode independently of routerd: an ordinary apply
 /// cannot suppress a required confirmation by omitting the flag.
 fn validate_confirmation_request(req: &ApplyRequest, previous: Option<&SystemConfig>) -> Result<()> {
+    if req.defer_last_good && req.op != op::apply_all() {
+        return Err(errorf!("only an apply may defer last-good persistence"));
+    }
     if req.require_confirmation {
         if req.op != op::apply_all() || req.defer_last_good || !confirmation_mode_allowed(previous, &req.config) {
             return Err(errorf!("confirmation mode is invalid for this change"));
@@ -71,20 +74,41 @@ fn validate_confirmation_request(req: &ApplyRequest, previous: Option<&SystemCon
     Ok(())
 }
 
+fn runtime_before_apply<'a>(
+    req: &ApplyRequest,
+    last_good: Option<&'a SystemConfig>,
+    pending: Option<&'a PendingConfirmation>,
+) -> Result<Option<&'a SystemConfig>> {
+    let Some(pending) = pending else { return Ok(last_good) };
+    // A pending candidate has already been activated. Keep accepting the
+    // exact last-good rollback sent by older management planes.
+    if req.op == op::reconcile() || (!req.require_confirmation && !req.defer_last_good && Some(&req.config) == last_good) {
+        return Ok(Some(&pending.config));
+    }
+    Err(errorf!("finish the pending configuration before applying another change"))
+}
+
 fn apply_all(req: &ApplyRequest) -> ApplyResponse {
-    // The previous configuration comes from this helper's own last-good
-    // record, never from the request.
-    let previous = match normalize_last_good(load_last_good_raw()) {
+    let last_good = match normalize_last_good(load_last_good_raw()) {
         Ok(p) => p,
         Err(_) => return recovery_failure(&req.id, "last-good configuration could not be read; canonical reconciliation is required"),
     };
-    let previous = previous.as_ref();
-    if validate_live_candidate(&req.config, previous).is_err() {
+    let last_good = last_good.as_ref();
+    if validate_live_candidate(&req.config, last_good).is_err() {
         return failure(&req.id, "privileged validation rejected configuration", false);
     }
-    if let Err(err) = validate_confirmation_request(req, previous) {
+    if let Err(err) = validate_confirmation_request(req, last_good) {
         return failure(&req.id, &err.to_string(), false);
     }
+    let pending = match load_pending_confirmation() {
+        Ok(p) => Some(p),
+        Err(err) if is_not_found(&err) => None,
+        Err(err) => return pending_load_failure(&req.id, &err),
+    };
+    let previous = match runtime_before_apply(req, last_good, pending.as_ref()) {
+        Ok(previous) => previous,
+        Err(err) => return failure(&req.id, &err.to_string(), false),
+    };
     let Ok(generated) = generate_artifacts(&req.config) else {
         return failure(&req.id, "configuration generation failed", false);
     };
@@ -100,7 +124,10 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
     let Ok(candidates) = write_candidates(&dir.0, &generated) else {
         return failure(&req.id, "could not write candidate files", false);
     };
-    let plan = verification_plan(&req.op, previous, &req.config);
+    let Ok(changes) = ServicePlan::changes(previous, &req.config, &generated["squid"].data) else {
+        return failure(&req.id, "could not compare service configurations", false);
+    };
+    let plan = changes.verification(&req.op, &req.config);
     if let Err(err) = preflight(&req.config, &candidates, plan) {
         return failure(&req.id, &format!("component preflight failed: {}", safe_error(&err)), false);
     }
@@ -108,11 +135,12 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
         return failure(&req.id, "could not capture previous artifacts", false);
     };
     let roll_back = |stage: &str, err: &crate::goish::errors::Error| -> ApplyResponse {
-        match rollback(previous, Some(&req.config), &previous_files) {
+        match rollback(last_good, pending.as_ref().map(|p| &p.config), &req.config, &previous_files) {
             Err(rollback_err) => {
                 log::warn!("apply transaction {:?} {} failed: {}; rollback failed: {}", req.id, stage, safe_error(err), safe_error(&rollback_err));
                 recovery_failure(&req.id, &format!("{} failed and rollback could not be verified", stage))
             }
+            Ok(()) if pending.is_some() => recovery_failure(&req.id, &format!("{} failed; provisional state still requires canonical reconciliation", stage)),
             Ok(()) => {
                 log::warn!("apply transaction {:?} {} failed and was rolled back: {}", req.id, stage, safe_error(err));
                 failure(&req.id, &format!("{} failed; previous configuration restored: {}", stage, safe_error(err)), true)
@@ -120,30 +148,21 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
         }
     };
     let handshake_not_before = crate::goish::time::Time::now().unix();
-    if let Err(err) = install_and_activate(&req.config, &generated, previous, req.require_confirmation) {
-        return match rollback(previous, Some(&req.config), &previous_files) {
-            Err(rollback_err) => {
-                log::warn!("apply transaction {:?} activation failed: {}; rollback failed: {}", req.id, safe_error(&err), safe_error(&rollback_err));
-                recovery_failure(&req.id, "apply failed and rollback could not be verified")
-            }
-            Ok(()) => {
-                log::warn!("apply transaction {:?} activation failed and was rolled back: {}", req.id, safe_error(&err));
-                failure(&req.id, &format!("apply failed; previous configuration restored: {}", safe_error(&err)), true)
-            }
-        };
+    if let Err(err) = install_and_activate(&req.config, &generated, previous, req.require_confirmation, changes) {
+        return roll_back("apply", &err);
     }
     if let Err(err) = verify_active(&req.config, plan) {
         return roll_back("verification", &err);
     }
-    if requires_functional_dns_verification(previous, &req.config) {
-        if let Err(err) = verify_functional_dns() {
-            return roll_back("functional DNS verification", &err);
-        }
+    if requires_functional_dns_verification(last_good, &req.config)
+        && let Err(err) = verify_functional_dns()
+    {
+        return roll_back("functional DNS verification", &err);
     }
-    if requires_ddns_verification(previous, &req.config) {
-        if let Err(err) = verify_ddns_update() {
-            return roll_back("dynamic DNS verification", &err);
-        }
+    if requires_ddns_verification(last_good, &req.config)
+        && let Err(err) = verify_ddns_update()
+    {
+        return roll_back("dynamic DNS verification", &err);
     }
     faultinject::run(faultinject::POST_PROVISIONAL_APPLY);
     if req.require_confirmation || req.defer_last_good {
@@ -155,18 +174,12 @@ fn apply_all(req: &ApplyRequest) -> ApplyResponse {
                 wg_client_changed: previous.is_none_or(|p| p.wg_client != req.config.wg_client),
             })
         });
-        if saved.is_err() {
-            if rollback(previous, Some(&req.config), &previous_files).is_err() {
-                return recovery_failure(&req.id, "could not persist pending state and rollback failed");
-            }
-            return failure(&req.id, "could not persist pending confirmation state", true);
+        if let Err(err) = saved {
+            return roll_back("persist pending confirmation", &err);
         }
     } else {
-        if save_last_good(&req.config).is_err() {
-            if rollback(previous, Some(&req.config), &previous_files).is_err() {
-                return recovery_failure(&req.id, "could not persist last-good state and rollback failed");
-            }
-            return failure(&req.id, "could not persist last-good state; previous configuration restored", true);
+        if let Err(err) = save_last_good(&req.config) {
+            return roll_back("persist last-good", &err);
         }
         if let Err(err) = clear_pending_confirmation() {
             if !is_not_found(&err) {
@@ -195,11 +208,10 @@ fn confirm_apply(req: &ApplyRequest) -> ApplyResponse {
     if hash_config(&req.config).map(|h| h != pending.config_hash).unwrap_or(true) {
         return failure(&req.id, "confirmation does not match pending configuration", false);
     }
-    if configure_runtime_lan(&req.config).is_err() {
-        return recovery_failure(&req.id, "could not finalize LAN address; verified rollback is required");
-    }
-    if verify_active(&req.config, verification_plan(&op::confirm(), None, &req.config)).is_err() {
-        return recovery_failure(&req.id, "confirmed runtime verification failed; verified rollback is required");
+    // Keep the old LAN address until the SQLite commit succeeds. Final LAN
+    // reconciliation removes the alias once the candidate is canonical.
+    if verify_active(&req.config, ServicePlan::core(&req.config)).is_err() {
+        return failure(&req.id, "candidate runtime could not be verified", false);
     }
     if req.config.wg_client.enabled {
         // A wrong remote key, endpoint or network must never commit from a
@@ -209,10 +221,7 @@ fn confirm_apply(req: &ApplyRequest) -> ApplyResponse {
             req.config.wg_client.persistent_keepalive,
             pending.wg_client_changed.then_some(pending.handshake_not_before),
         ) {
-            return recovery_failure(
-                &req.id,
-                &format!("confirmed WireGuard client tunnel is not functional: {}; verified rollback is required", safe_error(&err)),
-            );
+            return failure(&req.id, &format!("confirmed WireGuard client tunnel is not functional: {}", safe_error(&err)), false);
         }
     }
     ApplyResponse {
@@ -236,7 +245,7 @@ fn commit_confirmed_apply(req: &ApplyRequest) -> ApplyResponse {
         return failure(&req.id, "confirmed commit does not match pending configuration", false);
     }
     // Proves the local management/core runtime, not an ISP that may flap.
-    if verify_active(&req.config, verification_plan(&op::commit_confirmed(), None, &req.config)).is_err() {
+    if verify_active(&req.config, ServicePlan::core(&req.config)).is_err() {
         return recovery_failure(&req.id, "confirmed runtime is no longer active; canonical reconciliation is required");
     }
     if save_last_good(&req.config).is_err() {
@@ -484,6 +493,31 @@ mod tests {
         req.require_confirmation = true;
         validate_confirmation_request(&req, Some(&current)).unwrap();
         assert!(validate_confirmation_request(&req, None).is_err());
+    }
+
+    #[test]
+    fn restoring_last_good_reloads_services_from_the_provisional_configuration() {
+        let canonical = crate::config::default_config();
+        let mut active = canonical.clone();
+        active.revision += 1;
+        active.lan.ip_address = "192.168.1.9".into();
+        active.lan.cidr = "192.168.1.9/24".into();
+        active.wifi.enabled = true;
+        active.wifi.passphrase = "testing-wifi-configuration".into();
+        let pending = PendingConfirmation { config: active, ..Default::default() };
+        let mut restore = ApplyRequest { op: op::reconcile(), config: canonical.clone(), ..Default::default() };
+        let generated = generate_artifacts(&canonical).unwrap();
+        for operation in [op::reconcile(), op::apply_all()] {
+            restore.op = operation;
+            validate_confirmation_request(&restore, Some(&canonical)).unwrap();
+            let before = runtime_before_apply(&restore, Some(&canonical), Some(&pending)).unwrap();
+            assert!(ServicePlan::changes(before, &canonical, &generated["squid"].data).unwrap().wifi);
+            assert!(dnsmasq_artifacts_changed(&generated, before).unwrap());
+        }
+        restore.config.system.hostname = "other-change".into();
+        assert!(runtime_before_apply(&restore, Some(&canonical), Some(&pending)).is_err());
+        let before = runtime_before_apply(&restore, Some(&canonical), None).unwrap();
+        assert!(!dnsmasq_artifacts_changed(&generated, before).unwrap());
     }
 
     #[test]

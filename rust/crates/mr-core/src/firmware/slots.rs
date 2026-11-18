@@ -96,39 +96,58 @@ impl SlotManager {
             validate_forward_upgrade(&manifest.version, &floor)?;
             let slots = join(&self.root, "slots");
             let final_dir = join(&slots, &manifest.version);
-            match std::fs::metadata(&final_dir) {
-                Ok(_) => return Err(errorf!("release version is already staged")),
-                Err(err) if err.kind() != std::io::ErrorKind::NotFound => return Err(err.into()),
-                Err(_) => {}
-            }
-            let temp = TempDir(fsutil::mkdir_temp(&slots, ".staging-")?);
-            // Keep unverified bytes private, including across source races.
-            #[cfg(all(test, unix))]
-            tests::before_copy(&temp.0);
-            for relative in manifest.files().keys() {
-                let clean = filepath::clean(relative);
-                fsutil::copy_regular_file(&join(source_dir, &clean), &join(&temp.0, &clean))?;
-                normalize_copied_file(&temp.0, &clean)?;
-            }
-            validate_release_candidate(&temp.0, Some(manifest), &self.trusted_key).map_err(|e| wrapf("verify copied release slot", e))?;
-            fsutil::chmod(&temp.0, 0o755)?;
-            sync_payload_tree(&temp.0).map_err(|e| wrapf("sync staged slot", e))?;
-            std::fs::rename(&temp.0, &final_dir).map_err(|e| wrapf("commit staged slot", e))?;
-            if let Err(err) = fsutil::sync_dir(&slots) {
-                let _ = std::fs::remove_dir_all(&final_dir);
-                return Err(wrapf("sync committed slot", err));
-            }
-            state.pending = manifest.version.clone();
-            if let Err(err) = self.save_state(&state) {
-                let removed = std::fs::remove_dir_all(&final_dir);
-                let _ = fsutil::sync_dir(&slots);
-                if let Err(remove_err) = removed {
-                    return Err(errorf!("{}\nremove uncommitted slot: {}", err, remove_err));
+            match std::fs::symlink_metadata(&final_dir) {
+                Ok(meta) if meta.is_dir() => {
+                    if !state.pending.is_empty() && state.pending != manifest.version {
+                        return Err(errorf!("another release is already pending activation: {}", state.pending));
+                    }
+                    self.verify_existing_slot(&final_dir, manifest)?;
                 }
-                return Err(err);
+                Ok(_) => return Err(errorf!("existing release slot is not a directory")),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => self.copy_slot(source_dir, manifest, &slots, &final_dir)?,
+                Err(err) => return Err(err.into()),
+            }
+            // The state rename may already be visible when its directory sync
+            // fails. Retain the verified slot so either crash outcome can retry.
+            fsutil::sync_dir(&slots).map_err(|e| wrapf("sync committed slot", e))?;
+            state.pending = manifest.version.clone();
+            self.save_state(&state)
+        })
+    }
+
+    fn copy_slot(&self, source_dir: &str, manifest: &FirmwareManifest, slots: &str, final_dir: &str) -> Result<()> {
+        let temp = TempDir(fsutil::mkdir_temp(slots, ".staging-")?);
+        #[cfg(all(test, unix))]
+        tests::before_copy(&temp.0);
+        for relative in manifest.files().keys() {
+            fsutil::copy_regular_file(&join(source_dir, relative), &join(&temp.0, relative))?;
+            normalize_copied_file(&temp.0, relative)?;
+        }
+        validate_release_candidate(&temp.0, Some(manifest), &self.trusted_key).map_err(|e| wrapf("verify copied release slot", e))?;
+        fsutil::chmod(&temp.0, 0o755)?;
+        sync_payload_tree(&temp.0).map_err(|e| wrapf("sync staged slot", e))?;
+        std::fs::rename(&temp.0, final_dir).map_err(|e| wrapf("commit staged slot", e))
+    }
+
+    /// A retry can adopt the directory left by a completed slot rename only
+    /// if it still has the exact signed files and the installed permissions.
+    fn verify_existing_slot(&self, dir: &str, manifest: &FirmwareManifest) -> Result<()> {
+        for path in fsutil::walk_dirs(dir)? {
+            if (cfg!(unix) && fsutil::mode_bits(&std::fs::symlink_metadata(&path)?) != 0o755) || std::fs::read_dir(&path)?.next().is_none() {
+                return Err(errorf!("unexpected directory in existing release slot: {}", path));
+            }
+        }
+        fsutil::walk_files(dir, &mut |path, relative, regular| {
+            if !regular
+                || !manifest.files().contains_key(relative)
+                || (cfg!(unix) && fsutil::mode_bits(&std::fs::symlink_metadata(path)?) != appliance_file_mode(relative))
+            {
+                return Err(errorf!("unexpected file or mode in existing release slot: {}", relative));
             }
             Ok(())
-        })
+        })?;
+        validate_release_candidate(dir, Some(manifest), &self.trusted_key).map_err(|e| wrapf("verify existing release slot", e))?;
+        sync_payload_tree(dir)
     }
 
     pub fn activate(&self, version: &str) -> Result<()> {
@@ -139,10 +158,9 @@ impl SlotManager {
                 return Err(errorf!("invalid release version"));
             }
             self.require_slot(version)?;
-            let mut state = self.state_without_operation()?;
+            let state = self.state_without_operation()?;
             if state.current == version {
-                state.pending.clear();
-                return self.save_state(&state);
+                return Ok(());
             }
             let floor = state.upgrade_floor()?;
             validate_forward_upgrade(version, &floor)?;
@@ -679,6 +697,63 @@ mod tests {
             manifest.files_mut().insert(role.path.clone(), fsutil::sha256_file(&path).unwrap());
         }
         manifest
+    }
+
+    #[test]
+    fn retry_after_slot_rename_restores_pending_without_replacing_the_slot() {
+        use std::os::unix::fs::MetadataExt;
+        let base = TempDir(fsutil::mkdir_temp(std::env::temp_dir().to_str().unwrap(), "mr-stage-retry-").unwrap());
+        let source = join(&base.0, "source");
+        let (public, private) = generate_key_pair().unwrap();
+        let manager = SlotManager { root: join(&base.0, "root"), trusted_key: public };
+        let mut manifest = payload(&source);
+        manifest.version = "0.5.0".into();
+        sign_manifest(&mut manifest, &private).unwrap();
+        manager.stage(&source, Some(&manifest)).unwrap();
+        let slot = join(&join(&manager.root, "slots"), &manifest.version);
+        let inode = std::fs::metadata(&slot).unwrap().ino();
+        // The directory rename survived, but the pending-state rename did not.
+        manager.save_state(&SlotState::default()).unwrap();
+        manager.stage(&source, Some(&manifest)).unwrap();
+        manager.stage(&source, Some(&manifest)).unwrap();
+        assert_eq!(manager.state().unwrap().pending, manifest.version);
+        assert_eq!(std::fs::metadata(&slot).unwrap().ino(), inode);
+
+        let mut next = manifest.clone();
+        next.version = "0.6.0".into();
+        sign_manifest(&mut next, &private).unwrap();
+        manager.stage(&source, Some(&next)).unwrap();
+        assert!(manager.stage(&source, Some(&manifest)).is_err());
+        assert_eq!(manager.state().unwrap().pending, next.version);
+    }
+
+    #[test]
+    fn stage_retry_refuses_changed_contents_permissions_and_unlisted_files() {
+        let base = TempDir(fsutil::mkdir_temp(std::env::temp_dir().to_str().unwrap(), "mr-stage-mismatch-").unwrap());
+        let source = join(&base.0, "source");
+        let (public, private) = generate_key_pair().unwrap();
+        let manager = SlotManager { root: join(&base.0, "root"), trusted_key: public };
+        let mut manifest = payload(&source);
+        manifest.version = "0.5.0".into();
+        sign_manifest(&mut manifest, &private).unwrap();
+        manager.stage(&source, Some(&manifest)).unwrap();
+        manager.save_state(&SlotState::default()).unwrap();
+        let slot = join(&join(&manager.root, "slots"), &manifest.version);
+        let assert_refused = || {
+            assert!(manager.stage(&source, Some(&manifest)).is_err());
+            assert!(manager.state().unwrap().pending.is_empty());
+        };
+        let extra = join(&slot, "unlisted");
+        std::fs::write(&extra, b"extra").unwrap();
+        assert_refused();
+        std::fs::remove_file(&extra).unwrap();
+        fsutil::chmod(&join(&slot, "bin"), 0o777).unwrap();
+        assert_refused();
+        fsutil::chmod(&join(&slot, "bin"), 0o755).unwrap();
+        let file = join(&slot, manifest.files().keys().next().unwrap());
+        std::fs::write(&file, b"incomplete").unwrap();
+        assert_refused();
+        assert_eq!(std::fs::read(&file).unwrap(), b"incomplete");
     }
 
     #[test]

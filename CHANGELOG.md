@@ -1,6 +1,26 @@
 # Changelog
 
-## [0.4.2] — candidate
+## [0.4.3] — candidate
+
+- Recover interrupted network confirmations against the verified configuration.
+  Late confirmations now expire even while a rollback worker is waiting. A
+  restored backup applies its DNS filtering policy only after its network is active.
+- Select the newest recovery snapshot by revision across clock corrections.
+  LAN recovery retains the static leases usable on the recovered subnet.
+- Disabling device accounting clears its history and counter baselines.
+  DNS history deletion also clears queued risk checks and buffered resolver
+  queries. Interrupted cleanup resumes before recording can be enabled again.
+- Count retained calendar months correctly, avoid counting idle counters again
+  after expiry and weight gateway measurements by the number of samples.
+- Resume interrupted signed firmware staging after rechecking the slot. Repeated
+  requests preserve newer pending updates. The dashboard records success only
+  after the target build is serving HTTPS and rejects stale confirmations.
+- Appliances running v0.4.2 or earlier need the full signed distribution
+  installer once because the updater and recovery tools changed.
+- Update the dashboard lint tooling to the patched `minimatch` dependency
+  for [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249).
+
+## [0.4.2] — unpublished preparation
 
 - Require confirmation for WAN changes when management uses WireGuard only.
   Constrain disabled tunnel cleanup to appliance-owned interface names, reject
