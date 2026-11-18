@@ -59,7 +59,7 @@ jobs:
           done
       - name: Preserve recovery test selection and results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: update-recovery-${{ github.sha }}
           path: test-results/recovery/
@@ -96,7 +96,7 @@ jobs:
           chmod -R a+rX build/deep-test/network
       - name: Upload network measurements
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: network-laboratory-${{ github.sha }}
           path: build/deep-test/network
@@ -151,7 +151,7 @@ jobs:
           fi
       - name: Upload security reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: security-hardening-${{ github.sha }}
           path: build/deep-test/security
